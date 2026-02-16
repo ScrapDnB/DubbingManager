@@ -919,7 +919,6 @@ class TeleprompterWindow(QDialog):
             try:
                 self.osc_client = SimpleUDPClient("127.0.0.1", self.cfg["port_out"])
                 self.btn_activate_osc_link.setText("OSC Связь: Активна")
-                self.btn_activate_osc_link.setStyleSheet("background-color: #27AE60; color: white;")
             except:
                 self.btn_activate_osc_link.setText("Ошибка OSC")
         else:
