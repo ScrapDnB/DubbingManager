@@ -1422,6 +1422,7 @@ class SummaryDialog(QDialog):
         self.table.setHorizontalHeaderLabels(["Актер", "Цвет", "Колец", "Слов", "Персонажи"])
         customize_table(self.table)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         layout.addWidget(self.table)
         self.calculate_stats(data)
         b_close = QPushButton("Закрыть"); b_close.clicked.connect(self.accept)
@@ -1462,7 +1463,8 @@ class SummaryDialog(QDialog):
             c_it = QTableWidgetItem(); c_it.setBackground(QColor(info["color"])); self.table.setItem(row, 1, c_it)
             self.table.setItem(row, 2, QTableWidgetItem(str(s["rings"])))
             self.table.setItem(row, 3, QTableWidgetItem(str(s["words"])))
-            self.table.setItem(row, 4, QTableWidgetItem("\n".join([f"• {r}" for r in sorted(list(s["roles"]))])))
+            roles_item = QTableWidgetItem("\n".join([f"• {r}" for r in sorted(list(s["roles"]))]))
+            self.table.setItem(row, 4, roles_item)
         if unassigned["roles"]:
             row = self.table.rowCount(); self.table.insertRow(row)
             item_name = QTableWidgetItem("НЕ РАСПРЕДЕЛЕНЫ"); item_name.setForeground(QColor("red"))
