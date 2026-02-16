@@ -1492,7 +1492,7 @@ class ActorRolesDialog(QDialog):
 class DubbingApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Dubbing Manager 1.4")
+        self.setWindowTitle("Dubbing Manager")
         self.resize(1350, 850)
         self.setAcceptDrops(True)
         self.current_project_path = None
@@ -1891,7 +1891,7 @@ class DubbingApp(QMainWindow):
 
     def set_dirty(self, d=True): self.is_dirty = d; self.update_window_title()
     def update_window_title(self):
-        t = "Dubbing Manager 1.4"
+        t = "Dubbing Manager"
         if self.current_project_path: t += f" - {os.path.basename(self.current_project_path)}"
         else: t += " - [Новый]"
         if self.is_dirty: t += "*"
