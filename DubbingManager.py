@@ -1307,6 +1307,8 @@ class ExportSettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Настройки монтажного листа")
         self.settings = current_settings
+        self.parent_app = parent
+        self.highlight_ids_export = self.settings.get('highlight_ids_export')
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.layout_type = QComboBox(); self.layout_type.addItems(["Таблица", "Сценарий"])
@@ -1342,13 +1344,42 @@ class ExportSettingsDialog(QDialog):
         l_lay.addRow("Пауза для '//' (сек):", self.p_long)
         layout.addLayout(l_lay)
         
-        self.use_color = QCheckBox("Цвета актеров"); self.use_color.setChecked(self.settings.get('use_color', True))
+        # Группа для выбора цветов и актёров
+        color_group = QGroupBox("Отображение цветов")
+        color_lay = QVBoxLayout(color_group)
+        
+        self.use_color = QCheckBox("Использовать цвета актёров"); self.use_color.setChecked(self.settings.get('use_color', True))
+        color_lay.addWidget(self.use_color)
+        
+        # Кнопка для выбора актёров
+        btn_filter = QPushButton("Выбрать актёров для подсветки...")
+        btn_filter.clicked.connect(self.open_actor_filter_for_export)
+        color_lay.addWidget(btn_filter)
+        
+        layout.addWidget(color_group)
+        
         self.round_time = QCheckBox("Округлять время"); self.round_time.setChecked(self.settings.get('round_time', False))
         self.open_auto = QCheckBox("Открыть после экспорта"); self.open_auto.setChecked(self.settings.get('open_auto', True))
-        for cb in [self.use_color, self.round_time, self.open_auto]: layout.addWidget(cb)
+        for cb in [self.round_time, self.open_auto]: layout.addWidget(cb)
         
         b_ok = QPushButton("Сохранить настройки"); b_ok.clicked.connect(self.accept)
         layout.addWidget(b_ok)
+
+    def open_actor_filter_for_export(self):
+        """Открытие диалога выбора актёров для экспорта"""
+        if not self.parent_app or not hasattr(self.parent_app, 'data'):
+            QMessageBox.warning(self, "Ошибка", "Не удалось получить доступ к данным актёров")
+            return
+        
+        all_aids = list(self.parent_app.data["actors"].keys())
+        current_selection = self.highlight_ids_export if self.highlight_ids_export is not None else all_aids
+        d = ActorFilterDialog(self.parent_app.data["actors"], current_selection, self)
+        if d.exec():
+            selected = d.get_selected()
+            if len(selected) == len(all_aids) or len(selected) == 0:
+                self.highlight_ids_export = None
+            else:
+                self.highlight_ids_export = selected
 
     def get_settings(self):
         s = self.settings.copy()
@@ -1360,7 +1391,8 @@ class ExportSettingsDialog(QDialog):
             'f_actor': self.f_actor.value(), 'f_text': self.f_text.value(),
             'merge_gap': self.merge_gap.value(), 'p_short': self.p_short.value(),
             'p_long': self.p_long.value(), 'use_color': self.use_color.isChecked(),
-            'round_time': self.round_time.isChecked(), 'open_auto': self.open_auto.isChecked()
+            'round_time': self.round_time.isChecked(), 'open_auto': self.open_auto.isChecked(),
+            'highlight_ids_export': self.highlight_ids_export
         })
         return s
 
@@ -2091,32 +2123,53 @@ class DubbingApp(QMainWindow):
 
     def _execute_batch_export(self, episodes, do_html, do_xls, folder):
         cfg = self.data["export_config"]
+        highlight_ids = cfg.get('highlight_ids_export')
         for ep, path in episodes.items():
             lines = self.get_episode_lines(ep)
             if not lines: continue
             proc = self.process_merge_logic(lines, cfg)
             if do_html:
-                with open(os.path.join(folder, f"{self.data['project_name']} - Ep{ep}.html"), 'w', encoding='utf-8') as f: f.write(self.generate_html_body(ep, proc, cfg))
-            if do_xls and EXCEL_AVAILABLE: self._create_excel_book(ep, proc).save(os.path.join(folder, f"{self.data['project_name']} - Ep{ep}.xlsx"))
+                with open(os.path.join(folder, f"{self.data['project_name']} - Ep{ep}.html"), 'w', encoding='utf-8') as f: f.write(self.generate_html_body(ep, proc, cfg, highlight_ids))
+            if do_xls and EXCEL_AVAILABLE: self._create_excel_book(ep, proc, cfg).save(os.path.join(folder, f"{self.data['project_name']} - Ep{ep}.xlsx"))
         os.system(f'open "{folder}"') if sys.platform == 'darwin' else os.startfile(folder)
 
-    def _create_excel_book(self, ep, proc):
+    def _create_excel_book(self, ep, proc, cfg=None):
+        if cfg is None:
+            cfg = self.data["export_config"]
+        
         wb = openpyxl.Workbook(); ws = wb.active; ws.append(["№", "Таймкод", "Персонаж", "Актер", "Текст"])
+        use_color = cfg.get('use_color', True)
+        highlight_ids = cfg.get('highlight_ids_export')
+        all_actor_ids = set(self.data["actors"].keys())
+        is_full_filter = highlight_ids is not None and set(highlight_ids) == all_actor_ids
+        effective_filter = None if (highlight_ids is None or is_full_filter) else set(highlight_ids)
+        
         for i, l in enumerate(proc, 2):
             aid = self.data["global_map"].get(l['char']); act = self.data["actors"].get(aid, {"name": "-", "color": "#FFFFFF"})
             ws.append([i-1, l['s_raw'], l['char'], act['name'], l['text']])
-            f = PatternFill(start_color=act['color'].replace("#",""), end_color=act['color'].replace("#",""), fill_type="solid")
+            
+            # Применяем цвета только если включено и актёр в фильтре
+            if use_color:
+                is_h = (effective_filter is None) or (aid in effective_filter)
+                if is_h:
+                    color = act['color'].replace("#","")
+                else:
+                    color = "FFFFFF"
+            else:
+                color = "FFFFFF"
+            
+            f = PatternFill(start_color=color, end_color=color, fill_type="solid")
             for c in range(1, 6): ws.cell(row=i, column=c).fill = f; ws.cell(row=i, column=c).alignment = Alignment(vertical='top', wrap_text=(c==5))
         return wb
 
     def export_to_excel(self, ep):
         if not EXCEL_AVAILABLE: return
-        wb = self._create_excel_book(ep, self.process_merge_logic(self.get_episode_lines(ep), self.data["export_config"]))
+        wb = self._create_excel_book(ep, self.process_merge_logic(self.get_episode_lines(ep), self.data["export_config"]), self.data["export_config"])
         p, _ = QFileDialog.getSaveFileName(self, "Save Excel", f"Script_{ep}.xlsx", "*.xlsx")
         if p: wb.save(p); os.startfile(p) if sys.platform == 'win32' else os.system(f'open "{p}"')
 
     def export_to_html(self, ep):
-        h = self.generate_html_body(ep, self.process_merge_logic(self.get_episode_lines(ep), self.data["export_config"]), self.data["export_config"])
+        h = self.generate_html_body(ep, self.process_merge_logic(self.get_episode_lines(ep), self.data["export_config"]), self.data["export_config"], self.data["export_config"].get('highlight_ids_export'))
         p, _ = QFileDialog.getSaveFileName(self, "Save HTML", f"Script_{ep}.html", "*.html")
         if p: 
             with open(p, 'w', encoding='utf-8') as f: f.write(h)
@@ -2240,6 +2293,7 @@ class DubbingApp(QMainWindow):
         all_actor_ids = set(self.data["actors"].keys())
         is_full_filter = highlight_ids is not None and set(highlight_ids) == all_actor_ids
         effective_filter = None if (highlight_ids is None or is_full_filter) else set(highlight_ids)
+        use_color = cfg.get('use_color', True)
 
         for l in proc:
             aid = self.data["global_map"].get(l['char'])
@@ -2248,8 +2302,13 @@ class DubbingApp(QMainWindow):
             is_h = (effective_filter is None) or (aid in effective_filter)
             h_class = "highlighted-block" if is_h else ""
             
-            if is_h: bg_color = hex_to_rgba_string(act['color'], 0.22)
-            else: bg_color = "#ffffff"
+            # Применяем цвета только если use_color включен
+            if use_color and is_h:
+                bg_color = hex_to_rgba_string(act['color'], 0.22)
+                border_col = act['color']
+            else:
+                bg_color = "#ffffff"
+                border_col = "#eee"
 
             text_html = ""
             if 'parts' in l:
@@ -2266,7 +2325,6 @@ class DubbingApp(QMainWindow):
                 h += f"<td class='a'>{act['name']}</td><td class='txt'>{text_html}</td></tr>"
                 if proc.index(l) == len(proc) - 1: h += "</tbody></table>"
             else:
-                border_col = act['color'] if is_h else "#eee"
                 h += f"<div class='line-container {h_class}' style='background-color:{bg_color}; border-left-color:{border_col}'>"
                 h += f"<div class='meta'><span class='c'><b>{l['char']}</b></span> <span class='t'>[{l['s_raw']}]</span> <span class='a'><i>({act['name']})</i></span></div>"
                 h += f"<div class='txt'>{text_html}</div></div>"
