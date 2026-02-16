@@ -1573,6 +1573,7 @@ class DubbingApp(QMainWindow):
         }
         }
         self.current_ep_stats = []
+        self.character_names_changed = {}  # Отслеживание: ep_num -> True/False
         self.init_ui()
         self.update_window_title()
         self.autosave_timer = QTimer(self); self.autosave_timer.timeout.connect(self.auto_save); self.autosave_timer.start(300000)
@@ -1650,9 +1651,11 @@ class DubbingApp(QMainWindow):
         b_ass.clicked.connect(lambda: self.import_ass())
         ep_ctrl.addWidget(b_ass)
         
-        b_upd = QPushButton("🔄 Обновить")
-        b_upd.clicked.connect(self.update_current_ass)
-        ep_ctrl.addWidget(b_upd)
+        self.btn_save_ass = QPushButton()
+        self.btn_save_ass.setFixedWidth(120)
+        self.btn_save_ass.clicked.connect(self.save_current_episode_ass)
+        self.update_save_ass_button()
+        ep_ctrl.addWidget(self.btn_save_ass)
         
         b_vid = QPushButton("🎬 Видео")
         b_vid.clicked.connect(self.set_episode_video)
@@ -1693,6 +1696,7 @@ class DubbingApp(QMainWindow):
         self.main_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.main_table.horizontalHeader().setSectionsClickable(True)
         self.main_table.horizontalHeader().sectionClicked.connect(self.on_header_clicked)
+        self.main_table.itemChanged.connect(self.on_character_name_changed)
         
         self.missing_file_widget = QWidget()
         mf_lay = QVBoxLayout(self.missing_file_widget)
@@ -1960,6 +1964,80 @@ class DubbingApp(QMainWindow):
         with open(p, 'w', encoding='utf-8') as f: json.dump(self.data, f, ensure_ascii=False, indent=4)
 
     def on_project_name_changed(self, t): self.data["project_name"] = t; self.set_dirty()
+
+    def on_character_name_changed(self, item):
+        """Обработчик изменения имени персонажа в таблице"""
+        if item.column() != 0:  # Только первая колонка (Персонаж)
+            return
+        
+        ep = self.ep_combo.currentData()
+        if not ep:
+            return
+        
+        old_name = item.data(Qt.UserRole)  # Оригинальное имя
+        new_name = item.text().strip()
+        
+        if new_name == old_name or not new_name:
+            return  # Никаких изменений или пустое имя
+        
+        # Убедимся что loaded_episodes загружена
+        self.get_episode_lines(ep)
+        
+        # Обновляем данные в памяти
+        # Если персонаж был заказан актёру, обновляем маппинг
+        if old_name in self.data["global_map"]:
+            aid = self.data["global_map"][old_name]
+            del self.data["global_map"][old_name]
+            self.data["global_map"][new_name] = aid
+        
+        # Обновляем loaded_episodes если они есть
+        if ep in self.data.get("loaded_episodes", {}):
+            for line in self.data["loaded_episodes"][ep]:
+                if line['char'] == old_name:
+                    line['char'] = new_name
+        
+        # Обновляем текущие статистики
+        for stat in self.current_ep_stats:
+            if stat["name"] == old_name:
+                stat["name"] = new_name
+                break
+        
+        # Обновляем UserRole для корректной работы при повторном редактировании
+        item.setData(Qt.UserRole, new_name)
+        
+        # Отмечаем что имена персонажей изменились
+        self.character_names_changed[ep] = True
+        self.update_save_ass_button()
+        
+        # Обновляем другие таблицы и интерфейс
+        self.refresh_actor_list()
+        self.set_dirty(True)
+
+    def update_save_ass_button(self):
+        """Обновляет текст кнопки сохранения ASS с индикатором изменений"""
+        ep = self.ep_combo.currentData()
+        has_changes = self.character_names_changed.get(ep, False)
+        
+        if has_changes:
+            self.btn_save_ass.setText("💾 Сохр.* ASS")
+            self.btn_save_ass.setStyleSheet("font-weight: bold; color: red;")
+        else:
+            self.btn_save_ass.setText("💾 Сохранить")
+            self.btn_save_ass.setStyleSheet("")
+
+    def save_current_episode_ass(self):
+        """Сохраняет текущую серию в ASS файл"""
+        ep = self.ep_combo.currentData()
+        if not ep:
+            QMessageBox.warning(self, "Ошибка", "Выберите серию.")
+            return
+        
+        if self.save_episode_to_ass(ep):
+            # Очищаем флаг измеменений для этой серии
+            self.character_names_changed[ep] = False
+            self.update_save_ass_button()
+            QMessageBox.information(self, "Успех", f"Серия {ep} сохранена в ASS файл.")
+
     def save_project(self): return self._do_save(self.current_project_path) if self.current_project_path else self.save_project_as()
     
     def save_project_as(self):
@@ -2035,8 +2113,14 @@ class DubbingApp(QMainWindow):
         ep = self.ep_combo.currentData()
         if not ep: return
         path = self.data["episodes"].get(ep)
-        if path and os.path.exists(path): self.table_stack.setCurrentIndex(0); self.parse_ass(path); self.refresh_main_table()
-        else: self.table_stack.setCurrentIndex(1)
+        if path and os.path.exists(path): 
+            self.table_stack.setCurrentIndex(0)
+            self.parse_ass(path)
+            self.get_episode_lines(ep)  # Загружаем полные данные строк
+            self.refresh_main_table()
+            self.update_save_ass_button()  # Обновляем статус кнопки сохранения
+        else: 
+            self.table_stack.setCurrentIndex(1)
 
     def import_ass(self, paths=None):
         if not paths: paths, _ = QFileDialog.getOpenFileNames(self, "ASS", "", "*.ass")
@@ -2046,12 +2130,6 @@ class DubbingApp(QMainWindow):
                 n, ok = QInputDialog.getText(self, "Ep", f"Ep for {os.path.basename(p)}:", text=num)
                 if ok and n: self.data["episodes"][n] = p; self.parse_ass(p); self.set_dirty()
             self.update_ep_list()
-
-    def update_current_ass(self):
-        ep = self.ep_combo.currentData()
-        if ep:
-            p, _ = QFileDialog.getOpenFileName(self, "Файл", "", "*.ass")
-            if p: self.data["episodes"][ep] = p; self.change_episode(); self.set_dirty()
 
     def relink_file(self):
         ep = self.ep_combo.currentData()
@@ -2089,6 +2167,7 @@ class DubbingApp(QMainWindow):
         self.refresh_actor_list(); self.set_dirty(True)
 
     def refresh_main_table(self):
+        self.main_table.blockSignals(True)
         self.main_table.setRowCount(0); q = self.search_edit.text().lower(); only_p = self.filter_unassigned.isChecked()
         keys = ["name", "lines", "rings", "words"]
         sl = sorted(self.current_ep_stats, key=lambda x: x[keys[self.sort_col]], reverse=self.sort_desc)
@@ -2097,12 +2176,18 @@ class DubbingApp(QMainWindow):
             is_a = s["name"] in self.data["global_map"]
             if only_p and is_a: continue
             r = self.main_table.rowCount(); self.main_table.insertRow(r)
-            self.main_table.setItem(r, 0, QTableWidgetItem(s["name"])); self.main_table.setItem(r, 1, QTableWidgetItem(str(s["lines"]))); self.main_table.setItem(r, 2, QTableWidgetItem(str(s["rings"]))); self.main_table.setItem(r, 3, QTableWidgetItem(str(s["words"])))
+            # Создаём редактируемый элемент для имени персонажа
+            name_item = QTableWidgetItem(s["name"])
+            name_item.setFlags(name_item.flags() | Qt.ItemIsEditable)
+            name_item.setData(Qt.UserRole, s["name"])  # Сохраняем оригинальное имя
+            self.main_table.setItem(r, 0, name_item)
+            self.main_table.setItem(r, 1, QTableWidgetItem(str(s["lines"]))); self.main_table.setItem(r, 2, QTableWidgetItem(str(s["rings"]))); self.main_table.setItem(r, 3, QTableWidgetItem(str(s["words"])))
             cb = QComboBox(); cb.addItem("-", None)
             for aid, info in self.data["actors"].items(): cb.addItem(info["name"], aid)
             if is_a: cb.setCurrentIndex(cb.findData(self.data["global_map"][s["name"]]))
             cb.currentIndexChanged.connect(lambda _, c=s["name"], b=cb: self.update_map(c, b)); self.main_table.setCellWidget(r, 4, cb)
             btn = QPushButton("📺"); btn.setFixedWidth(40); btn.clicked.connect(lambda ch=False, c=s["name"]: self.open_preview(c)); self.main_table.setCellWidget(r, 5, wrap_widget(btn))
+        self.main_table.blockSignals(False)
 
     def refresh_actor_list(self):
         self.actor_table.blockSignals(True); self.actor_table.setRowCount(0); actor_roles = {aid: [] for aid in self.data["actors"]}
@@ -2192,12 +2277,20 @@ class DubbingApp(QMainWindow):
             os.system(f'open "{p}"') if sys.platform == 'darwin' else os.startfile(p)
     
     def save_episode_to_ass(self, ep_num, target_path=None):
-        mem_lines = self.data.get("loaded_episodes", {}).get(ep_num)
-        if not mem_lines: QMessageBox.warning(self, "Ошибка", "Нет данных."); return False
+        # Убедимся что loaded_episodes загружена
+        mem_lines = self.get_episode_lines(ep_num)
+        if not mem_lines: 
+            QMessageBox.warning(self, "Ошибка", "Нет данных."); 
+            return False
+        
         source_path = self.data["episodes"].get(ep_num)
-        if not source_path or not os.path.exists(source_path): QMessageBox.warning(self, "Ошибка", "Файл не найден."); return False
+        if not source_path or not os.path.exists(source_path): 
+            QMessageBox.warning(self, "Ошибка", "Файл не найден."); 
+            return False
+        
         save_path = target_path if target_path else source_path
         new_file_content = []
+        
         try:
             with open(source_path, 'r', encoding='utf-8') as f:
                 dia_idx = 0
@@ -2206,15 +2299,26 @@ class DubbingApp(QMainWindow):
                         if dia_idx < len(mem_lines):
                             current_data = mem_lines[dia_idx]
                             parts = line.strip().split(',', 9)
-                            if len(parts) > 9: new_file_content.append(f"{','.join(parts[:9])},{current_data['text']}\n")
-                            else: new_file_content.append(line)
-                        else: new_file_content.append(line)
+                            if len(parts) > 9:
+                                # Обновляем и текст (parts[9]) и имя персонажа (parts[4])
+                                parts[4] = current_data['char']  # Новое имя персонажа
+                                new_line = f"{','.join(parts[:9])},{current_data['text']}\n"
+                                new_file_content.append(new_line)
+                            else: 
+                                new_file_content.append(line)
+                        else: 
+                            new_file_content.append(line)
                         dia_idx += 1
-                    else: new_file_content.append(line)
-            with open(save_path, 'w', encoding='utf-8') as f: f.writelines(new_file_content)
+                    else: 
+                        new_file_content.append(line)
+            
+            with open(save_path, 'w', encoding='utf-8') as f: 
+                f.writelines(new_file_content)
+            
             return True
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f"Не удалось записать файл:\n{e}"); return False
+            QMessageBox.critical(self, "Ошибка", f"Не удалось записать файл:\n{e}"); 
+            return False
 
     def generate_html_body(self, ep, proc, cfg, highlight_ids=None, override_layout=None):
         layout_mode = override_layout if override_layout else cfg.get('layout_type', "Таблица")
