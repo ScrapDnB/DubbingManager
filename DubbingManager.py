@@ -2148,7 +2148,7 @@ class DubbingApp(QMainWindow):
             else:
                 border_col = act['color'] if is_h else "#eee"
                 h += f"<div class='line-container {h_class}' style='background-color:{bg_color}; border-left-color:{border_col}'>"
-                h += f"<div class='meta'><b>{l['char']}</b> <span class='t'>[{l['s_raw']}]</span> <i>({act['name']})</i></div>"
+                h += f"<div class='meta'><span class='c'><b>{l['char']}</b></span> <span class='t'>[{l['s_raw']}]</span> <span class='a'><i>({act['name']})</i></span></div>"
                 h += f"<div class='txt'>{text_html}</div></div>"
 
         return h + "</body></html>"
