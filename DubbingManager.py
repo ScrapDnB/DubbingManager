@@ -1852,7 +1852,7 @@ class DubbingApp(QMainWindow):
             rpp.append('  <TRACK')
             rpp.append(f'    NAME "{actor["name"]}"')
             rpp.append(f'    PEAKCOL {color_int}')
-            rpp.append('    REC 1')
+            rpp.append('    REC 0')
             rpp.append('    SHOWINMIX 1')
             rpp.append('  >')
 
