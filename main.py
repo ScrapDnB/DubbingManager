@@ -148,49 +148,6 @@ class ReaperExportDialog(QDialog):
 
     def get_options(self):
         return self.chk_video.isChecked(), self.chk_regions.isChecked()
-    
-class GlobalHotkeyWorker(QThread):
-    triggered = Signal(str) # Сигнал 'prev' или 'next'
-
-    def __init__(self, key_prev_str, key_next_str):
-        super().__init__()
-        self.key_prev_str = key_prev_str
-        self.key_next_str = key_next_str
-        self.listener = None
-        self.is_running = True
-
-    def run(self):
-        if not PYNPUT_AVAILABLE:
-            print("Pynput не установлена. Глобальные клавиши не будут работать.")
-            return
-
-        def on_press(key):
-            if not self.is_running:
-                return False
-            try:
-                # Преобразование нажатой клавиши в строку для сравнения
-                current_key = ""
-                if hasattr(key, 'name') and key.name:
-                    current_key = key.name.capitalize() # Например 'Left', 'Right'
-                elif hasattr(key, 'char') and key.char:
-                    current_key = key.char.upper() # Например 'A', 'S'
-                
-                if current_key == self.key_prev_str:
-                    self.triggered.emit("prev")
-                elif current_key == self.key_next_str:
-                    self.triggered.emit("next")
-            except Exception as e:
-                print(f"Ошибка обработки клавиши: {e}")
-
-        with pynput_keyboard.Listener(on_press=on_press) as self.listener:
-            self.listener.join()
-
-    def stop(self):
-        self.is_running = False
-        if self.listener:
-            self.listener.stop()
-        self.quit()
-        self.wait(500)
 
 # --- WORKER ДЛЯ OSC (REAPER SYNC) ---
 class OscWorker(QThread):
