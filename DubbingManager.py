@@ -371,6 +371,8 @@ class TeleprompterWindow(QDialog):
             "port_in": 8000, "port_out": 9000,
             "sync_in": True, "sync_out": False,
             "key_prev": "Left", "key_next": "Right",
+            # slider value 0..100; 0 = instant, higher = longer smoothing up to ~2s
+            "scroll_smoothness_slider": 18,
             "colors": {
                 "bg": "#000000",
                 "active_text": "#FFFFFF",
@@ -513,6 +515,38 @@ class TeleprompterWindow(QDialog):
         focus_layout.addWidget(self.slider_focus_pos)
         settings_v_layout.addWidget(focus_group_box)
 
+        # 4a. Плавность прокрутки (ползунок)
+        scroll_group = QGroupBox("Прокрутка")
+        # Используем вертикальный лэйаут, как в блоке "Позиция линии чтения"
+        sg_layout = QVBoxLayout(scroll_group)
+        # Используем слайдер 0..90, отображаемое значение 0.00..0.90
+        self.slider_scroll_smoothness = QSlider(Qt.Horizontal)
+        self.slider_scroll_smoothness.setRange(0, 100)
+        # Initialize slider from new or legacy config
+        if "scroll_smoothness_slider" in self.cfg:
+            init_val = int(self.cfg.get("scroll_smoothness_slider", 18))
+        else:
+            # legacy float value (0.0..0.9) -> convert
+            init_val = int(round(self.cfg.get("scroll_smoothness", 0.18) * 100))
+        self.slider_scroll_smoothness.setValue(init_val)
+        self.slider_scroll_smoothness.valueChanged.connect(self.handle_scroll_smoothness_change)
+        # Метка для отображения текущего значения как дроби
+        self.lbl_scroll_value = QLabel(f"{self.cfg.get('scroll_smoothness', 0.18):.2f}")
+        # Метка описания над слайдером
+        self.lbl_scroll_descr = QLabel("Плавность прокрутки (слева — быстрее, справа — дольше задержка):")
+        self.lbl_scroll_descr.setAlignment(Qt.AlignCenter)
+        sg_layout.addWidget(self.lbl_scroll_descr)
+        # Горизонтальная строка для слайдера + метки текущего значения
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.addWidget(self.slider_scroll_smoothness)
+        row_layout.addWidget(self.lbl_scroll_value)
+        sg_layout.addWidget(row_widget)
+        settings_v_layout.addWidget(scroll_group)
+        # Обновим начальное отображение метки исходя из текущего положения слайдера
+        self.handle_scroll_smoothness_change()
+
         # 3. Вид и Цвета
         view_group = QGroupBox("Отображение")
         view_lay = QVBoxLayout(view_group)
@@ -572,6 +606,34 @@ class TeleprompterWindow(QDialog):
         self.v_splitter.setSizes([100, 800])
         self.h_splitter.setSizes([320, 900])
 
+        # Таймер плавной прокрутки и целевая позиция
+        self.smooth_scroll_timer = QTimer()
+        self.smooth_scroll_timer.setInterval(16)  # ~60 FPS
+        self.smooth_scroll_timer.timeout.connect(self.smooth_scroll_step)
+        self._scroll_target_y = None
+
+    def compute_scroll_tau(self):
+        """Возвращает временную константу (tau) в секундах, соответствующую положению слайдера.
+        Slider: 0..100 -> tau: 0 (instant) .. max_tau (slower, holds up to ~2s).
+        Нелинейное отображение даёт удобную чувствительность слева и большие времена справа.
+        """
+        s = None
+        if hasattr(self, 'slider_scroll_smoothness'):
+            s = int(self.slider_scroll_smoothness.value())
+        else:
+            s = int(self.cfg.get('scroll_smoothness_slider', 18))
+
+        if s <= 0:
+            return 0.0
+
+        # mapping parameters
+        min_tau = 0.01
+        max_tau = 2.0
+        p = 1.15
+        n = float(s) / 100.0
+        tau = min_tau + (n ** p) * (max_tau - min_tau)
+        return tau
+
     # --- ЛОГИКА ---
 
     def update_big_timecode_font_size(self):
@@ -608,6 +670,52 @@ class TeleprompterWindow(QDialog):
         self.lbl_focus_percent.setText(f"Высота линии: {val}%")
         self.main_app.set_dirty(True)
         self.update_view_position_by_time(self.last_known_time)
+
+    def handle_scroll_smoothness_change(self):
+        """Сохранение параметра плавности прокрутки"""
+        # slider value is 0..100; store slider integer and show mapped tau
+        sval = int(self.slider_scroll_smoothness.value())
+        self.cfg["scroll_smoothness_slider"] = sval
+        tau = self.compute_scroll_tau()
+        if tau <= 0:
+            self.lbl_scroll_value.setText("instant")
+            self.lbl_scroll_descr.setText("Плавность прокрутки: мгновенно (без сглаживания)")
+        else:
+            # show tau in seconds with 2 decimals
+            self.lbl_scroll_value.setText(f"{tau:.2f}s")
+            self.lbl_scroll_descr.setText(f"Плавность прокрутки: задержка ≈ {tau:.2f}s")
+        self.main_app.set_dirty(True)
+
+    def smooth_scroll_step(self):
+        """Выполняет шаг интерполяции центра вида к целевой Y-позиции"""
+        if self._scroll_target_y is None:
+            self.smooth_scroll_timer.stop()
+            return
+
+        view = self.prompter_view
+        vp_center = view.viewport().rect().center()
+        scene_center = view.mapToScene(vp_center)
+        current_y = scene_center.y()
+        target_y = self._scroll_target_y
+
+        # Compute time-constant tau from slider and convert to per-tick alpha
+        tau = self.compute_scroll_tau()
+        if tau <= 0:
+            view.centerOn(425, target_y)
+            self._scroll_target_y = None
+            self.smooth_scroll_timer.stop()
+            return
+
+        dt = max(0.001, float(self.smooth_scroll_timer.interval()) / 1000.0)
+        alpha = 1.0 - math.exp(-dt / tau)
+        new_y = current_y * (1.0 - alpha) + target_y * alpha
+
+        if abs(new_y - target_y) < 0.5:
+            view.centerOn(425, target_y)
+            self._scroll_target_y = None
+            self.smooth_scroll_timer.stop()
+        else:
+            view.centerOn(425, new_y)
 
     def open_color_settings_dialog(self):
         """Открытие диалога настройки цветов"""
@@ -744,7 +852,20 @@ class TeleprompterWindow(QDialog):
         # 4. Прокрутка сцены суфлёра
         view_h = self.prompter_view.height()
         offset = (0.5 - self.cfg["focus_ratio"]) * view_h
-        self.prompter_view.centerOn(425, target_y_coordinate + offset)
+        # Плавная прокрутка: устанавливаем целевую позицию и запускаем таймер
+        target_full_y = target_y_coordinate + offset
+        # Use slider-derived tau for deterministic smoothing behavior
+        tau = self.compute_scroll_tau()
+        if tau <= 0.0:
+            # Мгновенное позиционирование
+            self._scroll_target_y = None
+            self.prompter_view.centerOn(425, target_full_y)
+            if self.smooth_scroll_timer.isActive():
+                self.smooth_scroll_timer.stop()
+        else:
+            self._scroll_target_y = target_full_y
+            if not self.smooth_scroll_timer.isActive():
+                self.smooth_scroll_timer.start()
 
     def jump_to_specific_time(self, t):
         """Метод для мгновенного прыжка к таймкоду"""
