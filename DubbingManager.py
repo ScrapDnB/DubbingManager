@@ -244,6 +244,9 @@ class WebBridge(QObject):
                     if target['text'] != new_text:
                         target['text'] = new_text
                         self.main_app.set_dirty(True)
+                        # Отмечаем, что в окне предпросмотра есть реальные изменения текста
+                        if self.main_app.preview_window:
+                            self.main_app.preview_window._has_text_changes = True
                         print(f"Updated line {lid}: {new_text}")
         except Exception as e:
             print(f"Error updating text: {e}")
@@ -982,10 +985,14 @@ class HtmlLivePreview(QDialog):
         
         self.highlight_ids = None
         self.current_h_index = -1
+        self._has_text_changes = False  # Флаг для отслеживания реальных изменений текста
         
         self.init_ui()
         
         self.browser.loadFinished.connect(self.on_page_loaded)
+        
+        # Убедимся что главное приложение знает о нас
+        self.main_app.preview_window = self
         
         if WEB_ENGINE_AVAILABLE:
             self.channel = QWebChannel()
@@ -1165,7 +1172,8 @@ class HtmlLivePreview(QDialog):
         cfg["f_char"] = self.s_char.value()
         cfg["f_actor"] = self.s_actor.value()
         cfg["f_text"] = self.s_text.value()
-        self.main_app.set_dirty(True)
+        # НЕ устанавливаем флаг грязности, так как это только изменение отображения, а не текста
+        # self.main_app.set_dirty(True)  # ← Удалено
         self.update_preview()
 
     def open_actor_filter(self):
@@ -1185,7 +1193,7 @@ class HtmlLivePreview(QDialog):
             "Это перезапишет исходный файл .ass на диске.\nПродолжить?",
             QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
             if self.main_app.save_episode_to_ass(self.ep_num):
-                self.main_app.set_dirty(False)
+                self._has_text_changes = False
                 QMessageBox.information(self, "Успех", "Файл успешно сохранен!")
 
     def save_ass_copy(self):
@@ -1195,18 +1203,24 @@ class HtmlLivePreview(QDialog):
                 QMessageBox.information(self, "Успех", f"Копия сохранена:\n{fn}")
 
     def closeEvent(self, event):
-        if self.main_app.is_dirty:
+        # Проверяем только реальные изменения текста в этом окне предпросмотра,
+        # а не глобальный флаг is_dirty который может быть установлен изменениями отображения
+        if self._has_text_changes:
             reply = QMessageBox.question(self, "Несохраненные изменения",
                 "У вас есть несохраненные изменения в тексте.\nХотите сохранить их в .ASS перед выходом?",
                 QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
             if reply == QMessageBox.Yes:
                 if self.main_app.save_episode_to_ass(self.ep_num):
-                    self.main_app.set_dirty(False)
+                    self._has_text_changes = False
                     event.accept()
-                else: event.ignore()
-            elif reply == QMessageBox.No: event.accept()
-            else: event.ignore()
-        else: event.accept()
+                else: 
+                    event.ignore()
+            elif reply == QMessageBox.No: 
+                event.accept()
+            else: 
+                event.ignore()
+        else: 
+            event.accept()
 
 # --- ГЛОБАЛЬНЫЙ ПОИСК ---
 class GlobalSearchDialog(QDialog):
