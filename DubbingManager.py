@@ -1631,6 +1631,13 @@ class ExportSettingsDialog(QDialog):
         
         layout.addWidget(color_group)
         
+        # Группа для опций редактирования
+        edit_group = QGroupBox("Редактирование в экспорте")
+        edit_lay = QVBoxLayout(edit_group)
+        self.allow_edit = QCheckBox("Разрешить редактирование текста"); self.allow_edit.setChecked(self.settings.get('allow_edit', True))
+        edit_lay.addWidget(self.allow_edit)
+        layout.addWidget(edit_group)
+        
         self.round_time = QCheckBox("Округлять время"); self.round_time.setChecked(self.settings.get('round_time', False))
         self.open_auto = QCheckBox("Открыть после экспорта"); self.open_auto.setChecked(self.settings.get('open_auto', True))
         for cb in [self.round_time, self.open_auto]: layout.addWidget(cb)
@@ -1665,6 +1672,7 @@ class ExportSettingsDialog(QDialog):
             'merge_gap': self.merge_gap.value(), 'p_short': self.p_short.value(),
             'p_long': self.p_long.value(), 'use_color': self.use_color.isChecked(),
             'round_time': self.round_time.isChecked(), 'open_auto': self.open_auto.isChecked(),
+            'allow_edit': self.allow_edit.isChecked(),
             'highlight_ids_export': self.highlight_ids_export
         })
         return s
@@ -1816,7 +1824,7 @@ class DubbingApp(QMainWindow):
                 'col_actor': True, 'col_text': True, 'f_time': 21, 'f_char': 20, 
                 'f_actor': 14, 'f_text': 30, 'use_color': True, 'merge': True, 
                 'merge_gap': 5, 'p_short': 0.5, 'p_long': 2.0, 
-                'open_auto': True, 'round_time': False
+                'open_auto': True, 'round_time': False, 'allow_edit': True
             },
             # НОВЫЙ БЛОК: Настройки суфлёра
             "prompter_config": {
@@ -2489,7 +2497,7 @@ class DubbingApp(QMainWindow):
             if not lines: continue
             proc = self.process_merge_logic(lines, cfg)
             if do_html:
-                with open(os.path.join(folder, f"{self.data['project_name']} - Ep{ep}.html"), 'w', encoding='utf-8') as f: f.write(self.generate_html_body(ep, proc, cfg, highlight_ids))
+                with open(os.path.join(folder, f"{self.data['project_name']} - Ep{ep}.html"), 'w', encoding='utf-8') as f: f.write(self.generate_html_body(ep, proc, cfg, highlight_ids, is_editable=cfg.get('allow_edit', True)))
             if do_xls and EXCEL_AVAILABLE: self._create_excel_book(ep, proc, cfg).save(os.path.join(folder, f"{self.data['project_name']} - Ep{ep}.xlsx"))
         os.system(f'open "{folder}"') if sys.platform == 'darwin' else os.startfile(folder)
 
@@ -2529,7 +2537,8 @@ class DubbingApp(QMainWindow):
         if p: wb.save(p); os.startfile(p) if sys.platform == 'win32' else os.system(f'open "{p}"')
 
     def export_to_html(self, ep):
-        h = self.generate_html_body(ep, self.process_merge_logic(self.get_episode_lines(ep), self.data["export_config"]), self.data["export_config"], self.data["export_config"].get('highlight_ids_export'))
+        cfg = self.data["export_config"]
+        h = self.generate_html_body(ep, self.process_merge_logic(self.get_episode_lines(ep), cfg), cfg, cfg.get('highlight_ids_export'), is_editable=cfg.get('allow_edit', True))
         p, _ = QFileDialog.getSaveFileName(self, "Save HTML", f"Script_{ep}.html", "*.html")
         if p: 
             with open(p, 'w', encoding='utf-8') as f: f.write(h)
@@ -2579,83 +2588,84 @@ class DubbingApp(QMainWindow):
             QMessageBox.critical(self, "Ошибка", f"Не удалось записать файл:\n{e}"); 
             return False
 
-    def generate_html_body(self, ep, proc, cfg, highlight_ids=None, override_layout=None):
+    def generate_html_body(self, ep, proc, cfg, highlight_ids=None, override_layout=None, is_editable=True):
         layout_mode = override_layout if override_layout else cfg.get('layout_type', "Таблица")
         
-        js = """
+        # JavaScript только для интерактивного предпросмотра
+        js = f"""
         <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
         <script>
             var backend;
-            new QWebChannel(qt.webChannelTransport, function (channel) {
+            new QWebChannel(qt.webChannelTransport, function (channel) {{
                 backend = channel.objects.backend;
                 window.updateScrollStatus();
-            });
+            }});
 
-            window.updateScrollStatus = function() {
+            window.updateScrollStatus = function() {{
                 var blocks = Array.from(document.querySelectorAll('.highlighted-block'));
                 if (blocks.length === 0 || !backend) return;
                 var midLine = window.innerHeight / 2;
                 var closestIndex = 0;
                 var minDistance = Infinity;
-                blocks.forEach((block, index) => {
+                blocks.forEach((block, index) => {{
                     var rect = block.getBoundingClientRect();
                     var distance = Math.abs((rect.top + rect.height/2) - midLine);
-                    if (distance < minDistance) {
+                    if (distance < minDistance) {{
                         minDistance = distance;
                         closestIndex = index;
-                    }
-                });
+                    }}
+                }});
                 backend.sync_scroll_index(closestIndex, blocks.length);
-            };
+            }};
 
             var scrollTimeout;
-            window.onscroll = function() {
+            window.onscroll = function() {{
                 clearTimeout(scrollTimeout);
                 scrollTimeout = setTimeout(window.updateScrollStatus, 50);
-            };
+            }};
             
-            window.jumpToNextHighlighted = function(direction) {
+            window.jumpToNextHighlighted = function(direction) {{
                 var blocks = Array.from(document.querySelectorAll('.highlighted-block'));
                 if (blocks.length === 0) return;
                 
                 var targetIndex = -1;
                 var threshold = 160; 
 
-                if (direction === 'next') {
+                if (direction === 'next') {{
                     targetIndex = blocks.findIndex(b => b.getBoundingClientRect().top > threshold);
                     if (targetIndex === -1) targetIndex = 0;
-                } else {
+                }} else {{
                     targetIndex = blocks.findLastIndex(b => b.getBoundingClientRect().top < 50);
                     if (targetIndex === -1) targetIndex = blocks.length - 1;
-                }
+                }}
                 
                 var target = blocks[targetIndex];
                 blocks.forEach(b => b.classList.remove('active-replica'));
                 target.classList.add('active-replica');
-                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            };
+                target.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+            }};
 
-            function onBlur(el) {
-                if(backend) {
+            function onBlur(el) {{
+                if(backend) {{
                     var cleanText = el.innerText.replace(/(\\r\\n|\\n|\\r)/gm, "");
                     backend.update_text(el.id, cleanText);
-                }
-            }
-            function onKeyPress(e, el) { if (e.keyCode === 13) { e.preventDefault(); el.blur(); } }
+                }}
+            }}
+            function onKeyPress(e, el) {{ if (e.keyCode === 13) {{ e.preventDefault(); el.blur(); }} }}
         </script>
         <style>
-            .edit-span { border-bottom: 1px dashed #ccc; padding: 1px 2px; }
-            .edit-span:focus { background-color: #fff; outline: 2px solid #5B9BD5; border-bottom: none; }
-            .sep { color: #888; font-weight: bold; }
-            .highlighted-block { transition: outline 0.3s, box-shadow 0.3s; }
-            .active-replica {
+            .edit-span {{ border-bottom: 1px dashed #ccc; padding: 1px 2px; }}
+            .edit-span:focus {{ background-color: #fff; outline: 2px solid #5B9BD5; border-bottom: none; }}
+            .sep {{ color: #888; font-weight: bold; }}
+            .highlighted-block {{ transition: outline 0.3s, box-shadow 0.3s; }}
+            .active-replica {{
                 outline: 6px solid #FFD700 !important;
                 outline-offset: -6px;
                 box-shadow: 0 0 25px rgba(255, 215, 0, 0.8) !important;
                 z-index: 99;
-            }
+            }}
         </style>
-        """
+        """ if is_editable else "<style>.highlighted-block {{ transition: outline 0.3s, box-shadow 0.3s; }} .active-replica {{ outline: 6px solid #FFD700 !important; outline-offset: -6px; box-shadow: 0 0 25px rgba(255, 215, 0, 0.8) !important; z-index: 99; }}</style>"
 
         h = f"<html><head><meta charset='utf-8'>{js}<style>"
         h += "body { font-family: 'Segoe UI', sans-serif; padding: 50px 10%; background: #fdfdfd; }"
@@ -2693,7 +2703,12 @@ class DubbingApp(QMainWindow):
             if 'parts' in l:
                 for part in l['parts']:
                     if part['sep']: text_html += f"<span class='sep'>{part['sep']}</span>"
-                    text_html += f"<span id='{part['id']}' class='edit-span' contenteditable='true' onblur='onBlur(this)' onkeypress='onKeyPress(event, this)'>{part['text']}</span>"
+                    if is_editable:
+                        # Интерактивный режим - с возможностью редактирования
+                        text_html += f"<span id='{part['id']}' class='edit-span' contenteditable='true' onblur='onBlur(this)' onkeypress='onKeyPress(event, this)'>{part['text']}</span>"
+                    else:
+                        # Режим экспорта - просто текст
+                        text_html += f"<span>{part['text']}</span>"
             else: text_html = l['text']
 
             if layout_mode == "Таблица":
