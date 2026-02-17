@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QSlider, QAbstractItemView, QStackedWidget,
     QDoubleSpinBox, QRadioButton, QGridLayout, QScrollArea,
     QGraphicsView, QGraphicsScene, QGraphicsTextItem,
-    QSplitter, QSizePolicy, QToolBar, QKeySequenceEdit, QDialogButtonBox
+    QSplitter, QSizePolicy, QToolBar, QKeySequenceEdit, QDialogButtonBox, QTextEdit
 )
 from PySide6.QtGui import (
     QColor, QFont, QPainter, QAction, QKeySequence, QPen, QBrush
@@ -235,21 +235,90 @@ class WebBridge(QObject):
         try:
             lid = int(line_id)
             ep = self.main_app.ep_combo.currentData()
-            
-            # Ищем строку в памяти
-            if ep in self.main_app.data.get("loaded_episodes", {}):
-                lines = self.main_app.data["loaded_episodes"][ep]
-                target = next((l for l in lines if l['id'] == lid), None)
-                if target:
-                    if target['text'] != new_text:
+
+            # Попытка найти в загруженных эпизодах
+            loaded = self.main_app.data.get("loaded_episodes", {})
+            ep_key = None
+            if ep in loaded:
+                ep_key = ep
+            elif str(ep) in loaded:
+                ep_key = str(ep)
+
+            updated = False
+            if ep_key is not None:
+                lines = loaded[ep_key]
+                target = next((l for l in lines if int(l.get('id', -1)) == lid), None)
+                if target and target.get('text') != new_text:
+                    target['text'] = new_text
+                    updated = True
+
+            # Если не найдено в loaded, попробуем получить текущие линии через API
+            if not updated:
+                try:
+                    lines = self.main_app.get_episode_lines(ep)
+                    target = next((l for l in lines if int(l.get('id', -1)) == lid), None)
+                    if target and target.get('text') != new_text:
                         target['text'] = new_text
-                        self.main_app.set_dirty(True)
-                        # Отмечаем, что в окне предпросмотра есть реальные изменения текста
-                        if self.main_app.preview_window:
-                            self.main_app.preview_window._has_text_changes = True
-                        print(f"Updated line {lid}: {new_text}")
+                        # Сохраним в loaded_episodes, чтобы правки были видны далее
+                        if 'loaded_episodes' not in self.main_app.data:
+                            self.main_app.data['loaded_episodes'] = {}
+                        self.main_app.data['loaded_episodes'][str(ep)] = lines
+                        updated = True
+                except Exception:
+                    pass
+
+            if updated:
+                try:
+                    self.main_app.set_dirty(True)
+                except:
+                    pass
+                if hasattr(self.main_app, 'preview_window') and self.main_app.preview_window:
+                    self.main_app.preview_window._has_text_changes = True
+                    try:
+                        self.main_app.preview_window.update_preview()
+                    except:
+                        pass
+                print(f"Updated line {lid}: {new_text}")
         except Exception as e:
             print(f"Error updating text: {e}")
+
+class EditTextDialog(QDialog):
+    def __init__(self, parent=None, initial_text=""):
+        super().__init__(parent)
+        self.setWindowTitle("Редактирование реплики")
+        self.resize(600, 400)
+        layout = QVBoxLayout(self)
+        self.text_edit = QTextEdit()
+        self.text_edit.setPlainText(initial_text)
+        layout.addWidget(self.text_edit)
+        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+
+class EditableTextItem(QGraphicsTextItem):
+    def __init__(self, text, window, line_id=None):
+        super().__init__(text)
+        self.window = window
+        # line_id can be int or list of ints
+        self.line_id = line_id
+
+    def mouseDoubleClickEvent(self, event):
+        try:
+            initial = self.toPlainText()
+            d = EditTextDialog(self.window, initial)
+            if d.exec() == QDialog.Accepted:
+                new_text = d.text_edit.toPlainText()
+                if new_text != initial:
+                    try:
+                        self.window.handle_text_edited(self.line_id, new_text)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        # Do not call the C++ base implementation here — avoid use-after-free
+        return
 
 # --- ДИАЛОГ ФИЛЬТРА АКТЕРОВ ---
 class ActorFilterDialog(QDialog):
@@ -408,11 +477,15 @@ class TeleprompterWindow(QDialog):
         self.osc_client = None
         self.last_known_time = 0.0
         self.highlight_ids = None
+        self._has_text_changes = False
+        self._initializing = True
 
         # Инициализация интерфейса
         self.init_ui()
         # Построение графических объектов
         self.build_prompter_content()
+        # Initialization complete — allow handlers to mark project as dirty
+        self._initializing = False
 
     def init_ui(self):
         # Основной вертикальный слой
@@ -663,7 +736,8 @@ class TeleprompterWindow(QDialog):
         self.cfg["f_char"] = self.spin_font_char.value()
         self.cfg["f_actor"] = self.spin_font_actor.value()
         self.cfg["f_text"] = self.spin_font_text.value()
-        self.main_app.set_dirty(True)
+        if not getattr(self, '_initializing', False):
+            self.main_app.set_dirty(True)
         self.build_prompter_content()
 
     def handle_focus_ratio_change(self):
@@ -671,7 +745,8 @@ class TeleprompterWindow(QDialog):
         val = self.slider_focus_pos.value()
         self.cfg["focus_ratio"] = val / 100.0
         self.lbl_focus_percent.setText(f"Высота линии: {val}%")
-        self.main_app.set_dirty(True)
+        if not getattr(self, '_initializing', False):
+            self.main_app.set_dirty(True)
         self.update_view_position_by_time(self.last_known_time)
 
     def handle_scroll_smoothness_change(self):
@@ -687,7 +762,8 @@ class TeleprompterWindow(QDialog):
             # show tau in seconds with 2 decimals
             self.lbl_scroll_value.setText(f"{tau:.2f}s")
             self.lbl_scroll_descr.setText(f"Плавность прокрутки: задержка ≈ {tau:.2f}s")
-        self.main_app.set_dirty(True)
+        if not getattr(self, '_initializing', False):
+            self.main_app.set_dirty(True)
 
     def smooth_scroll_step(self):
         """Выполняет шаг интерполяции центра вида к целевой Y-позиции"""
@@ -793,8 +869,10 @@ class TeleprompterWindow(QDialog):
             
             y_cursor += item_char.boundingRect().height()
             
-            # Отрисовка Текста реплики
-            item_main_text = QGraphicsTextItem(replica['text']); item_main_text.setFont(f_text); item_main_text.setDefaultTextColor(text_col)
+            # Отрисовка Текста реплики (редактируемый элемент)
+            source_ids = replica.get('source_ids', [replica.get('id', i)])
+            item_main_text = EditableTextItem(replica.get('text', ''), self, source_ids)
+            item_main_text.setFont(f_text); item_main_text.setDefaultTextColor(text_col)
             item_main_text.setTextWidth(width); item_main_text.setPos(0, y_cursor); self.prompter_scene.addItem(item_main_text)
             
             # Сохраняем маппинг центра блока для скролла
@@ -969,10 +1047,121 @@ class TeleprompterWindow(QDialog):
         elif event.key() == Qt.Key_Right: self.navigate_to_replica_in_direction(1)
         else: super().keyPressEvent(event)
 
+    def handle_text_edited(self, line_id, new_text):
+        """Обновляет текст реплики в памяти и помечает изменения для сохранения"""
+        # line_id can be a single id or a list of source ids
+        ids = []
+        if isinstance(line_id, (list, tuple)):
+            ids = [int(x) for x in line_id]
+        else:
+            try:
+                ids = [int(line_id)]
+            except:
+                return
+
+        # Load or get current lines list
+        if 'loaded_episodes' not in self.main_app.data:
+            self.main_app.data['loaded_episodes'] = {}
+        loaded = self.main_app.data.get('loaded_episodes', {})
+        ep_key = self.ep_num if self.ep_num in loaded else str(self.ep_num) if str(self.ep_num) in loaded else None
+        try:
+            if ep_key is not None:
+                lines = loaded[ep_key]
+            else:
+                lines = self.main_app.get_episode_lines(self.ep_num)
+        except Exception:
+            lines = self.main_app.get_episode_lines(self.ep_num)
+
+        # helper to find line by id
+        def find_line(lid):
+            return next((l for l in lines if int(l.get('id', -1)) == int(lid)), None)
+
+        updated_any = False
+        if len(ids) == 1:
+            target = find_line(ids[0])
+            if target:
+                target['text'] = new_text
+                updated_any = True
+        else:
+            # multiple source ids -> try smart split
+            parts = [p.strip() for p in new_text.split('\n\n') if p.strip()]
+            if len(parts) == len(ids):
+                # direct mapping
+                for sid, txt in zip(ids, parts):
+                    t = find_line(sid)
+                    if t:
+                        t['text'] = txt
+                        updated_any = True
+            else:
+                # proportional split based on original lengths
+                originals = [find_line(sid) for sid in ids]
+                orig_texts = [o.get('text', '') if o else '' for o in originals]
+                lengths = [max(1, len(t)) for t in orig_texts]
+                total = sum(lengths) if sum(lengths) > 0 else len(ids)
+                nt = new_text.strip()
+                total_chars = len(nt)
+                if total_chars == 0:
+                    # empty new text -> clear all
+                    for o in originals:
+                        if o:
+                            o['text'] = ''
+                            updated_any = True
+                else:
+                    # compute splits by character counts
+                    offsets = []
+                    acc = 0
+                    for L in lengths[:-1]:
+                        take = int(round(total_chars * (L / total)))
+                        offsets.append(take)
+                        acc += take
+                    offsets.append(total_chars - acc)
+
+                    # now allocate
+                    pos = 0
+                    for o, take in zip(originals, offsets):
+                        piece = nt[pos:pos+take].strip()
+                        pos += take
+                        if o is not None:
+                            o['text'] = piece
+                            updated_any = True
+
+        if updated_any:
+            # ensure loaded storage updated
+            try:
+                self.main_app.data['loaded_episodes'][str(self.ep_num)] = lines
+            except Exception:
+                pass
+            self._has_text_changes = True
+            try: self.main_app.set_dirty(True)
+            except: pass
+            try:
+                self.build_prompter_content()
+            except:
+                pass
+
     def closeEvent(self, event):
         if self.osc_thread:
             self.osc_thread.stop()
-        event.accept()
+
+        if self._has_text_changes:
+            reply = QMessageBox.question(
+                self,
+                "Несохраненные изменения",
+                "У вас есть несохраненные изменения в тексте.\nХотите сохранить их в .ASS перед выходом?",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel
+            )
+            if reply == QMessageBox.Yes:
+                if self.main_app.save_episode_to_ass(self.ep_num):
+                    self._has_text_changes = False
+                    event.accept()
+                else:
+                    event.ignore()
+            elif reply == QMessageBox.No:
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()
 
 # --- ОКНО ЖИВОГО ПРЕДПРОСМОТРА HTML ---
 class HtmlLivePreview(QDialog):
@@ -2463,7 +2652,17 @@ class DubbingApp(QMainWindow):
                     curr['parts'].append({'id': nxt['id'], 'text': nxt['text'], 'sep': sep})
                     curr['text'] += sep + nxt['text']; curr['e'] = nxt['e']
                 else: res.append(curr); curr = nxt.copy(); curr['parts'] = [{'id': nxt['id'], 'text': nxt['text'], 'sep': ''}]
+            # enrich each result with source_ids and source_texts
             res.append(curr)
+        # Post-process to ensure source_ids/source_texts exist
+        for item in res:
+            if 'parts' in item:
+                item['source_ids'] = [p['id'] for p in item['parts']]
+                item['source_texts'] = [p['text'] for p in item['parts']]
+            else:
+                # single-line fallback
+                item['source_ids'] = [item.get('id')]
+                item['source_texts'] = [item.get('text', '')]
         return res
 
     def open_preview(self, char):
