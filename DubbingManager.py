@@ -907,11 +907,15 @@ class TeleprompterWindow(QDialog):
         """Главный метод синхронизации всех элементов окна"""
         self.last_known_time = time_seconds
         
-        # 1. Таймкод Reaper
+        # 1. Таймкод Reaper (ВСЕГДА обновляем при активной OSC связи)
         ms = int((time_seconds % 1) * 1000)
         self.lbl_big_timecode.setText(f"{format_seconds_to_tc(time_seconds)}.{ms:03d}")
         if self.header_panel.isVisible():
             self.update_big_timecode_font_size()
+
+        # Если sync_in отключен, обновляем только таймкод
+        if not self.cfg["sync_in"]:
+            return
 
         if not self.time_map:
             return
@@ -1036,8 +1040,9 @@ class TeleprompterWindow(QDialog):
 
     @Slot(float)
     def on_osc_time_packet_received(self, time_val):
-        if self.cfg["sync_in"]:
-            self.update_view_position_by_time(time_val)
+        # Обновляем таймкод всегда при активной OSC связи
+        # Прокрутка суфлёра и список регулируются галочкой sync_in внутри update_view_position_by_time
+        self.update_view_position_by_time(time_val)
 
     @Slot(str)
     def navigate_to_replica_in_direction_from_osc(self, direction):
