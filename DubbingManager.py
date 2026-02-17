@@ -1561,6 +1561,13 @@ class ExportSettingsDialog(QDialog):
         
         layout.addWidget(color_group)
         
+        # Группа для опций редактирования
+        edit_group = QGroupBox("Редактирование в экспорте")
+        edit_lay = QVBoxLayout(edit_group)
+        self.allow_edit = QCheckBox("Разрешить редактирование текста"); self.allow_edit.setChecked(self.settings.get('allow_edit', True))
+        edit_lay.addWidget(self.allow_edit)
+        layout.addWidget(edit_group)
+        
         self.round_time = QCheckBox("Округлять время"); self.round_time.setChecked(self.settings.get('round_time', False))
         self.open_auto = QCheckBox("Открыть после экспорта"); self.open_auto.setChecked(self.settings.get('open_auto', True))
         for cb in [self.round_time, self.open_auto]: layout.addWidget(cb)
@@ -1595,6 +1602,7 @@ class ExportSettingsDialog(QDialog):
             'merge_gap': self.merge_gap.value(), 'p_short': self.p_short.value(),
             'p_long': self.p_long.value(), 'use_color': self.use_color.isChecked(),
             'round_time': self.round_time.isChecked(), 'open_auto': self.open_auto.isChecked(),
+            'allow_edit': self.allow_edit.isChecked(),
             'highlight_ids_export': self.highlight_ids_export
         })
         return s
@@ -1746,7 +1754,7 @@ class DubbingApp(QMainWindow):
                 'col_actor': True, 'col_text': True, 'f_time': 21, 'f_char': 20, 
                 'f_actor': 14, 'f_text': 30, 'use_color': True, 'merge': True, 
                 'merge_gap': 5, 'p_short': 0.5, 'p_long': 2.0, 
-                'open_auto': True, 'round_time': False
+                'open_auto': True, 'round_time': False, 'allow_edit': True
             },
             # НОВЫЙ БЛОК: Настройки суфлёра
             "prompter_config": {
@@ -2419,7 +2427,7 @@ class DubbingApp(QMainWindow):
             if not lines: continue
             proc = self.process_merge_logic(lines, cfg)
             if do_html:
-                with open(os.path.join(folder, f"{self.data['project_name']} - Ep{ep}.html"), 'w', encoding='utf-8') as f: f.write(self.generate_html_body(ep, proc, cfg, highlight_ids, is_editable=False))
+                with open(os.path.join(folder, f"{self.data['project_name']} - Ep{ep}.html"), 'w', encoding='utf-8') as f: f.write(self.generate_html_body(ep, proc, cfg, highlight_ids, is_editable=cfg.get('allow_edit', True)))
             if do_xls and EXCEL_AVAILABLE: self._create_excel_book(ep, proc, cfg).save(os.path.join(folder, f"{self.data['project_name']} - Ep{ep}.xlsx"))
         os.system(f'open "{folder}"') if sys.platform == 'darwin' else os.startfile(folder)
 
@@ -2459,7 +2467,8 @@ class DubbingApp(QMainWindow):
         if p: wb.save(p); os.startfile(p) if sys.platform == 'win32' else os.system(f'open "{p}"')
 
     def export_to_html(self, ep):
-        h = self.generate_html_body(ep, self.process_merge_logic(self.get_episode_lines(ep), self.data["export_config"]), self.data["export_config"], self.data["export_config"].get('highlight_ids_export'), is_editable=False)
+        cfg = self.data["export_config"]
+        h = self.generate_html_body(ep, self.process_merge_logic(self.get_episode_lines(ep), cfg), cfg, cfg.get('highlight_ids_export'), is_editable=cfg.get('allow_edit', True))
         p, _ = QFileDialog.getSaveFileName(self, "Save HTML", f"Script_{ep}.html", "*.html")
         if p: 
             with open(p, 'w', encoding='utf-8') as f: f.write(h)
