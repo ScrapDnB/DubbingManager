@@ -739,13 +739,54 @@ class TeleprompterWindow(QDialog):
                 f"color: {text_color}; font-family: 'Courier New'; font-weight: bold; font-size: {font_size}px;"
             )
 
+    def adjust_prompter_view_scale(self):
+        """Подстраивает масштаб `prompter_view` таким образом, чтобы ширина сцены
+        соответствовала доступной ширине виджета просмотра. Вызывается после изменения
+        размеров сплиттера/панелей.
+        """
+        try:
+            scene_rect = self.prompter_scene.sceneRect()
+            if scene_rect.width() <= 0:
+                return
+            vw = max(1, self.prompter_view.viewport().width())
+            vh = max(1, self.prompter_view.viewport().height())
+
+            # Вычисляем масштаб по ширине; по вертикали не принудительно масштабируем
+            scale_x = vw / scene_rect.width()
+            # Ограничим масштаб минимальным/максимальным значением, чтобы не было экстремального увеличения
+            min_scale, max_scale = 0.5, 3.0
+            scale = max(min_scale, min(scale_x, max_scale))
+
+            self.prompter_view.resetTransform()
+            self.prompter_view.scale(scale, scale)
+        except Exception:
+            pass
+
     def toggle_settings_panel_visibility(self, is_hidden):
         """Скрытие левой панели настроек"""
-        self.side_panel_widget.setVisible(not is_hidden)
+        # Показ/скрытие виджета панели настроек
+        visible = not is_hidden
+        self.side_panel_widget.setVisible(visible)
         if is_hidden:
             self.btn_toggle_settings.setText("⚙ Показать настройки")
         else:
             self.btn_toggle_settings.setText("⚙ Скрыть настройки")
+
+        # Подправляем размеры сплиттера: если панель скрыта — даем всё пространство prompter_view
+        try:
+            total_w = max(200, self.h_splitter.width())
+            if not visible:
+                # Скрываем — боковая панель 0px
+                self.h_splitter.setSizes([0, total_w])
+            else:
+                side_w = max(200, min(420, self.side_panel_widget.minimumWidth() or 320))
+                self.h_splitter.setSizes([side_w, max(200, total_w - side_w)])
+
+            # Немного ждем, чтобы layout применился, затем подстраиваем масштаб сцены
+            QTimer.singleShot(60, self.adjust_prompter_view_scale)
+        except Exception:
+            # В случае проблем — просто попытаться масштабировать без смены размеров
+            QTimer.singleShot(60, self.adjust_prompter_view_scale)
 
     def handle_font_config_change(self):
         """Сохранение размеров шрифтов и перерисовка сцены"""
