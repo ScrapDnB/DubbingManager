@@ -442,6 +442,7 @@ class TeleprompterWindow(QDialog):
             "focus_ratio": 0.5, "is_mirrored": False, "show_header": False,
             "port_in": 8000, "port_out": 9000,
             "sync_in": True, "sync_out": False,
+            "reaper_offset_enabled": False, "reaper_offset_seconds": -2.0,
             "key_prev": "Left", "key_next": "Right",
             # slider value 0..100; 0 = instant, higher = longer smoothing up to ~2s
             "scroll_smoothness_slider": 18,
@@ -646,6 +647,22 @@ class TeleprompterWindow(QDialog):
         self.btn_activate_osc_link.setCheckable(True)
         self.btn_activate_osc_link.clicked.connect(self.toggle_osc_connection_status)
         osc_layout.addWidget(self.chk_follow_reaper_in); osc_layout.addWidget(self.chk_reaper_follow_out); osc_layout.addWidget(self.btn_activate_osc_link)
+        
+        # Отступ перед репликой в Reaper
+        offset_layout = QHBoxLayout()
+        self.chk_reaper_offset_enabled = QCheckBox("Отступ -2 секунды", checked=self.cfg.get("reaper_offset_enabled", False))
+        self.spin_reaper_offset = QDoubleSpinBox()
+        self.spin_reaper_offset.setRange(-10, 10)
+        self.spin_reaper_offset.setSingleStep(0.5)
+        self.spin_reaper_offset.setValue(self.cfg.get("reaper_offset_seconds", -2.0))
+        self.spin_reaper_offset.setSuffix(" сек")
+        self.chk_reaper_offset_enabled.toggled.connect(self.save_current_config_to_project)
+        self.spin_reaper_offset.valueChanged.connect(self.save_current_config_to_project)
+        offset_layout.addWidget(self.chk_reaper_offset_enabled)
+        offset_layout.addWidget(self.spin_reaper_offset)
+        offset_layout.addStretch()
+        osc_layout.addLayout(offset_layout)
+        
         settings_v_layout.addWidget(osc_group_box)
 
         self.settings_scroll_area.setWidget(settings_container)
@@ -957,8 +974,13 @@ class TeleprompterWindow(QDialog):
         if OSC_AVAILABLE and self.btn_activate_osc_link.isChecked() and self.cfg["sync_out"]:
             if self.osc_client:
                 try:
-                    self.osc_client.send_message("/time", float(t))
-                    self.osc_client.send_message("/track/0/pos", float(t))
+                    # Применяем отступ если включен
+                    reaper_time = t
+                    if self.cfg.get("reaper_offset_enabled", False):
+                        reaper_time = t + self.cfg.get("reaper_offset_seconds", -2.0)
+                    
+                    self.osc_client.send_message("/time", float(reaper_time))
+                    self.osc_client.send_message("/track/0/pos", float(reaper_time))
                 except:
                     pass
 
@@ -987,6 +1009,8 @@ class TeleprompterWindow(QDialog):
         """Сохранение галочек синхронизации в данные проекта"""
         self.cfg["sync_in"] = self.chk_follow_reaper_in.isChecked()
         self.cfg["sync_out"] = self.chk_reaper_follow_out.isChecked()
+        self.cfg["reaper_offset_enabled"] = self.chk_reaper_offset_enabled.isChecked()
+        self.cfg["reaper_offset_seconds"] = self.spin_reaper_offset.value()
         self.main_app.set_dirty(True)
 
     def toggle_osc_connection_status(self, checked):
