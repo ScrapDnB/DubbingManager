@@ -1153,47 +1153,59 @@ class TeleprompterWindow(QDialog):
                 target['text'] = new_text
                 updated_any = True
         else:
-            # multiple source ids -> try smart split
-            parts = [p.strip() for p in new_text.split('\n\n') if p.strip()]
+            # multiple source ids -> try smart split using separators
+            nt = new_text.strip()
+            
+            # First, try to split by semantic separators used in merged lines
+            parts = self._split_merged_text(nt, ids)
+            
             if len(parts) == len(ids):
-                # direct mapping
+                # successful semantic split
                 for sid, txt in zip(ids, parts):
                     t = find_line(sid)
                     if t:
                         t['text'] = txt
                         updated_any = True
             else:
-                # proportional split based on original lengths
-                originals = [find_line(sid) for sid in ids]
-                orig_texts = [o.get('text', '') if o else '' for o in originals]
-                lengths = [max(1, len(t)) for t in orig_texts]
-                total = sum(lengths) if sum(lengths) > 0 else len(ids)
-                nt = new_text.strip()
-                total_chars = len(nt)
-                if total_chars == 0:
-                    # empty new text -> clear all
-                    for o in originals:
-                        if o:
-                            o['text'] = ''
+                # fallback: if no separators found, split by plain newlines
+                parts = [p.strip() for p in nt.split('\n') if p.strip()]
+                if len(parts) == len(ids):
+                    for sid, txt in zip(ids, parts):
+                        t = find_line(sid)
+                        if t:
+                            t['text'] = txt
                             updated_any = True
                 else:
-                    # compute splits by character counts
-                    offsets = []
-                    acc = 0
-                    for L in lengths[:-1]:
-                        take = int(round(total_chars * (L / total)))
-                        offsets.append(take)
-                        acc += take
-                    offsets.append(total_chars - acc)
+                    # last resort: proportional split based on original lengths
+                    originals = [find_line(sid) for sid in ids]
+                    orig_texts = [o.get('text', '') if o else '' for o in originals]
+                    lengths = [max(1, len(t)) for t in orig_texts]
+                    total = sum(lengths) if sum(lengths) > 0 else len(ids)
+                    total_chars = len(nt)
+                    if total_chars == 0:
+                        # empty new text -> clear all
+                        for o in originals:
+                            if o:
+                                o['text'] = ''
+                                updated_any = True
+                    else:
+                        # compute splits by character counts
+                        offsets = []
+                        acc = 0
+                        for L in lengths[:-1]:
+                            take = int(round(total_chars * (L / total)))
+                            offsets.append(take)
+                            acc += take
+                        offsets.append(total_chars - acc)
 
-                    # now allocate
-                    pos = 0
-                    for o, take in zip(originals, offsets):
-                        piece = nt[pos:pos+take].strip()
-                        pos += take
-                        if o is not None:
-                            o['text'] = piece
-                            updated_any = True
+                        # now allocate
+                        pos = 0
+                        for o, take in zip(originals, offsets):
+                            piece = nt[pos:pos+take].strip()
+                            pos += take
+                            if o is not None:
+                                o['text'] = piece
+                                updated_any = True
 
         if updated_any:
             # ensure loaded storage updated
@@ -1208,6 +1220,30 @@ class TeleprompterWindow(QDialog):
                 self.build_prompter_content()
             except:
                 pass
+
+    def _split_merged_text(self, text, ids):
+        """
+        Splits merged text using semantic separators (' / ' and ' // ')
+        Returns list of parts, empty list if splitting failed
+        """
+        if not text or len(ids) < 2:
+            return []
+        
+        # Try splitting by ' // ' first (longer gaps), then by ' / ' (medium gaps)
+        parts = []
+        
+        # First, try ' // ' separator
+        if ' // ' in text:
+            parts = [p.strip() for p in text.split(' // ') if p.strip()]
+        # Then try ' / ' separator
+        elif ' / ' in text:
+            parts = [p.strip() for p in text.split(' / ') if p.strip()]
+        
+        # Only return if we got the exact number of parts expected
+        if len(parts) == len(ids):
+            return parts
+        
+        return []
 
     def closeEvent(self, event):
         if self.osc_thread:
@@ -2647,7 +2683,9 @@ class DubbingApp(QMainWindow):
 
             function onBlur(el) {{
                 if(backend) {{
-                    var cleanText = el.innerText.replace(/(\\r\\n|\\n|\\r)/gm, "");
+                    var cleanText = el.innerText;
+                    // Preserve word boundaries: replace line breaks with newlines for proper splitting
+                    cleanText = cleanText.replace(/(\\r\\n|\\n|\\r)/gm, "\\n");
                     backend.update_text(el.id, cleanText);
                 }}
             }}
