@@ -430,7 +430,9 @@ class PrompterColorDialog(QDialog):
 # --- ОКНО ТЕЛЕСУФЛЁРА ---
 class TeleprompterWindow(QDialog):
     def __init__(self, main_app, ep_num):
-        super().__init__(main_app)
+        # Do not set the main window as parent to avoid forcing
+        # the main window to restore when this window is focused.
+        super().__init__(None)
         self.main_app = main_app
         self.ep_num = ep_num
         self.setWindowTitle(f"Телесуфлёр - Серия {ep_num}")
@@ -1272,7 +1274,10 @@ class TeleprompterWindow(QDialog):
 # --- ОКНО ЖИВОГО ПРЕДПРОСМОТРА HTML ---
 class HtmlLivePreview(QDialog):
     def __init__(self, main_app, ep_num):
-        super().__init__(main_app)
+        # Create as a top-level window (no parent) so the main
+        # window can be minimized and stay minimized while using
+        # the preview window.
+        super().__init__(None)
         self.main_app = main_app
         self.ep_num = ep_num
         self.setWindowTitle(f"Предпросмотр монтажного листа: Серия {ep_num}")
