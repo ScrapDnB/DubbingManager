@@ -33,11 +33,17 @@ except ImportError:
 from config.constants import MY_PALETTE, DEFAULT_PROMPTER_CONFIG, DEFAULT_EXPORT_CONFIG
 from core.models import PrompterConfig, ExportConfig
 from utils.helpers import (
-    ass_time_to_seconds, 
-    format_seconds_to_tc, 
-    hex_to_rgba_string, 
-    customize_table, 
+    ass_time_to_seconds,
+    format_seconds_to_tc,
+    hex_to_rgba_string,
+    customize_table,
     wrap_widget
+)
+from services import (
+    ProjectService,
+    EpisodeService,
+    ActorService,
+    ExportService
 )
 from services.hotkey_manager import GlobalHotkeyManager, PYNPUT_AVAILABLE
 from .dialogs import (
@@ -66,7 +72,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Dubbing Manager")
         self.resize(1350, 850)
         self.setAcceptDrops(True)
-        
+
+        # Сервисы
+        self.project_service = ProjectService()
+        self.episode_service = EpisodeService()
+        self.actor_service = ActorService()
+
         # Состояние
         self.current_project_path: Optional[str] = None
         self.is_dirty = False
@@ -75,28 +86,24 @@ class MainWindow(QMainWindow):
         self.preview_window: Optional[HtmlLivePreview] = None
         self.teleprompter_window: Optional[TeleprompterWindow] = None
         self.global_hotkey_manager: Optional[GlobalHotkeyManager] = None
-        
+
         # Данные проекта
-        self.data: Dict[str, Any] = {
-            "project_name": "Новый проект",
-            "actors": {},
-            "global_map": {},
-            "episodes": {},
-            "video_paths": {},
-            "export_config": DEFAULT_EXPORT_CONFIG.copy(),
-            "prompter_config": DEFAULT_PROMPTER_CONFIG.copy()
-        }
+        self.data: Dict[str, Any] = self.project_service.create_new_project("Новый проект")
         
         self.current_ep_stats: List[Dict[str, Any]] = []
         self.character_names_changed: Dict[str, bool] = {}
-        
+
         self._init_ui()
         self.update_window_title()
-        
+
         # Автосохранение
         self.autosave_timer = QTimer(self)
-        self.autosave_timer.timeout.connect(self.auto_save)
+        self.autosave_timer.timeout.connect(self._on_autosave_timer)
         self.autosave_timer.start(300000)  # 5 минут
+
+    def _on_autosave_timer(self) -> None:
+        """Обработчик таймера автосохранения"""
+        self.project_service.auto_save(self.data)
     
     def _init_ui(self) -> None:
         """Инициализация интерфейса"""
@@ -359,61 +366,36 @@ class MainWindow(QMainWindow):
         layout.addLayout(bottom_panel)
     
     # === Методы работы с данными ===
-    
+
     def set_dirty(self, dirty: bool = True) -> None:
         """Установка флага изменений"""
-        self.is_dirty = dirty
+        self.project_service.set_dirty(dirty)
         self.update_window_title()
-    
+
     def update_window_title(self) -> None:
         """Обновление заголовка окна"""
-        title = "Dubbing Manager"
-        if self.current_project_path:
-            title += f" - {os.path.basename(self.current_project_path)}"
-        else:
-            title += " - [Новый]"
-        if self.is_dirty:
-            title += " *"
-        self.setWindowTitle(title)
+        self.setWindowTitle(self.project_service.get_window_title(self.data))
     
     def maybe_save(self) -> bool:
         """Проверка необходимости сохранения"""
-        if not self.is_dirty:
+        if not self.project_service.is_dirty:
             return True
-        
+
         reply = QMessageBox.question(
             self,
             "Сохранить?",
             "Сохранить изменения?",
             QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel
         )
-        
+
         if reply == QMessageBox.Save:
             return self.save_project()
         return reply == QMessageBox.Discard
-    
-    def auto_save(self) -> None:
-        """Автосохранение"""
-        if not self.is_dirty:
-            return
-        
-        if self.current_project_path:
-            path = self.current_project_path + ".bak"
-        else:
-            path = "temp_autosave.json.bak"
-        
-        try:
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(self.data, f, ensure_ascii=False, indent=4)
-            logger.debug(f"Auto-saved to {path}")
-        except Exception as e:
-            logger.error(f"Auto-save failed: {e}")
-    
+
     def on_project_name_changed(self, text: str) -> None:
         """Изменение имени проекта"""
-        self.data["project_name"] = text
-        self.set_dirty()
-    
+        self.project_service.set_project_name(self.data, text)
+
     # === Методы работы с персонажами ===
     
     def on_character_name_changed(self, item: QTableWidgetItem) -> None:
@@ -487,32 +469,20 @@ class MainWindow(QMainWindow):
     def save_project(self) -> bool:
         """Сохранение проекта"""
         if self.current_project_path:
-            return self._do_save(self.current_project_path)
+            return self.project_service.save_project(self.data)
         return self.save_project_as()
-    
+
     def save_project_as(self) -> bool:
         """Сохранение проекта как..."""
         path, _ = QFileDialog.getSaveFileName(
             self, "Сохранить", "", "*.json"
         )
         if path:
-            self.current_project_path = path
-            result = self._do_save(path)
+            result = self.project_service.save_project_as(self.data, path)
+            self.current_project_path = self.project_service.current_project_path
             self.update_window_title()
             return result
         return False
-    
-    def _do_save(self, path: str) -> bool:
-        """Внутренний метод сохранения"""
-        try:
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(self.data, f, ensure_ascii=False, indent=4)
-            self.set_dirty(False)
-            logger.info(f"Project saved to {path}")
-            return True
-        except Exception as e:
-            logger.error(f"Save failed: {e}")
-            return False
     
     def load_project_dialog(self) -> None:
         """Диалог загрузки проекта"""
@@ -526,25 +496,14 @@ class MainWindow(QMainWindow):
     def _load_from_path(self, path: str) -> None:
         """Загрузка из файла"""
         try:
-            with open(path, 'r', encoding='utf-8') as f:
-                self.data = json.load(f)
-            
-            # Обратная совместимость
-            if "video_paths" not in self.data:
-                self.data["video_paths"] = {}
-            if "export_config" not in self.data:
-                self.data["export_config"] = DEFAULT_EXPORT_CONFIG.copy()
-            if "prompter_config" not in self.data:
-                self.data["prompter_config"] = DEFAULT_PROMPTER_CONFIG.copy()
-            
-            self.current_project_path = path
-            self.proj_edit.setText(
-                self.data.get("project_name", "Проект")
-            )
+            self.data = self.project_service.load_project(path)
+            self.current_project_path = self.project_service.current_project_path
+
+            self.proj_edit.setText(self.project_service.get_project_name(self.data))
             self.refresh_actor_list()
             self.update_ep_list()
-            self.set_dirty(False)
             logger.info(f"Project loaded from {path}")
+
         except Exception as e:
             logger.error(f"Load failed: {e}")
             QMessageBox.critical(
@@ -570,15 +529,15 @@ class MainWindow(QMainWindow):
         if ok and name:
             dialog = CustomColorDialog(self)
             if dialog.exec():
-                actor_id = str(datetime.now().timestamp())
-                self.data["actors"][actor_id] = {
-                    "name": name,
-                    "color": dialog.selected_color or "#ffffff"
-                }
+                actor_id = self.actor_service.add_actor(
+                    self.data["actors"],
+                    name,
+                    dialog.selected_color
+                )
                 self.refresh_actor_list()
                 self.refresh_main_table()
                 self.set_dirty()
-    
+
     def on_actor_cell_clicked(self, row: int, col: int) -> None:
         """Клик по ячейке актёра"""
         if col == 1:
@@ -588,45 +547,47 @@ class MainWindow(QMainWindow):
                 dialog = CustomColorDialog(self)
                 if dialog.exec():
                     if dialog.selected_color and aid:
-                        self.data["actors"][aid]["color"] = (
-                            dialog.selected_color
+                        self.actor_service.update_actor_color(
+                            self.data["actors"], aid, dialog.selected_color
                         )
                         self.refresh_actor_list()
                         self.refresh_main_table()
                         self.set_dirty()
-    
+
     def on_actor_renamed(self, item: QTableWidgetItem) -> None:
         """Переименование актёра"""
         aid = item.data(Qt.UserRole)
         if aid:
-            self.data["actors"][aid]["name"] = item.text()
+            self.actor_service.rename_actor(
+                self.data["actors"], aid, item.text()
+            )
             self.refresh_main_table()
             self.set_dirty()
-    
+
     def bulk_assign_actor(self) -> None:
         """Массовое назначение актёра"""
         selected = self.main_table.selectionModel().selectedRows()
         if not selected:
             return
-        
+
         names = ["- Удалить -"] + [
             a["name"] for a in self.data["actors"].values()
         ]
         ids = [None] + list(self.data["actors"].keys())
-        
+
         name, ok = QInputDialog.getItem(
             self, "Назначить", "Актер:", names, 0, False
         )
-        
+
         if ok:
             aid = ids[names.index(name)]
-            for idx in selected:
-                char = self.main_table.item(idx.row(), 0).text()
-                if aid:
-                    self.data["global_map"][char] = aid
-                elif char in self.data["global_map"]:
-                    del self.data["global_map"][char]
-            
+            characters = [
+                self.main_table.item(idx.row(), 0).text()
+                for idx in selected
+            ]
+            self.actor_service.bulk_assign_actors(
+                self.data["global_map"], characters, aid
+            )
             self.refresh_actor_list()
             self.refresh_main_table()
             self.set_dirty()
@@ -652,41 +613,46 @@ class MainWindow(QMainWindow):
         ep = self.ep_combo.currentData()
         if not ep:
             return
-        
+
         path = self.data["episodes"].get(ep)
         if path and os.path.exists(path):
             self.table_stack.setCurrentIndex(0)
-            self.parse_ass(path)
+            self._parse_episode(ep, path)
             self.get_episode_lines(ep)
             self.refresh_main_table()
             self.update_save_ass_button()
         else:
             self.table_stack.setCurrentIndex(1)
-    
+
+    def _parse_episode(self, ep: str, path: str) -> None:
+        """Парсинг эпизода и получение статистики"""
+        stats, _ = self.episode_service.parse_ass_file(path)
+        self.current_ep_stats = stats
+
     def import_ass(self, paths: Optional[List[str]] = None) -> None:
         """Импорт ASS файлов"""
         if not paths:
             paths, _ = QFileDialog.getOpenFileNames(
                 self, "ASS", "", "*.ass"
             )
-        
+
         if paths:
             for path in paths:
                 numbers = re.findall(r'\d+', os.path.basename(path))
                 num = " ".join(numbers) or "1"
-                
+
                 name, ok = QInputDialog.getText(
                     self,
                     "Ep",
                     f"Ep for {os.path.basename(path)}:",
                     text=num
                 )
-                
+
                 if ok and name:
                     self.data["episodes"][name] = path
-                    self.parse_ass(path)
+                    self._parse_episode(name, path)
                     self.set_dirty()
-            
+
             self.update_ep_list()
     
     def relink_file(self) -> None:
@@ -699,66 +665,7 @@ class MainWindow(QMainWindow):
             self.data["episodes"][ep] = path
             self.change_episode()
             self.set_dirty()
-    
-    def parse_ass(self, path: str) -> None:
-        """Парсинг ASS файла"""
-        char_data: Dict[str, Dict[str, Any]] = {}
-        gap = self.data["export_config"].get('merge_gap', 5)
-        
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                lines_list = []
-                for line in f:
-                    if line.startswith("Dialogue:"):
-                        parts = line.split(',', 9)
-                        char = parts[4].strip()
-                        text = re.sub(r'\{.*?\}', '', parts[9]).strip()
-                        
-                        if text:
-                            lines_list.append({
-                                's': ass_time_to_seconds(parts[1]),
-                                'e': ass_time_to_seconds(parts[2]),
-                                'char': char,
-                                'text': text
-                            })
-                
-                for line in lines_list:
-                    if line['char'] not in char_data:
-                        char_data[line['char']] = {
-                            "lines": 0,
-                            "raw": []
-                        }
-                    char_data[line['char']]["lines"] += 1
-                    char_data[line['char']]["raw"].append(line)
-                
-                res = []
-                for char, info in char_data.items():
-                    rings = 1
-                    words = 0
-                    char_lines = info["raw"]
-                    
-                    if char_lines:
-                        words += len(char_lines[0]['text'].split())
-                        for i in range(1, len(char_lines)):
-                            if (
-                                char_lines[i]['s'] - 
-                                char_lines[i-1]['e']
-                            ) >= gap:
-                                rings += 1
-                            words += len(char_lines[i]['text'].split())
-                    
-                    res.append({
-                        "name": char,
-                        "lines": info["lines"],
-                        "rings": rings,
-                        "words": words
-                    })
-            
-            self.current_ep_stats = res
-        except Exception as e:
-            logger.error(f"Error parsing ASS: {e}")
-            self.current_ep_stats = []
-    
+
     def update_map(
         self, 
         char_name: str, 
@@ -1092,32 +999,35 @@ class MainWindow(QMainWindow):
         """Экспорт в HTML"""
         cfg = self.data["export_config"]
         lines = self.get_episode_lines(ep)
-        processed = self.process_merge_logic(lines, cfg)
-        
-        html = self.generate_html_body(
+
+        export_service = ExportService(self.data)
+        processed = export_service.process_merge_logic(lines, cfg)
+
+        html = export_service.generate_html(
             ep,
             processed,
             cfg,
             cfg.get('highlight_ids_export'),
+            layout_type=cfg.get('layout_type', 'Таблица'),
             is_editable=cfg.get('allow_edit', True)
         )
-        
+
         path, _ = QFileDialog.getSaveFileName(
             self, "Save HTML", f"Script_{ep}.html", "*.html"
         )
-        
+
         if path:
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(html)
-            
+
             if sys.platform == 'darwin':
                 os.system(f'open "{path}"')
             else:
                 os.startfile(path)
     
     def save_episode_to_ass(
-        self, 
-        ep_num: str, 
+        self,
+        ep_num: str,
         target_path: Optional[str] = None
     ) -> bool:
         """Сохранение серии в ASS"""
@@ -1125,50 +1035,18 @@ class MainWindow(QMainWindow):
         if not mem_lines:
             QMessageBox.warning(self, "Ошибка", "Нет данных.")
             return False
-        
-        source_path = self.data["episodes"].get(ep_num)
-        if not source_path or not os.path.exists(source_path):
-            QMessageBox.warning(self, "Ошибка", "Файл не найден.")
-            return False
-        
-        save_path = target_path if target_path else source_path
-        new_file_content = []
-        
-        try:
-            with open(source_path, 'r', encoding='utf-8') as f:
-                dia_idx = 0
-                for line in f:
-                    if line.startswith("Dialogue:"):
-                        if dia_idx < len(mem_lines):
-                            current_data = mem_lines[dia_idx]
-                            parts = line.strip().split(',', 9)
-                            
-                            if len(parts) > 9:
-                                parts[4] = current_data['char']
-                                new_line = (
-                                    f"{','.join(parts[:9])},"
-                                    f"{current_data['text']}\n"
-                                )
-                                new_file_content.append(new_line)
-                            else:
-                                new_file_content.append(line)
-                        else:
-                            new_file_content.append(line)
-                        dia_idx += 1
-                    else:
-                        new_file_content.append(line)
-            
-            with open(save_path, 'w', encoding='utf-8') as f:
-                f.writelines(new_file_content)
-            
-            logger.info(f"ASS saved to {save_path}")
-            return True
-        except Exception as e:
-            logger.error(f"Error saving ASS: {e}")
-            QMessageBox.critical(
-                self, "Ошибка", f"Не удалось записать файл:\n{e}"
-            )
-            return False
+
+        success, message = self.episode_service.save_episode_to_ass(
+            ep_num,
+            self.data["episodes"],
+            mem_lines,
+            target_path
+        )
+
+        if not success:
+            QMessageBox.warning(self, "Ошибка", message)
+
+        return success
     
     def generate_html_body(
         self,
@@ -1536,36 +1414,15 @@ class MainWindow(QMainWindow):
         """Получение строк серии"""
         if "loaded_episodes" not in self.data:
             self.data["loaded_episodes"] = {}
-        
+
         if ep in self.data["loaded_episodes"]:
             return self.data["loaded_episodes"][ep]
-        
-        path = self.data["episodes"].get(ep)
-        lines = []
-        
-        if path and os.path.exists(path):
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    idx = 0
-                    for line in f:
-                        if line.startswith("Dialogue:"):
-                            parts = line.split(',', 9)
-                            lines.append({
-                                'id': idx,
-                                's': ass_time_to_seconds(parts[1]),
-                                'e': ass_time_to_seconds(parts[2]),
-                                'char': parts[4].strip(),
-                                'text': re.sub(
-                                    r'\{.*?\}', '', parts[9]
-                                ).strip(),
-                                's_raw': parts[1]
-                            })
-                            idx += 1
-                
-                self.data["loaded_episodes"][ep] = lines
-            except Exception as e:
-                logger.error(f"Read error: {e}")
-        
+
+        lines = self.episode_service.load_episode(ep, self.data["episodes"])
+
+        if lines:
+            self.data["loaded_episodes"][ep] = lines
+
         return lines
     
     def show_project_summary(self) -> None:
@@ -1579,28 +1436,18 @@ class MainWindow(QMainWindow):
             SummaryDialog(self.data, ep, self).exec()
     
     def edit_roles(
-        self, 
-        aid: str, 
-        name: str, 
+        self,
+        aid: str,
+        name: str,
         roles: List[str]
     ) -> None:
         """Редактирование ролей актёра"""
         dialog = ActorRolesDialog(name, roles, self)
         if dialog.exec():
             new_roles = dialog.get_roles()
-            
-            # Удаляем старые маппинги
-            keys_to_remove = [
-                k for k, v in self.data["global_map"].items() 
-                if v == aid
-            ]
-            for k in keys_to_remove:
-                self.data["global_map"].pop(k, None)
-            
-            # Добавляем новые
-            for role_name in new_roles:
-                self.data["global_map"][role_name] = aid
-            
+            self.actor_service.update_actor_roles(
+                self.data["global_map"], aid, new_roles
+            )
             self.refresh_actor_list()
             self.refresh_main_table()
             self.set_dirty()

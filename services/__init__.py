@@ -1,9 +1,8 @@
-from .osc_worker import OscWorker, OSC_AVAILABLE
-from .hotkey_manager import GlobalHotkeyManager, PYNPUT_AVAILABLE
+"""Сервисы для бизнес-логики приложения"""
 
-__all__ = [
-    'OscWorker',
-    'OSC_AVAILABLE',
-    'GlobalHotkeyManager',
-    'PYNPUT_AVAILABLE'
-]
+from .project_service import ProjectService
+from .episode_service import EpisodeService
+from .actor_service import ActorService
+from .export_service import ExportService
+
+__all__ = ['ProjectService', 'EpisodeService', 'ActorService', 'ExportService']
