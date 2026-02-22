@@ -1,80 +1,13 @@
+"""Main application file for Dubbing Manager - Refactored"""
+
+# Import refactored modules
+from src.ui_main import DubbingApp
+from src.utils import *
+from src.dialogs import *
+from src.workers import *
+from src.models import *
+
 import sys
-import platform
-import json
-import re
-import os
-import math
-from datetime import datetime
-
-# Импорты PySide6
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout,
-    QHBoxLayout, QPushButton, QFileDialog, QTableWidget,
-    QTableWidgetItem, QColorDialog, QComboBox, QLabel,
-    QHeaderView, QInputDialog, QFrame, QSpinBox, QLineEdit,
-    QDialog, QListWidget, QListWidgetItem, QCheckBox, QGroupBox, QFormLayout,
-    QMessageBox, QSlider, QAbstractItemView, QStackedWidget,
-    QDoubleSpinBox, QRadioButton, QGridLayout, QScrollArea,
-    QGraphicsView, QGraphicsScene, QGraphicsTextItem,
-    QSplitter, QSizePolicy, QToolBar, QKeySequenceEdit, QDialogButtonBox, QTextEdit
-)
-from PySide6.QtGui import (
-    QColor, QFont, QPainter, QAction, QKeySequence, QPen, QBrush
-)
-from PySide6.QtCore import (
-    Qt, QUrl, QTimer, QThread, Signal, QRectF, QEvent, Slot, QObject
-)
-
-# Для редактирования HTML
-from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtCore import QObject, Slot
-
-# Импорты для Мультимедиа
-from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
-from PySide6.QtMultimediaWidgets import QVideoWidget
-
-# Импорт WebEngine
-try:
-    from PySide6.QtWebEngineWidgets import QWebEngineView
-    WEB_ENGINE_AVAILABLE = True
-except ImportError:
-    from PySide6.QtWidgets import QTextBrowser as QWebEngineView
-    WEB_ENGINE_AVAILABLE = False
-
-# Попытка импорта openpyxl
-try:
-    import openpyxl
-    from openpyxl.styles import Font, Alignment, PatternFill
-    from openpyxl.utils import get_column_letter
-    EXCEL_AVAILABLE = True
-except ImportError:
-    EXCEL_AVAILABLE = False
-
-# Попытка импорта python-osc
-try:
-    from pythonosc.dispatcher import Dispatcher
-    from pythonosc.osc_server import BlockingOSCUDPServer
-    from pythonosc.udp_client import SimpleUDPClient
-    OSC_AVAILABLE = True
-except ImportError:
-    OSC_AVAILABLE = False
-
-# Попытка импорта pynput для глобальных горячих клавиш
-# На macOS pynput конфликтует с PySide6 (TSM error), поэтому отключаем
-PYNPUT_AVAILABLE = False
-keyboard = None
-HotKey = None
-KeyCode = None
-Key = None
-
-# Отключаем pynput на macOS из-за конфликта с Text Input Manager
-if platform.system() != 'Darwin':
-    try:
-        from pynput import keyboard
-        from pynput.keyboard import HotKey, KeyCode, Key
-        PYNPUT_AVAILABLE = True
-    except ImportError:
-        pass
 
 # --- КОНСТАНТЫ ---
 MY_PALETTE = [
@@ -3512,4 +3445,7 @@ class DubbingApp(QMainWindow):
         elif ass: self.import_ass(ass)
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv); w = DubbingApp(); w.show(); sys.exit(app.exec())
+    app = QApplication(sys.argv)
+    w = DubbingApp()
+    w.show()
+    sys.exit(app.exec())
