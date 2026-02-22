@@ -1,4 +1,5 @@
 import sys
+import platform
 import json
 import re
 import os
@@ -11,7 +12,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QPushButton, QFileDialog, QTableWidget,
     QTableWidgetItem, QColorDialog, QComboBox, QLabel,
     QHeaderView, QInputDialog, QFrame, QSpinBox, QLineEdit,
-    QDialog, QListWidget, QCheckBox, QGroupBox, QFormLayout,
+    QDialog, QListWidget, QListWidgetItem, QCheckBox, QGroupBox, QFormLayout,
     QMessageBox, QSlider, QAbstractItemView, QStackedWidget,
     QDoubleSpinBox, QRadioButton, QGridLayout, QScrollArea,
     QGraphicsView, QGraphicsScene, QGraphicsTextItem,
@@ -58,6 +59,23 @@ try:
 except ImportError:
     OSC_AVAILABLE = False
 
+# Попытка импорта pynput для глобальных горячих клавиш
+# На macOS pynput конфликтует с PySide6 (TSM error), поэтому отключаем
+PYNPUT_AVAILABLE = False
+keyboard = None
+HotKey = None
+KeyCode = None
+Key = None
+
+# Отключаем pynput на macOS из-за конфликта с Text Input Manager
+if platform.system() != 'Darwin':
+    try:
+        from pynput import keyboard
+        from pynput.keyboard import HotKey, KeyCode, Key
+        PYNPUT_AVAILABLE = True
+    except ImportError:
+        pass
+
 # --- КОНСТАНТЫ ---
 MY_PALETTE = [
     "#D9775F", "#E46C0A", "#9B5333", "#C0504D", "#C4BD97",
@@ -79,6 +97,85 @@ def customize_table(table):
     table.verticalHeader().setDefaultSectionSize(32)
     table.horizontalHeader().setHighlightSections(False)
     table.setStyleSheet("QTableWidget::item { padding-left: 10px; }")
+
+class CollapsibleSection(QFrame):
+    """Сворачиваемый раздел настроек с кнопкой-стрелкой"""
+    def __init__(self, title, parent=None):
+        super().__init__(parent)
+        self.setFrameShape(QFrame.StyledPanel)
+        self.setStyleSheet("CollapsibleSection { background: #2b2b2b; border-radius: 4px; }")
+        
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+        
+        # Заголовок с кнопкой
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(8, 6, 8, 6)
+        
+        self.toggle_btn = QPushButton()
+        self.toggle_btn.setFixedSize(20, 20)
+        self.toggle_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: none;
+                color: #aaa;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover { color: white; }
+        """)
+        self.toggle_btn.clicked.connect(self.toggle)
+        header_layout.addWidget(self.toggle_btn)
+        
+        title_label = QLabel(title)
+        title_label.setStyleSheet("color: white; font-weight: bold; font-size: 13px;")
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        
+        self.header_widget = QWidget()
+        self.header_widget.setLayout(header_layout)
+        self.header_widget.setStyleSheet("background: transparent;")
+        self.main_layout.addWidget(self.header_widget)
+        
+        # Контент
+        self.content_widget = QWidget()
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(8, 0, 8, 8)
+        self.content_layout.setSpacing(4)
+        self.main_layout.addWidget(self.content_widget)
+        
+        # По умолчанию свёрнут
+        self.expanded = False
+        self.content_widget.setVisible(False)
+        self.update_arrow()
+    
+    def update_arrow(self):
+        if self.expanded:
+            self.toggle_btn.setText("▼")
+        else:
+            self.toggle_btn.setText("▶")
+            self.toggle_btn.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    color: #666;
+                    font-size: 14px;
+                    font-weight: bold;
+                }
+                QPushButton:hover { color: #888; }
+            """)
+    
+    def toggle(self):
+        self.expanded = not self.expanded
+        self.content_widget.setVisible(self.expanded)
+        self.update_arrow()
+    
+    def addWidget(self, widget):
+        self.content_layout.addWidget(widget)
+    
+    def addLayout(self, layout):
+        self.content_layout.addLayout(layout)
 
 def wrap_widget(widget):
     """Обертка для центрирования кнопок в таблице"""
@@ -216,6 +313,142 @@ class OscWorker(QThread):
 
     def stop(self):
         self.running = False
+
+# --- МЕНЕДЖЕР ГЛОБАЛЬНЫХ ГОРЯЧИХ КЛАВИШ ---
+class GlobalHotkeyManager(QObject):
+    """Менеджер глобальных горячих клавиш на основе pynput.
+    Работает на Windows и macOS даже когда окно не в фокусе.
+    """
+    hotkey_triggered = Signal(str)  # Сигнал с именем горящей клавиши
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.listener = None
+        self.hotkeys = {}  # {name: HotKey}
+        self._running = False
+        
+    def _parse_key_string(self, key_str):
+        """Преобразует строку клавиш в формат pynput."""
+        key_parts = key_str.lower().replace(' ', '').split('+')
+        vk_parts = []
+        
+        for part in key_parts:
+            if part == 'ctrl':
+                vk_parts.append(Key.ctrl)
+            elif part == 'alt':
+                vk_parts.append(Key.alt)
+            elif part == 'shift':
+                vk_parts.append(Key.shift)
+            elif part == 'cmd' or part == 'win':
+                vk_parts.append(Key.cmd)
+            elif part == 'left':
+                vk_parts.append(Key.left)
+            elif part == 'right':
+                vk_parts.append(Key.right)
+            elif part == 'up':
+                vk_parts.append(Key.up)
+            elif part == 'down':
+                vk_parts.append(Key.down)
+            elif part == 'f1':
+                vk_parts.append(Key.f1)
+            elif part == 'f12':
+                vk_parts.append(Key.f12)
+            elif part == 'space':
+                vk_parts.append(Key.space)
+            elif part == 'enter' or part == 'return':
+                vk_parts.append(Key.enter)
+            elif part == 'tab':
+                vk_parts.append(Key.tab)
+            elif part == 'esc':
+                vk_parts.append(Key.esc)
+            elif len(part) == 1:
+                vk_parts.append(KeyCode.from_char(part))
+            else:
+                try:
+                    vk_parts.append(KeyCode.from_vk(int(part)))
+                except:
+                    pass
+        
+        return vk_parts
+        
+    def register_hotkey(self, name, key_str, callback=None):
+        """Регистрация горячей клавиши."""
+        if not PYNPUT_AVAILABLE:
+            print("pynput не доступен")
+            return False
+            
+        try:
+            vk_parts = self._parse_key_string(key_str)
+            if len(vk_parts) == 0:
+                print(f"Не удалось распарсить горячую клавишу: {key_str}")
+                return False
+                
+            hotkey = HotKey(vk_parts, self._on_hotkey_triggered)
+            self.hotkeys[name] = hotkey
+            
+            if callback:
+                self.hotkey_triggered.connect(lambda n: callback() if n == name else None)
+                
+            return True
+        except Exception as e:
+            print(f"Ошибка регистрации горячей клавиши {name}: {e}")
+            return False
+    
+    def _on_hotkey_triggered(self, hotkey):
+        """Обработчик нажатия горячей клавиши"""
+        for name, hk in self.hotkeys.items():
+            if hk == hotkey:
+                self.hotkey_triggered.emit(name)
+                break
+    
+    def start(self):
+        """Запуск прослушивания горячих клавиш"""
+        if not PYNPUT_AVAILABLE or self._running:
+            return
+
+        try:
+            self._running = True
+            # На macOS pynput требует прав доступа к универсальному доступу
+            # Если их нет, будет исключение - ловим его и продолжаем работу без глобальных клавиш
+            self.listener = keyboard.Listener(
+                on_press=self._on_press,
+                on_release=self._on_release,
+                suppress=False  # Не подавляем события клавиш
+            )
+            self.listener.start()
+            # Проверяем, что listener действительно запустился
+            if not self.listener.is_alive():
+                raise RuntimeError("Listener не запустился")
+        except Exception as e:
+            print(f"Глобальные горячие клавиши отключены: {e}")
+            print("На macOS: Системные настройки -> Защита и безопасность -> Универсальный доступ")
+            self._running = False
+            self.listener = None
+    
+    def stop(self):
+        """Остановка прослушивания горячих клавиш"""
+        if self.listener:
+            self._running = False
+            self.listener.stop()
+            self.listener = None
+    
+    def _on_press(self, key):
+        """Обработка нажатия клавиши"""
+        if not self._running:
+            return
+        for hotkey in self.hotkeys.values():
+            hotkey.press(key)
+    
+    def _on_release(self, key):
+        """Обработка отпускания клавиши"""
+        if not self._running:
+            return
+        for hotkey in self.hotkeys.values():
+            hotkey.release(key)
+    
+    def clear_hotkeys(self):
+        """Очистка всех зарегистрированных горячих клавиш"""
+        self.hotkeys.clear()
 
 # --- МОСТ МЕЖДУ JS И PYTHON ---
 class WebBridge(QObject):
@@ -426,7 +659,100 @@ class PrompterColorDialog(QDialog):
 
     def get_final_colors(self):
         return self.colors
+
+# --- ПЛАВАЮЩЕЕ ОКНО УПРАВЛЕНИЯ ТЕЛЕСУФЛЁРОМ ---
+class TeleprompterFloatWindow(QDialog):
+    """Плавающее окно управления телесуфлёром (всегда поверх всех окон)"""
+    def __init__(self, teleprompter):
+        super().__init__(None)  # Без родителя
+        self.teleprompter = teleprompter
+        self.setWindowTitle("Управление телесуфлёром")
+        self.setWindowFlags(
+            Qt.Window |
+            Qt.WindowStaysOnTopHint |
+            Qt.CustomizeWindowHint |
+            Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint
+        )
+        self.setAttribute(Qt.WA_MacAlwaysShowToolWindow)
+        self.resize(300, 400)
+
+        layout = QVBoxLayout(self)
+
+        # Кнопки навигации
+        btn_layout = QHBoxLayout()
+
+        self.btn_prev = QPushButton("⏮ Назад")
+        self.btn_prev.setMinimumHeight(50)
+        self.btn_prev.clicked.connect(lambda: self.teleprompter.navigate_to_replica_in_direction(-1))
+        btn_layout.addWidget(self.btn_prev)
+
+        self.btn_next = QPushButton("Вперёд ⏭")
+        self.btn_next.setMinimumHeight(50)
+        self.btn_next.clicked.connect(lambda: self.teleprompter.navigate_to_replica_in_direction(1))
+        btn_layout.addWidget(self.btn_next)
+
+        layout.addLayout(btn_layout)
+
+        # Список реплик
+        layout.addWidget(QLabel("<b>Список реплик:</b>"))
+        self.replica_list = QListWidget()
+        self.replica_list.itemClicked.connect(self.on_replica_clicked)
+        layout.addWidget(self.replica_list)
+
+        # Кнопка закрытия (скрывает окно, не закрывая телесуфлёр)
+        btn_close = QPushButton("Скрыть")
+        btn_close.clicked.connect(self.hide_window)
+        layout.addWidget(btn_close)
+
+        # Синхронизируем список с основным окном
+        self.sync_replica_list()
+
+    def sync_replica_list(self):
+        """Синхронизация списка реплик с основным окном"""
+        if not self.teleprompter:
+            return
+            
+        # Сохраняем текущую выделенную позицию
+        current_row = self.replica_list.currentRow()
         
+        self.replica_list.blockSignals(True)
+        self.replica_list.clear()
+        
+        for i in range(self.teleprompter.list_of_replicas.count()):
+            item = self.teleprompter.list_of_replicas.item(i)
+            new_item = QListWidgetItem(item.text())
+            new_item.setData(Qt.UserRole, item.data(Qt.UserRole))
+            self.replica_list.addItem(new_item)
+        
+        # Восстанавливаем выделение
+        if 0 <= current_row < self.replica_list.count():
+            self.replica_list.setCurrentRow(current_row)
+        self.replica_list.blockSignals(False)
+
+    def on_replica_clicked(self, item):
+        """Переход к выбранной реплике"""
+        if self.teleprompter:
+            self.teleprompter.jump_to_specific_time(item.data(Qt.UserRole))
+
+    def update_selection(self, index):
+        """Обновление выбранного элемента в списке"""
+        if 0 <= index < self.replica_list.count():
+            self.replica_list.blockSignals(True)
+            self.replica_list.setCurrentRow(index)
+            self.replica_list.blockSignals(False)
+
+    def hide_window(self):
+        """Скрыть окно и обновить кнопку на панели"""
+        self.hide()
+        if hasattr(self, 'teleprompter') and self.teleprompter:
+            self.teleprompter.hide_float_window()
+
+    def closeEvent(self, event):
+        """Обработка закрытия окна - скрываем вместо закрытия"""
+        self.hide_window()
+        event.ignore()
+
 # --- ОКНО ТЕЛЕСУФЛЁРА ---
 class TeleprompterWindow(QDialog):
     def __init__(self, main_app, ep_num):
@@ -487,6 +813,8 @@ class TeleprompterWindow(QDialog):
         self.init_ui()
         # Построение графических объектов
         self.build_prompter_content()
+        # Используем глобальный менеджер горячих клавиш приложения
+        self.setup_global_hotkeys()
         # Initialization complete — allow handlers to mark project as dirty
         self._initializing = False
 
@@ -517,6 +845,14 @@ class TeleprompterWindow(QDialog):
         self.btn_go_next.setMinimumWidth(160)
         self.btn_go_next.clicked.connect(lambda: self.navigate_to_replica_in_direction(1))
         self.toolbar.addWidget(self.btn_go_next)
+
+        self.toolbar.addSeparator()
+
+        # Кнопка плавающего окна
+        self.btn_float_window = QPushButton("🔼 Плавающее окно")
+        self.btn_float_window.setCheckable(True)
+        self.btn_float_window.clicked.connect(self.toggle_float_window)
+        self.toolbar.addWidget(self.btn_float_window)
 
         # Распорка для выравнивания
         toolbar_spacer = QWidget()
@@ -563,84 +899,96 @@ class TeleprompterWindow(QDialog):
         
         settings_container = QWidget()
         settings_v_layout = QVBoxLayout(settings_container)
+        settings_v_layout.setSpacing(4)
 
-        # 1. Настройка шрифтов
-        fonts_group_box = QGroupBox("Размеры шрифтов элементов")
-        fonts_form = QFormLayout(fonts_group_box)
+        # 1. Настройка шрифтов (сворачиваемая секция)
+        fonts_section = CollapsibleSection("Размеры шрифтов элементов")
+        fonts_form = QFormLayout()
         self.spin_font_tc = QSpinBox(); self.spin_font_tc.setRange(10, 150); self.spin_font_tc.setValue(self.cfg["f_tc"])
         self.spin_font_char = QSpinBox(); self.spin_font_char.setRange(10, 150); self.spin_font_char.setValue(self.cfg["f_char"])
         self.spin_font_actor = QSpinBox(); self.spin_font_actor.setRange(10, 150); self.spin_font_actor.setValue(self.cfg["f_actor"])
         self.spin_font_text = QSpinBox(); self.spin_font_text.setRange(10, 300); self.spin_font_text.setValue(self.cfg["f_text"])
-        
         for s in [self.spin_font_tc, self.spin_font_char, self.spin_font_actor, self.spin_font_text]:
             s.valueChanged.connect(self.handle_font_config_change)
-        
         fonts_form.addRow("Таймкод:", self.spin_font_tc)
         fonts_form.addRow("Имя персонажа:", self.spin_font_char)
         fonts_form.addRow("Имя актёра:", self.spin_font_actor)
         fonts_form.addRow("Текст реплики:", self.spin_font_text)
-        settings_v_layout.addWidget(fonts_group_box)
+        fonts_section.addLayout(fonts_form)
+        settings_v_layout.addWidget(fonts_section)
 
-        # 2. Настройка Фокуса
-        focus_group_box = QGroupBox("Позиция линии чтения")
-        focus_layout = QVBoxLayout(focus_group_box)
+        # 2. Позиция линии чтения (сворачиваемая секция)
+        focus_section = CollapsibleSection("Позиция линии чтения")
+        focus_layout = QVBoxLayout()
         self.slider_focus_pos = QSlider(Qt.Horizontal); self.slider_focus_pos.setRange(10, 90)
         self.slider_focus_pos.setValue(int(self.cfg["focus_ratio"] * 100))
         self.slider_focus_pos.valueChanged.connect(self.handle_focus_ratio_change)
-        
         self.lbl_focus_percent = QLabel(f"Высота линии: {self.slider_focus_pos.value()}%")
         self.lbl_focus_percent.setAlignment(Qt.AlignCenter)
         focus_layout.addWidget(self.lbl_focus_percent)
         focus_layout.addWidget(self.slider_focus_pos)
-        settings_v_layout.addWidget(focus_group_box)
+        focus_section.addLayout(focus_layout)
+        settings_v_layout.addWidget(focus_section)
 
-        # 4a. Плавность прокрутки (ползунок)
-        scroll_group = QGroupBox("Прокрутка")
-        # Используем вертикальный лэйаут, как в блоке "Позиция линии чтения"
-        sg_layout = QVBoxLayout(scroll_group)
-        # Используем слайдер 0..90, отображаемое значение 0.00..0.90
+        # 3. Плавность прокрутки (сворачиваемая секция)
+        scroll_section = CollapsibleSection("Прокрутка")
+        sg_layout = QVBoxLayout()
         self.slider_scroll_smoothness = QSlider(Qt.Horizontal)
         self.slider_scroll_smoothness.setRange(0, 100)
-        # Initialize slider from new or legacy config
         if "scroll_smoothness_slider" in self.cfg:
             init_val = int(self.cfg.get("scroll_smoothness_slider", 18))
         else:
-            # legacy float value (0.0..0.9) -> convert
             init_val = int(round(self.cfg.get("scroll_smoothness", 0.18) * 100))
         self.slider_scroll_smoothness.setValue(init_val)
         self.slider_scroll_smoothness.valueChanged.connect(self.handle_scroll_smoothness_change)
-        # Метка для отображения текущего значения как дроби
         self.lbl_scroll_value = QLabel(f"{self.cfg.get('scroll_smoothness', 0.18):.2f}")
-        # Метка описания над слайдером
         self.lbl_scroll_descr = QLabel("Плавность прокрутки (слева — быстрее, справа — дольше задержка):")
         self.lbl_scroll_descr.setAlignment(Qt.AlignCenter)
         sg_layout.addWidget(self.lbl_scroll_descr)
-        # Горизонтальная строка для слайдера + метки текущего значения
         row_widget = QWidget()
         row_layout = QHBoxLayout(row_widget)
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.addWidget(self.slider_scroll_smoothness)
         row_layout.addWidget(self.lbl_scroll_value)
         sg_layout.addWidget(row_widget)
-        settings_v_layout.addWidget(scroll_group)
-        # Обновим начальное отображение метки исходя из текущего положения слайдера
+        scroll_section.addLayout(sg_layout)
+        settings_v_layout.addWidget(scroll_section)
         self.handle_scroll_smoothness_change()
 
-        # 3. Вид и Цвета
-        view_group = QGroupBox("Отображение")
-        view_lay = QVBoxLayout(view_group)
+        # 4. Горячие клавиши (сворачиваемая секция)
+        #hotkey_section = CollapsibleSection("Горячие клавиши")
+        #hotkey_info = QVBoxLayout()
+        
+        #lbl_info = QLabel("Настройка горячих клавиш доступна в главном окне программы.")
+        #lbl_info.setStyleSheet("color: #888; font-size: 11px;")
+        #lbl_info.setWordWrap(True)
+        #hotkey_info.addWidget(lbl_info)
+        
+        #lbl_current = QLabel(f"Текущие: Назад = Ctrl+{self.cfg.get('key_prev', 'Left')}, Вперёд = Ctrl+{self.cfg.get('key_next', 'Right')}")
+        #lbl_current.setStyleSheet("color: #aaa; font-size: 11px; margin-top: 4px;")
+        #hotkey_info.addWidget(lbl_current)
+        
+        #hotkey_section.addLayout(hotkey_info)
+        #settings_v_layout.addWidget(hotkey_section)
+
+        # 5. Отображение (сворачиваемая секция)
+        view_section = CollapsibleSection("Отображение")
+        view_lay = QVBoxLayout()
         btn_open_colors = QPushButton("🎨 Настроить цвета телесуфлёра...")
         btn_open_colors.clicked.connect(self.open_color_settings_dialog)
         self.chk_show_header_panel = QCheckBox("Показать таймкод Reaper сверху", checked=self.cfg["show_header"])
         self.chk_show_header_panel.toggled.connect(self.toggle_header_visibility)
         self.chk_mirror_mode_active = QCheckBox("Зеркальный режим (отражение)", checked=self.cfg.get("is_mirrored", False))
         self.chk_mirror_mode_active.toggled.connect(self.toggle_mirror_mode)
-        view_lay.addWidget(btn_open_colors); view_lay.addWidget(self.chk_show_header_panel); view_lay.addWidget(self.chk_mirror_mode_active)
-        settings_v_layout.addWidget(view_group)
+        view_lay.addWidget(btn_open_colors)
+        view_lay.addWidget(self.chk_show_header_panel)
+        view_lay.addWidget(self.chk_mirror_mode_active)
+        view_section.addLayout(view_lay)
+        settings_v_layout.addWidget(view_section)
 
-        # 4. Синхронизация Reaper
-        osc_group_box = QGroupBox("Синхронизация Reaper (OSC)")
-        osc_layout = QVBoxLayout(osc_group_box)
+        # 6. Синхронизация Reaper (сворачиваемая секция)
+        osc_section = CollapsibleSection("Синхронизация Reaper (OSC)")
+        osc_layout = QVBoxLayout()
         self.chk_follow_reaper_in = QCheckBox("Суфлёр следует за Reaper", checked=self.cfg["sync_in"])
         self.chk_reaper_follow_out = QCheckBox("Reaper следует за навигацией", checked=self.cfg["sync_out"])
         self.chk_follow_reaper_in.toggled.connect(self.save_current_config_to_project)
@@ -648,9 +996,9 @@ class TeleprompterWindow(QDialog):
         self.btn_activate_osc_link = QPushButton("Включить OSC связь")
         self.btn_activate_osc_link.setCheckable(True)
         self.btn_activate_osc_link.clicked.connect(self.toggle_osc_connection_status)
-        osc_layout.addWidget(self.chk_follow_reaper_in); osc_layout.addWidget(self.chk_reaper_follow_out); osc_layout.addWidget(self.btn_activate_osc_link)
-        
-        # Отступ перед репликой в Reaper
+        osc_layout.addWidget(self.chk_follow_reaper_in)
+        osc_layout.addWidget(self.chk_reaper_follow_out)
+        osc_layout.addWidget(self.btn_activate_osc_link)
         offset_layout = QHBoxLayout()
         self.chk_reaper_offset_enabled = QCheckBox("Отступ -2 секунды", checked=self.cfg.get("reaper_offset_enabled", False))
         self.spin_reaper_offset = QDoubleSpinBox()
@@ -664,22 +1012,24 @@ class TeleprompterWindow(QDialog):
         offset_layout.addWidget(self.spin_reaper_offset)
         offset_layout.addStretch()
         osc_layout.addLayout(offset_layout)
-        
-        settings_v_layout.addWidget(osc_group_box)
+        osc_section.addLayout(osc_layout)
+        settings_v_layout.addWidget(osc_section)
 
         self.settings_scroll_area.setWidget(settings_container)
         self.side_layout.addWidget(self.settings_scroll_area)
 
         # --- СПИСОК РЕПЛИК (АДАПТИВНЫЙ) ---
+        # Кнопка выбора актёров над списком реплик
+        self.btn_actor_filter = QPushButton("🎭 Выбор актёров для суфлёра...")
+        self.btn_actor_filter.clicked.connect(self.open_actor_filter_dialog)
+        self.side_layout.addWidget(self.btn_actor_filter)
+        
         self.side_layout.addWidget(QLabel("<b>Список реплик актёра:</b>"))
         self.list_of_replicas = QListWidget()
         self.list_of_replicas.itemClicked.connect(self.on_replica_list_item_clicked)
         # Заставляем список занимать всё доступное место
         self.list_of_replicas.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         self.side_layout.addWidget(self.list_of_replicas)
-
-        self.btn_actor_filter = QPushButton("Выбор актёров для суфлёра..."); self.btn_actor_filter.clicked.connect(self.open_actor_filter_dialog)
-        self.side_layout.addWidget(self.btn_actor_filter)
 
         self.h_splitter.addWidget(self.side_panel_widget)
 
@@ -713,8 +1063,12 @@ class TeleprompterWindow(QDialog):
         Нелинейное отображение даёт удобную чувствительность слева и большие времена справа.
         """
         s = None
-        if hasattr(self, 'slider_scroll_smoothness'):
-            s = int(self.slider_scroll_smoothness.value())
+        if hasattr(self, 'slider_scroll_smoothness') and self.slider_scroll_smoothness:
+            try:
+                s = int(self.slider_scroll_smoothness.value())
+            except RuntimeError:
+                # Слайдер был удалён
+                s = int(self.cfg.get('scroll_smoothness_slider', 18))
         else:
             s = int(self.cfg.get('scroll_smoothness_slider', 18))
 
@@ -789,6 +1143,28 @@ class TeleprompterWindow(QDialog):
         except Exception:
             # В случае проблем — просто попытаться масштабировать без смены размеров
             QTimer.singleShot(60, self.adjust_prompter_view_scale)
+
+    def toggle_float_window(self, show):
+        """Показать/скрыть плавающее окно"""
+        if show:
+            self.show_float_window()
+        else:
+            self.hide_float_window()
+
+    def show_float_window(self):
+        """Показать плавающее окно"""
+        if not hasattr(self, 'float_window') or self.float_window is None:
+            self.float_window = TeleprompterFloatWindow(self)
+        self.float_window.show()
+        self.float_window.activateWindow()
+        self.float_window.raise_()
+        self.btn_float_window.setChecked(True)
+
+    def hide_float_window(self):
+        """Скрыть плавающее окно"""
+        if hasattr(self, 'float_window') and self.float_window:
+            self.float_window.hide()
+        self.btn_float_window.setChecked(False)
 
     def handle_font_config_change(self):
         """Сохранение размеров шрифтов и перерисовка сцены"""
@@ -945,6 +1321,10 @@ class TeleprompterWindow(QDialog):
 
         self.prompter_scene.setSceneRect(-50, 0, width + 100, y_cursor + 1000)
         self.update_view_position_by_time(self.last_known_time)
+        
+        # Синхронизируем плавающее окно если открыто
+        if hasattr(self, 'float_window') and self.float_window:
+            self.float_window.sync_replica_list()
 
     def update_view_position_by_time(self, time_seconds):
         """Главный метод синхронизации всех элементов окна"""
@@ -1033,20 +1413,79 @@ class TeleprompterWindow(QDialog):
 
     def navigate_to_replica_in_direction(self, direction):
         """Перемещение по активным репликам (назад/вперед)"""
-        if not self.time_map: return
-        curr_idx = 0; min_d = 999999
-        for seg in self.time_map:
-            d = abs(self.last_known_time - seg['s'])
-            if d < min_d: min_d = d; curr_idx = seg['index']
+        if not self.time_map:
+            return
+
+        # Находим текущую активную реплику в time_map по времени
+        current_time_map_index = -1
+        min_d = 999999
         
-        target_idx = curr_idx
-        while True:
-            target_idx += direction
-            if 0 <= target_idx < len(self.time_map):
-                if self.time_map[target_idx]['active']:
-                    self.jump_to_specific_time(self.time_map[target_idx]['s'])
+        for i, seg in enumerate(self.time_map):
+            if seg['active']:
+                d = abs(self.last_known_time - seg['s'])
+                if d < min_d:
+                    min_d = d
+                    current_time_map_index = i
+        
+        # Если не нашли текущую реплику, начинаем с первой активной
+        if current_time_map_index < 0:
+            for i, seg in enumerate(self.time_map):
+                if seg['active']:
+                    current_time_map_index = i
                     break
+        
+        if current_time_map_index < 0:
+            return  # Нет активных реплик
+        
+        # Ищем следующую/предыдущую активную реплику в time_map
+        step = 1 if direction > 0 else -1
+        target_index = current_time_map_index
+        
+        for _ in range(len(self.time_map)):
+            target_index += step
+            if 0 <= target_index < len(self.time_map):
+                if self.time_map[target_index]['active']:
+                    # Нашли следующую активную реплику
+                    target_time = self.time_map[target_index]['s']
+                    self.jump_to_specific_time(target_time)
+                    
+                    # Находим соответствующий индекс в списке реплик
+                    list_index = -1
+                    for i in range(self.list_of_replicas.count()):
+                        item = self.list_of_replicas.item(i)
+                        if item and abs(item.data(Qt.UserRole) - target_time) < 0.01:
+                            list_index = i
+                            break
+                    
+                    # Обновляем выделение в списке и плавающем окне
+                    if list_index >= 0:
+                        self.list_of_replicas.setCurrentRow(list_index)
+                        if hasattr(self, 'float_window') and self.float_window:
+                            self.float_window.update_selection(list_index)
+                    return
             else:
+                # Достигли конца списка, зацикливаем
+                if direction > 0:
+                    # Переходим к началу
+                    for i, seg in enumerate(self.time_map):
+                        if seg['active']:
+                            self.jump_to_specific_time(seg['s'])
+                            if hasattr(self, 'float_window') and self.float_window:
+                                self.float_window.update_selection(0)
+                            return
+                else:
+                    # Переходим к концу
+                    for i in range(len(self.time_map) - 1, -1, -1):
+                        if self.time_map[i]['active']:
+                            self.jump_to_specific_time(self.time_map[i]['s'])
+                            # Находим индекс в списке
+                            for li in range(self.list_of_replicas.count()):
+                                item = self.list_of_replicas.item(li)
+                                if item and abs(item.data(Qt.UserRole) - self.time_map[i]['s']) < 0.01:
+                                    if hasattr(self, 'float_window') and self.float_window:
+                                        self.float_window.update_selection(li)
+                                    return
+                            return
                 break
 
     def on_replica_list_item_clicked(self, item):
@@ -1083,7 +1522,7 @@ class TeleprompterWindow(QDialog):
 
     @Slot(float)
     def on_osc_time_packet_received(self, time_val):
-        # Обновляем таймкод всегда при активной OSC связи
+        # ��бновляем таймкод всегда при активной OSC связи
         # Прокрутка суфлёра и список регулируются галочкой sync_in внутри update_view_position_by_time
         self.update_view_position_by_time(time_val)
 
@@ -1113,11 +1552,62 @@ class TeleprompterWindow(QDialog):
             self.highlight_ids = None if len(sel) == len(all_ids) or len(sel) == 0 else sel
             self.build_prompter_content()
 
+    def setup_global_hotkeys(self):
+        """Настройка глобальных горячих клавиш для навигации по репликам"""
+        if not PYNPUT_AVAILABLE:
+            print("pynput не доступен, ис��ользуются только локальные горячие клавиши")
+            return
+
+        try:
+            # Используем глобальный менеджер приложения
+            if self.main_app.global_hotkey_manager is None:
+                self.main_app.global_hotkey_manager = GlobalHotkeyManager(self.main_app)
+            
+            # Очищаем старые хоткеи и регистрируем новые
+            self.main_app.global_hotkey_manager.clear_hotkeys()
+
+            # Получаем настройки горячих клавиш из конфига
+            key_prev = self.cfg.get("key_prev", "Left")
+            key_next = self.cfg.get("key_next", "Right")
+
+            # Формируем строки горячих клавиш с модификаторами
+            prev_key_str = f"ctrl+{key_prev}"
+            next_key_str = f"ctrl+{key_next}"
+
+            # Регистрируем горячие клавиши
+            self.main_app.global_hotkey_manager.register_hotkey("prev", prev_key_str, self.go_prev_hotkey)
+            self.main_app.global_hotkey_manager.register_hotkey("next", next_key_str, self.go_next_hotkey)
+
+            # Запускаем прослушивание если ещё не запущено
+            if not self.main_app.global_hotkey_manager._running:
+                QTimer.singleShot(100, self.main_app.global_hotkey_manager.start)
+        except Exception as e:
+            print(f"Ошибка настройки глобальных горячих клавиш: {e}")
+
+    def go_prev_hotkey(self):
+        """Обработчик горячей клавиши 'назад'"""
+        QTimer.singleShot(0, lambda: self.navigate_to_replica_in_direction(-1))
+
+    def go_next_hotkey(self):
+        """Обработчик горячей клавиши 'вперед'"""
+        QTimer.singleShot(0, lambda: self.navigate_to_replica_in_direction(1))
+
     def keyPressEvent(self, event):
         # Навигация клавишами, если окно активно
-        if event.key() == Qt.Key_Left: self.navigate_to_replica_in_direction(-1)
-        elif event.key() == Qt.Key_Right: self.navigate_to_replica_in_direction(1)
-        else: super().keyPressEvent(event)
+        # Поддерживаем как стрелки без модификаторов, так и с Ctrl
+        modifiers = event.modifiers()
+        is_ctrl = modifiers & Qt.ControlModifier
+        
+        if event.key() == Qt.Key_Left:
+            self.navigate_to_replica_in_direction(-1)
+        elif event.key() == Qt.Key_Right:
+            self.navigate_to_replica_in_direction(1)
+        elif event.key() == Qt.Key_Up and is_ctrl:
+            self.navigate_to_replica_in_direction(-1)
+        elif event.key() == Qt.Key_Down and is_ctrl:
+            self.navigate_to_replica_in_direction(1)
+        else:
+            super().keyPressEvent(event)
 
     def handle_text_edited(self, line_id, new_text):
         """Обновляет текст реплики в памяти и помечает изменения для сохранения"""
@@ -1248,8 +1738,14 @@ class TeleprompterWindow(QDialog):
         return []
 
     def closeEvent(self, event):
+        # Горячие клавиши управляются на уровне приложения
         if self.osc_thread:
             self.osc_thread.stop()
+
+        # Закрываем плавающее окно если открыто
+        if hasattr(self, 'float_window') and self.float_window:
+            self.float_window.close()
+            self.float_window = None
 
         if self._has_text_changes:
             reply = QMessageBox.question(
@@ -1299,6 +1795,9 @@ class HtmlLivePreview(QDialog):
             self.bridge = WebBridge(self.main_app)
             self.channel.registerObject("backend", self.bridge)
             self.browser.page().setWebChannel(self.channel)
+
+        # Используем глобальный менеджер горячих клавиш приложения
+        self.setup_global_hotkeys()
 
         self.update_preview()
 
@@ -1413,6 +1912,39 @@ class HtmlLivePreview(QDialog):
         else:
             self.lbl_h_count.setText("0 / 0")
 
+    def setup_global_hotkeys(self):
+        """Настройка глобальных горячих клавиш для навигации по репликам"""
+        if not PYNPUT_AVAILABLE:
+            print("pynput не доступен, используются только локальные горячие клавиши")
+            return
+
+        try:
+            # Используем глобальный менеджер приложения
+            if self.main_app.global_hotkey_manager is None:
+                self.main_app.global_hotkey_manager = GlobalHotkeyManager(self.main_app)
+            
+            # По умолчанию: Alt+Left для назад, Alt+Right для вперед
+            prev_key_str = "alt+left"
+            next_key_str = "alt+right"
+
+            # Регистрируем горячие клавиши
+            self.main_app.global_hotkey_manager.register_hotkey("prev", prev_key_str, self.go_prev_hotkey)
+            self.main_app.global_hotkey_manager.register_hotkey("next", next_key_str, self.go_next_hotkey)
+
+            # Запускаем прослушивание если ещё не запущено
+            if not self.main_app.global_hotkey_manager._running:
+                QTimer.singleShot(100, self.main_app.global_hotkey_manager.start)
+        except Exception as e:
+            print(f"Ошибка настройки глобальных горячих клавиш: {e}")
+
+    def go_prev_hotkey(self):
+        """Обработчик горячей клавиши 'назад'"""
+        QTimer.singleShot(0, lambda: self.scroll_to_highlight("prev"))
+
+    def go_next_hotkey(self):
+        """Обработчик горячей клавиши 'вперед'"""
+        QTimer.singleShot(0, lambda: self.scroll_to_highlight("next"))
+
     def scroll_to_highlight(self, direction):
         js_get_total = "document.querySelectorAll('.highlighted-block').length"
         
@@ -1502,7 +2034,25 @@ class HtmlLivePreview(QDialog):
             if self.main_app.save_episode_to_ass(self.ep_num, fn):
                 QMessageBox.information(self, "Успех", f"Копия сохранена:\n{fn}")
 
+    def keyPressEvent(self, event):
+        # Навигация клавишами (Alt+Left/Right или просто стрелки)
+        modifiers = event.modifiers()
+        is_alt = modifiers & Qt.AltModifier
+        
+        if event.key() == Qt.Key_Left or (event.key() == Qt.Key_Left and is_alt):
+            self.scroll_to_highlight("prev")
+        elif event.key() == Qt.Key_Right or (event.key() == Qt.Key_Right and is_alt):
+            self.scroll_to_highlight("next")
+        elif event.key() == Qt.Key_Up and is_alt:
+            self.scroll_to_highlight("prev")
+        elif event.key() == Qt.Key_Down and is_alt:
+            self.scroll_to_highlight("next")
+        else:
+            super().keyPressEvent(event)
+
     def closeEvent(self, event):
+        # Горячие клавиши управляются на уровне приложения
+        
         # Проверяем только реальные изменения текста в этом окне предпросмотра,
         # а не глобальный флаг is_dirty который может быть установлен изменениями отображения
         if self._has_text_changes:
@@ -1584,6 +2134,115 @@ class GlobalSearchDialog(QDialog):
     def go_to_result(self, row, col):
         ep_num = self.table.item(row, 0).data(Qt.UserRole)
         if self.main_app: self.main_app.switch_to_episode(ep_num)
+
+# --- НАСТРОЙКА ГОРЯЧИХ КЛАВИШ ---
+class HotkeySettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Настройка горячих клавиш")
+        self.resize(500, 400)
+        self.main_app = parent
+        
+        layout = QVBoxLayout(self)
+        
+        # Заголовок
+        layout.addWidget(QLabel("<b>Глобальные горячие клавиши</b>"))
+        
+        if not PYNPUT_AVAILABLE:
+            info_label = QLabel("⚠️ Глобальные горячие клавиши недоступны на macOS из-за ограничений системы.")
+            info_label.setStyleSheet("color: #d9534f; font-weight: bold;")
+            info_label.setWordWrap(True)
+            layout.addWidget(info_label)
+            
+            layout.addWidget(QLabel("\nЛокальные горячие клавиши работают, когда окно активно:"))
+        
+        # Секция телесуфлёра
+        tp_group = QGroupBox("Телесуфлёр")
+        tp_layout = QFormLayout(tp_group)
+        
+        # Получаем текущие настройки
+        prompter_cfg = self.main_app.data.get("prompter_config", {})
+        
+        self.tp_prev_edit = QKeySequenceEdit()
+        self.tp_prev_edit.setKeySequence(QKeySequence(f"Ctrl+{prompter_cfg.get('key_prev', 'Left')}"))
+        tp_layout.addRow("Назад:", self.tp_prev_edit)
+        
+        self.tp_next_edit = QKeySequenceEdit()
+        self.tp_next_edit.setKeySequence(QKeySequence(f"Ctrl+{prompter_cfg.get('key_next', 'Right')}"))
+        tp_layout.addRow("Вперёд:", self.tp_next_edit)
+        
+        layout.addWidget(tp_group)
+        
+        # Секция предпросмотра
+        preview_group = QGroupBox("Монтажный лист (HtmlLivePreview)")
+        preview_layout = QFormLayout(preview_group)
+        
+        self.preview_prev_edit = QKeySequenceEdit()
+        self.preview_prev_edit.setKeySequence(QKeySequence("Alt+Left"))
+        preview_layout.addRow("Назад:", self.preview_prev_edit)
+        
+        self.preview_next_edit = QKeySequenceEdit()
+        self.preview_next_edit.setKeySequence(QKeySequence("Alt+Right"))
+        preview_layout.addRow("Вперёд:", self.preview_next_edit)
+        
+        layout.addWidget(preview_group)
+        
+        # Информация
+        info = QLabel("\nПримечание: Глобальные горячие клавиши работают даже когда окно не в фокусе (только Windows/Linux).")
+        info.setWordWrap(True)
+        info.setStyleSheet("color: #666; font-size: 11px;")
+        layout.addWidget(info)
+        
+        # Кнопки
+        btn_box = QHBoxLayout()
+        btn_box.addStretch()
+        
+        btn_reset = QPushButton("Сбросить")
+        btn_reset.clicked.connect(self.reset_to_defaults)
+        btn_box.addWidget(btn_reset)
+        
+        btn_save = QPushButton("Сохранить")
+        btn_save.clicked.connect(self.save_and_close)
+        btn_box.addWidget(btn_save)
+        
+        btn_cancel = QPushButton("Отмена")
+        btn_cancel.clicked.connect(self.reject)
+        btn_box.addWidget(btn_cancel)
+        
+        layout.addLayout(btn_box)
+    
+    def reset_to_defaults(self):
+        self.tp_prev_edit.setKeySequence(QKeySequence("Ctrl+Left"))
+        self.tp_next_edit.setKeySequence(QKeySequence("Ctrl+Right"))
+        self.preview_prev_edit.setKeySequence(QKeySequence("Alt+Left"))
+        self.preview_next_edit.setKeySequence(QKeySequence("Alt+Right"))
+    
+    def save_and_close(self):
+        # Сохраняем настройки телесуфлёра
+        if "prompter_config" not in self.main_app.data:
+            self.main_app.data["prompter_config"] = {}
+        
+        cfg = self.main_app.data["prompter_config"]
+        
+        # Извлекаем клавиши из QKeySequenceEdit
+        seq_prev = self.tp_prev_edit.keySequence().toString()
+        seq_next = self.tp_next_edit.keySequence().toString()
+        
+        def extract_key(seq):
+            parts = seq.split('+')
+            return parts[-1] if parts else "Left"
+        
+        cfg["key_prev"] = extract_key(seq_prev)
+        cfg["key_next"] = extract_key(seq_next)
+        
+        self.main_app.set_dirty(True)
+        
+        # Перенастраиваем горячие клавиши если телесуфлёр открыт
+        if self.main_app.teleprompter_window and hasattr(self.main_app.teleprompter_window, 'setup_global_hotkeys'):
+            self.main_app.teleprompter_window.setup_global_hotkeys()
+        
+        QMessageBox.information(self, "Готово", "Настройки горячих клавиш сохранены!")
+        self.accept()
 
 # --- ЦВЕТА ---
 class CustomColorDialog(QDialog):
@@ -1855,7 +2514,9 @@ class DubbingApp(QMainWindow):
         self.sort_col = 1
         self.sort_desc = True
         self.preview_window = None
-        self.teleprompter_window = None 
+        self.teleprompter_window = None
+        # Глобальный менеджер горячих клавиш (один на всё приложение)
+        self.global_hotkey_manager = None 
         
         self.data = {
             "project_name": "Новый проект", 
@@ -2038,11 +2699,15 @@ class DubbingApp(QMainWindow):
         b_live_html = QPushButton("📃 Монтажный лист")
         b_live_html.clicked.connect(self.open_live_preview)
         tools_sidebar_layout.addWidget(b_live_html)
-        
+
         b_prompter = QPushButton("🎤 Телесуфлёр")
         b_prompter.clicked.connect(self.open_teleprompter)
         tools_sidebar_layout.addWidget(b_prompter)
-        
+
+        b_hotkeys = QPushButton("⌨ Горячие клавиши")
+        b_hotkeys.clicked.connect(self.open_hotkey_settings)
+        tools_sidebar_layout.addWidget(b_hotkeys)
+
         b_reaper = QPushButton("🎹 Reaper RPP")
         b_reaper.clicked.connect(self.export_to_reaper_rpp)
         tools_sidebar_layout.addWidget(b_reaper)
@@ -2247,6 +2912,10 @@ class DubbingApp(QMainWindow):
         if not ep: QMessageBox.information(self, "Инфо", "Выберите серию."); return
         if self.teleprompter_window is not None: self.teleprompter_window.close()
         self.teleprompter_window = TeleprompterWindow(self, ep); self.teleprompter_window.show()
+
+    def open_hotkey_settings(self):
+        """Открытие диалога настройки горячих клавиш"""
+        HotkeySettingsDialog(self).exec()
 
     def set_dirty(self, d=True): self.is_dirty = d; self.update_window_title()
     def update_window_title(self):
