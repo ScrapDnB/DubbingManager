@@ -12,6 +12,11 @@ from typing import List, Dict, Any, Optional
 import os
 import logging
 
+from config.constants import (
+    VIDEO_WINDOW_WIDTH,
+    VIDEO_WINDOW_HEIGHT,
+    VIDEO_WIDGET_MIN_HEIGHT,
+)
 from utils.helpers import format_seconds_to_tc, customize_table
 
 logger = logging.getLogger(__name__)
@@ -29,7 +34,7 @@ class VideoPreviewWindow(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle(f"Просмотр: Серия {ep_num}")
-        self.resize(1000, 800)
+        self.resize(VIDEO_WINDOW_WIDTH, VIDEO_WINDOW_HEIGHT)
         self.video_path = video_path
         self.lines = lines
         
@@ -41,10 +46,10 @@ class VideoPreviewWindow(QDialog):
     
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
-        
+
         # Виджет видео
         self.video_widget = QVideoWidget()
-        self.video_widget.setMinimumHeight(400)
+        self.video_widget.setMinimumHeight(VIDEO_WIDGET_MIN_HEIGHT)
         layout.addWidget(self.video_widget)
         
         # Плеер

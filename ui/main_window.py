@@ -30,8 +30,22 @@ except ImportError:
     logger = logging.getLogger(__name__)
     logger.warning("openpyxl not available - Excel export disabled")
 
-from config.constants import MY_PALETTE, DEFAULT_PROMPTER_CONFIG, DEFAULT_EXPORT_CONFIG
-from core.models import PrompterConfig, ExportConfig
+from config.constants import (
+    MY_PALETTE,
+    DEFAULT_PROMPTER_CONFIG,
+    DEFAULT_EXPORT_CONFIG,
+    MAIN_WINDOW_WIDTH,
+    MAIN_WINDOW_HEIGHT,
+    ACTOR_PANEL_WIDTH,
+    TOOLS_SIDEBAR_WIDTH,
+    SEARCH_EDIT_WIDTH,
+    EPISODE_COMBO_MIN_WIDTH,
+    BTN_RENAME_WIDTH,
+    BTN_SAVE_ASS_WIDTH,
+    TABLE_ROW_HEIGHT,
+    VIDEO_BTN_WIDTH,
+    AUTOSAVE_INTERVAL_MS,
+)
 from utils.helpers import (
     ass_time_to_seconds,
     format_seconds_to_tc,
@@ -70,7 +84,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Dubbing Manager")
-        self.resize(1350, 850)
+        self.resize(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
         self.setAcceptDrops(True)
 
         # Сервисы
@@ -99,7 +113,7 @@ class MainWindow(QMainWindow):
         # Автосохранение
         self.autosave_timer = QTimer(self)
         self.autosave_timer.timeout.connect(self._on_autosave_timer)
-        self.autosave_timer.start(300000)  # 5 минут
+        self.autosave_timer.start(AUTOSAVE_INTERVAL_MS)
 
     def _on_autosave_timer(self) -> None:
         """Обработчик таймера автосохранения"""
@@ -121,7 +135,7 @@ class MainWindow(QMainWindow):
         """Инициализация панели актёров"""
         left_panel = QVBoxLayout()
         left_widget = QFrame()
-        left_widget.setFixedWidth(350)
+        left_widget.setFixedWidth(ACTOR_PANEL_WIDTH)
         left_widget.setFrameShape(QFrame.StyledPanel)
         left_widget.setLayout(left_panel)
         
@@ -193,24 +207,24 @@ class MainWindow(QMainWindow):
     def _init_episode_controls(self, layout) -> None:
         """Инициализация управления сериями"""
         ep_ctrl = QHBoxLayout()
-        
+
         self.ep_combo = QComboBox()
-        self.ep_combo.setMinimumWidth(120)
+        self.ep_combo.setMinimumWidth(EPISODE_COMBO_MIN_WIDTH)
         self.ep_combo.currentIndexChanged.connect(self.change_episode)
         ep_ctrl.addWidget(QLabel("Серия:"))
         ep_ctrl.addWidget(self.ep_combo)
-        
+
         btn_ren = QPushButton("✎")
-        btn_ren.setFixedWidth(30)
+        btn_ren.setFixedWidth(BTN_RENAME_WIDTH)
         btn_ren.clicked.connect(self.rename_episode)
         ep_ctrl.addWidget(btn_ren)
         
         btn_ass = QPushButton("+ .ASS")
         btn_ass.clicked.connect(lambda: self.import_ass())
         ep_ctrl.addWidget(btn_ass)
-        
+
         self.btn_save_ass = QPushButton()
-        self.btn_save_ass.setFixedWidth(120)
+        self.btn_save_ass.setFixedWidth(BTN_SAVE_ASS_WIDTH)
         self.btn_save_ass.clicked.connect(self.save_current_episode_ass)
         self.update_save_ass_button()
         ep_ctrl.addWidget(self.btn_save_ass)
@@ -224,10 +238,10 @@ class MainWindow(QMainWindow):
         ep_ctrl.addWidget(btn_ep_sum)
         
         ep_ctrl.addStretch()
-        
+
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Поиск...")
-        self.search_edit.setFixedWidth(160)
+        self.search_edit.setFixedWidth(SEARCH_EDIT_WIDTH)
         self.search_edit.textChanged.connect(self.refresh_main_table)
         ep_ctrl.addWidget(self.search_edit)
         
@@ -294,7 +308,7 @@ class MainWindow(QMainWindow):
     def _init_tools_sidebar(self, layout) -> None:
         """Инициализация панели инструментов"""
         tools_sidebar_widget = QWidget()
-        tools_sidebar_widget.setFixedWidth(160)
+        tools_sidebar_widget.setFixedWidth(TOOLS_SIDEBAR_WIDTH)
         tools_sidebar_layout = QVBoxLayout(tools_sidebar_widget)
         tools_sidebar_layout.setContentsMargins(5, 0, 0, 0)
         
@@ -740,9 +754,9 @@ class MainWindow(QMainWindow):
                 lambda _, c=stat["name"], b=combo: self.update_map(c, b)
             )
             self.main_table.setCellWidget(row, 4, combo)
-            
+
             btn = QPushButton("📺")
-            btn.setFixedWidth(40)
+            btn.setFixedWidth(VIDEO_BTN_WIDTH)
             btn.clicked.connect(
                 lambda ch=False, c=stat["name"]: self.open_preview(c)
             )

@@ -19,7 +19,36 @@ from typing import Dict, List, Any, Optional, Set, Tuple, Union
 import math
 import logging
 
-from config.constants import DEFAULT_PROMPTER_CONFIG
+from config.constants import (
+    DEFAULT_PROMPTER_CONFIG,
+    PROMPTER_WINDOW_WIDTH,
+    PROMPTER_WINDOW_HEIGHT,
+    PROMPTER_FLOAT_WINDOW_WIDTH,
+    PROMPTER_FLOAT_WINDOW_HEIGHT,
+    EDIT_TEXT_DIALOG_WIDTH,
+    EDIT_TEXT_DIALOG_HEIGHT,
+    PROMPTER_SIDE_PANEL_MIN_WIDTH,
+    PROMPTER_V_SPLITTER_SIZES,
+    PROMPTER_H_SPLITTER_SIZES,
+    PROMPTER_SIDE_MIN_WIDTH,
+    PROMPTER_SIDE_MAX_WIDTH,
+    PROMPTER_SCENE_WIDTH,
+    PROMPTER_SCENE_CENTER_X,
+    PROMPTER_FONT_MIN_SIZE,
+    PROMPTER_FONT_TC_MAX,
+    PROMPTER_FONT_CHAR_MAX,
+    PROMPTER_FONT_ACTOR_MAX,
+    PROMPTER_FONT_TEXT_MAX,
+    PROMPTER_FOCUS_SLIDER_MAX,
+    PROMPTER_SCROLL_SMOOTHNESS_MAX,
+    PROMPTER_SCROLL_SMOOTHNESS_SCALE,
+    PROMPTER_TIMECODE_Y_CURSOR,
+    PROMPTER_SCENE_EXTRA_HEIGHT,
+    SCROLL_TIMEOUT_MS,
+    SCROLL_THRESHOLD_TOP,
+    SCROLL_THRESHOLD_BOTTOM,
+    PROMPTER_NAV_BUTTON_MIN_WIDTH,
+)
 from services.osc_worker import OscWorker, OSC_AVAILABLE
 from services.hotkey_manager import GlobalHotkeyManager, PYNPUT_AVAILABLE
 from utils.helpers import ass_time_to_seconds, format_seconds_to_tc
@@ -117,7 +146,7 @@ class EditTextDialog(QDialog):
     def __init__(self, parent=None, initial_text: str = ""):
         super().__init__(parent)
         self.setWindowTitle("Редактирование реплики")
-        self.resize(600, 400)
+        self.resize(EDIT_TEXT_DIALOG_WIDTH, EDIT_TEXT_DIALOG_HEIGHT)
         
         layout = QVBoxLayout(self)
         self.text_edit = QTextEdit()
@@ -176,7 +205,7 @@ class TeleprompterFloatWindow(QDialog):
             Qt.WindowCloseButtonHint
         )
         self.setAttribute(Qt.WA_MacAlwaysShowToolWindow)
-        self.resize(300, 400)
+        self.resize(PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT)
         
         self._init_ui()
     
@@ -268,7 +297,7 @@ class TeleprompterWindow(QDialog):
         self.main_app = main_app
         self.ep_num = ep_num
         self.setWindowTitle(f"Телесуфлёр - Серия {ep_num}")
-        self.resize(1200, 900)
+        self.resize(PROMPTER_WINDOW_WIDTH, PROMPTER_WINDOW_HEIGHT)
         
         # Инициализация настроек
         self._init_config()
@@ -342,16 +371,16 @@ class TeleprompterWindow(QDialog):
         self.toolbar.addWidget(self.btn_toggle_settings)
         
         self.toolbar.addSeparator()
-        
+
         self.btn_go_prev = QPushButton("⏮ Предыдущая реплика")
-        self.btn_go_prev.setMinimumWidth(160)
+        self.btn_go_prev.setMinimumWidth(PROMPTER_NAV_BUTTON_MIN_WIDTH)
         self.btn_go_prev.clicked.connect(
             lambda: self.navigate_to_replica_in_direction(-1)
         )
         self.toolbar.addWidget(self.btn_go_prev)
-        
+
         self.btn_go_next = QPushButton("Следующая реплика ⏭")
-        self.btn_go_next.setMinimumWidth(160)
+        self.btn_go_next.setMinimumWidth(PROMPTER_NAV_BUTTON_MIN_WIDTH)
         self.btn_go_next.clicked.connect(
             lambda: self.navigate_to_replica_in_direction(1)
         )
@@ -418,19 +447,19 @@ class TeleprompterWindow(QDialog):
         self.prompter_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.prompter_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.h_splitter.addWidget(self.prompter_view)
-        
+
         self.v_splitter.addWidget(self.h_splitter)
         self.root_layout.addWidget(self.v_splitter)
-        
+
         # Начальные размеры
         self.header_panel.setVisible(self.cfg["show_header"])
-        self.v_splitter.setSizes([100, 800])
-        self.h_splitter.setSizes([320, 900])
+        self.v_splitter.setSizes(PROMPTER_V_SPLITTER_SIZES)
+        self.h_splitter.setSizes(PROMPTER_H_SPLITTER_SIZES)
     
     def _init_side_panel(self) -> None:
         """Инициализация боковой панели настроек"""
         self.side_panel_widget = QWidget()
-        self.side_panel_widget.setMinimumWidth(320)
+        self.side_panel_widget.setMinimumWidth(PROMPTER_SIDE_PANEL_MIN_WIDTH)
         self.side_layout = QVBoxLayout(self.side_panel_widget)
         
         # Скролл для настроек
@@ -473,21 +502,21 @@ class TeleprompterWindow(QDialog):
         """Настройка шрифтов"""
         fonts_section = CollapsibleSection("Размеры шрифтов элементов")
         fonts_form = QFormLayout()
-        
+
         self.spin_font_tc = QSpinBox()
-        self.spin_font_tc.setRange(10, 150)
+        self.spin_font_tc.setRange(PROMPTER_FONT_MIN_SIZE, PROMPTER_FONT_TC_MAX)
         self.spin_font_tc.setValue(self.cfg["f_tc"])
-        
+
         self.spin_font_char = QSpinBox()
-        self.spin_font_char.setRange(10, 150)
+        self.spin_font_char.setRange(PROMPTER_FONT_MIN_SIZE, PROMPTER_FONT_CHAR_MAX)
         self.spin_font_char.setValue(self.cfg["f_char"])
-        
+
         self.spin_font_actor = QSpinBox()
-        self.spin_font_actor.setRange(10, 150)
+        self.spin_font_actor.setRange(PROMPTER_FONT_MIN_SIZE, PROMPTER_FONT_ACTOR_MAX)
         self.spin_font_actor.setValue(self.cfg["f_actor"])
-        
+
         self.spin_font_text = QSpinBox()
-        self.spin_font_text.setRange(10, 300)
+        self.spin_font_text.setRange(PROMPTER_FONT_MIN_SIZE, PROMPTER_FONT_TEXT_MAX)
         self.spin_font_text.setValue(self.cfg["f_text"])
         
         for s in [
@@ -507,10 +536,10 @@ class TeleprompterWindow(QDialog):
         """Настройка позиции линии чтения"""
         focus_section = CollapsibleSection("Позиция линии чтения")
         focus_layout = QVBoxLayout()
-        
+
         self.slider_focus_pos = QSlider(Qt.Horizontal)
-        self.slider_focus_pos.setRange(10, 90)
-        self.slider_focus_pos.setValue(int(self.cfg["focus_ratio"] * 100))
+        self.slider_focus_pos.setRange(10, PROMPTER_FOCUS_SLIDER_MAX)
+        self.slider_focus_pos.setValue(int(self.cfg["focus_ratio"] * PROMPTER_SCROLL_SMOOTHNESS_SCALE))
         self.slider_focus_pos.valueChanged.connect(
             self.handle_focus_ratio_change
         )
@@ -529,15 +558,15 @@ class TeleprompterWindow(QDialog):
         """Настройка прокрутки"""
         scroll_section = CollapsibleSection("Прокрутка")
         sg_layout = QVBoxLayout()
-        
+
         self.slider_scroll_smoothness = QSlider(Qt.Horizontal)
-        self.slider_scroll_smoothness.setRange(0, 100)
-        
+        self.slider_scroll_smoothness.setRange(0, PROMPTER_SCROLL_SMOOTHNESS_MAX)
+
         if "scroll_smoothness_slider" in self.cfg:
             init_val = int(self.cfg.get("scroll_smoothness_slider", 18))
         else:
-            init_val = int(round(self.cfg.get("scroll_smoothness", 0.18) * 100))
-        
+            init_val = int(round(self.cfg.get("scroll_smoothness", 0.18) * PROMPTER_SCROLL_SMOOTHNESS_SCALE))
+
         self.slider_scroll_smoothness.setValue(init_val)
         self.slider_scroll_smoothness.valueChanged.connect(
             self.handle_scroll_smoothness_change

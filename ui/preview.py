@@ -19,6 +19,11 @@ except ImportError:
     from PySide6.QtWidgets import QTextBrowser as QWebEngineView
     WEB_ENGINE_AVAILABLE = False
 
+from config.constants import (
+    PREVIEW_WINDOW_WIDTH,
+    PREVIEW_WINDOW_HEIGHT,
+    PREVIEW_SETTINGS_PANEL_WIDTH,
+)
 from utils.helpers import hex_to_rgba_string
 from services.hotkey_manager import GlobalHotkeyManager, PYNPUT_AVAILABLE
 from .dialogs.actor_filter import ActorFilterDialog
@@ -109,7 +114,7 @@ class HtmlLivePreview(QDialog):
         self.main_app = main_app
         self.ep_num = ep_num
         self.setWindowTitle(f"Предпросмотр монтажного листа: Серия {ep_num}")
-        self.resize(1200, 900)
+        self.resize(PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT)
         
         self.highlight_ids: Optional[List[str]] = None
         self.current_h_index = -1
@@ -169,10 +174,10 @@ class HtmlLivePreview(QDialog):
         # Контент
         self.content_layout = QHBoxLayout()
         self.root_layout.addLayout(self.content_layout)
-        
+
         # Панель настроек
         self.settings_panel = QFrame()
-        self.settings_panel.setFixedWidth(280)
+        self.settings_panel.setFixedWidth(PREVIEW_SETTINGS_PANEL_WIDTH)
         self.settings_panel.setFrameShape(QFrame.StyledPanel)
         sp_layout = QVBoxLayout(self.settings_panel)
         

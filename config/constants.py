@@ -1,11 +1,119 @@
 """Константы приложения Dubbing Manager"""
 
+# =============================================================================
+# ПАЛИТРА И ЦВЕТА
+# =============================================================================
+
 MY_PALETTE = [
     "#D9775F", "#E46C0A", "#9B5333", "#C0504D", "#C4BD97",
     "#D4A017", "#938953", "#8A7F80", "#76923C", "#4F6228",
     "#31859B", "#669999", "#4F81BD", "#5B9BD5", "#2C4D75",
     "#708090", "#B65C72", "#8064A2", "#5F497A", "#7B3F61"
 ]
+
+# =============================================================================
+# КОНСТАНТЫ UI — ГЛАВНОЕ ОКНО
+# =============================================================================
+
+# Размеры главного окна
+MAIN_WINDOW_WIDTH = 1350
+MAIN_WINDOW_HEIGHT = 850
+
+# Панели главного окна
+ACTOR_PANEL_WIDTH = 350
+TOOLS_SIDEBAR_WIDTH = 160
+
+# Поисковая строка
+SEARCH_EDIT_WIDTH = 160
+
+# Кнопки
+EPISODE_COMBO_MIN_WIDTH = 120
+BTN_RENAME_WIDTH = 30
+BTN_SAVE_ASS_WIDTH = 120
+
+# Таблицы
+TABLE_ROW_HEIGHT = 32
+VIDEO_BTN_WIDTH = 40
+
+# =============================================================================
+# КОНСТАНТЫ UI — ТЕЛЕСУФЛЁР
+# =============================================================================
+
+# Размеры окна
+PROMPTER_WINDOW_WIDTH = 1200
+PROMPTER_WINDOW_HEIGHT = 900
+PROMPTER_FLOAT_WINDOW_WIDTH = 300
+PROMPTER_FLOAT_WINDOW_HEIGHT = 400
+EDIT_TEXT_DIALOG_WIDTH = 600
+EDIT_TEXT_DIALOG_HEIGHT = 400
+
+# Панели
+PROMPTER_SETTINGS_PANEL_MIN_WIDTH = 320
+PROMPTER_SIDE_PANEL_MIN_WIDTH = 320
+PROMPTER_SETTINGS_WIDTH = 280
+PROMPTER_NAV_BUTTON_MIN_WIDTH = 160
+
+# Сплиттеры
+PROMPTER_V_SPLITTER_SIZES = [100, 800]
+PROMPTER_H_SPLITTER_SIZES = [320, 900]
+PROMPTER_SIDE_MIN_WIDTH = 200
+PROMPTER_SIDE_MAX_WIDTH = 420
+PROMPTER_SCENE_WIDTH = 850
+PROMPTER_SCENE_CENTER_X = 425
+
+# Шрифты (диапазоны)
+PROMPTER_FONT_MIN_SIZE = 10
+PROMPTER_FONT_TC_MAX = 150
+PROMPTER_FONT_CHAR_MAX = 150
+PROMPTER_FONT_ACTOR_MAX = 150
+PROMPTER_FONT_TEXT_MAX = 300
+
+# Слайдеры
+PROMPTER_FOCUS_SLIDER_MAX = 100
+PROMPTER_SCROLL_SMOOTHNESS_MAX = 100
+PROMPTER_SCROLL_SMOOTHNESS_SCALE = 100
+
+# Тайм-коды
+PROMPTER_TIMECODE_Y_CURSOR = 1000.0
+PROMPTER_SCENE_EXTRA_HEIGHT = 1000
+
+# =============================================================================
+# КОНСТАНТЫ UI — ПРЕДПРОСМОТР
+# =============================================================================
+
+PREVIEW_WINDOW_WIDTH = 1200
+PREVIEW_WINDOW_HEIGHT = 900
+PREVIEW_SETTINGS_PANEL_WIDTH = 280
+
+# =============================================================================
+# КОНСТАНТЫ UI — ВИДЕО
+# =============================================================================
+
+VIDEO_WINDOW_WIDTH = 1000
+VIDEO_WINDOW_HEIGHT = 800
+VIDEO_WIDGET_MIN_HEIGHT = 400
+
+# =============================================================================
+# КОНСТАНТЫ UI — ОБЩИЕ
+# =============================================================================
+
+# Отступы и поля
+DEFAULT_MARGIN = 5
+DEFAULT_SPACING = 4
+HEADER_MARGIN = (8, 6, 8, 6)  # left, top, right, bottom
+CONTENT_MARGIN = (8, 0, 8, 8)
+
+# Таймеры
+AUTOSAVE_INTERVAL_MS = 300000  # 5 минут
+SCROLL_TIMEOUT_MS = 50
+
+# Пороги
+SCROLL_THRESHOLD_TOP = 50
+SCROLL_THRESHOLD_BOTTOM = 160
+
+# =============================================================================
+# КОНФИГУРАЦИЯ ПО УМОЛЧАНИЮ
+# =============================================================================
 
 # Настройки суфлёра по умолчанию
 DEFAULT_PROMPTER_CONFIG = {

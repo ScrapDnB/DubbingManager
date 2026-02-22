@@ -7,6 +7,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Import UI constants
+try:
+    from config.constants import TABLE_ROW_HEIGHT
+except ImportError:
+    TABLE_ROW_HEIGHT = 32  # Default fallback
+
 
 def ass_time_to_seconds(time_str: str) -> float:
     """Конвертация ASS времени в секунды"""
@@ -38,14 +44,14 @@ def hex_to_rgba_string(hex_code: str, alpha: float) -> str:
 def customize_table(table) -> None:
     """Настройка нативного вида таблиц"""
     from PySide6.QtWidgets import QAbstractItemView, QFrame, QHeaderView
-    
+
     table.setShowGrid(False)
     table.setAlternatingRowColors(True)
     table.setSelectionBehavior(QAbstractItemView.SelectRows)
     table.setSelectionMode(QAbstractItemView.ExtendedSelection)
     table.setFrameShape(QFrame.NoFrame)
     table.verticalHeader().setVisible(False)
-    table.verticalHeader().setDefaultSectionSize(32)
+    table.verticalHeader().setDefaultSectionSize(TABLE_ROW_HEIGHT)
     table.horizontalHeader().setHighlightSections(False)
     table.setStyleSheet("QTableWidget::item { padding-left: 10px; }")
 
