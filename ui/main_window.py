@@ -1,0 +1,1837 @@
+"""Главное окно приложения"""
+
+from PySide6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QFileDialog, QTableWidget, QTableWidgetItem,
+    QColorDialog, QComboBox, QLabel, QHeaderView, QInputDialog,
+    QFrame, QSpinBox, QLineEdit, QListWidget, QListWidgetItem,
+    QCheckBox, QGroupBox, QFormLayout, QMessageBox, QSlider,
+    QAbstractItemView, QStackedWidget, QDoubleSpinBox, QRadioButton,
+    QGridLayout, QScrollArea, QSplitter, QSizePolicy, QToolBar,
+    QDialogButtonBox, QTextEdit
+)
+from PySide6.QtGui import QColor, QFont, QAction, QKeySequence, QPen, QBrush
+from PySide6.QtCore import Qt, QUrl, QTimer, Signal, QRectF, QEvent, Slot
+from typing import Dict, List, Any, Optional, Set, Tuple
+import json
+import re
+import os
+import sys
+from datetime import datetime
+import logging
+
+try:
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("openpyxl not available - Excel export disabled")
+
+from config.constants import MY_PALETTE, DEFAULT_PROMPTER_CONFIG, DEFAULT_EXPORT_CONFIG
+from core.models import PrompterConfig, ExportConfig
+from utils.helpers import (
+    ass_time_to_seconds, 
+    format_seconds_to_tc, 
+    hex_to_rgba_string, 
+    customize_table, 
+    wrap_widget
+)
+from services.hotkey_manager import GlobalHotkeyManager, PYNPUT_AVAILABLE
+from .dialogs import (
+    ActorFilterDialog,
+    PrompterColorDialog,
+    CustomColorDialog,
+    ExportSettingsDialog,
+    HotkeySettingsDialog,
+    ReaperExportDialog,
+    ActorRolesDialog,
+    GlobalSearchDialog,
+    SummaryDialog
+)
+from .teleprompter import TeleprompterWindow
+from .preview import HtmlLivePreview
+from .video import VideoPreviewWindow
+
+logger = logging.getLogger(__name__)
+
+
+class MainWindow(QMainWindow):
+    """Главное окно приложения Dubbing Manager"""
+    
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Dubbing Manager")
+        self.resize(1350, 850)
+        self.setAcceptDrops(True)
+        
+        # Состояние
+        self.current_project_path: Optional[str] = None
+        self.is_dirty = False
+        self.sort_col = 1
+        self.sort_desc = True
+        self.preview_window: Optional[HtmlLivePreview] = None
+        self.teleprompter_window: Optional[TeleprompterWindow] = None
+        self.global_hotkey_manager: Optional[GlobalHotkeyManager] = None
+        
+        # Данные проекта
+        self.data: Dict[str, Any] = {
+            "project_name": "Новый проект",
+            "actors": {},
+            "global_map": {},
+            "episodes": {},
+            "video_paths": {},
+            "export_config": DEFAULT_EXPORT_CONFIG.copy(),
+            "prompter_config": DEFAULT_PROMPTER_CONFIG.copy()
+        }
+        
+        self.current_ep_stats: List[Dict[str, Any]] = []
+        self.character_names_changed: Dict[str, bool] = {}
+        
+        self._init_ui()
+        self.update_window_title()
+        
+        # Автосохранение
+        self.autosave_timer = QTimer(self)
+        self.autosave_timer.timeout.connect(self.auto_save)
+        self.autosave_timer.start(300000)  # 5 минут
+    
+    def _init_ui(self) -> None:
+        """Инициализация интерфейса"""
+        central = QWidget()
+        self.setCentralWidget(central)
+        main_layout = QHBoxLayout(central)
+        
+        # Левая панель - актёры
+        self._init_actor_panel(main_layout)
+        
+        # Правая панель - основной контент
+        self._init_main_panel(main_layout)
+    
+    def _init_actor_panel(self, main_layout) -> None:
+        """Инициализация панели актёров"""
+        left_panel = QVBoxLayout()
+        left_widget = QFrame()
+        left_widget.setFixedWidth(350)
+        left_widget.setFrameShape(QFrame.StyledPanel)
+        left_widget.setLayout(left_panel)
+        
+        left_panel.addWidget(QLabel("<b>БАЗА АКТЕРОВ</b>"))
+        
+        self.actor_table = QTableWidget(0, 3)
+        self.actor_table.setHorizontalHeaderLabels(
+            ["Актер", "Цвет", "Роли"]
+        )
+        customize_table(self.actor_table)
+        self.actor_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.Stretch
+        )
+        self.actor_table.itemChanged.connect(self.on_actor_renamed)
+        self.actor_table.cellClicked.connect(self.on_actor_cell_clicked)
+        left_panel.addWidget(self.actor_table)
+        
+        btn_add = QPushButton("+ Актер")
+        btn_add.clicked.connect(self.add_actor_dialog)
+        left_panel.addWidget(btn_add)
+        
+        btn_sum = QPushButton("📋 Сводный отчет проекта")
+        btn_sum.clicked.connect(self.show_project_summary)
+        left_panel.addWidget(btn_sum)
+        
+        main_layout.addWidget(left_widget)
+    
+    def _init_main_panel(self, main_layout) -> None:
+        """Инициализация основной панели"""
+        right_panel = QVBoxLayout()
+        
+        # Верхняя строка - проект
+        self._init_project_bar(right_panel)
+        
+        # Управление сериями
+        self._init_episode_controls(right_panel)
+        
+        # Центральная область - таблица + инструменты
+        self._init_center_area(right_panel)
+        
+        # Нижняя панель - экспорт
+        self._init_bottom_panel(right_panel)
+        
+        main_layout.addLayout(right_panel)
+    
+    def _init_project_bar(self, layout) -> None:
+        """Инициализация панели проекта"""
+        top = QHBoxLayout()
+        
+        self.proj_edit = QLineEdit()
+        self.proj_edit.textChanged.connect(self.on_project_name_changed)
+        top.addWidget(QLabel("Проект:"))
+        top.addWidget(self.proj_edit)
+        
+        btn_load = QPushButton("Открыть")
+        btn_load.clicked.connect(self.load_project_dialog)
+        top.addWidget(btn_load)
+        
+        btn_save = QPushButton("Сохранить")
+        btn_save.clicked.connect(self.save_project)
+        top.addWidget(btn_save)
+        
+        btn_copy = QPushButton("Копия")
+        btn_copy.clicked.connect(self.save_project_as)
+        top.addWidget(btn_copy)
+        
+        layout.addLayout(top)
+    
+    def _init_episode_controls(self, layout) -> None:
+        """Инициализация управления сериями"""
+        ep_ctrl = QHBoxLayout()
+        
+        self.ep_combo = QComboBox()
+        self.ep_combo.setMinimumWidth(120)
+        self.ep_combo.currentIndexChanged.connect(self.change_episode)
+        ep_ctrl.addWidget(QLabel("Серия:"))
+        ep_ctrl.addWidget(self.ep_combo)
+        
+        btn_ren = QPushButton("✎")
+        btn_ren.setFixedWidth(30)
+        btn_ren.clicked.connect(self.rename_episode)
+        ep_ctrl.addWidget(btn_ren)
+        
+        btn_ass = QPushButton("+ .ASS")
+        btn_ass.clicked.connect(lambda: self.import_ass())
+        ep_ctrl.addWidget(btn_ass)
+        
+        self.btn_save_ass = QPushButton()
+        self.btn_save_ass.setFixedWidth(120)
+        self.btn_save_ass.clicked.connect(self.save_current_episode_ass)
+        self.update_save_ass_button()
+        ep_ctrl.addWidget(self.btn_save_ass)
+        
+        btn_vid = QPushButton("🎬 Видео")
+        btn_vid.clicked.connect(self.set_episode_video)
+        ep_ctrl.addWidget(btn_vid)
+        
+        btn_ep_sum = QPushButton("📊 Отчет серии")
+        btn_ep_sum.clicked.connect(self.show_episode_summary)
+        ep_ctrl.addWidget(btn_ep_sum)
+        
+        ep_ctrl.addStretch()
+        
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Поиск...")
+        self.search_edit.setFixedWidth(160)
+        self.search_edit.textChanged.connect(self.refresh_main_table)
+        ep_ctrl.addWidget(self.search_edit)
+        
+        btn_glob_search = QPushButton("🔍 Глобальный поиск")
+        btn_glob_search.clicked.connect(self.open_global_search)
+        ep_ctrl.addWidget(btn_glob_search)
+        
+        self.filter_unassigned = QCheckBox("Пустые")
+        self.filter_unassigned.toggled.connect(self.refresh_main_table)
+        ep_ctrl.addWidget(self.filter_unassigned)
+        
+        layout.addLayout(ep_ctrl)
+    
+    def _init_center_area(self, layout) -> None:
+        """Инициализация центральной области"""
+        middle_layout = QHBoxLayout()
+        
+        # Стек таблиц
+        self.table_stack = QStackedWidget()
+        
+        self.main_table = QTableWidget(0, 6)
+        self.main_table.setHorizontalHeaderLabels([
+            "Персонаж", "Строчек", "Колец", "Слов", "Актер", "📺"
+        ])
+        customize_table(self.main_table)
+        self.main_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch
+        )
+        self.main_table.horizontalHeader().setSectionsClickable(True)
+        self.main_table.horizontalHeader().sectionClicked.connect(
+            self.on_header_clicked
+        )
+        self.main_table.itemChanged.connect(
+            self.on_character_name_changed
+        )
+        
+        self.missing_file_widget = QWidget()
+        mf_lay = QVBoxLayout(self.missing_file_widget)
+        
+        self.lbl_missing = QLabel("ФАЙЛ НЕ НАЙДЕН")
+        self.lbl_missing.setStyleSheet(
+            "color: red; font-weight: bold;"
+        )
+        self.lbl_missing.setAlignment(Qt.AlignCenter)
+        
+        btn_relink = QPushButton("Найти...")
+        btn_relink.clicked.connect(self.relink_file)
+        
+        mf_lay.addStretch()
+        mf_lay.addWidget(self.lbl_missing)
+        mf_lay.addWidget(btn_relink)
+        mf_lay.addStretch()
+        
+        self.table_stack.addWidget(self.main_table)
+        self.table_stack.addWidget(self.missing_file_widget)
+        
+        middle_layout.addWidget(self.table_stack, stretch=1)
+        
+        # Панель инструментов
+        self._init_tools_sidebar(middle_layout)
+        
+        layout.addLayout(middle_layout)
+    
+    def _init_tools_sidebar(self, layout) -> None:
+        """Инициализация панели инструментов"""
+        tools_sidebar_widget = QWidget()
+        tools_sidebar_widget.setFixedWidth(160)
+        tools_sidebar_layout = QVBoxLayout(tools_sidebar_widget)
+        tools_sidebar_layout.setContentsMargins(5, 0, 0, 0)
+        
+        tools_sidebar_layout.addWidget(QLabel("<b>Инструменты:</b>"))
+        
+        btn_all_v = QPushButton("📺 Просмотр серии")
+        btn_all_v.clicked.connect(lambda: self.open_preview(None))
+        tools_sidebar_layout.addWidget(btn_all_v)
+        
+        btn_live_html = QPushButton("📃 Монтажный лист")
+        btn_live_html.clicked.connect(self.open_live_preview)
+        tools_sidebar_layout.addWidget(btn_live_html)
+        
+        btn_prompter = QPushButton("🎤 Телесуфлёр")
+        btn_prompter.clicked.connect(self.open_teleprompter)
+        tools_sidebar_layout.addWidget(btn_prompter)
+        
+        btn_hotkeys = QPushButton("⌨ Горячие клавиши")
+        btn_hotkeys.clicked.connect(self.open_hotkey_settings)
+        tools_sidebar_layout.addWidget(btn_hotkeys)
+        
+        btn_reaper = QPushButton("🎹 Reaper RPP")
+        btn_reaper.clicked.connect(self.export_to_reaper_rpp)
+        tools_sidebar_layout.addWidget(btn_reaper)
+        
+        tools_sidebar_layout.addStretch()
+        layout.addWidget(tools_sidebar_widget)
+    
+    def _init_bottom_panel(self, layout) -> None:
+        """Инициализация нижней панели"""
+        bottom_panel = QHBoxLayout()
+        
+        btn_bulk = QPushButton("⚡ Назначить выделенным")
+        btn_bulk.clicked.connect(self.bulk_assign_actor)
+        bottom_panel.addWidget(btn_bulk)
+        
+        bottom_panel.addStretch()
+        
+        btn_cfg = QPushButton("⚙ Настройки")
+        btn_cfg.clicked.connect(self.open_export_settings)
+        bottom_panel.addWidget(btn_cfg)
+        
+        exp_group = QGroupBox("Экспорт")
+        exp_lay = QHBoxLayout(exp_group)
+        exp_lay.setContentsMargins(5, 5, 5, 5)
+        
+        self.chk_exp_html = QCheckBox("Лист")
+        self.chk_exp_html.setChecked(True)
+        
+        self.chk_exp_xls = QCheckBox("Excel")
+        
+        self.radio_cur = QRadioButton("Текущая")
+        self.radio_cur.setChecked(True)
+        
+        self.radio_all = QRadioButton("Все")
+        
+        self.btn_run_export = QPushButton("ЭКСПОРТ")
+        self.btn_run_export.clicked.connect(self.run_unified_export)
+        
+        exp_lay.addWidget(self.chk_exp_html)
+        exp_lay.addWidget(self.chk_exp_xls)
+        exp_lay.addSpacing(10)
+        exp_lay.addWidget(self.radio_cur)
+        exp_lay.addWidget(self.radio_all)
+        exp_lay.addSpacing(10)
+        exp_lay.addWidget(self.btn_run_export)
+        
+        bottom_panel.addWidget(exp_group)
+        layout.addLayout(bottom_panel)
+    
+    # === Методы работы с данными ===
+    
+    def set_dirty(self, dirty: bool = True) -> None:
+        """Установка флага изменений"""
+        self.is_dirty = dirty
+        self.update_window_title()
+    
+    def update_window_title(self) -> None:
+        """Обновление заголовка окна"""
+        title = "Dubbing Manager"
+        if self.current_project_path:
+            title += f" - {os.path.basename(self.current_project_path)}"
+        else:
+            title += " - [Новый]"
+        if self.is_dirty:
+            title += " *"
+        self.setWindowTitle(title)
+    
+    def maybe_save(self) -> bool:
+        """Проверка необходимости сохранения"""
+        if not self.is_dirty:
+            return True
+        
+        reply = QMessageBox.question(
+            self,
+            "Сохранить?",
+            "Сохранить изменения?",
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel
+        )
+        
+        if reply == QMessageBox.Save:
+            return self.save_project()
+        return reply == QMessageBox.Discard
+    
+    def auto_save(self) -> None:
+        """Автосохранение"""
+        if not self.is_dirty:
+            return
+        
+        if self.current_project_path:
+            path = self.current_project_path + ".bak"
+        else:
+            path = "temp_autosave.json.bak"
+        
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=4)
+            logger.debug(f"Auto-saved to {path}")
+        except Exception as e:
+            logger.error(f"Auto-save failed: {e}")
+    
+    def on_project_name_changed(self, text: str) -> None:
+        """Изменение имени проекта"""
+        self.data["project_name"] = text
+        self.set_dirty()
+    
+    # === Методы работы с персонажами ===
+    
+    def on_character_name_changed(self, item: QTableWidgetItem) -> None:
+        """Обработчик изменения имени персонажа"""
+        if item.column() != 0:
+            return
+        
+        ep = self.ep_combo.currentData()
+        if not ep:
+            return
+        
+        old_name = item.data(Qt.UserRole)
+        new_name = item.text().strip()
+        
+        if new_name == old_name or not new_name:
+            return
+        
+        self.get_episode_lines(ep)
+        
+        if old_name in self.data["global_map"]:
+            aid = self.data["global_map"][old_name]
+            del self.data["global_map"][old_name]
+            self.data["global_map"][new_name] = aid
+        
+        if ep in self.data.get("loaded_episodes", {}):
+            for line in self.data["loaded_episodes"][ep]:
+                if line['char'] == old_name:
+                    line['char'] = new_name
+        
+        for stat in self.current_ep_stats:
+            if stat["name"] == old_name:
+                stat["name"] = new_name
+                break
+        
+        item.setData(Qt.UserRole, new_name)
+        self.character_names_changed[ep] = True
+        self.update_save_ass_button()
+        self.refresh_actor_list()
+        self.set_dirty(True)
+    
+    def update_save_ass_button(self) -> None:
+        """Обновление кнопки сохранения ASS"""
+        ep = self.ep_combo.currentData()
+        has_changes = self.character_names_changed.get(ep, False)
+        
+        if has_changes:
+            self.btn_save_ass.setText("💾 Сохр.* ASS")
+            self.btn_save_ass.setStyleSheet(
+                "font-weight: bold; color: red;"
+            )
+        else:
+            self.btn_save_ass.setText("💾 Сохранить")
+            self.btn_save_ass.setStyleSheet("")
+    
+    def save_current_episode_ass(self) -> None:
+        """Сохранение текущей серии в ASS"""
+        ep = self.ep_combo.currentData()
+        if not ep:
+            QMessageBox.warning(self, "Ошибка", "Выберите серию.")
+            return
+        
+        if self.save_episode_to_ass(ep):
+            self.character_names_changed[ep] = False
+            self.update_save_ass_button()
+            QMessageBox.information(
+                self, "Успех", f"Серия {ep} сохранена в ASS файл."
+            )
+    
+    # === Методы работы с проектом ===
+    
+    def save_project(self) -> bool:
+        """Сохранение проекта"""
+        if self.current_project_path:
+            return self._do_save(self.current_project_path)
+        return self.save_project_as()
+    
+    def save_project_as(self) -> bool:
+        """Сохранение проекта как..."""
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Сохранить", "", "*.json"
+        )
+        if path:
+            self.current_project_path = path
+            result = self._do_save(path)
+            self.update_window_title()
+            return result
+        return False
+    
+    def _do_save(self, path: str) -> bool:
+        """Внутренний метод сохранения"""
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=4)
+            self.set_dirty(False)
+            logger.info(f"Project saved to {path}")
+            return True
+        except Exception as e:
+            logger.error(f"Save failed: {e}")
+            return False
+    
+    def load_project_dialog(self) -> None:
+        """Диалог загрузки проекта"""
+        if self.maybe_save():
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Открыть", "", "*.json"
+            )
+            if path:
+                self._load_from_path(path)
+    
+    def _load_from_path(self, path: str) -> None:
+        """Загрузка из файла"""
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                self.data = json.load(f)
+            
+            # Обратная совместимость
+            if "video_paths" not in self.data:
+                self.data["video_paths"] = {}
+            if "export_config" not in self.data:
+                self.data["export_config"] = DEFAULT_EXPORT_CONFIG.copy()
+            if "prompter_config" not in self.data:
+                self.data["prompter_config"] = DEFAULT_PROMPTER_CONFIG.copy()
+            
+            self.current_project_path = path
+            self.proj_edit.setText(
+                self.data.get("project_name", "Проект")
+            )
+            self.refresh_actor_list()
+            self.update_ep_list()
+            self.set_dirty(False)
+            logger.info(f"Project loaded from {path}")
+        except Exception as e:
+            logger.error(f"Load failed: {e}")
+            QMessageBox.critical(
+                self, "Ошибка", f"Не удалось загрузить проект: {e}"
+            )
+    
+    # === Методы работы с сериями ===
+    
+    def on_header_clicked(self, index: int) -> None:
+        """Клик по заголовку таблицы"""
+        if index > 3:
+            return
+        if self.sort_col == index:
+            self.sort_desc = not self.sort_desc
+        else:
+            self.sort_col = index
+            self.sort_desc = True
+        self.refresh_main_table()
+    
+    def add_actor_dialog(self) -> None:
+        """Диалог добавления актёра"""
+        name, ok = QInputDialog.getText(self, "Новый актер", "Имя:")
+        if ok and name:
+            dialog = CustomColorDialog(self)
+            if dialog.exec():
+                actor_id = str(datetime.now().timestamp())
+                self.data["actors"][actor_id] = {
+                    "name": name,
+                    "color": dialog.selected_color or "#ffffff"
+                }
+                self.refresh_actor_list()
+                self.refresh_main_table()
+                self.set_dirty()
+    
+    def on_actor_cell_clicked(self, row: int, col: int) -> None:
+        """Клик по ячейке актёра"""
+        if col == 1:
+            item = self.actor_table.item(row, 0)
+            if item:
+                aid = item.data(Qt.UserRole)
+                dialog = CustomColorDialog(self)
+                if dialog.exec():
+                    if dialog.selected_color and aid:
+                        self.data["actors"][aid]["color"] = (
+                            dialog.selected_color
+                        )
+                        self.refresh_actor_list()
+                        self.refresh_main_table()
+                        self.set_dirty()
+    
+    def on_actor_renamed(self, item: QTableWidgetItem) -> None:
+        """Переименование актёра"""
+        aid = item.data(Qt.UserRole)
+        if aid:
+            self.data["actors"][aid]["name"] = item.text()
+            self.refresh_main_table()
+            self.set_dirty()
+    
+    def bulk_assign_actor(self) -> None:
+        """Массовое назначение актёра"""
+        selected = self.main_table.selectionModel().selectedRows()
+        if not selected:
+            return
+        
+        names = ["- Удалить -"] + [
+            a["name"] for a in self.data["actors"].values()
+        ]
+        ids = [None] + list(self.data["actors"].keys())
+        
+        name, ok = QInputDialog.getItem(
+            self, "Назначить", "Актер:", names, 0, False
+        )
+        
+        if ok:
+            aid = ids[names.index(name)]
+            for idx in selected:
+                char = self.main_table.item(idx.row(), 0).text()
+                if aid:
+                    self.data["global_map"][char] = aid
+                elif char in self.data["global_map"]:
+                    del self.data["global_map"][char]
+            
+            self.refresh_actor_list()
+            self.refresh_main_table()
+            self.set_dirty()
+    
+    def set_episode_video(self) -> None:
+        """Установка видео для серии"""
+        ep = self.ep_combo.currentData()
+        if ep:
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Видео",
+                "",
+                "Video (*.mp4 *.mkv *.avi *.mov)"
+            )
+            if path:
+                if "video_paths" not in self.data:
+                    self.data["video_paths"] = {}
+                self.data["video_paths"][ep] = path
+                self.set_dirty()
+    
+    def change_episode(self) -> None:
+        """Смена серии"""
+        ep = self.ep_combo.currentData()
+        if not ep:
+            return
+        
+        path = self.data["episodes"].get(ep)
+        if path and os.path.exists(path):
+            self.table_stack.setCurrentIndex(0)
+            self.parse_ass(path)
+            self.get_episode_lines(ep)
+            self.refresh_main_table()
+            self.update_save_ass_button()
+        else:
+            self.table_stack.setCurrentIndex(1)
+    
+    def import_ass(self, paths: Optional[List[str]] = None) -> None:
+        """Импорт ASS файлов"""
+        if not paths:
+            paths, _ = QFileDialog.getOpenFileNames(
+                self, "ASS", "", "*.ass"
+            )
+        
+        if paths:
+            for path in paths:
+                numbers = re.findall(r'\d+', os.path.basename(path))
+                num = " ".join(numbers) or "1"
+                
+                name, ok = QInputDialog.getText(
+                    self,
+                    "Ep",
+                    f"Ep for {os.path.basename(path)}:",
+                    text=num
+                )
+                
+                if ok and name:
+                    self.data["episodes"][name] = path
+                    self.parse_ass(path)
+                    self.set_dirty()
+            
+            self.update_ep_list()
+    
+    def relink_file(self) -> None:
+        """Перепривязка файла"""
+        ep = self.ep_combo.currentData()
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Файл", "", "*.ass"
+        )
+        if path:
+            self.data["episodes"][ep] = path
+            self.change_episode()
+            self.set_dirty()
+    
+    def parse_ass(self, path: str) -> None:
+        """Парсинг ASS файла"""
+        char_data: Dict[str, Dict[str, Any]] = {}
+        gap = self.data["export_config"].get('merge_gap', 5)
+        
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                lines_list = []
+                for line in f:
+                    if line.startswith("Dialogue:"):
+                        parts = line.split(',', 9)
+                        char = parts[4].strip()
+                        text = re.sub(r'\{.*?\}', '', parts[9]).strip()
+                        
+                        if text:
+                            lines_list.append({
+                                's': ass_time_to_seconds(parts[1]),
+                                'e': ass_time_to_seconds(parts[2]),
+                                'char': char,
+                                'text': text
+                            })
+                
+                for line in lines_list:
+                    if line['char'] not in char_data:
+                        char_data[line['char']] = {
+                            "lines": 0,
+                            "raw": []
+                        }
+                    char_data[line['char']]["lines"] += 1
+                    char_data[line['char']]["raw"].append(line)
+                
+                res = []
+                for char, info in char_data.items():
+                    rings = 1
+                    words = 0
+                    char_lines = info["raw"]
+                    
+                    if char_lines:
+                        words += len(char_lines[0]['text'].split())
+                        for i in range(1, len(char_lines)):
+                            if (
+                                char_lines[i]['s'] - 
+                                char_lines[i-1]['e']
+                            ) >= gap:
+                                rings += 1
+                            words += len(char_lines[i]['text'].split())
+                    
+                    res.append({
+                        "name": char,
+                        "lines": info["lines"],
+                        "rings": rings,
+                        "words": words
+                    })
+            
+            self.current_ep_stats = res
+        except Exception as e:
+            logger.error(f"Error parsing ASS: {e}")
+            self.current_ep_stats = []
+    
+    def update_map(
+        self, 
+        char_name: str, 
+        combo: QComboBox
+    ) -> None:
+        """Обновление маппинга персонаж-актёр"""
+        aid = combo.currentData()
+        if aid:
+            self.data["global_map"][char_name] = aid
+        elif char_name in self.data["global_map"]:
+            del self.data["global_map"][char_name]
+        
+        self.refresh_actor_list()
+        self.set_dirty(True)
+    
+    def refresh_main_table(self) -> None:
+        """Обновление главной таблицы"""
+        self.main_table.blockSignals(True)
+        self.main_table.setRowCount(0)
+        
+        query = self.search_edit.text().lower()
+        only_unassigned = self.filter_unassigned.isChecked()
+        
+        keys = ["name", "lines", "rings", "words"]
+        sorted_stats = sorted(
+            self.current_ep_stats,
+            key=lambda x: x[keys[self.sort_col]],
+            reverse=self.sort_desc
+        )
+        
+        for stat in sorted_stats:
+            if query and query not in stat["name"].lower():
+                continue
+            
+            is_assigned = stat["name"] in self.data["global_map"]
+            if only_unassigned and is_assigned:
+                continue
+            
+            row = self.main_table.rowCount()
+            self.main_table.insertRow(row)
+            
+            name_item = QTableWidgetItem(stat["name"])
+            name_item.setFlags(
+                name_item.flags() | Qt.ItemIsEditable
+            )
+            name_item.setData(Qt.UserRole, stat["name"])
+            self.main_table.setItem(row, 0, name_item)
+            
+            self.main_table.setItem(
+                row, 1, QTableWidgetItem(str(stat["lines"]))
+            )
+            self.main_table.setItem(
+                row, 2, QTableWidgetItem(str(stat["rings"]))
+            )
+            self.main_table.setItem(
+                row, 3, QTableWidgetItem(str(stat["words"]))
+            )
+            
+            combo = QComboBox()
+            combo.addItem("-", None)
+            for aid, info in self.data["actors"].items():
+                combo.addItem(info["name"], aid)
+            
+            if is_assigned:
+                combo.setCurrentIndex(
+                    combo.findData(
+                        self.data["global_map"][stat["name"]]
+                    )
+                )
+            
+            combo.currentIndexChanged.connect(
+                lambda _, c=stat["name"], b=combo: self.update_map(c, b)
+            )
+            self.main_table.setCellWidget(row, 4, combo)
+            
+            btn = QPushButton("📺")
+            btn.setFixedWidth(40)
+            btn.clicked.connect(
+                lambda ch=False, c=stat["name"]: self.open_preview(c)
+            )
+            self.main_table.setCellWidget(row, 5, wrap_widget(btn))
+        
+        self.main_table.blockSignals(False)
+    
+    def refresh_actor_list(self) -> None:
+        """Обновление списка актёров"""
+        self.actor_table.blockSignals(True)
+        self.actor_table.setRowCount(0)
+        
+        actor_roles: Dict[str, List[str]] = {
+            aid: [] for aid in self.data["actors"]
+        }
+        
+        for char, aid in self.data["global_map"].items():
+            if aid in actor_roles:
+                actor_roles[aid].append(char)
+        
+        for aid, info in self.data["actors"].items():
+            row = self.actor_table.rowCount()
+            self.actor_table.insertRow(row)
+            
+            item = QTableWidgetItem(info["name"])
+            item.setData(Qt.UserRole, aid)
+            self.actor_table.setItem(row, 0, item)
+            
+            color_item = QTableWidgetItem()
+            color_item.setBackground(QColor(info["color"]))
+            self.actor_table.setItem(row, 1, color_item)
+            
+            btn = QPushButton(f"Роли ({len(actor_roles[aid])})")
+            btn.clicked.connect(
+                lambda _, a=aid, n=info["name"], r=actor_roles[aid]: 
+                self.edit_roles(a, n, r)
+            )
+            self.actor_table.setCellWidget(row, 2, wrap_widget(btn))
+        
+        self.actor_table.blockSignals(False)
+    
+    def rename_episode(self) -> None:
+        """Переименование серии"""
+        old = self.ep_combo.currentData()
+        new_name, ok = QInputDialog.getText(
+            self, "Rename", "New name:", text=str(old)
+        )
+        if ok and new_name:
+            self.data["episodes"][new_name] = (
+                self.data["episodes"].pop(old)
+            )
+            self.update_ep_list(new_name)
+            self.set_dirty()
+    
+    def update_ep_list(self, select: Optional[str] = None) -> None:
+        """Обновление списка серий"""
+        self.ep_combo.blockSignals(True)
+        self.ep_combo.clear()
+        
+        for ep in sorted(
+            self.data["episodes"].keys(),
+            key=lambda x: int(x) if x.isdigit() else 0
+        ):
+            self.ep_combo.addItem(f"Серия {ep}", ep)
+        
+        if select:
+            self.ep_combo.setCurrentIndex(
+                self.ep_combo.findData(select)
+            )
+        elif self.ep_combo.count() > 0:
+            self.ep_combo.setCurrentIndex(0)
+        
+        self.ep_combo.blockSignals(False)
+        self.change_episode()
+    
+    # === Экспорт ===
+    
+    def run_unified_export(self) -> None:
+        """Запуск экспорта"""
+        do_html = self.chk_exp_html.isChecked()
+        do_xls = self.chk_exp_xls.isChecked()
+        
+        if not (do_html or do_xls):
+            return
+        
+        is_all = self.radio_all.isChecked()
+        
+        if is_all:
+            episodes = self.data["episodes"]
+        else:
+            ep = self.ep_combo.currentData()
+            episodes = {ep: self.data["episodes"].get(ep)}
+        
+        if not episodes or None in episodes.values():
+            return
+        
+        if is_all or (do_html and do_xls):
+            dest = QFileDialog.getExistingDirectory(
+                self, "Выберите папку"
+            )
+            if dest:
+                self._execute_batch_export(
+                    episodes, do_html, do_xls, dest
+                )
+        else:
+            ep = list(episodes.keys())[0]
+            if do_html:
+                self.export_to_html(ep)
+            else:
+                self.export_to_excel(ep)
+    
+    def _execute_batch_export(
+        self,
+        episodes: Dict[str, str],
+        do_html: bool,
+        do_xls: bool,
+        folder: str
+    ) -> None:
+        """Пакетный экспорт"""
+        cfg = self.data["export_config"]
+        highlight_ids = cfg.get('highlight_ids_export')
+        
+        for ep, path in episodes.items():
+            lines = self.get_episode_lines(ep)
+            if not lines:
+                continue
+            
+            processed = self.process_merge_logic(lines, cfg)
+            
+            if do_html:
+                filename = f"{self.data['project_name']} - Ep{ep}.html"
+                filepath = os.path.join(folder, filename)
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(
+                        self.generate_html_body(
+                            ep,
+                            processed,
+                            cfg,
+                            highlight_ids,
+                            is_editable=cfg.get('allow_edit', True)
+                        )
+                    )
+            
+            if do_xls and EXCEL_AVAILABLE:
+                filename = f"{self.data['project_name']} - Ep{ep}.xlsx"
+                filepath = os.path.join(folder, filename)
+                self._create_excel_book(ep, processed, cfg).save(filepath)
+        
+        # Открыть папку
+        if sys.platform == 'darwin':
+            os.system(f'open "{folder}"')
+        else:
+            os.startfile(folder)
+    
+    def _create_excel_book(
+        self,
+        ep: str,
+        processed: List[Dict[str, Any]],
+        cfg: Optional[Dict[str, Any]] = None
+    ) -> Any:
+        """Создание Excel книги"""
+        if cfg is None:
+            cfg = self.data["export_config"]
+        
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["№", "Таймкод", "Персонаж", "Актер", "Текст"])
+        
+        use_color = cfg.get('use_color', True)
+        highlight_ids = cfg.get('highlight_ids_export')
+        all_actor_ids = set(self.data["actors"].keys())
+        
+        is_full_filter = (
+            highlight_ids is not None and 
+            set(highlight_ids) == all_actor_ids
+        )
+        effective_filter = (
+            None 
+            if (highlight_ids is None or is_full_filter) 
+            else set(highlight_ids)
+        )
+        
+        for i, line in enumerate(processed, 2):
+            aid = self.data["global_map"].get(line['char'])
+            actor = self.data["actors"].get(
+                aid, {"name": "-", "color": "#FFFFFF"}
+            )
+            
+            ws.append([
+                i-1, 
+                line['s_raw'], 
+                line['char'], 
+                actor['name'], 
+                line['text']
+            ])
+            
+            if use_color:
+                is_highlighted = (
+                    effective_filter is None or 
+                    aid in effective_filter
+                )
+                if is_highlighted:
+                    color = actor['color'].replace("#", "")
+                else:
+                    color = "FFFFFF"
+            else:
+                color = "FFFFFF"
+            
+            fill = PatternFill(
+                start_color=color,
+                end_color=color,
+                fill_type="solid"
+            )
+            
+            for col in range(1, 6):
+                cell = ws.cell(row=i, column=col)
+                cell.fill = fill
+                cell.alignment = Alignment(
+                    vertical='top',
+                    wrap_text=(col == 5)
+                )
+        
+        return wb
+    
+    def export_to_excel(self, ep: str) -> None:
+        """Экспорт в Excel"""
+        if not EXCEL_AVAILABLE:
+            QMessageBox.warning(
+                self, "Ошибка", "openpyxl не установлен"
+            )
+            return
+        
+        lines = self.get_episode_lines(ep)
+        processed = self.process_merge_logic(
+            lines, self.data["export_config"]
+        )
+        
+        wb = self._create_excel_book(
+            ep, processed, self.data["export_config"]
+        )
+        
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Excel", f"Script_{ep}.xlsx", "*.xlsx"
+        )
+        
+        if path:
+            wb.save(path)
+            if sys.platform == 'win32':
+                os.startfile(path)
+            else:
+                os.system(f'open "{path}"')
+    
+    def export_to_html(self, ep: str) -> None:
+        """Экспорт в HTML"""
+        cfg = self.data["export_config"]
+        lines = self.get_episode_lines(ep)
+        processed = self.process_merge_logic(lines, cfg)
+        
+        html = self.generate_html_body(
+            ep,
+            processed,
+            cfg,
+            cfg.get('highlight_ids_export'),
+            is_editable=cfg.get('allow_edit', True)
+        )
+        
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save HTML", f"Script_{ep}.html", "*.html"
+        )
+        
+        if path:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(html)
+            
+            if sys.platform == 'darwin':
+                os.system(f'open "{path}"')
+            else:
+                os.startfile(path)
+    
+    def save_episode_to_ass(
+        self, 
+        ep_num: str, 
+        target_path: Optional[str] = None
+    ) -> bool:
+        """Сохранение серии в ASS"""
+        mem_lines = self.get_episode_lines(ep_num)
+        if not mem_lines:
+            QMessageBox.warning(self, "Ошибка", "Нет данных.")
+            return False
+        
+        source_path = self.data["episodes"].get(ep_num)
+        if not source_path or not os.path.exists(source_path):
+            QMessageBox.warning(self, "Ошибка", "Файл не найден.")
+            return False
+        
+        save_path = target_path if target_path else source_path
+        new_file_content = []
+        
+        try:
+            with open(source_path, 'r', encoding='utf-8') as f:
+                dia_idx = 0
+                for line in f:
+                    if line.startswith("Dialogue:"):
+                        if dia_idx < len(mem_lines):
+                            current_data = mem_lines[dia_idx]
+                            parts = line.strip().split(',', 9)
+                            
+                            if len(parts) > 9:
+                                parts[4] = current_data['char']
+                                new_line = (
+                                    f"{','.join(parts[:9])},"
+                                    f"{current_data['text']}\n"
+                                )
+                                new_file_content.append(new_line)
+                            else:
+                                new_file_content.append(line)
+                        else:
+                            new_file_content.append(line)
+                        dia_idx += 1
+                    else:
+                        new_file_content.append(line)
+            
+            with open(save_path, 'w', encoding='utf-8') as f:
+                f.writelines(new_file_content)
+            
+            logger.info(f"ASS saved to {save_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving ASS: {e}")
+            QMessageBox.critical(
+                self, "Ошибка", f"Не удалось записать файл:\n{e}"
+            )
+            return False
+    
+    def generate_html_body(
+        self,
+        ep: str,
+        processed: List[Dict[str, Any]],
+        cfg: Dict[str, Any],
+        highlight_ids: Optional[List[str]] = None,
+        override_layout: Optional[str] = None,
+        is_editable: bool = True
+    ) -> str:
+        """Генерация HTML тела"""
+        layout_mode = override_layout or cfg.get(
+            'layout_type', "Таблица"
+        )
+        
+        # JavaScript для интерактивного предпросмотра
+        if is_editable:
+            js = """
+            <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+            <script>
+                var backend;
+                new QWebChannel(qt.webChannelTransport, function (channel) {
+                    backend = channel.objects.backend;
+                    window.updateScrollStatus(); 
+                });
+
+                window.updateScrollStatus = function() {
+                    var blocks = Array.from(
+                        document.querySelectorAll('.highlighted-block')
+                    );
+                    if (blocks.length === 0 || !backend) return;
+                    var midLine = window.innerHeight / 2;
+                    var closestIndex = 0;
+                    var minDistance = Infinity;
+                    blocks.forEach((block, index) => {
+                        var rect = block.getBoundingClientRect();
+                        var distance = Math.abs(
+                            (rect.top + rect.height/2) - midLine
+                        );
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            closestIndex = index;
+                        }
+                    });
+                    backend.sync_scroll_index(closestIndex, blocks.length);
+                };
+
+                var scrollTimeout;
+                window.onscroll = function() {
+                    clearTimeout(scrollTimeout);
+                    scrollTimeout = setTimeout(
+                        window.updateScrollStatus, 50
+                    );
+                };
+                
+                window.jumpToNextHighlighted = function(direction) {
+                    var blocks = Array.from(
+                        document.querySelectorAll('.highlighted-block')
+                    );
+                    if (blocks.length === 0) return;
+                    
+                    var targetIndex = -1;
+                    var threshold = 160; 
+
+                    if (direction === 'next') {
+                        targetIndex = blocks.findIndex(
+                            b => b.getBoundingClientRect().top > threshold
+                        );
+                        if (targetIndex === -1) targetIndex = 0;
+                    } else {
+                        targetIndex = blocks.findLastIndex(
+                            b => b.getBoundingClientRect().top < 50
+                        );
+                        if (targetIndex === -1) 
+                            targetIndex = blocks.length - 1;
+                    }
+                    
+                    var target = blocks[targetIndex];
+                    blocks.forEach(
+                        b => b.classList.remove('active-replica')
+                    );
+                    target.classList.add('active-replica');
+                    target.scrollIntoView({ 
+                        behavior: 'smooth', 
+                        block: 'center' 
+                    });
+                };
+
+                function onBlur(el) {
+                    if(backend) {
+                        var cleanText = el.innerText;
+                        cleanText = cleanText.replace(
+                            /(\\r\\n|\\n|\\r)/gm, "\\n"
+                        );
+                        backend.update_text(el.id, cleanText);
+                    }
+                }
+                function onKeyPress(e, el) { 
+                    if (e.keyCode === 13) { 
+                        e.preventDefault(); 
+                        el.blur(); 
+                    } 
+                }
+            </script>
+            <style>
+                .edit-span { 
+                    border-bottom: 1px dashed #ccc; 
+                    padding: 1px 2px; 
+                }
+                .edit-span:focus { 
+                    background-color: #fff; 
+                    outline: 2px solid #5B9BD5; 
+                    border-bottom: none; 
+                } 
+                .sep { 
+                    color: #888; 
+                    font-weight: bold; 
+                }
+                .highlighted-block { 
+                    transition: outline 0.3s, box-shadow 0.3s; 
+                }
+                .active-replica {
+                    outline: 6px solid #FFD700 !important;
+                    outline-offset: -6px;
+                    box-shadow: 0 0 25px rgba(255, 215, 0, 0.8) !important;
+                    z-index: 99;
+                }
+            </style>
+            """
+        else:
+            js = """
+            <style>
+                .highlighted-block { 
+                    transition: outline 0.3s, box-shadow 0.3s; 
+                } 
+                .active-replica { 
+                    outline: 6px solid #FFD700 !important; 
+                    outline-offset: -6px; 
+                    box-shadow: 0 0 25px rgba(255, 215, 0, 0.8) !important; 
+                    z-index: 99; 
+                }
+            </style>
+            """
+        
+        html = f"""<html><head><meta charset='utf-8'>{js}<style>
+        body {{ 
+            font-family: 'Segoe UI', sans-serif; 
+            padding: 50px 10%; 
+            background: #fdfdfd; 
+        }}
+        table {{ 
+            width: 100%; 
+            border-collapse: collapse; 
+            table-layout: fixed; 
+            background: white; 
+        }}
+        td, th {{ 
+            border: 1px solid #ddd; 
+            padding: 12px; 
+            vertical-align: top; 
+            overflow-wrap: break-word; 
+        }}
+        .t {{ 
+            width: 90px; 
+            font-family: monospace; 
+            font-size: {cfg.get('f_time', 12)}px; 
+            color: #666; 
+        }}
+        .c {{ 
+            width: 160px; 
+            font-weight: bold; 
+            font-size: {cfg.get('f_char', 14)}px; 
+        }}
+        .a {{ 
+            width: 160px; 
+            font-style: italic; 
+            font-size: {cfg.get('f_actor', 14)}px; 
+        }}
+        .txt {{ 
+            font-size: {cfg.get('f_text', 16)}px; 
+            line-height: 1.5; 
+        }}
+        .line-container {{ 
+            margin-bottom: 30px; 
+            padding: 20px; 
+            border-left: 8px solid #eee; 
+            background: white; 
+        }}
+        </style></head><body>
+        """
+        
+        html += f"<h1>{self.data['project_name']} - Серия {ep}</h1>"
+        
+        all_actor_ids = set(self.data["actors"].keys())
+        is_full_filter = (
+            highlight_ids is not None and 
+            set(highlight_ids) == all_actor_ids
+        )
+        effective_filter = (
+            None 
+            if (highlight_ids is None or is_full_filter) 
+            else set(highlight_ids)
+        )
+        use_color = cfg.get('use_color', True)
+        
+        for line in processed:
+            aid = self.data["global_map"].get(line['char'])
+            actor = self.data["actors"].get(
+                aid, {"name": "-", "color": "#ffffff"}
+            )
+            
+            is_highlighted = (
+                effective_filter is None or 
+                aid in effective_filter
+            )
+            h_class = "highlighted-block" if is_highlighted else ""
+            
+            if use_color and is_highlighted:
+                bg_color = hex_to_rgba_string(actor['color'], 0.22)
+                border_col = actor['color']
+            else:
+                bg_color = "#ffffff"
+                border_col = "#eee"
+            
+            text_html = ""
+            if 'parts' in line:
+                for part in line['parts']:
+                    if part['sep']:
+                        text_html += f"<span class='sep'>{part['sep']}</span>"
+                    if is_editable:
+                        text_html += (
+                            f"<span id='{part['id']}' "
+                            f"class='edit-span' "
+                            f"contenteditable='true' "
+                            f"onblur='onBlur(this)' "
+                            f"onkeypress='onKeyPress(event, this)'>"
+                            f"{part['text']}</span>"
+                        )
+                    else:
+                        text_html += f"<span>{part['text']}</span>"
+            else:
+                text_html = line['text']
+            
+            if layout_mode == "Таблица":
+                if processed.index(line) == 0:
+                    html += """
+                    <table><thead><tr>
+                    <th>Время</th><th>Персонаж</th>
+                    <th>Актер</th><th>Текст</th>
+                    </tr></thead><tbody>
+                    """
+                
+                html += (
+                    f"<tr style='background-color:{bg_color}' "
+                    f"class='{h_class}'>"
+                    f"<td class='t'>{line['s_raw']}</td>"
+                    f"<td class='c'>{line['char']}</td>"
+                    f"<td class='a'>{actor['name']}</td>"
+                    f"<td class='txt'>{text_html}</td></tr>"
+                )
+                
+                if processed.index(line) == len(processed) - 1:
+                    html += "</tbody></table>"
+            else:
+                html += (
+                    f"<div class='line-container {h_class}' "
+                    f"style='background-color:{bg_color}; "
+                    f"border-left-color:{border_col}'>"
+                    f"<div class='meta'>"
+                    f"<span class='c'><b>{line['char']}</b></span>"
+                    f" <span class='t'>[{line['s_raw']}]</span>"
+                    f" <span class='a'><i>({actor['name']})</i></span>"
+                    f"</div>"
+                    f"<div class='txt'>{text_html}</div></div>"
+                )
+        
+        return html + "</body></html>"
+    
+    def process_merge_logic(
+        self,
+        lines: List[Dict[str, Any]],
+        cfg: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Логика слияния реплик"""
+        p_short = cfg.get('p_short', 0.5)
+        p_long = cfg.get('p_long', 2.0)
+        gap = cfg.get('merge_gap', 5)
+        
+        res = []
+        curr = None
+        
+        if lines:
+            curr = lines[0].copy()
+            curr['parts'] = [{
+                'id': lines[0]['id'],
+                'text': lines[0]['text'],
+                'sep': ''
+            }]
+            
+            for i in range(1, len(lines)):
+                nxt = lines[i]
+                diff = nxt['s'] - curr['e']
+                
+                if (
+                    cfg.get('merge', True) and 
+                    nxt['char'] == curr['char'] and 
+                    diff < gap
+                ):
+                    if diff >= p_long:
+                        sep = " //  "
+                    elif diff >= p_short:
+                        sep = " /  "
+                    else:
+                        sep = "  "
+                    
+                    curr['parts'].append({
+                        'id': nxt['id'],
+                        'text': nxt['text'],
+                        'sep': sep
+                    })
+                    curr['text'] += sep + nxt['text']
+                    curr['e'] = nxt['e']
+                else:
+                    res.append(curr)
+                    curr = nxt.copy()
+                    curr['parts'] = [{
+                        'id': nxt['id'],
+                        'text': nxt['text'],
+                        'sep': ''
+                    }]
+            
+            res.append(curr)
+        
+        # Добавляем source_ids и source_texts
+        for item in res:
+            if 'parts' in item:
+                item['source_ids'] = [p['id'] for p in item['parts']]
+                item['source_texts'] = [p['text'] for p in item['parts']]
+            else:
+                item['source_ids'] = [item.get('id')]
+                item['source_texts'] = [item.get('text', '')]
+        
+        return res
+    
+    # === Диалоги и окна ===
+    
+    def open_preview(self, char: Optional[str]) -> None:
+        """Открытие предпросмотра видео"""
+        ep = self.ep_combo.currentData()
+        lines = self.get_episode_lines(ep)
+        
+        if char:
+            lines = [l for l in lines if l['char'] == char]
+        
+        vp = self.data.get("video_paths", {}).get(ep)
+        
+        if not vp or not os.path.exists(vp):
+            self.set_episode_video()
+            vp = self.data.get("video_paths", {}).get(ep)
+        
+        if vp:
+            VideoPreviewWindow(vp, lines, ep, self).exec()
+    
+    def get_episode_lines(self, ep: str) -> List[Dict[str, Any]]:
+        """Получение строк серии"""
+        if "loaded_episodes" not in self.data:
+            self.data["loaded_episodes"] = {}
+        
+        if ep in self.data["loaded_episodes"]:
+            return self.data["loaded_episodes"][ep]
+        
+        path = self.data["episodes"].get(ep)
+        lines = []
+        
+        if path and os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    idx = 0
+                    for line in f:
+                        if line.startswith("Dialogue:"):
+                            parts = line.split(',', 9)
+                            lines.append({
+                                'id': idx,
+                                's': ass_time_to_seconds(parts[1]),
+                                'e': ass_time_to_seconds(parts[2]),
+                                'char': parts[4].strip(),
+                                'text': re.sub(
+                                    r'\{.*?\}', '', parts[9]
+                                ).strip(),
+                                's_raw': parts[1]
+                            })
+                            idx += 1
+                
+                self.data["loaded_episodes"][ep] = lines
+            except Exception as e:
+                logger.error(f"Read error: {e}")
+        
+        return lines
+    
+    def show_project_summary(self) -> None:
+        """Показать сводку проекта"""
+        SummaryDialog(self.data, None, self).exec()
+    
+    def show_episode_summary(self) -> None:
+        """Показать сводку серии"""
+        ep = self.ep_combo.currentData()
+        if ep:
+            SummaryDialog(self.data, ep, self).exec()
+    
+    def edit_roles(
+        self, 
+        aid: str, 
+        name: str, 
+        roles: List[str]
+    ) -> None:
+        """Редактирование ролей актёра"""
+        dialog = ActorRolesDialog(name, roles, self)
+        if dialog.exec():
+            new_roles = dialog.get_roles()
+            
+            # Удаляем старые маппинги
+            keys_to_remove = [
+                k for k, v in self.data["global_map"].items() 
+                if v == aid
+            ]
+            for k in keys_to_remove:
+                self.data["global_map"].pop(k, None)
+            
+            # Добавляем новые
+            for role_name in new_roles:
+                self.data["global_map"][role_name] = aid
+            
+            self.refresh_actor_list()
+            self.refresh_main_table()
+            self.set_dirty()
+    
+    def open_export_settings(self) -> None:
+        """Открытие настроек экспорта"""
+        dialog = ExportSettingsDialog(
+            self.data["export_config"], self
+        )
+        if dialog.exec():
+            self.data["export_config"] = dialog.get_settings()
+            self.change_episode()
+            self.set_dirty()
+    
+    def open_global_search(self) -> None:
+        """Открытие глобального поиска"""
+        GlobalSearchDialog(self.data, self).exec()
+    
+    def open_live_preview(self) -> None:
+        """Открытие живого предпросмотра"""
+        ep = self.ep_combo.currentData()
+        if not ep:
+            QMessageBox.information(self, "Инфо", "Выберите серию.")
+            return
+        
+        if self.preview_window is not None:
+            self.preview_window.close()
+        
+        self.preview_window = HtmlLivePreview(self, ep)
+        self.preview_window.show()
+    
+    def open_teleprompter(self) -> None:
+        """Открытие телесуфлёра"""
+        ep = self.ep_combo.currentData()
+        if not ep:
+            QMessageBox.information(self, "Инфо", "Выберите серию.")
+            return
+        
+        if self.teleprompter_window is not None:
+            self.teleprompter_window.close()
+        
+        self.teleprompter_window = TeleprompterWindow(self, ep)
+        self.teleprompter_window.show()
+    
+    def open_hotkey_settings(self) -> None:
+        """Открытие настроек горячих клавиш"""
+        HotkeySettingsDialog(self).exec()
+    
+    def export_to_reaper_rpp(self) -> None:
+        """Экспорт в Reaper RPP"""
+        ep_num = self.ep_combo.currentData()
+        if not ep_num:
+            QMessageBox.warning(self, "Ошибка", "Выберите серию.")
+            return
+        
+        video_path = self.data["video_paths"].get(ep_num)
+        dialog = ReaperExportDialog(video_path, self)
+        
+        if dialog.exec() != QDialog.Accepted:
+            return
+        
+        use_video, use_regions = dialog.get_options()
+        
+        if use_video and video_path:
+            video_path = os.path.abspath(video_path)
+        
+        default_name = (
+            f"{self.data.get('project_name', 'Project')} - "
+            f"Ep{ep_num}.rpp"
+        )
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "Сохранить RPP", default_name, "Reaper Project (*.rpp)"
+        )
+        if not save_path:
+            return
+        
+        lines = self.get_episode_lines(ep_num)
+        active_actor_ids: Set[str] = set()
+        
+        max_time = 600.0
+        if lines:
+            max_time = max(l['e'] for l in lines) + 600.0
+            for line in lines:
+                aid = self.data["global_map"].get(line['char'])
+                if aid:
+                    active_actor_ids.add(aid)
+        
+        processed_lines = self.process_merge_logic(
+            lines, self.data["export_config"]
+        )
+        
+        rpp = []
+        rpp.append('<REAPER_PROJECT 0.1 "7.0"')
+        
+        if use_regions:
+            for i, line in enumerate(processed_lines):
+                start = float(line['s'])
+                end = float(line['e'])
+                
+                if (end - start) < 0.5:
+                    end = start + 2.0
+                
+                char = line['char']
+                safe_text = (
+                    line['text']
+                    .replace('"', "' ")
+                    .replace('\n', ' ')
+                    .strip()
+                )
+                label = f"{char}: {safe_text}"
+                
+                aid = self.data["global_map"].get(char)
+                color_int = 0
+                if aid and aid in self.data["actors"]:
+                    color_int = int(
+                        self.hex_to_reaper_color(
+                            self.data["actors"][aid]["color"]
+                        )
+                    )
+                
+                rpp.append(
+                    f'  MARKER {i+1} {start:.4f} "{label}" '
+                    f'1 {color_int} {end:.4f}'
+                )
+        
+        if use_video and video_path:
+            rpp.append('   <TRACK')
+            rpp.append('    NAME "VIDEO"')
+            rpp.append('     <ITEM')
+            rpp.append('      POSITION 0.0')
+            rpp.append('      LOOP 0')
+            rpp.append(f'      LENGTH {max_time:.4f}')
+            rpp.append('       <SOURCE VIDEO')
+            rpp.append(f'        FILE "{video_path}"')
+            rpp.append('       >')
+            rpp.append('     >')
+            rpp.append('   >')
+        
+        sorted_actors = []
+        for aid in active_actor_ids:
+            if aid in self.data["actors"]:
+                sorted_actors.append(self.data["actors"][aid])
+        sorted_actors.sort(key=lambda x: x['name'])
+        
+        for actor in sorted_actors:
+            color_int = int(
+                self.hex_to_reaper_color(actor['color'])
+            )
+            rpp.append('   <TRACK')
+            rpp.append(f'    NAME "{actor["name"]}"')
+            rpp.append(f'    PEAKCOL {color_int}')
+            rpp.append('    REC 0')
+            rpp.append('    SHOWINMIX 1')
+            rpp.append('   >')
+        
+        rpp.append('>')
+        
+        try:
+            with open(save_path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(rpp))
+            
+            reply = QMessageBox.question(
+                self,
+                "Готово",
+                "Проект создан. Открыть в Reaper?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                if sys.platform == 'win32':
+                    os.startfile(save_path)
+                elif sys.platform == 'darwin':
+                    os.system(f'open "{save_path}"')
+                else:
+                    os.system(f'xdg-open "{save_path}"')
+        except Exception as e:
+            logger.error(f"Error saving RPP: {e}")
+            QMessageBox.critical(
+                self, "Ошибка", f"Не удалось сохранить: {e}"
+            )
+    
+    def hex_to_reaper_color(self, hex_color: str) -> int:
+        """Конвертация HEX в BGR Int для Reaper"""
+        if not hex_color or not hex_color.startswith('#'):
+            return 0
+        
+        color = QColor(hex_color)
+        if not color.isValid():
+            return 0
+        
+        val = 0x01000000 | (
+            color.blue() << 16
+        ) | (
+            color.green() << 8
+        ) | color.red()
+        
+        return val
+    
+    def switch_to_episode(self, ep_num: str) -> None:
+        """Переключение на серию"""
+        index = self.ep_combo.findData(ep_num)
+        if index >= 0:
+            self.ep_combo.setCurrentIndex(index)
+    
+    # === Drag & Drop ===
+    
+    def dragEnterEvent(self, event) -> None:
+        """Обработка входа перетаскивания"""
+        if event.mimeData().hasUrls():
+            event.accept()
+        else:
+            event.ignore()
+    
+    def dropEvent(self, event) -> None:
+        """Обработка сброса файлов"""
+        files = [
+            url.toLocalFile() 
+            for url in event.mimeData().urls()
+        ]
+        
+        ass_files = [f for f in files if f.endswith('.ass')]
+        json_files = [f for f in files if f.endswith('.json')]
+        
+        if json_files and self.maybe_save():
+            self._load_from_path(json_files[0])
+        elif ass_files:
+            self.import_ass(ass_files)
+    
+    def closeEvent(self, event) -> None:
+        """Закрытие приложения"""
+        if self.maybe_save():
+            event.accept()
+        else:
+            event.ignore()
