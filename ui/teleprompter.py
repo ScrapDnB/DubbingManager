@@ -51,7 +51,7 @@ from config.constants import (
 )
 from services.osc_worker import OscWorker, OSC_AVAILABLE
 from services.hotkey_manager import GlobalHotkeyManager, PYNPUT_AVAILABLE
-from utils.helpers import ass_time_to_seconds, format_seconds_to_tc
+from utils.helpers import ass_time_to_seconds, format_seconds_to_tc, log_exception
 
 logger = logging.getLogger(__name__)
 
@@ -184,9 +184,9 @@ class EditableTextItem(QGraphicsTextItem):
                     try:
                         self.window.handle_text_edited(self.line_id, new_text)
                     except Exception as e:
-                        logger.error(f"Error editing text: {e}")
+                        log_exception(logger, "Error editing text", e)
         except Exception as e:
-            logger.error(f"Error in mouseDoubleClickEvent: {e}")
+            log_exception(logger, "Error in mouseDoubleClickEvent", e)
         # Не вызываем базовую реализацию — избегаем use-after-free
 
 
@@ -1255,7 +1255,7 @@ class TeleprompterWindow(QDialog):
                     100, self.main_app.global_hotkey_manager.start
                 )
         except Exception as e:
-            logger.error(f"Error setting up hotkeys: {e}")
+            log_exception(logger, "Error setting up hotkeys", e)
     
     def go_prev_hotkey(self) -> None:
         """Хоткей назад"""
@@ -1410,7 +1410,7 @@ class TeleprompterWindow(QDialog):
             try:
                 self.build_prompter_content()
             except Exception as e:
-                logger.error(f"Error rebuilding content: {e}")
+                log_exception(logger, "Error rebuilding content", e)
     
     def closeEvent(self, event) -> None:
         """Закрытие окна"""

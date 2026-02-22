@@ -1,6 +1,7 @@
 """Вспомогательные функции"""
 
 import re
+import traceback
 from typing import Optional
 from PySide6.QtGui import QColor
 import logging
@@ -12,6 +13,19 @@ try:
     from config.constants import TABLE_ROW_HEIGHT
 except ImportError:
     TABLE_ROW_HEIGHT = 32  # Default fallback
+
+
+def log_exception(logger_obj: logging.Logger, message: str, exc: Exception) -> None:
+    """
+    Логирование исключения с полным traceback
+
+    Args:
+        logger_obj: логгер для записи
+        message: сообщение перед traceback
+        exc: исключение
+    """
+    tb = traceback.format_exc()
+    logger_obj.error(f"{message}: {exc}\n{tb}")
 
 
 def ass_time_to_seconds(time_str: str) -> float:

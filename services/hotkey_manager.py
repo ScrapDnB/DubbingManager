@@ -5,6 +5,8 @@ from typing import Dict, Callable, Optional, List
 import platform
 import logging
 
+from utils.helpers import log_exception
+
 # Импортируем pynput только не на macOS
 PYNPUT_AVAILABLE = False
 keyboard = None
@@ -115,7 +117,7 @@ class GlobalHotkeyManager(QObject):
                     try:
                         self._callbacks[name]()
                     except Exception as e:
-                        logger.error(f"Error in hotkey callback {name}: {e}")
+                        log_exception(logger, f"Error in hotkey callback {name}", e)
                 break
     
     @Slot()
@@ -123,7 +125,7 @@ class GlobalHotkeyManager(QObject):
         """Запуск прослушивания горячих клавиш"""
         if not PYNPUT_AVAILABLE or self._running:
             return
-        
+
         try:
             self._running = True
             self.listener = keyboard.Listener(
@@ -132,13 +134,13 @@ class GlobalHotkeyManager(QObject):
                 suppress=False
             )
             self.listener.start()
-            
+
             if not self.listener.is_alive():
                 raise RuntimeError("Listener did not start")
-            
+
             logger.info("Global hotkey listener started")
         except Exception as e:
-            logger.error(f"Global hotkeys disabled: {e}")
+            log_exception(logger, "Global hotkeys disabled", e)
             logger.info("On macOS: System Settings -> Privacy & Security -> Accessibility")
             self._running = False
             self.listener = None

@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox, QGroupBox, QFormLayout, QMessageBox, QSlider,
     QAbstractItemView, QStackedWidget, QDoubleSpinBox, QRadioButton,
     QGridLayout, QScrollArea, QSplitter, QSizePolicy, QToolBar,
-    QDialogButtonBox, QTextEdit
+    QDialogButtonBox, QTextEdit, QDialog
 )
 from PySide6.QtGui import QColor, QFont, QAction, QKeySequence, QPen, QBrush
 from PySide6.QtCore import Qt, QUrl, QTimer, Signal, QRectF, QEvent, Slot
@@ -51,7 +51,8 @@ from utils.helpers import (
     format_seconds_to_tc,
     hex_to_rgba_string,
     customize_table,
-    wrap_widget
+    wrap_widget,
+    log_exception
 )
 from services import (
     ProjectService,
@@ -218,7 +219,12 @@ class MainWindow(QMainWindow):
         btn_ren.setFixedWidth(BTN_RENAME_WIDTH)
         btn_ren.clicked.connect(self.rename_episode)
         ep_ctrl.addWidget(btn_ren)
-        
+
+        btn_del = QPushButton("🗑")
+        btn_del.setFixedWidth(BTN_RENAME_WIDTH)
+        btn_del.clicked.connect(self.delete_episode_dialog)
+        ep_ctrl.addWidget(btn_del)
+
         btn_ass = QPushButton("+ .ASS")
         btn_ass.clicked.connect(lambda: self.import_ass())
         ep_ctrl.addWidget(btn_ass)
@@ -519,7 +525,7 @@ class MainWindow(QMainWindow):
             logger.info(f"Project loaded from {path}")
 
         except Exception as e:
-            logger.error(f"Load failed: {e}")
+            log_exception(logger, "Load failed", e)
             QMessageBox.critical(
                 self, "Ошибка", f"Не удалось загрузить проект: {e}"
             )
@@ -810,6 +816,50 @@ class MainWindow(QMainWindow):
             )
             self.update_ep_list(new_name)
             self.set_dirty()
+
+    def delete_episode_dialog(self) -> None:
+        """Диалог удаления серии"""
+        ep = self.ep_combo.currentData()
+        if not ep:
+            QMessageBox.information(self, "Инфо", "Нет серий для удаления.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Удаление серии",
+            f"Вы уверены, что хотите удалить серию {ep}?\n\n"
+            f"Это удалит серию из проекта, но не затронет .ass файл.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self.delete_episode(ep)
+
+    def delete_episode(self, ep: str) -> None:
+        """Удаление серии из проекта"""
+        # Удаляем из словаря эпизодов
+        self.data["episodes"].pop(ep, None)
+
+        # Удаляем путь к видео
+        self.data["video_paths"].pop(ep, None)
+
+        # Удаляем из кэша загруженных эпизодов
+        if "loaded_episodes" in self.data:
+            self.data["loaded_episodes"].pop(ep, None)
+
+        # Очищаем кэш в episode service
+        self.episode_service.invalidate_episode(ep)
+
+        # Обновляем список серий
+        self.update_ep_list()
+
+        # Сохраняем изменения
+        self.set_dirty()
+
+        QMessageBox.information(
+            self, "Готово", f"Серия {ep} удалена из проекта."
+        )
     
     def update_ep_list(self, select: Optional[str] = None) -> None:
         """Обновление списка серий"""
@@ -1540,7 +1590,7 @@ class MainWindow(QMainWindow):
         
         lines = self.get_episode_lines(ep_num)
         active_actor_ids: Set[str] = set()
-        
+
         max_time = 600.0
         if lines:
             max_time = max(l['e'] for l in lines) + 600.0
@@ -1548,8 +1598,9 @@ class MainWindow(QMainWindow):
                 aid = self.data["global_map"].get(line['char'])
                 if aid:
                     active_actor_ids.add(aid)
-        
-        processed_lines = self.process_merge_logic(
+
+        export_service = ExportService(self.data)
+        processed_lines = export_service.process_merge_logic(
             lines, self.data["export_config"]
         )
         
@@ -1638,7 +1689,7 @@ class MainWindow(QMainWindow):
                 else:
                     os.system(f'xdg-open "{save_path}"')
         except Exception as e:
-            logger.error(f"Error saving RPP: {e}")
+            log_exception(logger, "Error saving RPP", e)
             QMessageBox.critical(
                 self, "Ошибка", f"Не удалось сохранить: {e}"
             )

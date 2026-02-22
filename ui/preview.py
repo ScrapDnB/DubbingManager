@@ -24,7 +24,7 @@ from config.constants import (
     PREVIEW_WINDOW_HEIGHT,
     PREVIEW_SETTINGS_PANEL_WIDTH,
 )
-from utils.helpers import hex_to_rgba_string
+from utils.helpers import hex_to_rgba_string, log_exception
 from utils.web_bridge import WebBridge
 from services.hotkey_manager import GlobalHotkeyManager, PYNPUT_AVAILABLE
 from .dialogs.actor_filter import ActorFilterDialog
@@ -240,7 +240,7 @@ class HtmlLivePreview(QDialog):
                     100, self.main_app.global_hotkey_manager.start
                 )
         except Exception as e:
-            logger.error(f"Error setting up hotkeys: {e}")
+            log_exception(logger, "Error setting up hotkeys", e)
     
     def go_prev_hotkey(self) -> None:
         """Хоткей назад"""
