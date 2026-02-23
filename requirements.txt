@@ -1,8 +1,7 @@
+# Runtime dependencies
 certifi==2026.1.4
 charset-normalizer==3.4.4
 idna==3.11
-# pynput используется для глобальных горячих клавиш (только Windows/Linux, на macOS отключён из-за конфликта с TSM)
-pynput==1.7.6
 pyside6==6.10.2
 pyside6-addons==6.10.2
 pyside6-essentials==6.10.2
@@ -10,3 +9,10 @@ python-osc==1.9.3
 requests==2.32.5
 shiboken6==6.10.2
 urllib3==2.6.3
+
+# Optional dependencies
+openpyxl>=3.0.0  # Excel export
+
+# Development dependencies
+pytest>=7.0.0
+pytest-cov>=4.0.0  # Code coverage
