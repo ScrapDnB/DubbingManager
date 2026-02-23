@@ -60,21 +60,23 @@ tests/
 
 | Сервис | Строк | Покрытие |
 |--------|-------|----------|
-| `project_service.py` | 188 | 68% |
-| `episode_service.py` | 107 | 81% |
-| `actor_service.py` | 76 | 67% |
+| `project_service.py` | 188 | 70% |
+| `episode_service.py` | 107 | 85% |
+| `actor_service.py` | 76 | 80% |
 | `export_service.py` | 181 | 82% |
-| **Итого** | **629** | **66%** |
+| `osc_worker.py` | 72 | 0% ⚠️ |
+| **Итого** | **629** | **69%** |
 
-### Новые тесты для ProjectService:
+### Тесты:
 
-| Тест | Описание |
-|------|----------|
-| `test_validate_project_structure` | Валидация структуры JSON |
-| `test_rotate_backups` | Ротация старых бэкапов |
-| `test_auto_save_with_backup` | Автосохранение в директорию `.backups/` |
-| `test_list_backups` | Получение списка бэкапов |
-| `test_restore_from_backup` | Восстановление из бэкапа |
+| Файл | Тестов | Описание |
+|------|--------|----------|
+| `test_services.py` | 35 | Основные тесты сервисов |
+| `test_additional.py` | 18 | Дополнительные тесты (edge cases) |
+
+### Не покрыто:
+- `osc_worker.py` — требует мокирования OSC сервера
+- Обработка исключений в некоторых методах
 
 ## Зависимости для тестирования
 
