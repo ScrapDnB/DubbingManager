@@ -536,7 +536,11 @@ class MainWindow(QMainWindow):
             self.data = self.project_service.load_project(path)
             self.current_project_path = self.project_service.current_project_path
 
+            # Временно отключаем сигнал, чтобы не устанавливать dirty флаг
+            self.proj_edit.blockSignals(True)
             self.proj_edit.setText(self.project_service.get_project_name(self.data))
+            self.proj_edit.blockSignals(False)
+
             self.refresh_actor_list()
             self.update_ep_list()
             logger.info(f"Project loaded from {path}")

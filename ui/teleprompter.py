@@ -283,7 +283,10 @@ class TeleprompterFloatWindow(QDialog):
         self.hide()
         if hasattr(self, 'teleprompter') and self.teleprompter:
             self.teleprompter.hide_float_window()
-    
+            # Возвращаем фокус окну телесуфлёра
+            self.teleprompter.activateWindow()
+            self.teleprompter.raise_()
+
     def closeEvent(self, event) -> None:
         """Обработка закрытия — скрываем вместо закрытия"""
         self.hide_window()
@@ -1433,7 +1436,7 @@ class TeleprompterWindow(QDialog):
         if hasattr(self, 'float_window') and self.float_window:
             self.float_window.close()
             self.float_window = None
-        
+
         if self._has_text_changes:
             reply = QMessageBox.question(
                 self,
@@ -1449,6 +1452,10 @@ class TeleprompterWindow(QDialog):
                 else:
                     event.ignore()
             elif reply == QMessageBox.No:
+                # Пользователь отказался от сохранения — сбрасываем флаги
+                self._has_text_changes = False
+                # Сбрасываем dirty флаг главного окна, т.к. изменения не были сохранены
+                self.main_app.set_dirty(False)
                 event.accept()
             else:
                 event.ignore()
