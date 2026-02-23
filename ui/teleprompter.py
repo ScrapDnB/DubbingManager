@@ -51,7 +51,6 @@ from config.constants import (
 )
 from services import ExportService
 from services.osc_worker import OscWorker, OSC_AVAILABLE
-from services.hotkey_manager import GlobalHotkeyManager, PYNPUT_AVAILABLE
 from utils.helpers import ass_time_to_seconds, format_seconds_to_tc, log_exception
 
 logger = logging.getLogger(__name__)
@@ -314,12 +313,11 @@ class TeleprompterWindow(QDialog):
         self.highlight_ids: Optional[List[str]] = None
         self._has_text_changes = False
         self._initializing = True
-        
+
         # UI
         self._init_ui()
         self.build_prompter_content()
-        self.setup_global_hotkeys()
-        
+
         self._initializing = False
     
     def _init_config(self) -> None:
@@ -1227,53 +1225,7 @@ class TeleprompterWindow(QDialog):
                 None if len(sel) == len(all_ids) or len(sel) == 0 else sel
             )
             self.build_prompter_content()
-    
-    def setup_global_hotkeys(self) -> None:
-        """Настройка горячих клавиш"""
-        if not PYNPUT_AVAILABLE:
-            logger.info("pynput недоступен, только локальные хоткеи")
-            return
-        
-        try:
-            if self.main_app.global_hotkey_manager is None:
-                self.main_app.global_hotkey_manager = GlobalHotkeyManager(
-                    self.main_app
-                )
-            
-            self.main_app.global_hotkey_manager.clear_hotkeys()
-            
-            key_prev = self.cfg.get("key_prev", "Left")
-            key_next = self.cfg.get("key_next", "Right")
-            
-            prev_key_str = f"ctrl+{key_prev}"
-            next_key_str = f"ctrl+{key_next}"
-            
-            self.main_app.global_hotkey_manager.register_hotkey(
-                "prev", prev_key_str, self.go_prev_hotkey
-            )
-            self.main_app.global_hotkey_manager.register_hotkey(
-                "next", next_key_str, self.go_next_hotkey
-            )
-            
-            if not self.main_app.global_hotkey_manager._running:
-                QTimer.singleShot(
-                    100, self.main_app.global_hotkey_manager.start
-                )
-        except Exception as e:
-            log_exception(logger, "Error setting up hotkeys", e)
-    
-    def go_prev_hotkey(self) -> None:
-        """Хоткей назад"""
-        QTimer.singleShot(
-            0, lambda: self.navigate_to_replica_in_direction(-1)
-        )
-    
-    def go_next_hotkey(self) -> None:
-        """Хоткей вперёд"""
-        QTimer.singleShot(
-            0, lambda: self.navigate_to_replica_in_direction(1)
-        )
-    
+
     def keyPressEvent(self, event) -> None:
         """Обработка клавиш"""
         modifiers = event.modifiers()

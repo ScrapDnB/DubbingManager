@@ -26,7 +26,6 @@ from config.constants import (
 )
 from utils.helpers import hex_to_rgba_string, log_exception
 from utils.web_bridge import WebBridge
-from services.hotkey_manager import GlobalHotkeyManager, PYNPUT_AVAILABLE
 from .dialogs.actor_filter import ActorFilterDialog
 
 logger = logging.getLogger(__name__)
@@ -56,8 +55,7 @@ class HtmlLivePreview(QDialog):
             self.bridge = WebBridge(self.main_app)
             self.channel.registerObject("backend", self.bridge)
             self.browser.page().setWebChannel(self.channel)
-        
-        self.setup_global_hotkeys()
+
         self.update_preview()
     
     def _init_ui(self) -> None:
@@ -211,49 +209,7 @@ class HtmlLivePreview(QDialog):
             self.lbl_h_count.setText(f"{index + 1} / {total}")
         else:
             self.lbl_h_count.setText("0 / 0")
-    
-    def setup_global_hotkeys(self) -> None:
-        """Настройка глобальных горячих клавиш"""
-        if not PYNPUT_AVAILABLE:
-            logger.info("pynput недоступен, только локальные хоткеи")
-            return
-        
-        try:
-            if self.main_app.global_hotkey_manager is None:
-                self.main_app.global_hotkey_manager = GlobalHotkeyManager(
-                    self.main_app
-                )
-            
-            prev_key_str = "alt+left"
-            next_key_str = "alt+right"
-            
-            self.main_app.global_hotkey_manager.clear_hotkeys()
-            self.main_app.global_hotkey_manager.register_hotkey(
-                "prev", prev_key_str, self.go_prev_hotkey
-            )
-            self.main_app.global_hotkey_manager.register_hotkey(
-                "next", next_key_str, self.go_next_hotkey
-            )
-            
-            if not self.main_app.global_hotkey_manager._running:
-                QTimer.singleShot(
-                    100, self.main_app.global_hotkey_manager.start
-                )
-        except Exception as e:
-            log_exception(logger, "Error setting up hotkeys", e)
-    
-    def go_prev_hotkey(self) -> None:
-        """Хоткей назад"""
-        QTimer.singleShot(
-            0, lambda: self.scroll_to_highlight("prev")
-        )
-    
-    def go_next_hotkey(self) -> None:
-        """Хоткей вперёд"""
-        QTimer.singleShot(
-            0, lambda: self.scroll_to_highlight("next")
-        )
-    
+
     def scroll_to_highlight(self, direction: str) -> None:
         """Прокрутка к подсвеченной реплике"""
         js_get_total = (

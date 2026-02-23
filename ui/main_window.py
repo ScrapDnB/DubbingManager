@@ -60,13 +60,11 @@ from services import (
     ActorService,
     ExportService
 )
-from services.hotkey_manager import GlobalHotkeyManager, PYNPUT_AVAILABLE
 from .dialogs import (
     ActorFilterDialog,
     PrompterColorDialog,
     CustomColorDialog,
     ExportSettingsDialog,
-    HotkeySettingsDialog,
     ReaperExportDialog,
     ActorRolesDialog,
     GlobalSearchDialog,
@@ -100,7 +98,6 @@ class MainWindow(QMainWindow):
         self.sort_desc = True
         self.preview_window: Optional[HtmlLivePreview] = None
         self.teleprompter_window: Optional[TeleprompterWindow] = None
-        self.global_hotkey_manager: Optional[GlobalHotkeyManager] = None
 
         # Данные проекта
         self.data: Dict[str, Any] = self.project_service.create_new_project("Новый проект")
@@ -333,15 +330,11 @@ class MainWindow(QMainWindow):
         btn_live_html = QPushButton("📃 Монтажный лист")
         btn_live_html.clicked.connect(self.open_live_preview)
         tools_sidebar_layout.addWidget(btn_live_html)
-        
+
         btn_prompter = QPushButton("🎤 Телесуфлёр")
         btn_prompter.clicked.connect(self.open_teleprompter)
         tools_sidebar_layout.addWidget(btn_prompter)
-        
-        btn_hotkeys = QPushButton("⌨ Горячие клавиши")
-        btn_hotkeys.clicked.connect(self.open_hotkey_settings)
-        tools_sidebar_layout.addWidget(btn_hotkeys)
-        
+
         btn_reaper = QPushButton("🎹 Reaper RPP")
         btn_reaper.clicked.connect(self.export_to_reaper_rpp)
         tools_sidebar_layout.addWidget(btn_reaper)
@@ -1157,11 +1150,7 @@ class MainWindow(QMainWindow):
         
         self.teleprompter_window = TeleprompterWindow(self, ep)
         self.teleprompter_window.show()
-    
-    def open_hotkey_settings(self) -> None:
-        """Открытие настроек горячих клавиш"""
-        HotkeySettingsDialog(self).exec()
-    
+
     def export_to_reaper_rpp(self) -> None:
         """Экспорт в Reaper RPP"""
         ep_num = self.ep_combo.currentData()
