@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer, Slot, QObject
 from PySide6.QtWebChannel import QWebChannel
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any, Optional, Set, Callable
 import logging
 import os
 import sys
@@ -33,83 +33,90 @@ logger = logging.getLogger(__name__)
 
 class HtmlLivePreview(QDialog):
     """Окно живого предпросмотра монтажного листа"""
-    
-    def __init__(self, main_app: Any, ep_num: str):
+
+    # Class attributes
+    main_app: Any
+    ep_num: str
+    highlight_ids: Optional[List[str]]
+    current_h_index: int
+    _has_text_changes: bool
+
+    def __init__(self, main_app: Any, ep_num: str) -> None:
         super().__init__(None)
-        self.main_app = main_app
-        self.ep_num = ep_num
+        self.main_app: Any = main_app
+        self.ep_num: str = ep_num
         self.setWindowTitle(f"Предпросмотр монтажного листа: Серия {ep_num}")
         self.resize(PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT)
-        
-        self.highlight_ids: Optional[List[str]] = None
-        self.current_h_index = -1
-        self._has_text_changes = False
-        
+
+        self.highlight_ids = None
+        self.current_h_index: int = -1
+        self._has_text_changes: bool = False
+
         self._init_ui()
-        
+
         self.browser.loadFinished.connect(self.on_page_loaded)
         self.main_app.preview_window = self
-        
+
         if WEB_ENGINE_AVAILABLE:
-            self.channel = QWebChannel()
-            self.bridge = WebBridge(self.main_app)
+            self.channel: QWebChannel = QWebChannel()
+            self.bridge: WebBridge = WebBridge(self.main_app)
             self.channel.registerObject("backend", self.bridge)
             self.browser.page().setWebChannel(self.channel)
 
         self.update_preview()
-    
+
     def _init_ui(self) -> None:
         """Инициализация интерфейса"""
-        self.root_layout = QVBoxLayout(self)
-        
+        self.root_layout: QVBoxLayout = QVBoxLayout(self)
+
         # Панель навигации
-        self.nav_panel = QHBoxLayout()
-        
+        self.nav_panel: QHBoxLayout = QHBoxLayout()
+
         self.btn_toggle_sidebar = QPushButton("⬅ Скрыть настройки")
         self.btn_toggle_sidebar.setCheckable(True)
         self.btn_toggle_sidebar.clicked.connect(self.toggle_sidebar)
-        
+
         self.btn_prev_h = QPushButton("⏮ Пред. реплика (Alt+←)")
         self.btn_prev_h.setShortcut("Alt+Left")
         self.btn_prev_h.clicked.connect(
             lambda: self.scroll_to_highlight("prev")
         )
-        
+
         self.lbl_h_count = QLabel("0 / 0")
         self.lbl_h_count.setStyleSheet(
             "font-weight: bold; margin: 0 10px;"
         )
-        
+
         self.btn_next_h = QPushButton("След. реплика (Alt+→) ⏭")
         self.btn_next_h.setShortcut("Alt+Right")
         self.btn_next_h.clicked.connect(
             lambda: self.scroll_to_highlight("next")
         )
-        
+
         self.nav_panel.addWidget(self.btn_toggle_sidebar)
         self.nav_panel.addSpacing(20)
         self.nav_panel.addWidget(self.btn_prev_h)
         self.nav_panel.addWidget(self.lbl_h_count)
         self.nav_panel.addWidget(self.btn_next_h)
         self.nav_panel.addStretch()
-        
+
         self.root_layout.addLayout(self.nav_panel)
-        
+
         # Контент
-        self.content_layout = QHBoxLayout()
+        self.content_layout: QHBoxLayout = QHBoxLayout()
         self.root_layout.addLayout(self.content_layout)
 
         # Панель настроек
         self.settings_panel = QFrame()
         self.settings_panel.setFixedWidth(PREVIEW_SETTINGS_PANEL_WIDTH)
         self.settings_panel.setFrameShape(QFrame.StyledPanel)
-        sp_layout = QVBoxLayout(self.settings_panel)
-        
+        sp_layout: QVBoxLayout = QVBoxLayout(self.settings_panel)
+
         sp_layout.addWidget(QLabel("<b>Настройки вида</b>"))
-        
+
         self.combo_layout = QComboBox()
         self.combo_layout.addItems(["Таблица", "Сценарий"])
-        current_type = self.main_app.data["export_config"].get(
+        current_type: str = self.main_app.data["export_config"].get(
             "layout_type", "Таблица"
         )
         self.combo_layout.setCurrentText(current_type)

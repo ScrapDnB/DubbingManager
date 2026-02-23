@@ -1,12 +1,12 @@
 """Диалог глобального поиска"""
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, 
-    QPushButton, QTableWidget, QTableWidgetItem, 
+    QDialog, QVBoxLayout, QHBoxLayout, QLineEdit,
+    QPushButton, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QFrame, QMessageBox, QLabel
 )
 from PySide6.QtCore import Qt
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import os
 import re
 from utils.helpers import ass_time_to_seconds
@@ -14,35 +14,41 @@ from utils.helpers import ass_time_to_seconds
 
 class GlobalSearchDialog(QDialog):
     """Диалог глобального поиска по проекту"""
-    
-    def __init__(self, project_data: Dict[str, Any], parent=None):
+
+    def __init__(
+        self,
+        project_data: Dict[str, Any],
+        parent: Optional[QDialog] = None
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Глобальный поиск по проекту")
         self.resize(900, 600)
-        self.project_data = project_data
-        self.main_app = parent
-        
+        self.project_data: Dict[str, Any] = project_data
+        self.main_app: Optional[Any] = parent
+
+        self._search_input: QLineEdit
+        self._table: QTableWidget
         self._init_ui()
-    
+
     def _init_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        
+        layout: QVBoxLayout = QVBoxLayout(self)
+
         # Панель поиска
-        search_layout = QHBoxLayout()
+        search_layout: QHBoxLayout = QHBoxLayout()
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText(
             "Введите текст или имя персонажа..."
         )
         self._search_input.returnPressed.connect(self._perform_search)
-        
+
         btn_search = QPushButton("Найти")
         btn_search.clicked.connect(self._perform_search)
-        
+
         search_layout.addWidget(QLabel("Поиск:"))
         search_layout.addWidget(self._search_input)
         search_layout.addWidget(btn_search)
         layout.addLayout(search_layout)
-        
+
         # Таблица результатов
         self._table = QTableWidget(0, 4)
         self._table.setHorizontalHeaderLabels([
@@ -54,7 +60,7 @@ class GlobalSearchDialog(QDialog):
         )
         self._table.cellDoubleClicked.connect(self._go_to_result)
         layout.addWidget(self._table)
-    
+
     def _customize_table(self) -> None:
         """Настройка вида таблицы"""
         self._table.setShowGrid(False)
@@ -72,72 +78,75 @@ class GlobalSearchDialog(QDialog):
         self._table.setStyleSheet(
             "QTableWidget::item { padding-left: 10px; }"
         )
-    
+
     def _perform_search(self) -> None:
         """Выполнение поиска"""
-        query = self._search_input.text().lower().strip()
+        query: str = self._search_input.text().lower().strip()
         if not query:
             return
-        
+
         self._table.setRowCount(0)
-        episodes = self.project_data.get("episodes", {})
-        
+        episodes: Dict[str, str] = self.project_data.get("episodes", {})
+
+        ep_num: str
+        path: str
         for ep_num in sorted(
-            episodes.keys(), 
+            episodes.keys(),
             key=lambda x: int(x) if x.isdigit() else 0
         ):
             path = episodes[ep_num]
             if not os.path.exists(path):
                 continue
-            
+
+            lines: list = []
             try:
                 with open(path, 'r', encoding='utf-8') as f:
                     for line in f:
                         if line.startswith("Dialogue:"):
                             parts = line.split(',', 9)
                             if len(parts) > 9:
-                                start_time = parts[1]
-                                char_name = parts[4].strip()
-                                text_clean = re.sub(
+                                start_time: str = parts[1]
+                                char_name: str = parts[4].strip()
+                                text_clean: str = re.sub(
                                     r'\{.*?\}', '', parts[9]
                                 ).strip()
-                                
+
                                 if (
-                                    query in char_name.lower() or 
+                                    query in char_name.lower() or
                                     query in text_clean.lower()
                                 ):
                                     self._add_result_row(
                                         ep_num, start_time, char_name, text_clean
                                     )
-            except Exception as e:
+            except Exception:
                 # Логирование ошибки
                 pass
-        
+
         if self._table.rowCount() == 0:
             QMessageBox.information(
                 self, "Поиск", "Ничего не найдено."
             )
-    
+
     def _add_result_row(
-        self, 
-        ep: str, 
-        time: str, 
-        char: str, 
+        self,
+        ep: str,
+        time: str,
+        char: str,
         text: str
     ) -> None:
         """Добавление строки результата"""
-        row = self._table.rowCount()
+        row: int = self._table.rowCount()
         self._table.insertRow(row)
-        
-        item_ep = QTableWidgetItem(str(ep))
+
+        item_ep: QTableWidgetItem = QTableWidgetItem(str(ep))
         item_ep.setData(Qt.UserRole, ep)
         self._table.setItem(row, 0, item_ep)
         self._table.setItem(row, 1, QTableWidgetItem(time))
         self._table.setItem(row, 2, QTableWidgetItem(char))
         self._table.setItem(row, 3, QTableWidgetItem(text))
-    
+
     def _go_to_result(self, row: int, col: int) -> None:
         """Переход к результату"""
-        ep_num = self._table.item(row, 0).data(Qt.UserRole)
+        ep_num: str = self._table.item(row, 0).data(Qt.UserRole)
         if self.main_app:
             self.main_app.switch_to_episode(ep_num)

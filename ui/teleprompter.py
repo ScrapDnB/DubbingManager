@@ -1,9 +1,9 @@
 """Окно телесуфлёра"""
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
+    QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QSpinBox, QSlider, QCheckBox, QFrame,
-    QScrollArea, QSplitter, QToolBar, QListWidget, 
+    QScrollArea, QSplitter, QToolBar, QListWidget,
     QListWidgetItem, QAbstractItemView, QMessageBox,
     QDoubleSpinBox, QSizePolicy, QWidget, QFormLayout,
     QGroupBox, QTextEdit, QDialogButtonBox, QGraphicsView,
@@ -192,10 +192,10 @@ class EditableTextItem(QGraphicsTextItem):
 
 class TeleprompterFloatWindow(QDialog):
     """Плавающее окно управления телесуфлёром"""
-    
-    def __init__(self, teleprompter: 'TeleprompterWindow'):
+
+    def __init__(self, teleprompter: 'TeleprompterWindow') -> None:
         super().__init__(None)
-        self.teleprompter = teleprompter
+        self.teleprompter: 'TeleprompterWindow' = teleprompter
         self.setWindowTitle("Управление телесуфлёром")
         self.setWindowFlags(
             Qt.Window |
@@ -206,63 +206,64 @@ class TeleprompterFloatWindow(QDialog):
         )
         self.setAttribute(Qt.WA_MacAlwaysShowToolWindow)
         self.resize(PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT)
-        
+
         self._init_ui()
-    
+
     def _init_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        
+        layout: QVBoxLayout = QVBoxLayout(self)
+
         # Кнопки навигации
-        btn_layout = QHBoxLayout()
-        
+        btn_layout: QHBoxLayout = QHBoxLayout()
+
         self.btn_prev = QPushButton("⏮ Назад")
         self.btn_prev.setMinimumHeight(50)
         self.btn_prev.clicked.connect(
             lambda: self.teleprompter.navigate_to_replica_in_direction(-1)
         )
         btn_layout.addWidget(self.btn_prev)
-        
+
         self.btn_next = QPushButton("Вперёд ⏭")
         self.btn_next.setMinimumHeight(50)
         self.btn_next.clicked.connect(
             lambda: self.teleprompter.navigate_to_replica_in_direction(1)
         )
         btn_layout.addWidget(self.btn_next)
-        
+
         layout.addLayout(btn_layout)
-        
+
         # Список реплик
         layout.addWidget(QLabel("<b>Список реплик:</b>"))
         self.replica_list = QListWidget()
         self.replica_list.itemClicked.connect(self.on_replica_clicked)
         layout.addWidget(self.replica_list)
-        
+
         # Кнопка скрытия
         btn_close = QPushButton("Скрыть")
         btn_close.clicked.connect(self.hide_window)
         layout.addWidget(btn_close)
-        
+
         self.sync_replica_list()
-    
+
     def sync_replica_list(self) -> None:
         """Синхронизация списка реплик"""
         if not self.teleprompter:
             return
-        
-        current_row = self.replica_list.currentRow()
+
+        current_row: int = self.replica_list.currentRow()
         self.replica_list.blockSignals(True)
         self.replica_list.clear()
-        
+
+        i: int
         for i in range(self.teleprompter.list_of_replicas.count()):
-            item = self.teleprompter.list_of_replicas.item(i)
-            new_item = QListWidgetItem(item.text())
+            item: QListWidgetItem = self.teleprompter.list_of_replicas.item(i)
+            new_item: QListWidgetItem = QListWidgetItem(item.text())
             new_item.setData(Qt.UserRole, item.data(Qt.UserRole))
             self.replica_list.addItem(new_item)
-        
+
         if 0 <= current_row < self.replica_list.count():
             self.replica_list.setCurrentRow(current_row)
         self.replica_list.blockSignals(False)
-    
+
     def on_replica_clicked(self, item: QListWidgetItem) -> None:
         """Переход к выбранной реплике"""
         if self.teleprompter:
@@ -294,62 +295,75 @@ class TeleprompterFloatWindow(QDialog):
 
 class TeleprompterWindow(QDialog):
     """Основное окно телесуфлёра"""
-    
-    def __init__(self, main_app: Any, ep_num: str):
+
+    # Class attributes with type hints
+    main_app: Any
+    ep_num: str
+    cfg: Dict[str, Any]
+    time_map: List[Dict[str, Any]]
+    osc_thread: Optional[OscWorker]
+    last_known_time: float
+    highlight_ids: Optional[List[str]]
+    _has_text_changes: bool
+    _initializing: bool
+
+    def __init__(self, main_app: Any, ep_num: str) -> None:
         super().__init__(None)
-        self.main_app = main_app
-        self.ep_num = ep_num
+        self.main_app: Any = main_app
+        self.ep_num: str = ep_num
         self.setWindowTitle(f"Телесуфлёр - Серия {ep_num}")
         self.resize(PROMPTER_WINDOW_WIDTH, PROMPTER_WINDOW_HEIGHT)
-        
+
         # Инициализация настроек
         self._init_config()
-        
+
         # Переменные состояния
-        self.time_map: List[Dict[str, Any]] = []
+        self.time_map = []
         self.osc_thread: Optional[OscWorker] = None
         self.osc_client = None
-        self.last_known_time = 0.0
-        self.highlight_ids: Optional[List[str]] = None
-        self._has_text_changes = False
-        self._initializing = True
+        self.last_known_time: float = 0.0
+        self.highlight_ids = None
+        self._has_text_changes: bool = False
+        self._initializing: bool = True
 
         # UI
         self._init_ui()
         self.build_prompter_content()
 
         self._initializing = False
-    
+
     def _init_config(self) -> None:
         """Инициализация конфигурации с защитой от падений"""
         if (
-            "prompter_config" not in self.main_app.data or 
+            "prompter_config" not in self.main_app.data or
             self.main_app.data["prompter_config"] is None
         ):
             self.main_app.data["prompter_config"] = DEFAULT_PROMPTER_CONFIG.copy()
-        
-        self.cfg = self.main_app.data["prompter_config"]
-        
+
+        self.cfg: Dict[str, Any] = self.main_app.data["prompter_config"]
+
         # Проверка словаря цветов для совместимости
         if "colors" not in self.cfg or not isinstance(self.cfg["colors"], dict):
             self.cfg["colors"] = DEFAULT_PROMPTER_CONFIG["colors"].copy()
         else:
+            color_key: str
+            color_value: str
             for color_key, color_value in DEFAULT_PROMPTER_CONFIG["colors"].items():
                 if color_key not in self.cfg["colors"]:
                     self.cfg["colors"][color_key] = color_value
-    
+
     def _init_ui(self) -> None:
         """Инициализация интерфейса"""
-        self.root_layout = QVBoxLayout(self)
+        self.root_layout: QVBoxLayout = QVBoxLayout(self)
         self.root_layout.setContentsMargins(0, 0, 0, 0)
         self.root_layout.setSpacing(0)
-        
+
         # Тулбар
         self._init_toolbar()
-        
+
         # Сплиттеры
         self._init_splitters()
-        
+
         # Таймер плавной прокрутки
         self.smooth_scroll_timer = QTimer()
         self.smooth_scroll_timer.setInterval(16)
@@ -358,20 +372,20 @@ class TeleprompterWindow(QDialog):
     
     def _init_toolbar(self) -> None:
         """Инициализация тулбара"""
-        self.toolbar = QToolBar("Управление")
+        self.toolbar: QToolBar = QToolBar("Управление")
         self.toolbar.setMovable(False)
         self.toolbar.setStyleSheet(
             "QToolBar { padding: 5px; background: #333; "
             "border-bottom: 1px solid #111; }"
         )
-        
+
         self.btn_toggle_settings = QPushButton("⚙ Панель настроек")
         self.btn_toggle_settings.setCheckable(True)
         self.btn_toggle_settings.clicked.connect(
             self.toggle_settings_panel_visibility
         )
         self.toolbar.addWidget(self.btn_toggle_settings)
-        
+
         self.toolbar.addSeparator()
 
         self.btn_go_prev = QPushButton("⏮ Предыдущая реплика")
@@ -387,29 +401,29 @@ class TeleprompterWindow(QDialog):
             lambda: self.navigate_to_replica_in_direction(1)
         )
         self.toolbar.addWidget(self.btn_go_next)
-        
+
         self.toolbar.addSeparator()
-        
+
         self.btn_float_window = QPushButton("🔼 Плавающее окно")
         self.btn_float_window.setCheckable(True)
         self.btn_float_window.clicked.connect(self.toggle_float_window)
         self.toolbar.addWidget(self.btn_float_window)
-        
-        toolbar_spacer = QWidget()
+
+        toolbar_spacer: QWidget = QWidget()
         toolbar_spacer.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Preferred
         )
         self.toolbar.addWidget(toolbar_spacer)
-        
+
         btn_close = QPushButton("Закрыть окно")
         btn_close.clicked.connect(self.close)
         self.toolbar.addWidget(btn_close)
-        
+
         self.root_layout.addWidget(self.toolbar)
-    
+
     def _init_splitters(self) -> None:
         """Инициализация сплиттеров"""
-        self.v_splitter = QSplitter(Qt.Vertical)
+        self.v_splitter: QSplitter = QSplitter(Qt.Vertical)
         self.v_splitter.setHandleWidth(8)
         self.v_splitter.setStyleSheet(
             "QSplitter::handle { background: #444; }"

@@ -1,7 +1,7 @@
 """Диалог экспорта в Reaper"""
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QLabel, QCheckBox, 
+    QDialog, QVBoxLayout, QLabel, QCheckBox,
     QDialogButtonBox
 )
 import os
@@ -10,24 +10,27 @@ from typing import Tuple, Optional
 
 class ReaperExportDialog(QDialog):
     """Диалог настройки экспорта проекта Reaper"""
-    
-    def __init__(self, video_path: Optional[str], parent=None):
+
+    def __init__(self, video_path: Optional[str], parent: Optional[QDialog] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Настройки проекта Reaper")
         self.resize(350, 150)
-        
+
+        self._chk_video: QCheckBox
+        self._chk_regions: QCheckBox
+        self._button_box: QDialogButtonBox
         self._init_ui(video_path)
-    
+
     def _init_ui(self, video_path: Optional[str]) -> None:
-        layout = QVBoxLayout(self)
-        
+        layout: QVBoxLayout = QVBoxLayout(self)
+
         layout.addWidget(QLabel("Выберите компоненты для экспорта:"))
-        
+
         self._chk_video = QCheckBox("Добавить дорожку с видео")
         self._chk_regions = QCheckBox("Создать регионы (реплики с текстом)")
-        
+
         # Настройка состояния чекбокса видео
-        has_video = video_path and os.path.exists(video_path)
+        has_video: bool = bool(video_path and os.path.exists(video_path))
         if has_video:
             self._chk_video.setChecked(True)
             self._chk_video.setText(
@@ -37,12 +40,12 @@ class ReaperExportDialog(QDialog):
             self._chk_video.setChecked(False)
             self._chk_video.setEnabled(False)
             self._chk_video.setText("Видео не найдено (опция недоступна)")
-        
+
         self._chk_regions.setChecked(True)
-        
+
         layout.addWidget(self._chk_video)
         layout.addWidget(self._chk_regions)
-        
+
         # Кнопки ОК / Отмена
         self._button_box = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
@@ -50,7 +53,7 @@ class ReaperExportDialog(QDialog):
         self._button_box.accepted.connect(self.accept)
         self._button_box.rejected.connect(self.reject)
         layout.addWidget(self._button_box)
-    
+
     def get_options(self) -> Tuple[bool, bool]:
         """Возвращает выбранные опции (video, regions)"""
         return self._chk_video.isChecked(), self._chk_regions.isChecked()

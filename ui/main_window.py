@@ -8,11 +8,11 @@ from PySide6.QtWidgets import (
     QCheckBox, QGroupBox, QFormLayout, QMessageBox, QSlider,
     QAbstractItemView, QStackedWidget, QDoubleSpinBox, QRadioButton,
     QGridLayout, QScrollArea, QSplitter, QSizePolicy, QToolBar,
-    QDialogButtonBox, QTextEdit, QDialog
+    QDialogButtonBox, QTextEdit, QDialog, QRadioButton
 )
 from PySide6.QtGui import QColor, QFont, QAction, QKeySequence, QPen, QBrush
 from PySide6.QtCore import Qt, QUrl, QTimer, Signal, QRectF, QEvent, Slot
-from typing import Dict, List, Any, Optional, Set, Tuple
+from typing import Dict, List, Any, Optional, Set, Tuple, Callable
 import json
 import re
 import os
@@ -79,8 +79,18 @@ logger = logging.getLogger(__name__)
 
 class MainWindow(QMainWindow):
     """Главное окно приложения Dubbing Manager"""
-    
-    def __init__(self):
+
+    # Class attributes with type hints
+    current_project_path: Optional[str]
+    preview_window: Optional['HtmlLivePreview']
+    teleprompter_window: Optional['TeleprompterWindow']
+    data: Dict[str, Any]
+    current_ep_stats: List[Dict[str, Any]]
+    character_names_changed: Dict[str, bool]
+    sort_col: int
+    sort_desc: bool
+
+    def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Dubbing Manager")
         self.resize(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
@@ -92,18 +102,18 @@ class MainWindow(QMainWindow):
         self.actor_service = ActorService()
 
         # Состояние
-        self.current_project_path: Optional[str] = None
+        self.current_project_path = None
         self.is_dirty = False
         self.sort_col = 1
         self.sort_desc = True
-        self.preview_window: Optional[HtmlLivePreview] = None
-        self.teleprompter_window: Optional[TeleprompterWindow] = None
+        self.preview_window = None
+        self.teleprompter_window = None
 
         # Данные проекта
-        self.data: Dict[str, Any] = self.project_service.create_new_project("Новый проект")
-        
-        self.current_ep_stats: List[Dict[str, Any]] = []
-        self.character_names_changed: Dict[str, bool] = {}
+        self.data = self.project_service.create_new_project("Новый проект")
+
+        self.current_ep_stats = []
+        self.character_names_changed = {}
 
         self._init_ui()
         self.update_window_title()
@@ -116,20 +126,20 @@ class MainWindow(QMainWindow):
     def _on_autosave_timer(self) -> None:
         """Обработчик таймера автосохранения"""
         self.project_service.auto_save(self.data)
-    
+
     def _init_ui(self) -> None:
         """Инициализация интерфейса"""
-        central = QWidget()
+        central: QWidget = QWidget()
         self.setCentralWidget(central)
-        main_layout = QHBoxLayout(central)
-        
+        main_layout: QHBoxLayout = QHBoxLayout(central)
+
         # Левая панель - актёры
         self._init_actor_panel(main_layout)
-        
+
         # Правая панель - основной контент
         self._init_main_panel(main_layout)
-    
-    def _init_actor_panel(self, main_layout) -> None:
+
+    def _init_actor_panel(self, main_layout: QHBoxLayout) -> None:
         """Инициализация панели актёров"""
         left_panel = QVBoxLayout()
         left_widget = QFrame()
@@ -166,49 +176,49 @@ class MainWindow(QMainWindow):
         left_panel.addWidget(btn_sum)
         
         main_layout.addWidget(left_widget)
-    
-    def _init_main_panel(self, main_layout) -> None:
+
+    def _init_main_panel(self, main_layout: QHBoxLayout) -> None:
         """Инициализация основной панели"""
-        right_panel = QVBoxLayout()
-        
+        right_panel: QVBoxLayout = QVBoxLayout()
+
         # Верхняя строка - проект
         self._init_project_bar(right_panel)
-        
+
         # Управление сериями
         self._init_episode_controls(right_panel)
-        
+
         # Центральная область - таблица + инструменты
         self._init_center_area(right_panel)
-        
+
         # Нижняя панель - экспорт
         self._init_bottom_panel(right_panel)
-        
+
         main_layout.addLayout(right_panel)
-    
-    def _init_project_bar(self, layout) -> None:
+
+    def _init_project_bar(self, layout: QHBoxLayout) -> None:
         """Инициализация панели проекта"""
-        top = QHBoxLayout()
-        
+        top: QHBoxLayout = QHBoxLayout()
+
         self.proj_edit = QLineEdit()
         self.proj_edit.textChanged.connect(self.on_project_name_changed)
         top.addWidget(QLabel("Проект:"))
         top.addWidget(self.proj_edit)
-        
+
         btn_load = QPushButton("Открыть")
         btn_load.clicked.connect(self.load_project_dialog)
         top.addWidget(btn_load)
-        
+
         btn_save = QPushButton("Сохранить")
         btn_save.clicked.connect(self.save_project)
         top.addWidget(btn_save)
-        
+
         btn_copy = QPushButton("Копия")
         btn_copy.clicked.connect(self.save_project_as)
         top.addWidget(btn_copy)
-        
+
         layout.addLayout(top)
-    
-    def _init_episode_controls(self, layout) -> None:
+
+    def _init_episode_controls(self, layout: QHBoxLayout) -> None:
         """Инициализация управления сериями"""
         ep_ctrl = QHBoxLayout()
 
@@ -264,13 +274,13 @@ class MainWindow(QMainWindow):
         
         layout.addLayout(ep_ctrl)
     
-    def _init_center_area(self, layout) -> None:
+    def _init_center_area(self, layout: QHBoxLayout) -> None:
         """Инициализация центральной области"""
-        middle_layout = QHBoxLayout()
-        
+        middle_layout: QHBoxLayout = QHBoxLayout()
+
         # Стек таблиц
         self.table_stack = QStackedWidget()
-        
+
         self.main_table = QTableWidget(0, 6)
         self.main_table.setHorizontalHeaderLabels([
             "Персонаж", "Строчек", "Колец", "Слов", "Актер", "📺"
@@ -286,35 +296,35 @@ class MainWindow(QMainWindow):
         self.main_table.itemChanged.connect(
             self.on_character_name_changed
         )
-        
+
         self.missing_file_widget = QWidget()
-        mf_lay = QVBoxLayout(self.missing_file_widget)
-        
+        mf_lay: QVBoxLayout = QVBoxLayout(self.missing_file_widget)
+
         self.lbl_missing = QLabel("ФАЙЛ НЕ НАЙДЕН")
         self.lbl_missing.setStyleSheet(
             "color: red; font-weight: bold;"
         )
         self.lbl_missing.setAlignment(Qt.AlignCenter)
-        
+
         btn_relink = QPushButton("Найти...")
         btn_relink.clicked.connect(self.relink_file)
-        
+
         mf_lay.addStretch()
         mf_lay.addWidget(self.lbl_missing)
         mf_lay.addWidget(btn_relink)
         mf_lay.addStretch()
-        
+
         self.table_stack.addWidget(self.main_table)
         self.table_stack.addWidget(self.missing_file_widget)
-        
+
         middle_layout.addWidget(self.table_stack, stretch=1)
-        
+
         # Панель инструментов
         self._init_tools_sidebar(middle_layout)
-        
+
         layout.addLayout(middle_layout)
-    
-    def _init_tools_sidebar(self, layout) -> None:
+
+    def _init_tools_sidebar(self, layout: QHBoxLayout) -> None:
         """Инициализация панели инструментов"""
         tools_sidebar_widget = QWidget()
         tools_sidebar_widget.setFixedWidth(TOOLS_SIDEBAR_WIDTH)
@@ -565,11 +575,13 @@ class MainWindow(QMainWindow):
     
     def add_actor_dialog(self) -> None:
         """Диалог добавления актёра"""
+        name: str
+        ok: bool
         name, ok = QInputDialog.getText(self, "Новый актер", "Имя:")
         if ok and name:
             dialog = CustomColorDialog(self)
             if dialog.exec():
-                actor_id = self.actor_service.add_actor(
+                actor_id: str = self.actor_service.add_actor(
                     self.data["actors"],
                     name,
                     dialog.selected_color
@@ -581,9 +593,9 @@ class MainWindow(QMainWindow):
     def on_actor_cell_clicked(self, row: int, col: int) -> None:
         """Клик по ячейке актёра"""
         if col == 2:  # Колонка "Цвет"
-            item = self.actor_table.item(row, 0)
+            item: Optional[QTableWidgetItem] = self.actor_table.item(row, 0)
             if item:
-                aid = item.data(Qt.UserRole)
+                aid: Optional[str] = item.data(Qt.UserRole)
                 dialog = CustomColorDialog(self)
                 if dialog.exec():
                     if dialog.selected_color and aid:
@@ -596,7 +608,7 @@ class MainWindow(QMainWindow):
 
     def on_actor_renamed(self, item: QTableWidgetItem) -> None:
         """Переименование актёра"""
-        aid = item.data(Qt.UserRole)
+        aid: Optional[str] = item.data(Qt.UserRole)
         if aid:
             self.actor_service.rename_actor(
                 self.data["actors"], aid, item.text()
@@ -606,22 +618,24 @@ class MainWindow(QMainWindow):
 
     def bulk_assign_actor(self) -> None:
         """Массовое назначение актёра"""
-        selected = self.main_table.selectionModel().selectedRows()
+        selected: List[int] = self.main_table.selectionModel().selectedRows()
         if not selected:
             return
 
-        names = ["- Удалить -"] + [
+        names: List[str] = ["- Удалить -"] + [
             a["name"] for a in self.data["actors"].values()
         ]
-        ids = [None] + list(self.data["actors"].keys())
+        ids: List[Optional[str]] = [None] + list(self.data["actors"].keys())
 
+        name: str
+        ok: bool
         name, ok = QInputDialog.getItem(
             self, "Назначить", "Актер:", names, 0, False
         )
 
         if ok:
-            aid = ids[names.index(name)]
-            characters = [
+            aid: Optional[str] = ids[names.index(name)]
+            characters: List[str] = [
                 self.main_table.item(idx.row(), 0).text()
                 for idx in selected
             ]
@@ -631,11 +645,12 @@ class MainWindow(QMainWindow):
             self.refresh_actor_list()
             self.refresh_main_table()
             self.set_dirty()
-    
+
     def set_episode_video(self) -> None:
         """Установка видео для серии"""
-        ep = self.ep_combo.currentData()
+        ep: Optional[str] = self.ep_combo.currentData()
         if ep:
+            path: str
             path, _ = QFileDialog.getOpenFileName(
                 self,
                 "Видео",
@@ -650,11 +665,11 @@ class MainWindow(QMainWindow):
     
     def change_episode(self) -> None:
         """Смена серии"""
-        ep = self.ep_combo.currentData()
+        ep: Optional[str] = self.ep_combo.currentData()
         if not ep:
             return
 
-        path = self.data["episodes"].get(ep)
+        path: Optional[str] = self.data["episodes"].get(ep)
         if path and os.path.exists(path):
             self.table_stack.setCurrentIndex(0)
             self._parse_episode(ep, path)
@@ -666,6 +681,7 @@ class MainWindow(QMainWindow):
 
     def _parse_episode(self, ep: str, path: str) -> None:
         """Парсинг эпизода и получение статистики"""
+        stats: List[Dict[str, Any]]
         stats, _ = self.episode_service.parse_ass_file(path)
         self.current_ep_stats = stats
 
@@ -678,9 +694,11 @@ class MainWindow(QMainWindow):
 
         if paths:
             for path in paths:
-                numbers = re.findall(r'\d+', os.path.basename(path))
-                num = " ".join(numbers) or "1"
+                numbers: List[str] = re.findall(r'\d+', os.path.basename(path))
+                num: str = " ".join(numbers) or "1"
 
+                name: str
+                ok: bool
                 name, ok = QInputDialog.getText(
                     self,
                     "Ep",
@@ -694,10 +712,11 @@ class MainWindow(QMainWindow):
                     self.set_dirty()
 
             self.update_ep_list()
-    
+
     def relink_file(self) -> None:
         """Перепривязка файла"""
-        ep = self.ep_combo.currentData()
+        ep: Optional[str] = self.ep_combo.currentData()
+        path: str
         path, _ = QFileDialog.getOpenFileName(
             self, "Файл", "", "*.ass"
         )
@@ -829,7 +848,9 @@ class MainWindow(QMainWindow):
     
     def rename_episode(self) -> None:
         """Переименование серии"""
-        old = self.ep_combo.currentData()
+        old: Optional[str] = self.ep_combo.currentData()
+        new_name: str
+        ok: bool
         new_name, ok = QInputDialog.getText(
             self, "Rename", "New name:", text=str(old)
         )
@@ -842,12 +863,12 @@ class MainWindow(QMainWindow):
 
     def delete_episode_dialog(self) -> None:
         """Диалог удаления серии"""
-        ep = self.ep_combo.currentData()
+        ep: Optional[str] = self.ep_combo.currentData()
         if not ep:
             QMessageBox.information(self, "Инфо", "Нет серий для удаления.")
             return
 
-        reply = QMessageBox.question(
+        reply: int = QMessageBox.question(
             self,
             "Удаление серии",
             f"Вы уверены, что хотите удалить серию {ep}?\n\n"
@@ -888,39 +909,41 @@ class MainWindow(QMainWindow):
         """Обновление списка серий"""
         self.ep_combo.blockSignals(True)
         self.ep_combo.clear()
-        
+
+        ep: str
         for ep in sorted(
             self.data["episodes"].keys(),
             key=lambda x: int(x) if x.isdigit() else 0
         ):
             self.ep_combo.addItem(f"Серия {ep}", ep)
-        
+
         if select:
             self.ep_combo.setCurrentIndex(
                 self.ep_combo.findData(select)
             )
         elif self.ep_combo.count() > 0:
             self.ep_combo.setCurrentIndex(0)
-        
+
         self.ep_combo.blockSignals(False)
         self.change_episode()
-    
+
     # === Экспорт ===
-    
+
     def run_unified_export(self) -> None:
         """Запуск экспорта"""
-        do_html = self.chk_exp_html.isChecked()
-        do_xls = self.chk_exp_xls.isChecked()
-        
+        do_html: bool = self.chk_exp_html.isChecked()
+        do_xls: bool = self.chk_exp_xls.isChecked()
+
         if not (do_html or do_xls):
             return
-        
-        is_all = self.radio_all.isChecked()
-        
+
+        is_all: bool = self.radio_all.isChecked()
+
+        episodes: Dict[str, Optional[str]]
         if is_all:
             episodes = self.data["episodes"]
         else:
-            ep = self.ep_combo.currentData()
+            ep: Optional[str] = self.ep_combo.currentData()
             episodes = {ep: self.data["episodes"].get(ep)}
 
         if not episodes or None in episodes.values():
@@ -1087,13 +1110,13 @@ class MainWindow(QMainWindow):
     def show_project_summary(self) -> None:
         """Показать сводку проекта"""
         SummaryDialog(self.data, None, self).exec()
-    
+
     def show_episode_summary(self) -> None:
         """Показать сводку серии"""
-        ep = self.ep_combo.currentData()
+        ep: Optional[str] = self.ep_combo.currentData()
         if ep:
             SummaryDialog(self.data, ep, self).exec()
-    
+
     def edit_roles(
         self,
         aid: str,
@@ -1101,59 +1124,59 @@ class MainWindow(QMainWindow):
         roles: List[str]
     ) -> None:
         """Редактирование ролей актёра"""
-        dialog = ActorRolesDialog(name, roles, self)
+        dialog: ActorRolesDialog = ActorRolesDialog(name, roles, self)
         if dialog.exec():
-            new_roles = dialog.get_roles()
+            new_roles: List[str] = dialog.get_roles()
             self.actor_service.update_actor_roles(
                 self.data["global_map"], aid, new_roles
             )
             self.refresh_actor_list()
             self.refresh_main_table()
             self.set_dirty()
-    
+
     def open_export_settings(self) -> None:
         """Открытие настроек экспорта"""
-        dialog = ExportSettingsDialog(
+        dialog: ExportSettingsDialog = ExportSettingsDialog(
             self.data["export_config"], self
         )
         if dialog.exec():
             self.data["export_config"] = dialog.get_settings()
             self.change_episode()
             self.set_dirty()
-    
+
     def open_global_search(self) -> None:
         """Открытие глобального поиска"""
         GlobalSearchDialog(self.data, self).exec()
-    
+
     def open_live_preview(self) -> None:
         """Открытие живого предпросмотра"""
-        ep = self.ep_combo.currentData()
+        ep: Optional[str] = self.ep_combo.currentData()
         if not ep:
             QMessageBox.information(self, "Инфо", "Выберите серию.")
             return
-        
+
         if self.preview_window is not None:
             self.preview_window.close()
-        
+
         self.preview_window = HtmlLivePreview(self, ep)
         self.preview_window.show()
-    
+
     def open_teleprompter(self) -> None:
         """Открытие телесуфлёра"""
-        ep = self.ep_combo.currentData()
+        ep: Optional[str] = self.ep_combo.currentData()
         if not ep:
             QMessageBox.information(self, "Инфо", "Выберите серию.")
             return
-        
+
         if self.teleprompter_window is not None:
             self.teleprompter_window.close()
-        
+
         self.teleprompter_window = TeleprompterWindow(self, ep)
         self.teleprompter_window.show()
 
     def export_to_reaper_rpp(self) -> None:
         """Экспорт в Reaper RPP"""
-        ep_num = self.ep_combo.currentData()
+        ep_num: Optional[str] = self.ep_combo.currentData()
         if not ep_num:
             QMessageBox.warning(self, "Ошибка", "Выберите серию.")
             return
