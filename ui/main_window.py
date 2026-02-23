@@ -139,17 +139,23 @@ class MainWindow(QMainWindow):
         left_widget.setFixedWidth(ACTOR_PANEL_WIDTH)
         left_widget.setFrameShape(QFrame.StyledPanel)
         left_widget.setLayout(left_panel)
-        
+
         left_panel.addWidget(QLabel("<b>БАЗА АКТЕРОВ</b>"))
-        
+
         self.actor_table = QTableWidget(0, 3)
         self.actor_table.setHorizontalHeaderLabels(
-            ["Актер", "Цвет", "Роли"]
+            ["Актер", "Роли", "Цвет"]
         )
         customize_table(self.actor_table)
-        self.actor_table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.Stretch
-        )
+        
+        # Настройка ширины колонок
+        header = self.actor_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Актер - занимает всё место
+        header.setSectionResizeMode(1, QHeaderView.Fixed)  # Роли - фиксированная
+        header.setSectionResizeMode(2, QHeaderView.Fixed)    # Цвет - фиксированная ширина
+        self.actor_table.setColumnWidth(1, 100)
+        self.actor_table.setColumnWidth(2, 60)               # Узкая колонка для цвета
+        
         self.actor_table.itemChanged.connect(self.on_actor_renamed)
         self.actor_table.cellClicked.connect(self.on_actor_cell_clicked)
         left_panel.addWidget(self.actor_table)
@@ -581,7 +587,7 @@ class MainWindow(QMainWindow):
 
     def on_actor_cell_clicked(self, row: int, col: int) -> None:
         """Клик по ячейке актёра"""
-        if col == 1:
+        if col == 2:  # Колонка "Цвет"
             item = self.actor_table.item(row, 0)
             if item:
                 aid = item.data(Qt.UserRole)
@@ -795,34 +801,37 @@ class MainWindow(QMainWindow):
         """Обновление списка актёров"""
         self.actor_table.blockSignals(True)
         self.actor_table.setRowCount(0)
-        
+
         actor_roles: Dict[str, List[str]] = {
             aid: [] for aid in self.data["actors"]
         }
-        
+
         for char, aid in self.data["global_map"].items():
             if aid in actor_roles:
                 actor_roles[aid].append(char)
-        
+
         for aid, info in self.data["actors"].items():
             row = self.actor_table.rowCount()
             self.actor_table.insertRow(row)
-            
+
+            # Колонка 0: Актер
             item = QTableWidgetItem(info["name"])
             item.setData(Qt.UserRole, aid)
             self.actor_table.setItem(row, 0, item)
-            
-            color_item = QTableWidgetItem()
-            color_item.setBackground(QColor(info["color"]))
-            self.actor_table.setItem(row, 1, color_item)
-            
+
+            # Колонка 1: Роли
             btn = QPushButton(f"Роли ({len(actor_roles[aid])})")
             btn.clicked.connect(
-                lambda _, a=aid, n=info["name"], r=actor_roles[aid]: 
+                lambda _, a=aid, n=info["name"], r=actor_roles[aid]:
                 self.edit_roles(a, n, r)
             )
-            self.actor_table.setCellWidget(row, 2, wrap_widget(btn))
-        
+            self.actor_table.setCellWidget(row, 1, wrap_widget(btn))
+
+            # Колонка 2: Цвет
+            color_item = QTableWidgetItem()
+            color_item.setBackground(QColor(info["color"]))
+            self.actor_table.setItem(row, 2, color_item)
+
         self.actor_table.blockSignals(False)
     
     def rename_episode(self) -> None:
