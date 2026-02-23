@@ -60,6 +60,7 @@ from services import (
     ActorService,
     ExportService
 )
+from ui.controllers import ActorController
 from .dialogs import (
     ActorFilterDialog,
     PrompterColorDialog,
@@ -101,6 +102,9 @@ class MainWindow(QMainWindow):
         self.episode_service = EpisodeService()
         self.actor_service = ActorService()
 
+        # Контроллеры
+        self.actor_controller: Optional[ActorController] = None
+
         # Состояние
         self.current_project_path = None
         self.is_dirty = False
@@ -141,7 +145,7 @@ class MainWindow(QMainWindow):
 
     def _init_actor_panel(self, main_layout: QHBoxLayout) -> None:
         """Инициализация панели актёров"""
-        left_panel = QVBoxLayout()
+        left_panel: QVBoxLayout = QVBoxLayout()
         left_widget = QFrame()
         left_widget.setFixedWidth(ACTOR_PANEL_WIDTH)
         left_widget.setFrameShape(QFrame.StyledPanel)
@@ -150,31 +154,28 @@ class MainWindow(QMainWindow):
         left_panel.addWidget(QLabel("<b>БАЗА АКТЕРОВ</b>"))
 
         self.actor_table = QTableWidget(0, 3)
-        self.actor_table.setHorizontalHeaderLabels(
-            ["Актер", "Роли", "Цвет"]
-        )
         customize_table(self.actor_table)
-        
-        # Настройка ширины колонок
-        header = self.actor_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Актер - занимает всё место
-        header.setSectionResizeMode(1, QHeaderView.Fixed)  # Роли - фиксированная
-        header.setSectionResizeMode(2, QHeaderView.Fixed)    # Цвет - фиксированная ширина
-        self.actor_table.setColumnWidth(1, 100)
-        self.actor_table.setColumnWidth(2, 60)               # Узкая колонка для цвета
-        
-        self.actor_table.itemChanged.connect(self.on_actor_renamed)
-        self.actor_table.cellClicked.connect(self.on_actor_cell_clicked)
+
+        # Создаём контроллер актёров
+        self.actor_controller = ActorController(
+            actor_table=self.actor_table,
+            actor_service=self.actor_service,
+            data_ref=self.data,
+            on_dirty_callback=self.set_dirty,
+            on_edit_roles_callback=self.edit_roles,
+            on_color_click_callback=self.on_actor_color_clicked
+        )
+
         left_panel.addWidget(self.actor_table)
-        
+
         btn_add = QPushButton("+ Актер")
         btn_add.clicked.connect(self.add_actor_dialog)
         left_panel.addWidget(btn_add)
-        
+
         btn_sum = QPushButton("📋 Сводный отчет проекта")
         btn_sum.clicked.connect(self.show_project_summary)
         left_panel.addWidget(btn_sum)
-        
+
         main_layout.addWidget(left_widget)
 
     def _init_main_panel(self, main_layout: QHBoxLayout) -> None:
@@ -545,14 +546,21 @@ class MainWindow(QMainWindow):
             self.data = self.project_service.load_project(path)
             self.current_project_path = self.project_service.current_project_path
 
+            # Обновляем ссылку на данные в контроллере актёров
+            if self.actor_controller:
+                self.actor_controller.data_ref = self.data
+
             # Временно отключаем сигнал, чтобы не устанавливать dirty флаг
             self.proj_edit.blockSignals(True)
             self.proj_edit.setText(self.project_service.get_project_name(self.data))
             self.proj_edit.blockSignals(False)
 
+            logger.info(f"Project loaded from {path}")
+            logger.info(f"Actors count: {len(self.data.get('actors', {}))}")
+            logger.info(f"Global map count: {len(self.data.get('global_map', {}))}")
+
             self.refresh_actor_list()
             self.update_ep_list()
-            logger.info(f"Project loaded from {path}")
 
         except Exception as e:
             log_exception(logger, "Load failed", e)
@@ -575,49 +583,37 @@ class MainWindow(QMainWindow):
     
     def add_actor_dialog(self) -> None:
         """Диалог добавления актёра"""
-        name: str
-        ok: bool
-        name, ok = QInputDialog.getText(self, "Новый актер", "Имя:")
-        if ok and name:
-            dialog = CustomColorDialog(self)
-            if dialog.exec():
-                actor_id: str = self.actor_service.add_actor(
-                    self.data["actors"],
-                    name,
-                    dialog.selected_color
-                )
-                self.refresh_actor_list()
-                self.refresh_main_table()
-                self.set_dirty()
-
-    def on_actor_cell_clicked(self, row: int, col: int) -> None:
-        """Клик по ячейке актёра"""
-        if col == 2:  # Колонка "Цвет"
-            item: Optional[QTableWidgetItem] = self.actor_table.item(row, 0)
-            if item:
-                aid: Optional[str] = item.data(Qt.UserRole)
+        if self.actor_controller:
+            name: str
+            ok: bool
+            name, ok = QInputDialog.getText(self, "Новый актер", "Имя:")
+            if ok and name:
                 dialog = CustomColorDialog(self)
                 if dialog.exec():
-                    if dialog.selected_color and aid:
-                        self.actor_service.update_actor_color(
-                            self.data["actors"], aid, dialog.selected_color
-                        )
-                        self.refresh_actor_list()
-                        self.refresh_main_table()
-                        self.set_dirty()
+                    self.actor_controller.add_actor(name, dialog.selected_color)
+                    self.refresh_main_table()
 
     def on_actor_renamed(self, item: QTableWidgetItem) -> None:
         """Переименование актёра"""
-        aid: Optional[str] = item.data(Qt.UserRole)
-        if aid:
-            self.actor_service.rename_actor(
-                self.data["actors"], aid, item.text()
-            )
-            self.refresh_main_table()
-            self.set_dirty()
+        if self.actor_controller:
+            aid: Optional[str] = item.data(Qt.UserRole)
+            if aid:
+                self.actor_controller.rename_actor(aid, item.text())
+                self.refresh_main_table()
+
+    def on_actor_color_clicked(self, aid: str) -> None:
+        """Клик по цвету актёра"""
+        if self.actor_controller:
+            dialog = CustomColorDialog(self)
+            if dialog.exec() and dialog.selected_color:
+                self.actor_controller.update_actor_color(aid, dialog.selected_color)
+                self.refresh_main_table()
 
     def bulk_assign_actor(self) -> None:
         """Массовое назначение актёра"""
+        if not self.actor_controller:
+            return
+            
         selected: List[int] = self.main_table.selectionModel().selectedRows()
         if not selected:
             return
@@ -639,12 +635,8 @@ class MainWindow(QMainWindow):
                 self.main_table.item(idx.row(), 0).text()
                 for idx in selected
             ]
-            self.actor_service.bulk_assign_actors(
-                self.data["global_map"], characters, aid
-            )
-            self.refresh_actor_list()
+            self.actor_controller.bulk_assign_actors(characters, aid)
             self.refresh_main_table()
-            self.set_dirty()
 
     def set_episode_video(self) -> None:
         """Установка видео для серии"""
@@ -808,44 +800,50 @@ class MainWindow(QMainWindow):
             self.main_table.setCellWidget(row, 5, wrap_widget(btn))
         
         self.main_table.blockSignals(False)
-    
+
     def refresh_actor_list(self) -> None:
         """Обновление списка актёров"""
-        self.actor_table.blockSignals(True)
-        self.actor_table.setRowCount(0)
+        logger.info(f"refresh_actor_list: actor_controller={self.actor_controller is not None}, actors={len(self.data.get('actors', {}))}")
+        
+        if self.actor_controller:
+            self.actor_controller.refresh()
+        else:
+            # Fallback: если контроллер ещё не создан, используем старую логику
+            logger.warning("refresh_actor_list: actor_controller is None, using fallback")
+            self.actor_table.blockSignals(True)
+            self.actor_table.setRowCount(0)
 
-        actor_roles: Dict[str, List[str]] = {
-            aid: [] for aid in self.data["actors"]
-        }
+            actor_roles: Dict[str, List[str]] = {
+                aid: [] for aid in self.data["actors"]
+            }
 
-        for char, aid in self.data["global_map"].items():
-            if aid in actor_roles:
-                actor_roles[aid].append(char)
+            for char, aid in self.data["global_map"].items():
+                if aid in actor_roles:
+                    actor_roles[aid].append(char)
 
-        for aid, info in self.data["actors"].items():
-            row = self.actor_table.rowCount()
-            self.actor_table.insertRow(row)
+            aid: str
+            info: Dict[str, Any]
+            for aid, info in self.data["actors"].items():
+                row: int = self.actor_table.rowCount()
+                self.actor_table.insertRow(row)
 
-            # Колонка 0: Актер
-            item = QTableWidgetItem(info["name"])
-            item.setData(Qt.UserRole, aid)
-            self.actor_table.setItem(row, 0, item)
+                # Колонка 0: Актер
+                item: QTableWidgetItem = QTableWidgetItem(info["name"])
+                item.setData(Qt.UserRole, aid)
+                self.actor_table.setItem(row, 0, item)
 
-            # Колонка 1: Роли
-            btn = QPushButton(f"Роли ({len(actor_roles[aid])})")
-            btn.clicked.connect(
-                lambda _, a=aid, n=info["name"], r=actor_roles[aid]:
-                self.edit_roles(a, n, r)
-            )
-            self.actor_table.setCellWidget(row, 1, wrap_widget(btn))
+                # Колонка 1: Роли (кнопка)
+                btn: QPushButton = QPushButton(f"Роли ({len(actor_roles[aid])})")
+                self.actor_table.setCellWidget(row, 1, wrap_widget(btn))
 
-            # Колонка 2: Цвет
-            color_item = QTableWidgetItem()
-            color_item.setBackground(QColor(info["color"]))
-            self.actor_table.setItem(row, 2, color_item)
+                # Колонка 2: Цвет
+                color_item: QTableWidgetItem = QTableWidgetItem()
+                color_item.setBackground(QColor(info["color"]))
+                self.actor_table.setItem(row, 2, color_item)
 
-        self.actor_table.blockSignals(False)
-    
+            self.actor_table.blockSignals(False)
+            logger.info(f"refresh_actor_list: fallback loaded {self.actor_table.rowCount()} actors")
+
     def rename_episode(self) -> None:
         """Переименование серии"""
         old: Optional[str] = self.ep_combo.currentData()
@@ -1124,15 +1122,12 @@ class MainWindow(QMainWindow):
         roles: List[str]
     ) -> None:
         """Редактирование ролей актёра"""
-        dialog: ActorRolesDialog = ActorRolesDialog(name, roles, self)
-        if dialog.exec():
-            new_roles: List[str] = dialog.get_roles()
-            self.actor_service.update_actor_roles(
-                self.data["global_map"], aid, new_roles
-            )
-            self.refresh_actor_list()
-            self.refresh_main_table()
-            self.set_dirty()
+        if self.actor_controller:
+            dialog: ActorRolesDialog = ActorRolesDialog(name, roles, self)
+            if dialog.exec():
+                new_roles: List[str] = dialog.get_roles()
+                self.actor_controller.update_actor_roles(aid, new_roles)
+                self.refresh_main_table()
 
     def open_export_settings(self) -> None:
         """Открытие настроек экспорта"""
