@@ -929,10 +929,10 @@ class MainWindow(QMainWindow):
         else:
             ep = self.ep_combo.currentData()
             episodes = {ep: self.data["episodes"].get(ep)}
-        
+
         if not episodes or None in episodes.values():
             return
-        
+
         if is_all or (do_html and do_xls):
             dest = QFileDialog.getExistingDirectory(
                 self, "Выберите папку"
@@ -947,7 +947,7 @@ class MainWindow(QMainWindow):
                 self.export_to_html(ep)
             else:
                 self.export_to_excel(ep)
-    
+
     def _execute_batch_export(
         self,
         episodes: Dict[str, str],
@@ -955,140 +955,53 @@ class MainWindow(QMainWindow):
         do_xls: bool,
         folder: str
     ) -> None:
-        """Пакетный экспорт"""
-        cfg = self.data["export_config"]
-        highlight_ids = cfg.get('highlight_ids_export')
-        
-        for ep, path in episodes.items():
-            lines = self.get_episode_lines(ep)
-            if not lines:
-                continue
-            
-            processed = self.process_merge_logic(lines, cfg)
-            
-            if do_html:
-                filename = f"{self.data['project_name']} - Ep{ep}.html"
-                filepath = os.path.join(folder, filename)
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write(
-                        self.generate_html_body(
-                            ep,
-                            processed,
-                            cfg,
-                            highlight_ids,
-                            is_editable=cfg.get('allow_edit', True)
-                        )
-                    )
-            
-            if do_xls and EXCEL_AVAILABLE:
-                filename = f"{self.data['project_name']} - Ep{ep}.xlsx"
-                filepath = os.path.join(folder, filename)
-                self._create_excel_book(ep, processed, cfg).save(filepath)
-        
-        # Открыть папку
-        if sys.platform == 'darwin':
-            os.system(f'open "{folder}"')
+        """Пакетный экспорт через ExportService"""
+        export_service = ExportService(self.data)
+        success, message = export_service.export_batch(
+            episodes=episodes,
+            get_lines_callback=self.get_episode_lines,
+            do_html=do_html,
+            do_xls=do_xls,
+            folder=folder
+        )
+
+        if success:
+            logger.info(message)
         else:
-            os.startfile(folder)
-    
+            QMessageBox.critical(self, "Ошибка экспорта", message)
+
     def _create_excel_book(
         self,
         ep: str,
         processed: List[Dict[str, Any]],
         cfg: Optional[Dict[str, Any]] = None
     ) -> Any:
-        """Создание Excel книги"""
-        if cfg is None:
-            cfg = self.data["export_config"]
-        
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.append(["№", "Таймкод", "Персонаж", "Актер", "Текст"])
-        
-        use_color = cfg.get('use_color', True)
-        highlight_ids = cfg.get('highlight_ids_export')
-        all_actor_ids = set(self.data["actors"].keys())
-        
-        is_full_filter = (
-            highlight_ids is not None and 
-            set(highlight_ids) == all_actor_ids
-        )
-        effective_filter = (
-            None 
-            if (highlight_ids is None or is_full_filter) 
-            else set(highlight_ids)
-        )
-        
-        for i, line in enumerate(processed, 2):
-            aid = self.data["global_map"].get(line['char'])
-            actor = self.data["actors"].get(
-                aid, {"name": "-", "color": "#FFFFFF"}
-            )
-            
-            ws.append([
-                i-1, 
-                line['s_raw'], 
-                line['char'], 
-                actor['name'], 
-                line['text']
-            ])
-            
-            if use_color:
-                is_highlighted = (
-                    effective_filter is None or 
-                    aid in effective_filter
-                )
-                if is_highlighted:
-                    color = actor['color'].replace("#", "")
-                else:
-                    color = "FFFFFF"
-            else:
-                color = "FFFFFF"
-            
-            fill = PatternFill(
-                start_color=color,
-                end_color=color,
-                fill_type="solid"
-            )
-            
-            for col in range(1, 6):
-                cell = ws.cell(row=i, column=col)
-                cell.fill = fill
-                cell.alignment = Alignment(
-                    vertical='top',
-                    wrap_text=(col == 5)
-                )
-        
-        return wb
-    
+        """Создание Excel книги (устарело, использовать ExportService)"""
+        export_service = ExportService(self.data)
+        return export_service.create_excel_book(ep, processed, cfg)
+
     def export_to_excel(self, ep: str) -> None:
         """Экспорт в Excel"""
-        if not EXCEL_AVAILABLE:
-            QMessageBox.warning(
-                self, "Ошибка", "openpyxl не установлен"
-            )
-            return
-        
         lines = self.get_episode_lines(ep)
-        processed = self.process_merge_logic(
-            lines, self.data["export_config"]
-        )
-        
-        wb = self._create_excel_book(
-            ep, processed, self.data["export_config"]
-        )
-        
+        cfg = self.data["export_config"]
+
+        export_service = ExportService(self.data)
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Excel", f"Script_{ep}.xlsx", "*.xlsx"
         )
-        
+
         if path:
-            wb.save(path)
-            if sys.platform == 'win32':
-                os.startfile(path)
+            success, message = export_service.export_to_excel(
+                ep=ep, lines=lines, cfg=cfg, save_path=path
+            )
+            if success:
+                if sys.platform == 'win32':
+                    os.startfile(path)
+                else:
+                    os.system(f'open "{path}"')
             else:
-                os.system(f'open "{path}"')
-    
+                QMessageBox.warning(self, "Ошибка", message)
+
     def export_to_html(self, ep: str) -> None:
         """Экспорт в HTML"""
         cfg = self.data["export_config"]
@@ -1118,7 +1031,7 @@ class MainWindow(QMainWindow):
                 os.system(f'open "{path}"')
             else:
                 os.startfile(path)
-    
+
     def save_episode_to_ass(
         self,
         ep_num: str,
@@ -1142,348 +1055,7 @@ class MainWindow(QMainWindow):
 
         return success
     
-    def generate_html_body(
-        self,
-        ep: str,
-        processed: List[Dict[str, Any]],
-        cfg: Dict[str, Any],
-        highlight_ids: Optional[List[str]] = None,
-        override_layout: Optional[str] = None,
-        is_editable: bool = True
-    ) -> str:
-        """Генерация HTML тела"""
-        layout_mode = override_layout or cfg.get(
-            'layout_type', "Таблица"
-        )
-        
-        # JavaScript для интерактивного предпросмотра
-        if is_editable:
-            js = """
-            <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
-            <script>
-                var backend;
-                new QWebChannel(qt.webChannelTransport, function (channel) {
-                    backend = channel.objects.backend;
-                    window.updateScrollStatus(); 
-                });
-
-                window.updateScrollStatus = function() {
-                    var blocks = Array.from(
-                        document.querySelectorAll('.highlighted-block')
-                    );
-                    if (blocks.length === 0 || !backend) return;
-                    var midLine = window.innerHeight / 2;
-                    var closestIndex = 0;
-                    var minDistance = Infinity;
-                    blocks.forEach((block, index) => {
-                        var rect = block.getBoundingClientRect();
-                        var distance = Math.abs(
-                            (rect.top + rect.height/2) - midLine
-                        );
-                        if (distance < minDistance) {
-                            minDistance = distance;
-                            closestIndex = index;
-                        }
-                    });
-                    backend.sync_scroll_index(closestIndex, blocks.length);
-                };
-
-                var scrollTimeout;
-                window.onscroll = function() {
-                    clearTimeout(scrollTimeout);
-                    scrollTimeout = setTimeout(
-                        window.updateScrollStatus, 50
-                    );
-                };
-                
-                window.jumpToNextHighlighted = function(direction) {
-                    var blocks = Array.from(
-                        document.querySelectorAll('.highlighted-block')
-                    );
-                    if (blocks.length === 0) return;
-                    
-                    var targetIndex = -1;
-                    var threshold = 160; 
-
-                    if (direction === 'next') {
-                        targetIndex = blocks.findIndex(
-                            b => b.getBoundingClientRect().top > threshold
-                        );
-                        if (targetIndex === -1) targetIndex = 0;
-                    } else {
-                        targetIndex = blocks.findLastIndex(
-                            b => b.getBoundingClientRect().top < 50
-                        );
-                        if (targetIndex === -1) 
-                            targetIndex = blocks.length - 1;
-                    }
-                    
-                    var target = blocks[targetIndex];
-                    blocks.forEach(
-                        b => b.classList.remove('active-replica')
-                    );
-                    target.classList.add('active-replica');
-                    target.scrollIntoView({ 
-                        behavior: 'smooth', 
-                        block: 'center' 
-                    });
-                };
-
-                function onBlur(el) {
-                    if(backend) {
-                        var cleanText = el.innerText;
-                        cleanText = cleanText.replace(
-                            /(\\r\\n|\\n|\\r)/gm, "\\n"
-                        );
-                        backend.update_text(el.id, cleanText);
-                    }
-                }
-                function onKeyPress(e, el) { 
-                    if (e.keyCode === 13) { 
-                        e.preventDefault(); 
-                        el.blur(); 
-                    } 
-                }
-            </script>
-            <style>
-                .edit-span { 
-                    border-bottom: 1px dashed #ccc; 
-                    padding: 1px 2px; 
-                }
-                .edit-span:focus { 
-                    background-color: #fff; 
-                    outline: 2px solid #5B9BD5; 
-                    border-bottom: none; 
-                } 
-                .sep { 
-                    color: #888; 
-                    font-weight: bold; 
-                }
-                .highlighted-block { 
-                    transition: outline 0.3s, box-shadow 0.3s; 
-                }
-                .active-replica {
-                    outline: 6px solid #FFD700 !important;
-                    outline-offset: -6px;
-                    box-shadow: 0 0 25px rgba(255, 215, 0, 0.8) !important;
-                    z-index: 99;
-                }
-            </style>
-            """
-        else:
-            js = """
-            <style>
-                .highlighted-block { 
-                    transition: outline 0.3s, box-shadow 0.3s; 
-                } 
-                .active-replica { 
-                    outline: 6px solid #FFD700 !important; 
-                    outline-offset: -6px; 
-                    box-shadow: 0 0 25px rgba(255, 215, 0, 0.8) !important; 
-                    z-index: 99; 
-                }
-            </style>
-            """
-        
-        html = f"""<html><head><meta charset='utf-8'>{js}<style>
-        body {{ 
-            font-family: 'Segoe UI', sans-serif; 
-            padding: 50px 10%; 
-            background: #fdfdfd; 
-        }}
-        table {{ 
-            width: 100%; 
-            border-collapse: collapse; 
-            table-layout: fixed; 
-            background: white; 
-        }}
-        td, th {{ 
-            border: 1px solid #ddd; 
-            padding: 12px; 
-            vertical-align: top; 
-            overflow-wrap: break-word; 
-        }}
-        .t {{ 
-            width: 90px; 
-            font-family: monospace; 
-            font-size: {cfg.get('f_time', 12)}px; 
-            color: #666; 
-        }}
-        .c {{ 
-            width: 160px; 
-            font-weight: bold; 
-            font-size: {cfg.get('f_char', 14)}px; 
-        }}
-        .a {{ 
-            width: 160px; 
-            font-style: italic; 
-            font-size: {cfg.get('f_actor', 14)}px; 
-        }}
-        .txt {{ 
-            font-size: {cfg.get('f_text', 16)}px; 
-            line-height: 1.5; 
-        }}
-        .line-container {{ 
-            margin-bottom: 30px; 
-            padding: 20px; 
-            border-left: 8px solid #eee; 
-            background: white; 
-        }}
-        </style></head><body>
-        """
-        
-        html += f"<h1>{self.data['project_name']} - Серия {ep}</h1>"
-        
-        all_actor_ids = set(self.data["actors"].keys())
-        is_full_filter = (
-            highlight_ids is not None and 
-            set(highlight_ids) == all_actor_ids
-        )
-        effective_filter = (
-            None 
-            if (highlight_ids is None or is_full_filter) 
-            else set(highlight_ids)
-        )
-        use_color = cfg.get('use_color', True)
-        
-        for line in processed:
-            aid = self.data["global_map"].get(line['char'])
-            actor = self.data["actors"].get(
-                aid, {"name": "-", "color": "#ffffff"}
-            )
-            
-            is_highlighted = (
-                effective_filter is None or 
-                aid in effective_filter
-            )
-            h_class = "highlighted-block" if is_highlighted else ""
-            
-            if use_color and is_highlighted:
-                bg_color = hex_to_rgba_string(actor['color'], 0.22)
-                border_col = actor['color']
-            else:
-                bg_color = "#ffffff"
-                border_col = "#eee"
-            
-            text_html = ""
-            if 'parts' in line:
-                for part in line['parts']:
-                    if part['sep']:
-                        text_html += f"<span class='sep'>{part['sep']}</span>"
-                    if is_editable:
-                        text_html += (
-                            f"<span id='{part['id']}' "
-                            f"class='edit-span' "
-                            f"contenteditable='true' "
-                            f"onblur='onBlur(this)' "
-                            f"onkeypress='onKeyPress(event, this)'>"
-                            f"{part['text']}</span>"
-                        )
-                    else:
-                        text_html += f"<span>{part['text']}</span>"
-            else:
-                text_html = line['text']
-            
-            if layout_mode == "Таблица":
-                if processed.index(line) == 0:
-                    html += """
-                    <table><thead><tr>
-                    <th>Время</th><th>Персонаж</th>
-                    <th>Актер</th><th>Текст</th>
-                    </tr></thead><tbody>
-                    """
-                
-                html += (
-                    f"<tr style='background-color:{bg_color}' "
-                    f"class='{h_class}'>"
-                    f"<td class='t'>{line['s_raw']}</td>"
-                    f"<td class='c'>{line['char']}</td>"
-                    f"<td class='a'>{actor['name']}</td>"
-                    f"<td class='txt'>{text_html}</td></tr>"
-                )
-                
-                if processed.index(line) == len(processed) - 1:
-                    html += "</tbody></table>"
-            else:
-                html += (
-                    f"<div class='line-container {h_class}' "
-                    f"style='background-color:{bg_color}; "
-                    f"border-left-color:{border_col}'>"
-                    f"<div class='meta'>"
-                    f"<span class='c'><b>{line['char']}</b></span>"
-                    f" <span class='t'>[{line['s_raw']}]</span>"
-                    f" <span class='a'><i>({actor['name']})</i></span>"
-                    f"</div>"
-                    f"<div class='txt'>{text_html}</div></div>"
-                )
-        
-        return html + "</body></html>"
     
-    def process_merge_logic(
-        self,
-        lines: List[Dict[str, Any]],
-        cfg: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
-        """Логика слияния реплик"""
-        p_short = cfg.get('p_short', 0.5)
-        p_long = cfg.get('p_long', 2.0)
-        gap = cfg.get('merge_gap', 5)
-        
-        res = []
-        curr = None
-        
-        if lines:
-            curr = lines[0].copy()
-            curr['parts'] = [{
-                'id': lines[0]['id'],
-                'text': lines[0]['text'],
-                'sep': ''
-            }]
-            
-            for i in range(1, len(lines)):
-                nxt = lines[i]
-                diff = nxt['s'] - curr['e']
-                
-                if (
-                    cfg.get('merge', True) and 
-                    nxt['char'] == curr['char'] and 
-                    diff < gap
-                ):
-                    if diff >= p_long:
-                        sep = " //  "
-                    elif diff >= p_short:
-                        sep = " /  "
-                    else:
-                        sep = "  "
-                    
-                    curr['parts'].append({
-                        'id': nxt['id'],
-                        'text': nxt['text'],
-                        'sep': sep
-                    })
-                    curr['text'] += sep + nxt['text']
-                    curr['e'] = nxt['e']
-                else:
-                    res.append(curr)
-                    curr = nxt.copy()
-                    curr['parts'] = [{
-                        'id': nxt['id'],
-                        'text': nxt['text'],
-                        'sep': ''
-                    }]
-            
-            res.append(curr)
-        
-        # Добавляем source_ids и source_texts
-        for item in res:
-            if 'parts' in item:
-                item['source_ids'] = [p['id'] for p in item['parts']]
-                item['source_texts'] = [p['text'] for p in item['parts']]
-            else:
-                item['source_ids'] = [item.get('id')]
-                item['source_texts'] = [item.get('text', '')]
-        
-        return res
     
     # === Диалоги и окна ===
     

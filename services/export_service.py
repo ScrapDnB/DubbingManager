@@ -3,11 +3,20 @@
 import os
 import sys
 import logging
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any, Optional, Set, Tuple
 
 from utils.helpers import hex_to_rgba_string
 
 logger = logging.getLogger(__name__)
+
+try:
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
+    logger.warning("openpyxl not available - Excel export disabled")
 
 
 class ExportService:
@@ -418,3 +427,180 @@ class ExportService:
             f"</div>"
             f"<div class='txt'>{text_html}</div></div>"
         )
+
+    # ==========================================================================
+    # Excel экспорт
+    # ==========================================================================
+
+    def create_excel_book(
+        self,
+        ep: str,
+        processed: List[Dict[str, Any]],
+        cfg: Optional[Dict[str, Any]] = None
+    ) -> Any:
+        """Создание Excel книги"""
+        if not EXCEL_AVAILABLE:
+            raise ImportError("openpyxl not available")
+
+        if cfg is None:
+            cfg = self.project_data["export_config"]
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["№", "Таймкод", "Персонаж", "Актер", "Текст"])
+
+        use_color = cfg.get('use_color', True)
+        highlight_ids = cfg.get('highlight_ids_export')
+        all_actor_ids = set(self.project_data["actors"].keys())
+
+        is_full_filter = (
+            highlight_ids is not None and
+            set(highlight_ids) == all_actor_ids
+        )
+        effective_filter = (
+            None
+            if (highlight_ids is None or is_full_filter)
+            else set(highlight_ids)
+        )
+
+        for i, line in enumerate(processed, 2):
+            aid = self.project_data["global_map"].get(line['char'])
+            actor = self.project_data["actors"].get(
+                aid, {"name": "-", "color": "#FFFFFF"}
+            )
+
+            ws.append([
+                i-1,
+                line['s_raw'],
+                line['char'],
+                actor['name'],
+                line['text']
+            ])
+
+            if use_color:
+                is_highlighted = (
+                    effective_filter is None or
+                    aid in effective_filter
+                )
+                if is_highlighted:
+                    color = actor['color'].replace("#", "")
+                else:
+                    color = "FFFFFF"
+            else:
+                color = "FFFFFF"
+
+            fill = PatternFill(
+                start_color=color,
+                end_color=color,
+                fill_type="solid"
+            )
+
+            for col in range(1, 6):
+                cell = ws.cell(row=i, column=col)
+                cell.fill = fill
+                cell.alignment = Alignment(
+                    vertical='top',
+                    wrap_text=(col == 5)
+                )
+
+        return wb
+
+    def export_to_excel(
+        self,
+        ep: str,
+        lines: List[Dict[str, Any]],
+        cfg: Dict[str, Any],
+        save_path: str
+    ) -> Tuple[bool, str]:
+        """
+        Экспорт в Excel файл
+
+        Returns:
+            Tuple[success, message]
+        """
+        if not EXCEL_AVAILABLE:
+            return False, "openpyxl не установлен"
+
+        try:
+            processed = self.process_merge_logic(lines, cfg)
+            wb = self.create_excel_book(ep, processed, cfg)
+            wb.save(save_path)
+            return True, f"Excel сохранён: {save_path}"
+        except Exception as e:
+            logger.error(f"Excel export error: {e}")
+            return False, f"Ошибка экспорта: {e}"
+
+    # ==========================================================================
+    # Пакетный экспорт
+    # ==========================================================================
+
+    def export_batch(
+        self,
+        episodes: Dict[str, str],
+        get_lines_callback,
+        do_html: bool = True,
+        do_xls: bool = False,
+        folder: str = None
+    ) -> Tuple[bool, str]:
+        """
+        Пакетный экспорт нескольких эпизодов
+
+        Args:
+            episodes: словарь {ep_num: path}
+            get_lines_callback: функция для получения реплик эпизода
+            do_html: экспортировать в HTML
+            do_xls: экспортировать в Excel
+            folder: папка для сохранения
+
+        Returns:
+            Tuple[success, message]
+        """
+        if not folder:
+            return False, "Папка для экспорта не указана"
+
+        cfg = self.project_data["export_config"]
+        project_name = self.project_data.get('project_name', 'Project')
+        exported_count = 0
+
+        try:
+            for ep, path in episodes.items():
+                lines = get_lines_callback(ep)
+                if not lines:
+                    continue
+
+                if do_html:
+                    filename = f"{project_name} - Ep{ep}.html"
+                    filepath = os.path.join(folder, filename)
+                    html = self.generate_html(
+                        ep,
+                        self.process_merge_logic(lines, cfg),
+                        cfg,
+                        cfg.get('highlight_ids_export'),
+                        layout_type=cfg.get('layout_type', 'Таблица'),
+                        is_editable=cfg.get('allow_edit', True)
+                    )
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write(html)
+                    exported_count += 1
+
+                if do_xls and EXCEL_AVAILABLE:
+                    filename = f"{project_name} - Ep{ep}.xlsx"
+                    filepath = os.path.join(folder, filename)
+                    success, _ = self.export_to_excel(
+                        ep, lines, cfg, filepath
+                    )
+                    if success:
+                        exported_count += 1
+
+            # Открыть папку
+            if exported_count > 0:
+                if sys.platform == 'darwin':
+                    os.system(f'open "{folder}"')
+                else:
+                    os.startfile(folder)
+
+            return True, f"Экспортировано файлов: {exported_count}"
+
+        except Exception as e:
+            logger.error(f"Batch export error: {e}")
+            return False, f"Ошибка пакетного экспорта: {e}"
