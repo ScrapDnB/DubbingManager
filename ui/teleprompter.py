@@ -1,5 +1,6 @@
 """Окно телесуфлёра"""
 
+import platform
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QSpinBox, QSlider, QCheckBox, QFrame,
@@ -7,13 +8,13 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QAbstractItemView, QMessageBox,
     QDoubleSpinBox, QSizePolicy, QWidget, QFormLayout,
     QGroupBox, QTextEdit, QDialogButtonBox, QGraphicsView,
-    QGraphicsScene, QGraphicsTextItem
+    QGraphicsScene, QGraphicsTextItem, QApplication
 )
 from PySide6.QtGui import (
-    QColor, QFont, QPainter, QPen, QBrush
+    QColor, QFont, QPainter, QPen, QBrush, QCursor
 )
 from PySide6.QtCore import (
-    Qt, QTimer, Signal, Slot, QRectF, QEvent
+    Qt, QTimer, Signal, Slot, QRectF, QEvent, QProcess
 )
 from typing import Dict, List, Any, Optional, Set, Tuple, Union
 import math
@@ -196,21 +197,47 @@ class TeleprompterFloatWindow(QDialog):
     def __init__(self, teleprompter: 'TeleprompterWindow') -> None:
         super().__init__(None)
         self.teleprompter: 'TeleprompterWindow' = teleprompter
-        self.setWindowTitle("Управление телесуфлёром")
-        self.setWindowFlags(
-            Qt.Window |
+        self._drag_pos = None  # Позиция для перетаскивания
+
+        # На всех платформах используем простые флаги
+        flags = (
+            Qt.Tool |
             Qt.WindowStaysOnTopHint |
             Qt.CustomizeWindowHint |
-            Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint
+            Qt.WindowDoesNotAcceptFocus |
+            Qt.FramelessWindowHint
         )
-        self.setAttribute(Qt.WA_MacAlwaysShowToolWindow)
+        self.setWindowFlags(flags)
+        
+        # На macOS используем специальный атрибут для окна-инструмента
+        if platform.system() == "Darwin":
+            self.setAttribute(Qt.WA_MacAlwaysShowToolWindow)
+        
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.resize(PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT)
 
         self._init_ui()
 
     def _init_ui(self) -> None:
         layout: QVBoxLayout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
+
+        # Заголовок для перетаскивания
+        self.drag_label = QLabel("☰ Управление")
+        self.drag_label.setStyleSheet("""
+            QLabel {
+                background: #444;
+                color: white;
+                padding: 4px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+        """)
+        self.drag_label.setAlignment(Qt.AlignCenter)
+        self.drag_label.setCursor(Qt.OpenHandCursor)
+        layout.addWidget(self.drag_label)
 
         # Кнопки навигации
         btn_layout: QHBoxLayout = QHBoxLayout()
@@ -234,7 +261,9 @@ class TeleprompterFloatWindow(QDialog):
         # Список реплик
         layout.addWidget(QLabel("<b>Список реплик:</b>"))
         self.replica_list = QListWidget()
-        self.replica_list.itemClicked.connect(self.on_replica_clicked)
+        self.replica_list.itemClicked.connect(
+            lambda item: self.teleprompter.jump_to_specific_time(item.data(Qt.UserRole))
+        )
         layout.addWidget(self.replica_list)
 
         # Кнопка скрытия
@@ -264,33 +293,53 @@ class TeleprompterFloatWindow(QDialog):
             self.replica_list.setCurrentRow(current_row)
         self.replica_list.blockSignals(False)
 
-    def on_replica_clicked(self, item: QListWidgetItem) -> None:
-        """Переход к выбранной реплике"""
-        if self.teleprompter:
-            self.teleprompter.jump_to_specific_time(
-                item.data(Qt.UserRole)
-            )
-    
     def update_selection(self, index: int) -> None:
         """Обновление выбранного элемента"""
         if 0 <= index < self.replica_list.count():
             self.replica_list.blockSignals(True)
             self.replica_list.setCurrentRow(index)
             self.replica_list.blockSignals(False)
-    
+
     def hide_window(self) -> None:
         """Скрыть окно"""
         self.hide()
         if hasattr(self, 'teleprompter') and self.teleprompter:
             self.teleprompter.hide_float_window()
-            # Возвращаем фокус окну телесуфлёра
-            self.teleprompter.activateWindow()
-            self.teleprompter.raise_()
 
     def closeEvent(self, event) -> None:
         """Обработка закрытия — скрываем вместо закрытия"""
         self.hide_window()
         event.ignore()
+
+    # === Перетаскивание окна ===
+
+    def mousePressEvent(self, event) -> None:
+        """Начало перетаскивания"""
+        if event.button() == Qt.LeftButton:
+            # Проверяем, что клик по drag_label или центральной области
+            if event.pos().y() < 30:  # Верхняя область для перетаскивания
+                self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                self.drag_label.setCursor(Qt.ClosedHandCursor)
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        """Перемещение окна"""
+        if self._drag_pos is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        """Завершение перетаскивания"""
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = None
+            self.drag_label.setCursor(Qt.OpenHandCursor)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 class TeleprompterWindow(QDialog):
@@ -764,13 +813,12 @@ class TeleprompterWindow(QDialog):
             self.show_float_window()
         else:
             self.hide_float_window()
-    
+
     def show_float_window(self) -> None:
         """Показать плавающее окно"""
         if not hasattr(self, 'float_window') or self.float_window is None:
             self.float_window = TeleprompterFloatWindow(self)
         self.float_window.show()
-        self.float_window.activateWindow()
         self.float_window.raise_()
         self.btn_float_window.setChecked(True)
     
@@ -990,28 +1038,28 @@ class TeleprompterWindow(QDialog):
     def update_view_position_by_time(self, time_seconds: float) -> None:
         """Синхронизация позиции по времени"""
         self.last_known_time = time_seconds
-        
+
         ms = int((time_seconds % 1) * 1000)
         self.lbl_big_timecode.setText(
             f"{format_seconds_to_tc(time_seconds)}.{ms:03d}"
         )
-        
+
         if self.header_panel.isVisible():
             self.update_big_timecode_font_size()
-        
-        if not self.cfg["sync_in"] or not self.time_map:
+
+        if not self.time_map:
             return
-        
+
         target_y = 0
         target_list_idx = -1
-        
+
         for i, segment in enumerate(self.time_map):
             if time_seconds >= segment['s'] and time_seconds <= segment['e']:
                 target_y = segment['y_center']
                 if segment['active']:
                     for row in range(self.list_of_replicas.count()):
                         if abs(
-                            self.list_of_replicas.item(row).data(Qt.UserRole) - 
+                            self.list_of_replicas.item(row).data(Qt.UserRole) -
                             segment['s']
                         ) < 0.01:
                             target_list_idx = row
@@ -1022,7 +1070,7 @@ class TeleprompterWindow(QDialog):
                 if prev:
                     gap = segment['s'] - prev['e']
                     ratio = (
-                        (time_seconds - prev['e']) / gap 
+                        (time_seconds - prev['e']) / gap
                         if gap > 0 else 0
                     )
                     target_y = prev['y_center'] + (
@@ -1031,13 +1079,13 @@ class TeleprompterWindow(QDialog):
                 else:
                     target_y = segment['y_center']
                 break
-            
+
             if i == len(self.time_map) - 1:
                 target_y = segment['y_center'] + (
                     time_seconds - segment['e']
                 ) * 100
-        
-        # Синхронизация списка
+
+        # Синхронизация списка реплик (всегда, независимо от sync_in)
         if target_list_idx != -1:
             self.list_of_replicas.blockSignals(True)
             self.list_of_replicas.setCurrentRow(target_list_idx)
@@ -1046,12 +1094,12 @@ class TeleprompterWindow(QDialog):
                 QAbstractItemView.PositionAtCenter
             )
             self.list_of_replicas.blockSignals(False)
-        
-        # Прокрутка сцены
+
+        # Прокрутка сцены (всегда работает при навигации)
         view_h = self.prompter_view.height()
         offset = (0.5 - self.cfg["focus_ratio"]) * view_h
         target_full_y = target_y + offset
-        
+
         tau = self.compute_scroll_tau()
         if tau <= 0.0:
             self._scroll_target_y = None
@@ -1257,7 +1305,7 @@ class TeleprompterWindow(QDialog):
             super().keyPressEvent(event)
     
     def _split_merged_text(self, text: str, ids: List[int]) -> List[str]:
-        """Разделение объединённого текста"""
+        """Разделение объединё��ного текста"""
         if not text or len(ids) < 2:
             return []
         
@@ -1384,7 +1432,7 @@ class TeleprompterWindow(QDialog):
                 log_exception(logger, "Error rebuilding content", e)
 
     def refresh_episode_data(self) -> None:
-        """Обновление данных эпизода (после переименования персонажа)"""
+        """Обновление данных эпи��ода (после переименования персонажа)"""
         # Инвалидируем кэш
         self.main_app.episode_service.invalidate_episode(self.ep_num)
         
@@ -1398,7 +1446,7 @@ class TeleprompterWindow(QDialog):
         """Закрытие окна"""
         if self.osc_thread:
             self.osc_thread.stop()
-        
+
         if hasattr(self, 'float_window') and self.float_window:
             self.float_window.close()
             self.float_window = None
