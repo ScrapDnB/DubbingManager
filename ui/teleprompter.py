@@ -49,6 +49,7 @@ from config.constants import (
     SCROLL_THRESHOLD_BOTTOM,
     PROMPTER_NAV_BUTTON_MIN_WIDTH,
 )
+from services import ExportService
 from services.osc_worker import OscWorker, OSC_AVAILABLE
 from services.hotkey_manager import GlobalHotkeyManager, PYNPUT_AVAILABLE
 from utils.helpers import ass_time_to_seconds, format_seconds_to_tc, log_exception
@@ -847,19 +848,20 @@ class TeleprompterWindow(QDialog):
         self.prompter_scene.clear()
         self.time_map = []
         self.list_of_replicas.clear()
-        
+
         self.prompter_scene.setBackgroundBrush(QColor(clrs["bg"]))
         self.header_panel.setStyleSheet(
             f"background-color: {clrs['header_bg']};"
         )
         self.update_big_timecode_font_size()
-        
+
         lines = self.main_app.get_episode_lines(self.ep_num)
         if not lines:
             return
-        
+
         lines.sort(key=lambda x: x['s'])
-        processed = self.main_app.process_merge_logic(
+        export_service = ExportService(self.main_app.data)
+        processed = export_service.process_merge_logic(
             lines, self.main_app.data["export_config"]
         )
         
@@ -1411,7 +1413,18 @@ class TeleprompterWindow(QDialog):
                 self.build_prompter_content()
             except Exception as e:
                 log_exception(logger, "Error rebuilding content", e)
-    
+
+    def refresh_episode_data(self) -> None:
+        """Обновление данных эпизода (после переименования персонажа)"""
+        # Инвалидируем кэш
+        self.main_app.episode_service.invalidate_episode(self.ep_num)
+        
+        # Перезагружаем данные и перестраиваем контент
+        try:
+            self.build_prompter_content()
+        except Exception as e:
+            log_exception(logger, "Error refreshing episode data", e)
+
     def closeEvent(self, event) -> None:
         """Закрытие окна"""
         if self.osc_thread:

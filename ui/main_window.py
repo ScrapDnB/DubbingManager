@@ -215,6 +215,10 @@ class MainWindow(QMainWindow):
         ep_ctrl.addWidget(QLabel("Серия:"))
         ep_ctrl.addWidget(self.ep_combo)
 
+        btn_ass = QPushButton("+ .ASS")
+        btn_ass.clicked.connect(lambda: self.import_ass())
+        ep_ctrl.addWidget(btn_ass)
+
         btn_ren = QPushButton("✎")
         btn_ren.setFixedWidth(BTN_RENAME_WIDTH)
         btn_ren.clicked.connect(self.rename_episode)
@@ -224,10 +228,6 @@ class MainWindow(QMainWindow):
         btn_del.setFixedWidth(BTN_RENAME_WIDTH)
         btn_del.clicked.connect(self.delete_episode_dialog)
         ep_ctrl.addWidget(btn_del)
-
-        btn_ass = QPushButton("+ .ASS")
-        btn_ass.clicked.connect(lambda: self.import_ass())
-        ep_ctrl.addWidget(btn_ass)
 
         self.btn_save_ass = QPushButton()
         self.btn_save_ass.setFixedWidth(BTN_SAVE_ASS_WIDTH)
@@ -353,14 +353,14 @@ class MainWindow(QMainWindow):
         
         bottom_panel.addStretch()
         
-        btn_cfg = QPushButton("⚙ Настройки")
-        btn_cfg.clicked.connect(self.open_export_settings)
-        bottom_panel.addWidget(btn_cfg)
-        
         exp_group = QGroupBox("Экспорт")
         exp_lay = QHBoxLayout(exp_group)
         exp_lay.setContentsMargins(5, 5, 5, 5)
-        
+
+        btn_cfg = QPushButton("⚙ Настройки")
+        btn_cfg.clicked.connect(self.open_export_settings)
+        bottom_panel.addWidget(btn_cfg)
+
         self.chk_exp_html = QCheckBox("Лист")
         self.chk_exp_html.setChecked(True)
         
@@ -422,39 +422,56 @@ class MainWindow(QMainWindow):
         """Обработчик изменения имени персонажа"""
         if item.column() != 0:
             return
-        
+
         ep = self.ep_combo.currentData()
         if not ep:
             return
-        
+
         old_name = item.data(Qt.UserRole)
         new_name = item.text().strip()
-        
+
         if new_name == old_name or not new_name:
             return
-        
-        self.get_episode_lines(ep)
-        
+
+        # Обновляем global_map
         if old_name in self.data["global_map"]:
             aid = self.data["global_map"][old_name]
             del self.data["global_map"][old_name]
             self.data["global_map"][new_name] = aid
-        
+
+        # Обновляем загруженные эпизоды
         if ep in self.data.get("loaded_episodes", {}):
             for line in self.data["loaded_episodes"][ep]:
                 if line['char'] == old_name:
                     line['char'] = new_name
-        
+
+        # Обновляем статистику эпизода
         for stat in self.current_ep_stats:
             if stat["name"] == old_name:
                 stat["name"] = new_name
                 break
-        
+
+        # Инвалидируем кэш в episode_service
+        self.episode_service.invalidate_episode(ep)
+
+        # Обновляем открытые окна (телесуфлёр, превью)
+        self._refresh_open_windows(ep)
+
         item.setData(Qt.UserRole, new_name)
         self.character_names_changed[ep] = True
         self.update_save_ass_button()
         self.refresh_actor_list()
         self.set_dirty(True)
+
+    def _refresh_open_windows(self, ep: str) -> None:
+        """Обновление открытых окон после изменений"""
+        # Обновляем превью, если открыто
+        if hasattr(self, 'preview_window') and self.preview_window:
+            self.preview_window.update_preview()
+
+        # Обновляем телесуфлёр, если открыт
+        if hasattr(self, 'teleprompter_window') and self.teleprompter_window:
+            self.teleprompter_window.refresh_episode_data()
     
     def update_save_ass_button(self) -> None:
         """Обновление кнопки сохранения ASS"""
@@ -462,7 +479,7 @@ class MainWindow(QMainWindow):
         has_changes = self.character_names_changed.get(ep, False)
         
         if has_changes:
-            self.btn_save_ass.setText("💾 Сохр.* ASS")
+            self.btn_save_ass.setText("💾 Сохранить*")
             self.btn_save_ass.setStyleSheet(
                 "font-weight: bold; color: red;"
             )
