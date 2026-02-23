@@ -26,6 +26,7 @@ from config.constants import (
 )
 from utils.helpers import hex_to_rgba_string, log_exception
 from utils.web_bridge import WebBridge
+from services import ExportService
 from .dialogs.actor_filter import ActorFilterDialog
 
 logger = logging.getLogger(__name__)
@@ -54,15 +55,26 @@ class HtmlLivePreview(QDialog):
 
         self._init_ui()
 
-        self.browser.loadFinished.connect(self.on_page_loaded)
+        try:
+            self.browser.loadFinished.connect(self.on_page_loaded)
+        except Exception as e:
+            logger.error(f"Failed to connect loadFinished signal: {e}")
+        
         self.main_app.preview_window = self
 
         if WEB_ENGINE_AVAILABLE:
-            self.channel: QWebChannel = QWebChannel()
-            self.bridge: WebBridge = WebBridge(self.main_app)
-            self.channel.registerObject("backend", self.bridge)
-            self.browser.page().setWebChannel(self.channel)
+            try:
+                self.channel: QWebChannel = QWebChannel()
+                self.bridge: WebBridge = WebBridge(self.main_app)
+                self.channel.registerObject("backend", self.bridge)
+                self.browser.page().setWebChannel(self.channel)
+                logger.info("WebChannel initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize WebChannel: {e}")
+        else:
+            logger.warning("WebEngine not available, using QTextBrowser")
 
+        logger.info(f"HtmlLivePreview initialized for ep={ep_num}")
         self.update_preview()
 
     def _init_ui(self) -> None:
@@ -254,34 +266,52 @@ class HtmlLivePreview(QDialog):
             self.browser.page().runJavaScript(js_jump)
             self.current_h_index = target_index
             self.lbl_h_count.setText(f"{target_index + 1} / {total}")
-        
+
         self.browser.page().runJavaScript(js_get_total, navigate)
-    
+
     def update_preview(self) -> None:
         """Обновление предпросмотра"""
-        lines = self.main_app.get_episode_lines(self.ep_num)
-        if not lines:
-            self.browser.setHtml("<h3>Нет данных в серии</h3>")
-            return
-        
         try:
-            self.browser.loadFinished.disconnect(self.on_page_loaded)
-        except Exception:
-            pass
-        
-        self.browser.loadFinished.connect(self.on_page_loaded)
-        
-        cfg = self.main_app.data["export_config"]
-        local_layout = self.combo_layout.currentText()
-        processed = self.main_app.process_merge_logic(lines, cfg)
-        html = self.main_app.generate_html_body(
-            self.ep_num, 
-            processed, 
-            cfg, 
-            self.highlight_ids, 
-            override_layout=local_layout
-        )
-        self.browser.setHtml(html)
+            logger.info(f"update_preview: ep={self.ep_num}")
+            
+            lines = self.main_app.get_episode_lines(self.ep_num)
+            logger.info(f"update_preview: lines={len(lines) if lines else 0}")
+            
+            if not lines:
+                self.browser.setHtml("<h3>Нет данных в серии</h3>")
+                return
+
+            try:
+                self.browser.loadFinished.disconnect(self.on_page_loaded)
+            except Exception:
+                pass
+
+            self.browser.loadFinished.connect(self.on_page_loaded)
+
+            cfg = self.main_app.data["export_config"]
+            local_layout = self.combo_layout.currentText()
+            
+            logger.info(f"update_preview: generating HTML with layout={local_layout}")
+            
+            export_service = ExportService(self.main_app.data)
+            processed = export_service.process_merge_logic(lines, cfg)
+            logger.info(f"update_preview: processed={len(processed)} replicas")
+            
+            html = export_service.generate_html(
+                self.ep_num,
+                processed,
+                cfg,
+                self.highlight_ids,
+                layout_type=local_layout,
+                is_editable=cfg.get('allow_edit', True)
+            )
+            
+            logger.info(f"update_preview: HTML generated ({len(html)} bytes)")
+            self.browser.setHtml(html)
+            
+        except Exception as e:
+            logger.error(f"update_preview failed: {e}", exc_info=True)
+            self.browser.setHtml(f"<h3>Ошибка: {e}</h3>")
     
     def toggle_sidebar(self) -> None:
         """Показать/скрыть панель настроек"""
