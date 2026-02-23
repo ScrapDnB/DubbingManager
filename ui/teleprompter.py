@@ -49,6 +49,22 @@ from config.constants import (
     SCROLL_THRESHOLD_TOP,
     SCROLL_THRESHOLD_BOTTOM,
     PROMPTER_NAV_BUTTON_MIN_WIDTH,
+    # Константы для плавающего окна (Cocoa)
+    FLOAT_BTN_WIDTH,
+    FLOAT_BTN_HEIGHT,
+    FLOAT_BTN_Y_PREV,
+    FLOAT_BTN_Y_NEXT,
+    FLOAT_LABEL_Y,
+    FLOAT_LABEL_HEIGHT,
+    FLOAT_SCROLL_Y,
+    FLOAT_SCROLL_HEIGHT,
+    FLOAT_SCROLL_WIDTH,
+    FLOAT_TEXT_VIEW_WIDTH,
+    FLOAT_BTN_HIDE_WIDTH,
+    FLOAT_BTN_HIDE_HEIGHT,
+    FLOAT_BTN_HIDE_X,
+    FLOAT_BTN_HIDE_Y,
+    FLOAT_MARGIN_X,
 )
 from services import ExportService
 from services.osc_worker import OscWorker, OSC_AVAILABLE
@@ -198,27 +214,146 @@ class TeleprompterFloatWindow(QDialog):
         super().__init__(None)
         self.teleprompter: 'TeleprompterWindow' = teleprompter
         self._drag_pos = None  # Позиция для перетаскивания
+        self._cocoa_window = None  # Cocoa окно для macOS
 
-        # На всех платформах используем простые флаги
-        flags = (
-            Qt.Tool |
-            Qt.WindowStaysOnTopHint |
-            Qt.CustomizeWindowHint |
-            Qt.WindowDoesNotAcceptFocus |
-            Qt.FramelessWindowHint
-        )
-        self.setWindowFlags(flags)
-        
-        # На macOS используем специальный атрибут для окна-инструмента
+        # На macOS используем нативное Cocoa окно
         if platform.system() == "Darwin":
-            self.setAttribute(Qt.WA_MacAlwaysShowToolWindow)
-        
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.resize(PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT)
+            self._init_cocoa_window()
+        else:
+            # На Windows и других платформах используем Qt
+            flags = (
+                Qt.Tool |
+                Qt.WindowStaysOnTopHint |
+                Qt.CustomizeWindowHint |
+                Qt.WindowDoesNotAcceptFocus |
+                Qt.FramelessWindowHint
+            )
+            self.setWindowFlags(flags)
+            self.setAttribute(Qt.WA_ShowWithoutActivating)
+            self.resize(PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT)
+            self._init_qt_ui()
 
-        self._init_ui()
+    def _init_cocoa_window(self) -> None:
+        """Инициализация нативного Cocoa окна на macOS"""
+        try:
+            from AppKit import (
+                NSPanel, NSNonactivatingPanelMask, NSUtilityWindowMask,
+                NSFloatingWindowLevel, NSMakeRect, NSButton, NSSmallSquareBezelStyle,
+                NSFont, NSScrollView, NSTextView, NSNoBorder, NSView,
+                NSBezelBorder
+            )
+            import objc
+            
+            # Создаём NSPanel с NSNonactivatingPanelMask
+            self._cocoa_window = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+                NSMakeRect(100, 100, PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT),
+                NSUtilityWindowMask | NSNonactivatingPanelMask,
+                2,  # NSBackingStoreBuffered
+                False
+            )
+            self._cocoa_window.setLevel_(NSFloatingWindowLevel)
+            self._cocoa_window.setCollectionBehavior_(2)
+            self._cocoa_window.setWorksWhenModal_(True)
+            self._cocoa_window.setTitle_("Управление")
+            self._cocoa_window.setMovableByWindowBackground_(True)
+            
+            # Создаём контент view
+            content_view = NSView.alloc().initWithFrame_(
+                NSMakeRect(0, 0, PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT)
+            )
+            
+            # Кнопки навигации (вертикально, вверху)
+            # Кнопка "Вперёд" (первая, вверху)
+            btn_next = NSButton.alloc().initWithFrame_(
+                NSMakeRect(FLOAT_MARGIN_X, FLOAT_BTN_Y_PREV, FLOAT_BTN_WIDTH, FLOAT_BTN_HEIGHT)
+            )
+            btn_next.setTitle_("Вперёд ⏭")
+            btn_next.setBezelStyle_(NSSmallSquareBezelStyle)
+            btn_next.setTarget_(self)
+            btn_next.setAction_(objc.selector(self.onNextClicked_, signature=b'v@:@'))
+            content_view.addSubview_(btn_next)
+            
+            # Кнопка "Назад" (вторая, внизу)
+            btn_prev = NSButton.alloc().initWithFrame_(
+                NSMakeRect(FLOAT_MARGIN_X, FLOAT_BTN_Y_NEXT, FLOAT_BTN_WIDTH, FLOAT_BTN_HEIGHT)
+            )
+            btn_prev.setTitle_("⏮ Назад")
+            btn_prev.setBezelStyle_(NSSmallSquareBezelStyle)
+            btn_prev.setTarget_(self)
+            btn_prev.setAction_(objc.selector(self.onPrevClicked_, signature=b'v@:@'))
+            content_view.addSubview_(btn_prev)
+            
+            # Заголовок списка реплик
+            from AppKit import NSTextField, NSCenterTextAlignment
+            label = NSTextField.alloc().initWithFrame_(
+                NSMakeRect(FLOAT_MARGIN_X, FLOAT_LABEL_Y, FLOAT_BTN_WIDTH, FLOAT_LABEL_HEIGHT)
+            )
+            label.setStringValue_("Список реплик:")
+            label.setEditable_(False)
+            label.setSelectable_(False)
+            label.setBezeled_(False)
+            label.setDrawsBackground_(False)
+            label.setFont_(NSFont.boldSystemFontOfSize_(12))
+            label.setAlignment_(NSCenterTextAlignment)
+            content_view.addSubview_(label)
+            
+            # Список реплик (занимает оставшееся место)
+            scroll_view = NSScrollView.alloc().initWithFrame_(
+                NSMakeRect(FLOAT_MARGIN_X, FLOAT_SCROLL_Y, FLOAT_SCROLL_WIDTH, FLOAT_SCROLL_HEIGHT)
+            )
+            scroll_view.setHasVerticalScroller_(True)
+            scroll_view.setBorderType_(NSBezelBorder)
+            scroll_view.setDrawsBackground_(True)
+            
+            text_view = NSTextView.alloc().initWithFrame_(
+                NSMakeRect(0, 0, FLOAT_TEXT_VIEW_WIDTH, FLOAT_SCROLL_HEIGHT)
+            )
+            text_view.setEditable_(False)
+            text_view.setSelectable_(True)
+            text_view.setRichText_(False)
+            text_view.setFont_(NSFont.systemFontOfSize_(11))
+            text_view.setString_("")
+            scroll_view.setDocumentView_(text_view)
+            content_view.addSubview_(scroll_view)
+            
+            # Кнопка скрытия
+            btn_hide = NSButton.alloc().initWithFrame_(
+                NSMakeRect(FLOAT_BTN_HIDE_X, FLOAT_BTN_HIDE_Y, FLOAT_BTN_HIDE_WIDTH, FLOAT_BTN_HIDE_HEIGHT)
+            )
+            btn_hide.setTitle_("Скрыть")
+            btn_hide.setBezelStyle_(NSSmallSquareBezelStyle)
+            btn_hide.setTarget_(self)
+            btn_hide.setAction_(objc.selector(self.onHideClicked_, signature=b'v@:@'))
+            content_view.addSubview_(btn_hide)
+            
+            self._cocoa_window.setContentView_(content_view)
+            self._content_view = content_view
+            self._replica_text_view = text_view
+            self._replica_scroll_view = scroll_view
+            
+            # Сохраняем ссылки на кнопки для обновления состояния
+            self._btn_prev = btn_prev
+            self._btn_next = btn_next
+            
+        except Exception as e:
+            logger.debug(f"macOS Cocoa window init error: {e}")
+            # Fallback к Qt
+            flags = (
+                Qt.Tool |
+                Qt.WindowStaysOnTopHint |
+                Qt.CustomizeWindowHint |
+                Qt.WindowDoesNotAcceptFocus |
+                Qt.FramelessWindowHint
+            )
+            self.setWindowFlags(flags)
+            self.setAttribute(Qt.WA_ShowWithoutActivating)
+            self.resize(PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT)
+            self._init_qt_ui()
 
-    def _init_ui(self) -> None:
+    # === Обработчики событий Cocoa (macOS) ===
+
+    def _init_qt_ui(self) -> None:
+        """Инициализация Qt интерфейса (для fallback и Windows)"""
         layout: QVBoxLayout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(4)
@@ -273,45 +408,111 @@ class TeleprompterFloatWindow(QDialog):
 
         self.sync_replica_list()
 
-    def sync_replica_list(self) -> None:
-        """Синхронизация списка реплик"""
-        if not self.teleprompter:
-            return
+    def onPrevClicked_(self, sender) -> None:
+        """Обработчик кнопки 'Назад' (Cocoa)"""
+        if self.teleprompter:
+            self.teleprompter.navigate_to_replica_in_direction(-1)
 
-        current_row: int = self.replica_list.currentRow()
-        self.replica_list.blockSignals(True)
-        self.replica_list.clear()
+    def onNextClicked_(self, sender) -> None:
+        """Обработчик кнопки 'Вперёд' (Cocoa)"""
+        if self.teleprompter:
+            self.teleprompter.navigate_to_replica_in_direction(1)
 
-        i: int
-        for i in range(self.teleprompter.list_of_replicas.count()):
-            item: QListWidgetItem = self.teleprompter.list_of_replicas.item(i)
-            new_item: QListWidgetItem = QListWidgetItem(item.text())
-            new_item.setData(Qt.UserRole, item.data(Qt.UserRole))
-            self.replica_list.addItem(new_item)
-
-        if 0 <= current_row < self.replica_list.count():
-            self.replica_list.setCurrentRow(current_row)
-        self.replica_list.blockSignals(False)
-
-    def update_selection(self, index: int) -> None:
-        """Обновление выбранного элемента"""
-        if 0 <= index < self.replica_list.count():
-            self.replica_list.blockSignals(True)
-            self.replica_list.setCurrentRow(index)
-            self.replica_list.blockSignals(False)
-
-    def hide_window(self) -> None:
-        """Скрыть окно"""
-        self.hide()
+    def onHideClicked_(self, sender) -> None:
+        """Обработчик кнопки 'Скрыть' (Cocoa)"""
+        if self._cocoa_window:
+            self._cocoa_window.orderOut_(None)
         if hasattr(self, 'teleprompter') and self.teleprompter:
             self.teleprompter.hide_float_window()
 
+    def show_cocoa_window(self) -> None:
+        """Показать Cocoa окно"""
+        if self._cocoa_window:
+            self._cocoa_window.orderFrontRegardless()
+            self._cocoa_window.makeKeyAndOrderFront_(None)
+
+    def hide_cocoa_window(self) -> None:
+        """Скрыть Cocoa окно"""
+        if self._cocoa_window:
+            self._cocoa_window.orderOut_(None)
+
+    def update_cocoa_replica_list(self) -> None:
+        """Обновить список реплик в Cocoa окне"""
+        if not self._cocoa_window or not hasattr(self, '_replica_text_view'):
+            return
+        
+        replicas = []
+        for i in range(self.teleprompter.list_of_replicas.count()):
+            item = self.teleprompter.list_of_replicas.item(i)
+            if item:
+                replicas.append(item.text())
+        
+        text = '\n'.join(replicas) if replicas else "Нет реплик"
+        self._replica_text_view.setString_(text)
+        
+        # Прокручиваем в начало
+        self._replica_text_view.scrollToBeginning_(None)
+
+    def update_cocoa_selection(self, index: int) -> None:
+        """Обновить выделение в списке реплик (Cocoa)"""
+        # Для простоты просто обновляем весь список
+        self.update_cocoa_replica_list()
+
+    # === Методы Qt окна ===
+
+    def showEvent(self, event) -> None:
+        """Показ окна (Qt)"""
+        super().showEvent(event)
+
     def closeEvent(self, event) -> None:
-        """Обработка закрытия — скрываем вместо закрытия"""
+        """Закрытие окна (Qt)"""
         self.hide_window()
         event.ignore()
 
-    # === Перетаскивание окна ===
+    def hide_window(self) -> None:
+        """Скрыть окно"""
+        if platform.system() == "Darwin":
+            self.hide_cocoa_window()
+        else:
+            self.hide()
+        if hasattr(self, 'teleprompter') and self.teleprompter:
+            self.teleprompter.hide_float_window()
+
+    def sync_replica_list(self) -> None:
+        """Синхронизация списка реплик"""
+        if platform.system() == "Darwin":
+            self.update_cocoa_replica_list()
+        else:
+            # Qt реализация
+            if not self.teleprompter:
+                return
+
+            current_row: int = self.replica_list.currentRow()
+            self.replica_list.blockSignals(True)
+            self.replica_list.clear()
+
+            i: int
+            for i in range(self.teleprompter.list_of_replicas.count()):
+                item: QListWidgetItem = self.teleprompter.list_of_replicas.item(i)
+                new_item: QListWidgetItem = QListWidgetItem(item.text())
+                new_item.setData(Qt.UserRole, item.data(Qt.UserRole))
+                self.replica_list.addItem(new_item)
+
+            if 0 <= current_row < self.replica_list.count():
+                self.replica_list.setCurrentRow(current_row)
+            self.replica_list.blockSignals(False)
+
+    def update_selection(self, index: int) -> None:
+        """Обновление выбранного элемента"""
+        if platform.system() == "Darwin":
+            self.update_cocoa_selection(index)
+        else:
+            if 0 <= index < self.replica_list.count():
+                self.replica_list.blockSignals(True)
+                self.replica_list.setCurrentRow(index)
+                self.replica_list.blockSignals(False)
+
+    # === Перетаскивание окна (Qt) ===
 
     def mousePressEvent(self, event) -> None:
         """Начало перетаскивания"""
@@ -818,14 +1019,24 @@ class TeleprompterWindow(QDialog):
         """Показать плавающее окно"""
         if not hasattr(self, 'float_window') or self.float_window is None:
             self.float_window = TeleprompterFloatWindow(self)
-        self.float_window.show()
-        self.float_window.raise_()
+        
+        if platform.system() == "Darwin":
+            # На macOS используем Cocoa окно
+            self.float_window.show_cocoa_window()
+        else:
+            # На Windows используем Qt окно
+            self.float_window.show()
+            self.float_window.raise_()
+        
         self.btn_float_window.setChecked(True)
     
     def hide_float_window(self) -> None:
         """Скрыть плавающее окно"""
         if hasattr(self, 'float_window') and self.float_window:
-            self.float_window.hide()
+            if platform.system() == "Darwin":
+                self.float_window.hide_cocoa_window()
+            else:
+                self.float_window.hide()
         self.btn_float_window.setChecked(False)
     
     def handle_font_config_change(self) -> None:
@@ -1468,7 +1679,7 @@ class TeleprompterWindow(QDialog):
             elif reply == QMessageBox.No:
                 # Пользователь отказался от сохранения — сбрасываем флаги
                 self._has_text_changes = False
-                # Сбрасываем dirty флаг главного окна, т.к. изменения не были сохранены
+                # Сбрасываем dirty флаг главного окна, т.к. изменения не ��ыли сохранены
                 self.main_app.set_dirty(False)
                 event.accept()
             else:
