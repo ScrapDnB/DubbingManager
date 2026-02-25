@@ -298,6 +298,9 @@ class TeleprompterFloatWindow(QDialog):
             content_view.addSubview_(label)
             
             # Список реплик (занимает оставшееся место)
+            from AppKit import NSTextView, NSScrollView, NSBezelBorder, NSTextViewDidChangeSelectionNotification
+            from Foundation import NSNotificationCenter
+            
             scroll_view = NSScrollView.alloc().initWithFrame_(
                 NSMakeRect(FLOAT_MARGIN_X, FLOAT_SCROLL_Y, FLOAT_SCROLL_WIDTH, FLOAT_SCROLL_HEIGHT)
             )
@@ -313,9 +316,23 @@ class TeleprompterFloatWindow(QDialog):
             text_view.setRichText_(False)
             text_view.setFont_(NSFont.systemFontOfSize_(11))
             text_view.setString_("")
+            text_view.setAllowsUndo_(False)
             scroll_view.setDocumentView_(text_view)
             content_view.addSubview_(scroll_view)
             
+            # Добавляем observer для уведомления об изменении выделения
+            NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
+                self,
+                'onReplicaSelected:',
+                NSTextViewDidChangeSelectionNotification,
+                text_view
+            )
+            
+            # Инициализируем список
+            self._replica_text_view = text_view
+            self._replica_scroll_view = scroll_view
+            self._replica_items = []
+
             # Кнопка скрытия
             btn_hide = NSButton.alloc().initWithFrame_(
                 NSMakeRect(FLOAT_BTN_HIDE_X, FLOAT_BTN_HIDE_Y, FLOAT_BTN_HIDE_WIDTH, FLOAT_BTN_HIDE_HEIGHT)
@@ -325,13 +342,11 @@ class TeleprompterFloatWindow(QDialog):
             btn_hide.setTarget_(self)
             btn_hide.setAction_(objc.selector(self.onHideClicked_, signature=b'v@:@'))
             content_view.addSubview_(btn_hide)
-            
+
             self._cocoa_window.setContentView_(content_view)
             self._content_view = content_view
-            self._replica_text_view = text_view
-            self._replica_scroll_view = scroll_view
-            
-            # Сохраняем ссылки на кнопки для обновления состояния
+
+            # Сохраняем ссылки на кнопки
             self._btn_prev = btn_prev
             self._btn_next = btn_next
             
@@ -428,6 +443,18 @@ class TeleprompterFloatWindow(QDialog):
     def show_cocoa_window(self) -> None:
         """Показать Cocoa окно"""
         if self._cocoa_window:
+            # Сначала обновляем список реплик
+            self.update_cocoa_replica_list()
+            
+            # Находим текущую активную реплику и выделяем её
+            if hasattr(self, 'teleprompter') and self.teleprompter:
+                current_time = self.teleprompter.last_known_time
+                for i, item in enumerate(self._replica_items):
+                    if abs(item['time'] - current_time) < 0.01:
+                        self.update_cocoa_selection(i)
+                        break
+            
+            # Затем показываем окно
             self._cocoa_window.orderFrontRegardless()
             self._cocoa_window.makeKeyAndOrderFront_(None)
 
@@ -437,26 +464,89 @@ class TeleprompterFloatWindow(QDialog):
             self._cocoa_window.orderOut_(None)
 
     def update_cocoa_replica_list(self) -> None:
-        """Обновить список реплик в Cocoa окне"""
+        """Обновить список реплик в Cocoa окне (NSTextView)"""
         if not self._cocoa_window or not hasattr(self, '_replica_text_view'):
+            logger.debug("Cocoa: окно или текст-вью не найдены")
             return
         
+        # Получаем данные из Qt списка
+        self._replica_items = []
         replicas = []
+        
         for i in range(self.teleprompter.list_of_replicas.count()):
             item = self.teleprompter.list_of_replicas.item(i)
             if item:
                 replicas.append(item.text())
+                self._replica_items.append({
+                    'text': item.text(),
+                    'time': item.data(Qt.UserRole)
+                })
         
+        logger.debug(f"Cocoa: найдено {len(self._replica_items)} реплик")
+        
+        # Обновляем текст
         text = '\n'.join(replicas) if replicas else "Нет реплик"
         self._replica_text_view.setString_(text)
         
         # Прокручиваем в начало
-        self._replica_text_view.scrollToBeginning_(None)
+        from Foundation import NSMakeRange
+        self._replica_text_view.scrollRangeToVisible_(NSMakeRange(0, 0))
+        logger.debug("Cocoa: текст обновлён")
+
+    def onReplicaSelected_(self, notification) -> None:
+        """Обработчик изменения выделения в NSTextView"""
+        text_view = notification.object()
+        selected_range = text_view.selectedRange()
+        selected_location = selected_range.location
+        
+        if selected_location >= 0 and hasattr(self, '_replica_items'):
+            # Определяем, какая строка выбрана
+            text = text_view.string()
+            if text:
+                lines = text.split('\n')
+                current_pos = 0
+                
+                for i, line in enumerate(lines):
+                    line_start = current_pos
+                    line_end = current_pos + len(line)
+                    
+                    if line_start <= selected_location <= line_end:
+                        # Найдена строка
+                        if i < len(self._replica_items):
+                            time_code = self._replica_items[i].get('time')
+                            if time_code:
+                                self.on_replica_clicked(time_code)
+                        break
+                    
+                    current_pos = line_end + 1  # +1 для символа новой строки
 
     def update_cocoa_selection(self, index: int) -> None:
         """Обновить выделение в списке реплик (Cocoa)"""
-        # Для простоты просто обновляем весь список
-        self.update_cocoa_replica_list()
+        if not hasattr(self, '_replica_text_view') or not self._replica_items:
+            return
+        
+        # Находим позицию начала нужной строки
+        if 0 <= index < len(self._replica_items):
+            # Вычисляем позицию строки в тексте
+            text = self._replica_text_view.string()
+            if text:
+                lines = text.split('\n')
+                pos = 0
+                for i in range(index):
+                    pos += len(lines[i]) + 1  # +1 для \n
+                
+                # Выделяем строку
+                from Foundation import NSMakeRange
+                line_length = len(lines[index]) if index < len(lines) else 0
+                self._replica_text_view.setSelectedRange_(NSMakeRange(pos, line_length))
+                
+                # Прокручиваем к выделенной строке
+                self._replica_text_view.scrollRangeToVisible_(NSMakeRange(pos, line_length))
+
+    def on_replica_clicked(self, time_code: float) -> None:
+        """Обработка клика по реплике (Cocoa)"""
+        if self.teleprompter and time_code is not None:
+            self.teleprompter.jump_to_specific_time(time_code)
 
     # === Методы Qt окна ===
 
@@ -1175,6 +1265,10 @@ class TeleprompterWindow(QDialog):
                 self.list_of_replicas.item(
                     self.list_of_replicas.count() - 1
                 ).setData(Qt.UserRole, replica['s'])
+                
+                # Инициализируем last_known_time первой активной репликой
+                if self.last_known_time == 0.0:
+                    self.last_known_time = replica['s']
             else:
                 inactive_col = QColor(clrs["inactive_text"])
                 char_col = text_col = tc_col = inactive_col
@@ -1453,7 +1547,7 @@ class TeleprompterWindow(QDialog):
                 self.osc_thread.stop()
                 self.osc_thread = None
             self.osc_client = None
-            self.btn_osc.setText("Включить OSC связь")
+            self.btn_osc.setText("Включи��ь OSC связь")
             self.btn_osc.setStyleSheet("")
     
     @Slot(float)
