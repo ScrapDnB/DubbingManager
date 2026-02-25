@@ -1553,7 +1553,9 @@ class TeleprompterWindow(QDialog):
     @Slot(float)
     def on_osc_time_packet_received(self, time_val: float) -> None:
         """Получение времени из OSC"""
-        self.update_view_position_by_time(time_val)
+        # Обновляем позицию только если включена синхронизация с Reaper
+        if self.cfg.get("sync_in", False):
+            self.update_view_position_by_time(time_val)
     
     @Slot(str)
     def navigate_from_osc(self, direction: str) -> None:
