@@ -73,88 +73,33 @@ from utils.helpers import ass_time_to_seconds, format_seconds_to_tc, log_excepti
 logger = logging.getLogger(__name__)
 
 
-class CollapsibleSection(QFrame):
-    """Сворачиваемый раздел настроек"""
-    
+class SettingsSection(QFrame):
+    """Раздел настроек"""
+
     def __init__(self, title: str, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.StyledPanel)
+        self.setAutoFillBackground(True)
         self.setStyleSheet(
-            "CollapsibleSection { background: #2b2b2b; border-radius: 4px; }"
+            "SettingsSection { border-radius: 4px; }"
         )
-        
+
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
-        
+        self.main_layout.setContentsMargins(8, 6, 8, 8)
+        self.main_layout.setSpacing(4)
+
         # Заголовок
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(8, 6, 8, 6)
-        
-        self.toggle_btn = QPushButton()
-        self.toggle_btn.setFixedSize(20, 20)
-        self.toggle_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: none;
-                color: #aaa;
-                font-size: 14px;
-                font-weight: bold;
-            }
-            QPushButton:hover { color: white; }
-        """)
-        self.toggle_btn.clicked.connect(self.toggle)
-        header_layout.addWidget(self.toggle_btn)
-        
         title_label = QLabel(title)
         title_label.setStyleSheet(
-            "color: white; font-weight: bold; font-size: 13px;"
+            "font-weight: bold; font-size: 13px;"
         )
-        header_layout.addWidget(title_label)
-        header_layout.addStretch()
-        
-        self.header_widget = QWidget()
-        self.header_widget.setLayout(header_layout)
-        self.header_widget.setStyleSheet("background: transparent;")
-        self.main_layout.addWidget(self.header_widget)
-        
-        # Контент
-        self.content_widget = QWidget()
-        self.content_layout = QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(8, 0, 8, 8)
-        self.content_layout.setSpacing(4)
-        self.main_layout.addWidget(self.content_widget)
-        
-        self.expanded = False
-        self.content_widget.setVisible(False)
-        self.update_arrow()
-    
-    def update_arrow(self) -> None:
-        if self.expanded:
-            self.toggle_btn.setText("▼")
-        else:
-            self.toggle_btn.setText("▶")
-            self.toggle_btn.setStyleSheet("""
-                QPushButton {
-                    background: transparent;
-                    border: none;
-                    color: #666;
-                    font-size: 14px;
-                    font-weight: bold;
-                }
-                QPushButton:hover { color: #888; }
-            """)
-    
-    def toggle(self) -> None:
-        self.expanded = not self.expanded
-        self.content_widget.setVisible(self.expanded)
-        self.update_arrow()
-    
+        self.main_layout.addWidget(title_label)
+
     def addWidget(self, widget) -> None:
-        self.content_layout.addWidget(widget)
-    
+        self.main_layout.addWidget(widget)
+
     def addLayout(self, layout) -> None:
-        self.content_layout.addLayout(layout)
+        self.main_layout.addLayout(layout)
 
 
 class EditTextDialog(QDialog):
@@ -856,7 +801,7 @@ class TeleprompterWindow(QDialog):
     
     def _init_font_settings(self, layout) -> None:
         """Настройка шрифтов"""
-        fonts_section = CollapsibleSection("Размеры шрифтов элементов")
+        fonts_section = SettingsSection("Размеры шрифтов элементов")
         fonts_form = QFormLayout()
 
         self.spin_font_tc = QSpinBox()
@@ -890,7 +835,7 @@ class TeleprompterWindow(QDialog):
     
     def _init_focus_settings(self, layout) -> None:
         """Настройка позиции линии чтения"""
-        focus_section = CollapsibleSection("Позиция линии чтения")
+        focus_section = SettingsSection("Позиция линии чтения")
         focus_layout = QVBoxLayout()
 
         self.slider_focus_pos = QSlider(Qt.Horizontal)
@@ -912,7 +857,7 @@ class TeleprompterWindow(QDialog):
     
     def _init_scroll_settings(self, layout) -> None:
         """Настройка прокрутки"""
-        scroll_section = CollapsibleSection("Прокрутка")
+        scroll_section = SettingsSection("Прокрутка")
         sg_layout = QVBoxLayout()
 
         self.slider_scroll_smoothness = QSlider(Qt.Horizontal)
@@ -950,7 +895,7 @@ class TeleprompterWindow(QDialog):
     
     def _init_view_settings(self, layout) -> None:
         """Настройка отображения"""
-        view_section = CollapsibleSection("Отображение")
+        view_section = SettingsSection("Отображение")
         view_lay = QVBoxLayout()
         
         btn_colors = QPushButton("🎨 Настроить цвета телесуфлёра...")
@@ -976,7 +921,7 @@ class TeleprompterWindow(QDialog):
     
     def _init_osc_settings(self, layout) -> None:
         """Настройка синхронизации Reaper"""
-        osc_section = CollapsibleSection("Синхронизация Reaper (OSC)")
+        osc_section = SettingsSection("Синхронизация Reaper (OSC)")
         osc_layout = QVBoxLayout()
         
         self.chk_follow_reaper = QCheckBox(
