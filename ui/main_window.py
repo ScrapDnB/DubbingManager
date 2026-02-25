@@ -217,6 +217,13 @@ class MainWindow(QMainWindow):
         btn_copy.clicked.connect(self.save_project_as)
         top.addWidget(btn_copy)
 
+        top.addStretch()
+
+        btn_about = QPushButton("ℹ️")
+        btn_about.setFixedWidth(30)
+        btn_about.clicked.connect(self.show_about)
+        top.addWidget(btn_about)
+
         layout.addLayout(top)
 
     def _init_episode_controls(self, layout: QHBoxLayout) -> None:
@@ -1356,3 +1363,22 @@ class MainWindow(QMainWindow):
             event.accept()
         else:
             event.ignore()
+
+    def show_about(self) -> None:
+        """Показ диалога About"""
+        QMessageBox.about(
+            self,
+            "О программе",
+            "<h2>Dubbing Manager</h2>"
+            "<p>Приложение для управления проектами дубляжа и озвучивания.</p>"
+            "<p><b>Версия:</b> 1.1</p>"
+            "<p><b>GitHub:</b> <a href='https://github.com/ScrapDnB/DubbingManager/'>ScrapDnB/DubbingManager</a></p>"
+            "<p><b>Python:</b> {}.{}.{}</p>"
+            "<p><b>PySide6:</b> {}</p>"
+            "<p>© 2026 Юрий Романов</p>".format(
+                sys.version_info.major,
+                sys.version_info.minor,
+                sys.version_info.micro,
+                "6.10.2"
+            )
+        )
