@@ -25,8 +25,7 @@ dubbing_manager/
 │   ├── episode_service.py       # Управление эпизодами (парсинг ASS)
 │   ├── actor_service.py         # Управление актёрами (CRUD операции)
 │   ├── export_service.py        # Экспорт (HTML, Excel, пакетный экспорт)
-│   ├── osc_worker.py            # OSC сервер для синхронизации с Reaper
-│   └── hotkey_manager.py        # (удалён) Глобальные горячие клавиши
+│   └── osc_worker.py            # OSC сервер для синхронизации с Reaper
 │
 ├── ui/                          # Пользовательский интерфейс
 │   ├── __init__.py
@@ -43,6 +42,7 @@ dubbing_manager/
 │       ├── __init__.py
 │       ├── actor_filter.py      # Выбор актёров для подсветки
 │       ├── colors.py            # Настройка цветовой схемы
+│       ├── edit_text_dialog.py  # Редактирование текста реплики
 │       ├── export.py            # Настройки экспорта
 │       ├── reaper.py            # Настройки экспорта в Reaper
 │       ├── roles.py             # Редактирование ролей актёра
@@ -53,6 +53,12 @@ dubbing_manager/
 │   ├── __init__.py
 │   ├── helpers.py               # Вспомогательные функции
 │   └── web_bridge.py            # Мост между JS и Python (для WebEngine)
+│
+├── tests/                       # Тесты
+│   ├── __init__.py
+│   ├── README.md
+│   ├── test_services.py         # Тесты сервисов
+│   └── test_additional.py       # Дополнительные тесты
 │
 └── dist/                        # Скомпилированные приложения (git-ignored)
 ```
@@ -70,24 +76,25 @@ dubbing_manager/
 | `models.py` | Модели данных с использованием `@dataclass`: `Actor`, `DialogueLine`, `ExportConfig`, `PrompterConfig`, `PrompterColors` |
 
 ### services/
-| Файл | Описание | Строк |
-|------|----------|-------|
-| `project_service.py` | Загрузка/сохранение проектов, автосохранение | ~150 |
-| `episode_service.py` | Парсинг ASS файлов, загрузка эпизодов, сохранение | ~230 |
-| `actor_service.py` | CRUD операции с актёрами, назначение ролей | ~290 |
-| `export_service.py` | Экспорт в HTML, Excel, пакетный экспорт | ~600 |
-| `osc_worker.py` | OSC сервер для синхронизации с Reaper (поток) | ~100 |
+| Файл | Описание |
+|------|----------|
+| `project_service.py` | Загрузка/сохранение проектов, автосохранение |
+| `episode_service.py` | Парсинг ASS файлов, загрузка эпизодов, сохранение |
+| `actor_service.py` | CRUD операции с актёрами, назначение ролей |
+| `export_service.py` | Экспорт в HTML, Excel, пакетный экспорт |
+| `osc_worker.py` | OSC сервер для синхронизации с Reaper (поток) |
 
 ### ui/controllers/
-| Файл | Описание | Строк |
-|------|----------|-------|
-| `actor_controller.py` | Контроллер панели актёров: отображение, редактирование, назначение | ~190 |
+| Файл | Описание |
+|------|----------|
+| `actor_controller.py` | Контроллер панели актёров: отображение, редактирование, назначение |
 
 ### ui/dialogs/
 | Файл | Описание |
 |------|----------|
 | `actor_filter.py` | Диалог выбора актёров для фильтрации/подсветки |
 | `colors.py` | Диалоги настройки цветовой схемы (PrompterColorDialog, CustomColorDialog) |
+| `edit_text_dialog.py` | Диалог редактирования текста реплики |
 | `export.py` | Диалог настроек экспорта (ExportSettingsDialog) |
 | `reaper.py` | Диалог настроек экспорта в Reaper (ReaperExportDialog) |
 | `roles.py` | Диалог редактирования ролей актёра (ActorRolesDialog) |
@@ -99,6 +106,12 @@ dubbing_manager/
 |------|----------|
 | `helpers.py` | Вспомогательные функции: `ass_time_to_seconds()`, `format_seconds_to_tc()`, `hex_to_rgba_string()`, `customize_table()`, `wrap_widget()`, `log_exception()` |
 | `web_bridge.py` | Мост между JavaScript и Python для редактирования в WebEngine |
+
+### tests/
+| Файл | Описание |
+|------|----------|
+| `test_services.py` | Тесты для сервисов (actor, episode, export) |
+| `test_additional.py` | Дополнительные тесты |
 
 ## Архитектурные принципы
 
@@ -129,19 +142,6 @@ logger.info(f"Project loaded from {path}")
 log_exception(logger, "Load failed", e)
 ```
 
-## Статистика кода
-
-| Компонент | Файлов | Строк |
-|-----------|--------|-------|
-| **Services** | 5 | ~1,400 |
-| **UI** | 4 | ~3,200 |
-| **Controllers** | 1 | ~190 |
-| **Dialogs** | 7 | ~800 |
-| **Utils** | 2 | ~150 |
-| **Config** | 1 | ~170 |
-| **Core** | 1 | ~150 |
-| **Итого** | **21** | **~6,060** |
-
 ## Зависимости
 
 | Пакет | Версия | Назначение |
@@ -149,11 +149,13 @@ log_exception(logger, "Load failed", e)
 | `pyside6` | 6.10.2 | GUI фреймворк |
 | `pyside6-addons` | 6.10.2 | Дополнительные компоненты Qt |
 | `python-osc` | 1.9.3 | OSC протокол |
-| `openpyxl` | (опционально) | Excel экспорт |
+| `openpyxl` | >=3.0.0 | Excel экспорт |
 | `requests` | 2.32.5 | HTTP запросы |
+| `pytest` | >=7.0.0 | Тестирование |
+| `pytest-cov` | >=4.0.0 | Покрытие кода |
 
 ## Примечания
 
-- **Горячие клавиши удалены** — модуль `hotkey_manager.py` удалён (не работал на macOS)
-- **ActorController** — новый контроллер для управления панелью актёров (добавлен в 2026)
-- **ExportService** — расширен для поддержки пакетного экспорта (2026)
+- **ActorController** — контроллер для управления панелью актёров
+- **ExportService** — поддержка пакетного экспорта
+- **edit_text_dialog.py** — диалог для редактирования текста реплик
