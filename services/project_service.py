@@ -10,7 +10,11 @@ from typing import Dict, Any, Optional, List
 
 from PySide6.QtWidgets import QMessageBox
 
-from config.constants import DEFAULT_EXPORT_CONFIG, DEFAULT_PROMPTER_CONFIG
+from config.constants import (
+    DEFAULT_EXPORT_CONFIG,
+    DEFAULT_PROMPTER_CONFIG,
+    DEFAULT_REPLICA_MERGE_CONFIG
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +75,7 @@ class ProjectService:
             "video_paths": {},
             "export_config": DEFAULT_EXPORT_CONFIG.copy(),
             "prompter_config": DEFAULT_PROMPTER_CONFIG.copy(),
+            "replica_merge_config": DEFAULT_REPLICA_MERGE_CONFIG.copy(),
         }
 
     def load_project(self, path: str) -> Optional[Dict[str, Any]]:
@@ -338,9 +343,9 @@ class ProjectService:
     def _ensure_compatibility(self, data: Dict[str, Any]) -> None:
         """
         Обеспечение обратной совместимости формата проекта.
-        
+
         Добавляет缺失ствующие поля со значениями по умолчанию.
-        
+
         Args:
             data: Данные проекта
         """
@@ -354,7 +359,19 @@ class ProjectService:
             data["global_map"] = {}
         if "loaded_episodes" not in data:
             data["loaded_episodes"] = {}
-        
+        if "replica_merge_config" not in data:
+            # Миграция: если настройки объединения в export_config, переносим их
+            if "export_config" in data:
+                export_cfg = data["export_config"]
+                data["replica_merge_config"] = {
+                    'merge': export_cfg.get('merge', True),
+                    'merge_gap': export_cfg.get('merge_gap', 5),
+                    'p_short': export_cfg.get('p_short', 0.5),
+                    'p_long': export_cfg.get('p_long', 2.0),
+                }
+            else:
+                data["replica_merge_config"] = DEFAULT_REPLICA_MERGE_CONFIG.copy()
+
         # Проверка metadata для старых проектов
         if "metadata" not in data:
             now = datetime.now().isoformat()

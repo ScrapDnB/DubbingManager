@@ -18,6 +18,10 @@ class EpisodeService:
         self.merge_gap = merge_gap
         self._loaded_episodes: Dict[str, List[Dict[str, Any]]] = {}
 
+    def set_merge_gap_from_config(self, replica_merge_config: Dict[str, Any]) -> None:
+        """Установка зазора для слияния реплик из конфига"""
+        self.merge_gap = replica_merge_config.get('merge_gap', 5)
+
     def parse_ass_file(self, path: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Парсинг ASS файла
@@ -58,6 +62,9 @@ class EpisodeService:
                             char_data[char]["raw"].append(line_data)
 
                 # Вычисление статистики
+                # Конвертируем merge_gap из кадров в секунды (25 кадров/сек)
+                merge_gap_seconds = self.merge_gap / 25.0
+                
                 stats = []
                 for char, info in char_data.items():
                     rings = 1
@@ -68,7 +75,7 @@ class EpisodeService:
                         words = len(char_lines[0]['text'].split())
 
                         for i in range(1, len(char_lines)):
-                            if char_lines[i]['s'] - char_lines[i-1]['e'] >= self.merge_gap:
+                            if char_lines[i]['s'] - char_lines[i-1]['e'] >= merge_gap_seconds:
                                 rings += 1
                             words += len(char_lines[i]['text'].split())
 

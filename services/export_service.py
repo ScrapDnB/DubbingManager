@@ -33,7 +33,8 @@ class ExportService:
         """Логика слияния реплик"""
         p_short = cfg.get('p_short', 0.5)
         p_long = cfg.get('p_long', 2.0)
-        gap = cfg.get('merge_gap', 5)
+        # Конвертируем merge_gap из кадров в секунды (25 кадров/сек)
+        gap_seconds = cfg.get('merge_gap', 5) / 25.0
 
         res = []
         curr = None
@@ -53,7 +54,7 @@ class ExportService:
                 if (
                     cfg.get('merge', True) and
                     nxt['char'] == curr['char'] and
-                    diff < gap
+                    diff < gap_seconds
                 ):
                     if diff >= p_long:
                         sep = " //  "
@@ -559,6 +560,7 @@ class ExportService:
             return False, "Папка для экспорта не указана"
 
         cfg = self.project_data["export_config"]
+        merge_cfg = self.project_data.get("replica_merge_config", {})
         project_name = self.project_data.get('project_name', 'Project')
         exported_count = 0
 
@@ -573,7 +575,7 @@ class ExportService:
                     filepath = os.path.join(folder, filename)
                     html = self.generate_html(
                         ep,
-                        self.process_merge_logic(lines, cfg),
+                        self.process_merge_logic(lines, merge_cfg),
                         cfg,
                         cfg.get('highlight_ids_export'),
                         layout_type=cfg.get('layout_type', 'Таблица'),
@@ -587,7 +589,7 @@ class ExportService:
                     filename = f"{project_name} - Ep{ep}.xlsx"
                     filepath = os.path.join(folder, filename)
                     success, _ = self.export_to_excel(
-                        ep, lines, cfg, filepath
+                        ep, lines, merge_cfg, filepath
                     )
                     if success:
                         exported_count += 1

@@ -289,14 +289,15 @@ class HtmlLivePreview(QDialog):
             self.browser.loadFinished.connect(self.on_page_loaded)
 
             cfg = self.main_app.data["export_config"]
+            merge_cfg = self.main_app.data.get("replica_merge_config", {})
             local_layout = self.combo_layout.currentText()
-            
+
             logger.info(f"update_preview: generating HTML with layout={local_layout}")
-            
+
             export_service = ExportService(self.main_app.data)
-            processed = export_service.process_merge_logic(lines, cfg)
+            processed = export_service.process_merge_logic(lines, merge_cfg)
             logger.info(f"update_preview: processed={len(processed)} replicas")
-            
+
             html = export_service.generate_html(
                 self.ep_num,
                 processed,

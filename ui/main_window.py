@@ -356,41 +356,51 @@ class MainWindow(QMainWindow):
         btn_reaper = QPushButton("🎹 Reaper RPP")
         btn_reaper.clicked.connect(self.export_to_reaper_rpp)
         tools_sidebar_layout.addWidget(btn_reaper)
-        
+
+        tools_sidebar_layout.addSpacing(20)
+        btn_bulk = QPushButton("⚡ Назначить выделенным")
+        btn_bulk.clicked.connect(self.bulk_assign_actor)
+        tools_sidebar_layout.addWidget(btn_bulk)
+
         tools_sidebar_layout.addStretch()
         layout.addWidget(tools_sidebar_widget)
     
     def _init_bottom_panel(self, layout) -> None:
         """Инициализация нижней панели"""
         bottom_panel = QHBoxLayout()
-        
-        btn_bulk = QPushButton("⚡ Назначить выделенным")
-        btn_bulk.clicked.connect(self.bulk_assign_actor)
-        bottom_panel.addWidget(btn_bulk)
-        
+
+        # Левая часть: настройки объединения
+        btn_merge_cfg = QPushButton("🔗 Настройки объединения")
+        btn_merge_cfg.setToolTip("Настройки объединения реплик для монтажного листа, телесуфлёра и отчётов")
+        btn_merge_cfg.clicked.connect(self.open_replica_merge_settings)
+        bottom_panel.addWidget(btn_merge_cfg)
+
         bottom_panel.addStretch()
-        
+
+        # Правая часть: экспорт
         exp_group = QGroupBox("Экспорт")
         exp_lay = QHBoxLayout(exp_group)
         exp_lay.setContentsMargins(5, 5, 5, 5)
 
         btn_cfg = QPushButton("⚙ Настройки")
         btn_cfg.clicked.connect(self.open_export_settings)
-        bottom_panel.addWidget(btn_cfg)
+        exp_lay.addWidget(btn_cfg)
+
+        exp_lay.addSpacing(10)
 
         self.chk_exp_html = QCheckBox("Лист")
         self.chk_exp_html.setChecked(True)
-        
+
         self.chk_exp_xls = QCheckBox("Excel")
-        
+
         self.radio_cur = QRadioButton("Текущая")
         self.radio_cur.setChecked(True)
-        
+
         self.radio_all = QRadioButton("Все")
-        
+
         self.btn_run_export = QPushButton("ЭКСПОРТ")
         self.btn_run_export.clicked.connect(self.run_unified_export)
-        
+
         exp_lay.addWidget(self.chk_exp_html)
         exp_lay.addWidget(self.chk_exp_xls)
         exp_lay.addSpacing(10)
@@ -398,7 +408,7 @@ class MainWindow(QMainWindow):
         exp_lay.addWidget(self.radio_all)
         exp_lay.addSpacing(10)
         exp_lay.addWidget(self.btn_run_export)
-        
+
         bottom_panel.addWidget(exp_group)
         layout.addLayout(bottom_panel)
     
@@ -1005,6 +1015,7 @@ class MainWindow(QMainWindow):
         """Экспорт в Excel"""
         lines = self.get_episode_lines(ep)
         cfg = self.data["export_config"]
+        merge_cfg = self.data.get("replica_merge_config", {})
 
         export_service = ExportService(self.data)
         path, _ = QFileDialog.getSaveFileName(
@@ -1013,7 +1024,7 @@ class MainWindow(QMainWindow):
 
         if path:
             success, message = export_service.export_to_excel(
-                ep=ep, lines=lines, cfg=cfg, save_path=path
+                ep=ep, lines=lines, cfg=merge_cfg, save_path=path
             )
             if success:
                 if sys.platform == 'win32':
@@ -1026,10 +1037,11 @@ class MainWindow(QMainWindow):
     def export_to_html(self, ep: str) -> None:
         """Экспорт в HTML"""
         cfg = self.data["export_config"]
+        merge_cfg = self.data.get("replica_merge_config", {})
         lines = self.get_episode_lines(ep)
 
         export_service = ExportService(self.data)
-        processed = export_service.process_merge_logic(lines, cfg)
+        processed = export_service.process_merge_logic(lines, merge_cfg)
 
         html = export_service.generate_html(
             ep,
@@ -1144,6 +1156,31 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self.data["export_config"] = dialog.get_settings()
             self.change_episode()
+            self.set_dirty()
+
+    def open_replica_merge_settings(self) -> None:
+        """Открытие настроек объединения реплик"""
+        from .dialogs.replica_merge import ReplicaMergeSettingsDialog
+        
+        dialog = ReplicaMergeSettingsDialog(
+            self.data.get("replica_merge_config", {}), self
+        )
+        if dialog.exec():
+            self.data["replica_merge_config"] = dialog.get_settings()
+            
+            # Обновляем настройки в episode_service для пересчёта колец
+            self.episode_service.set_merge_gap_from_config(
+                self.data["replica_merge_config"]
+            )
+            
+            # Пересчитываем статистику для текущего эпизода
+            ep: Optional[str] = self.ep_combo.currentData()
+            if ep:
+                path: Optional[str] = self.data["episodes"].get(ep)
+                if path and os.path.exists(path):
+                    self._parse_episode(ep, path)
+                    self.refresh_main_table()
+            
             self.set_dirty()
 
     def open_global_search(self) -> None:

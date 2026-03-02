@@ -207,37 +207,39 @@ class TestExportServiceAdditional:
     def test_process_merge_empty_lines(self, sample_project_data):
         """Слияние пустых реплик"""
         service = ExportService(sample_project_data)
-        cfg = sample_project_data["export_config"]
-        
-        processed = service.process_merge_logic([], cfg)
-        
+        merge_cfg = sample_project_data["replica_merge_config"]
+
+        processed = service.process_merge_logic([], merge_cfg)
+
         assert processed == []
 
     def test_export_with_no_actors_assigned(self, sample_project_data):
         """Экспорт без назначенных актёров"""
         service = ExportService(sample_project_data)
         cfg = sample_project_data["export_config"]
-        
+        merge_cfg = sample_project_data["replica_merge_config"]
+
         # Очищаем global_map
         sample_project_data["global_map"] = {}
-        
+
         lines = [
             {'id': 0, 's': 0.0, 'e': 1.0, 'char': 'Char', 'text': 'Text', 's_raw': '0:00:00.00'},
         ]
-        
-        processed = service.process_merge_logic(lines, cfg)
+
+        processed = service.process_merge_logic(lines, merge_cfg)
         html = service.generate_html("1", processed, cfg)
-        
+
         assert "<html" in html
 
     def test_scenario_layout(self, sample_project_data, sample_lines):
         """Экспорт в формате сценария"""
         service = ExportService(sample_project_data)
         cfg = sample_project_data["export_config"]
-        
-        processed = service.process_merge_logic(sample_lines, cfg)
+        merge_cfg = sample_project_data["replica_merge_config"]
+
+        processed = service.process_merge_logic(sample_lines, merge_cfg)
         html = service.generate_html("1", processed, cfg, layout_type='Сценарий')
-        
+
         assert 'line-container' in html
         assert "<table" not in html
 
@@ -245,7 +247,8 @@ class TestExportServiceAdditional:
         """Экспорт 100 реплик"""
         service = ExportService(sample_project_data)
         cfg = sample_project_data["export_config"]
-        
+        merge_cfg = sample_project_data["replica_merge_config"]
+
         # Создаём 100 реплик
         lines = []
         for i in range(100):
@@ -257,10 +260,10 @@ class TestExportServiceAdditional:
                 'text': f'Text {i}',
                 's_raw': f'0:00:{i:02d}.00'
             })
-        
-        processed = service.process_merge_logic(lines, cfg)
+
+        processed = service.process_merge_logic(lines, merge_cfg)
         html = service.generate_html("1", processed, cfg)
-        
+
         assert len(html) > 0
         assert "Text 0" in html
         assert "Text 99" in html
@@ -287,11 +290,13 @@ def sample_project_data():
         "video_paths": {"1": "/path/to/video1.mp4"},
         "export_config": {
             'layout_type': 'Таблица',
+            'use_color': True,
+        },
+        "replica_merge_config": {
             'merge': True,
             'merge_gap': 5,
             'p_short': 0.5,
             'p_long': 2.0,
-            'use_color': True,
         },
         "prompter_config": {}
     }

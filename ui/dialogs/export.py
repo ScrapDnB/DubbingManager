@@ -3,7 +3,7 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QGroupBox,
     QComboBox, QCheckBox, QSpinBox, QDoubleSpinBox,
-    QPushButton, QMessageBox
+    QPushButton, QMessageBox, QLabel
 )
 from typing import Dict, Any, Optional, List
 
@@ -33,9 +33,6 @@ class ExportSettingsDialog(QDialog):
         self._f_char: QSpinBox
         self._f_actor: QSpinBox
         self._f_text: QSpinBox
-        self._merge_gap: QSpinBox
-        self._p_short: QDoubleSpinBox
-        self._p_long: QDoubleSpinBox
         self._use_color: QCheckBox
         self._allow_edit: QCheckBox
         self._round_time: QCheckBox
@@ -103,26 +100,14 @@ class ExportSettingsDialog(QDialog):
         font_layout.addRow("Текст:", self._f_text)
         layout.addWidget(font_group)
 
-        # Параметры слияния
-        merge_layout: QFormLayout = QFormLayout()
-        self._merge_gap = QSpinBox()
-        self._merge_gap.setRange(0, 30)
-        self._merge_gap.setValue(self.settings.get('merge_gap', 5))
-
-        self._p_short = QDoubleSpinBox()
-        self._p_short.setRange(0.0, 5.0)
-        self._p_short.setSingleStep(0.1)
-        self._p_short.setValue(self.settings.get('p_short', 0.5))
-
-        self._p_long = QDoubleSpinBox()
-        self._p_long.setRange(0.0, 10.0)
-        self._p_long.setSingleStep(0.1)
-        self._p_long.setValue(self.settings.get('p_long', 2.0))
-
-        merge_layout.addRow("Порог слияния (сек):", self._merge_gap)
-        merge_layout.addRow("Пауза для '/' (сек):", self._p_short)
-        merge_layout.addRow("Пауза для '//' (сек):", self._p_long)
-        layout.addLayout(merge_layout)
+        # Пояснение об объединении реплик
+        merge_info = QLabel(
+            "⚙ Параметры объединения реплик настраиваются отдельно.\n"
+            "Они используются в монтажном листе, телесуфлёре и отчётах."
+        )
+        merge_info.setStyleSheet("color: #666; padding: 8px; background: #f5f5f5; border-radius: 4px;")
+        merge_info.setWordWrap(True)
+        layout.addWidget(merge_info)
 
         # Цвета и актёры
         color_group = QGroupBox("Отображение цветов")
@@ -200,9 +185,6 @@ class ExportSettingsDialog(QDialog):
             'f_char': self._f_char.value(),
             'f_actor': self._f_actor.value(),
             'f_text': self._f_text.value(),
-            'merge_gap': self._merge_gap.value(),
-            'p_short': self._p_short.value(),
-            'p_long': self._p_long.value(),
             'use_color': self._use_color.isChecked(),
             'round_time': self._round_time.isChecked(),
             'open_auto': self._open_auto.isChecked(),

@@ -1170,8 +1170,11 @@ class TeleprompterWindow(QDialog):
 
         lines.sort(key=lambda x: x['s'])
         export_service = ExportService(self.main_app.data)
+        
+        # Используем replica_merge_config для объединения реплик
+        merge_cfg = self.main_app.data.get("replica_merge_config", {})
         processed = export_service.process_merge_logic(
-            lines, self.main_app.data["export_config"]
+            lines, merge_cfg
         )
         
         y_cursor = 1000.0

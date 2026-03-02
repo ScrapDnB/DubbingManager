@@ -85,6 +85,28 @@ class PrompterConfig:
 
 
 @dataclass
+class ReplicaMergeConfig:
+    """Конфигурация объединения реплик"""
+    merge: bool = True
+    merge_gap: int = 5
+    p_short: float = 0.5
+    p_long: float = 2.0
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ReplicaMergeConfig':
+        """Создание из словаря с обратной совместимостью"""
+        if not data:
+            return cls()
+
+        valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
+        filtered = {k: v for k, v in data.items() if k in valid_keys}
+        return cls(**filtered)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class ExportConfig:
     """Конфигурация экспорта"""
     layout_type: str = 'Таблица'
@@ -97,25 +119,21 @@ class ExportConfig:
     f_actor: int = 14
     f_text: int = 30
     use_color: bool = True
-    merge: bool = True
-    merge_gap: int = 5
-    p_short: float = 0.5
-    p_long: float = 2.0
     open_auto: bool = True
     round_time: bool = False
     allow_edit: bool = True
     highlight_ids_export: Optional[List[str]] = None
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ExportConfig':
         """Создание из словаря с обратной совместимостью"""
         if not data:
             return cls()
-        
+
         valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
         filtered = {k: v for k, v in data.items() if k in valid_keys}
         return cls(**filtered)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 

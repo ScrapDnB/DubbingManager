@@ -173,13 +173,17 @@ DEFAULT_EXPORT_CONFIG = {
     'f_actor': 14,
     'f_text': 30,
     'use_color': True,
+    'open_auto': True,
+    'round_time': False,
+    'allow_edit': True
+}
+
+# Настройки объединения реплик по умолчанию
+DEFAULT_REPLICA_MERGE_CONFIG = {
     'merge': True,
     'merge_gap': 5,
     'p_short': 0.5,
     'p_long': 2.0,
-    'open_auto': True,
-    'round_time': False,
-    'allow_edit': True
 }
 
 # Версия формата проекта для совместимости

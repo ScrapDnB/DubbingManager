@@ -69,7 +69,8 @@ class SummaryDialog(QDialog):
 
     def _calculate_stats(self) -> None:
         """Расчёт статистики по актёрам"""
-        gap: int = self.data["export_config"].get('merge_gap', 5)
+        # Используем replica_merge_config вместо export_config
+        gap: int = self.data.get("replica_merge_config", {}).get('merge_gap', 5)
 
         stats: Dict[str, Dict[str, Any]] = {
             aid: {"rings": 0, "words": 0, "roles": set()}

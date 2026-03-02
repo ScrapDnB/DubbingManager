@@ -55,13 +55,15 @@ def sample_project_data():
             'f_actor': 14,
             'f_text': 30,
             'use_color': True,
+            'open_auto': True,
+            'round_time': False,
+            'allow_edit': True,
+        },
+        "replica_merge_config": {
             'merge': True,
             'merge_gap': 5,
             'p_short': 0.5,
             'p_long': 2.0,
-            'open_auto': True,
-            'round_time': False,
-            'allow_edit': True,
         },
         "prompter_config": {
             "f_tc": 20,
@@ -602,10 +604,10 @@ class TestExportService:
     def test_process_merge_logic(self, sample_project_data, sample_lines):
         """Логика слияния реплик"""
         service = ExportService(sample_project_data)
-        cfg = sample_project_data["export_config"]
-        
-        processed = service.process_merge_logic(sample_lines, cfg)
-        
+        merge_cfg = sample_project_data["replica_merge_config"]
+
+        processed = service.process_merge_logic(sample_lines, merge_cfg)
+
         assert len(processed) > 0
         assert 'parts' in processed[0]
         assert 'source_ids' in processed[0]
@@ -613,18 +615,19 @@ class TestExportService:
     def test_process_merge_logic_merged(self, sample_project_data):
         """Слияние реплик одного персонажа"""
         service = ExportService(sample_project_data)
-        cfg = sample_project_data["export_config"].copy()
-        cfg['merge'] = True
-        cfg['merge_gap'] = 5
-        
-        # Реплики с маленьким интервалом
+        merge_cfg = sample_project_data["replica_merge_config"].copy()
+        merge_cfg['merge'] = True
+        # 125 кадров = 5 секунд (25 кадров/сек)
+        merge_cfg['merge_gap'] = 125
+
+        # Реплики с маленьким интервалом (2.5 секунды)
         lines = [
             {'id': 0, 's': 0.0, 'e': 2.0, 'char': 'Персонаж 1', 'text': 'Реплика 1', 's_raw': '0:00:00.00'},
             {'id': 1, 's': 2.5, 'e': 4.0, 'char': 'Персонаж 1', 'text': 'Реплика 2', 's_raw': '0:00:02.50'},
         ]
-        
-        processed = service.process_merge_logic(lines, cfg)
-        
+
+        processed = service.process_merge_logic(lines, merge_cfg)
+
         # Реплики должны быть объединены
         assert len(processed) == 1
         assert 'Реплика 1' in processed[0]['text']
@@ -633,16 +636,16 @@ class TestExportService:
     def test_process_merge_logic_not_merged(self, sample_project_data):
         """Раздельные реплики"""
         service = ExportService(sample_project_data)
-        cfg = sample_project_data["export_config"].copy()
-        cfg['merge'] = False
-        
+        merge_cfg = sample_project_data["replica_merge_config"].copy()
+        merge_cfg['merge'] = False
+
         lines = [
             {'id': 0, 's': 0.0, 'e': 2.0, 'char': 'Персонаж 1', 'text': 'Реплика 1', 's_raw': '0:00:00.00'},
             {'id': 1, 's': 2.5, 'e': 4.0, 'char': 'Персонаж 1', 'text': 'Реплика 2', 's_raw': '0:00:02.50'},
         ]
-        
-        processed = service.process_merge_logic(lines, cfg)
-        
+
+        processed = service.process_merge_logic(lines, merge_cfg)
+
         # Реплики должны быть разделены
         assert len(processed) == 2
 
@@ -650,10 +653,11 @@ class TestExportService:
         """Генерация HTML"""
         service = ExportService(sample_project_data)
         cfg = sample_project_data["export_config"]
-        
-        processed = service.process_merge_logic(sample_lines, cfg)
+        merge_cfg = sample_project_data["replica_merge_config"]
+
+        processed = service.process_merge_logic(sample_lines, merge_cfg)
         html = service.generate_html("1", processed, cfg)
-        
+
         assert "<html" in html
         assert "</html>" in html
         assert "Тестовый проект" in html
@@ -662,24 +666,25 @@ class TestExportService:
     def test_generate_html_table_layout(self, sample_project_data, sample_lines):
         """Генерация HTML с табличным макетом"""
         service = ExportService(sample_project_data)
-        cfg = sample_project_data["export_config"].copy()
-        cfg['layout_type'] = 'Таблица'
-        
-        processed = service.process_merge_logic(sample_lines, cfg)
+        cfg = sample_project_data["export_config"]
+        merge_cfg = sample_project_data["replica_merge_config"]
+        merge_cfg['layout_type'] = 'Таблица'
+
+        processed = service.process_merge_logic(sample_lines, merge_cfg)
         html = service.generate_html("1", processed, cfg, layout_type='Таблица')
-        
+
         assert "<table" in html
         assert "</table>" in html
 
     def test_generate_html_scenario_layout(self, sample_project_data, sample_lines):
         """Генерация HTML с макетом сценария"""
         service = ExportService(sample_project_data)
-        cfg = sample_project_data["export_config"].copy()
-        cfg['layout_type'] = 'Сценарий'
-        
-        processed = service.process_merge_logic(sample_lines, cfg)
+        cfg = sample_project_data["export_config"]
+        merge_cfg = sample_project_data["replica_merge_config"]
+
+        processed = service.process_merge_logic(sample_lines, merge_cfg)
         html = service.generate_html("1", processed, cfg, layout_type='Сценарий')
-        
+
         assert 'line-container' in html
         assert "<table" not in html
 
@@ -688,13 +693,14 @@ class TestExportService:
         """Создание Excel книги"""
         service = ExportService(sample_project_data)
         cfg = sample_project_data["export_config"]
-        
-        processed = service.process_merge_logic(sample_lines, cfg)
+        merge_cfg = sample_project_data["replica_merge_config"]
+
+        processed = service.process_merge_logic(sample_lines, merge_cfg)
         wb = service.create_excel_book("1", processed, cfg)
-        
+
         assert wb is not None
         assert wb.active is not None
-        
+
         ws = wb.active
         assert ws.max_row >= 4  # Заголовок + 3 реплики
 
@@ -702,14 +708,14 @@ class TestExportService:
     def test_export_to_excel(self, sample_project_data, sample_lines):
         """Экспорт в Excel файл"""
         service = ExportService(sample_project_data)
-        cfg = sample_project_data["export_config"]
-        
+        merge_cfg = sample_project_data["replica_merge_config"]
+
         with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as f:
             temp_path = f.name
-        
+
         try:
-            success, message = service.export_to_excel("1", sample_lines, cfg, temp_path)
-            
+            success, message = service.export_to_excel("1", sample_lines, merge_cfg, temp_path)
+
             assert success == True
             assert os.path.exists(temp_path)
         finally:
@@ -719,14 +725,14 @@ class TestExportService:
     def test_export_batch(self, sample_project_data, temp_ass_file):
         """Пакетный экспорт"""
         service = ExportService(sample_project_data)
-        
+
         episodes = {"1": temp_ass_file}
-        
+
         def get_lines(ep):
             return [
                 {'id': 0, 's': 0.0, 'e': 2.0, 'char': 'Персонаж 1', 'text': 'Тест', 's_raw': '0:00:00.00'},
             ]
-        
+
         with tempfile.TemporaryDirectory() as temp_dir:
             success, message = service.export_batch(
                 episodes=episodes,
@@ -735,7 +741,7 @@ class TestExportService:
                 do_xls=False,
                 folder=temp_dir
             )
-            
+
             assert success == True
             assert os.path.exists(os.path.join(temp_dir, "Тестовый проект - Ep1.html"))
 
@@ -752,21 +758,22 @@ class TestIntegration:
         # Загрузка проекта
         project_service = ProjectService()
         data = project_service.load_project(temp_json_file)
-        
+
         # Обновление пути к эпизоду
         data["episodes"]["1"] = temp_ass_file
-        
+
         # Загрузка эпизода
         episode_service = EpisodeService()
         lines = episode_service.load_episode("1", data["episodes"])
-        
+
         assert len(lines) == 3
-        
+
         # Экспорт
         export_service = ExportService(data)
-        processed = export_service.process_merge_logic(lines, data["export_config"])
+        merge_cfg = data.get("replica_merge_config", {})
+        processed = export_service.process_merge_logic(lines, merge_cfg)
         html = export_service.generate_html("1", processed, data["export_config"])
-        
+
         assert len(html) > 0
         assert "Тестовый проект" in html
 
