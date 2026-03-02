@@ -17,7 +17,7 @@ dubbing_manager/
 │
 ├── core/                        # Модели данных
 │   ├── __init__.py
-│   └── models.py                # Dataclass: Actor, DialogueLine, ExportConfig, PrompterConfig
+│   └── models.py                # Dataclass: Actor, DialogueLine, ExportConfig, PrompterConfig, ReplicaMergeConfig
 │
 ├── services/                    # Бизнес-логика (Service Layer)
 │   ├── __init__.py
@@ -25,6 +25,7 @@ dubbing_manager/
 │   ├── episode_service.py       # Управление эпизодами (парсинг ASS)
 │   ├── actor_service.py         # Управление актёрами (CRUD операции)
 │   ├── export_service.py        # Экспорт (HTML, Excel, пакетный экспорт)
+│   ├── global_settings_service.py # Глобальные настройки приложения
 │   └── osc_worker.py            # OSC сервер для синхронизации с Reaper
 │
 ├── ui/                          # Пользовательский интерфейс
@@ -45,6 +46,7 @@ dubbing_manager/
 │       ├── edit_text_dialog.py  # Редактирование текста реплики
 │       ├── export.py            # Настройки экспорта
 │       ├── reaper.py            # Настройки экспорта в Reaper
+│       ├── replica_merge.py     # Настройки объединения реплик
 │       ├── roles.py             # Редактирование ролей актёра
 │       ├── search.py            # Глобальный поиск
 │       └── summary.py           # Сводный отчёт проекта
@@ -78,10 +80,11 @@ dubbing_manager/
 ### services/
 | Файл | Описание |
 |------|----------|
-| `project_service.py` | Загрузка/сохранение проектов, автосохранение |
-| `episode_service.py` | Парсинг ASS файлов, загрузка эпизодов, сохранение |
+| `project_service.py` | Загрузка/сохранение проектов, автосохранение, ротация бэкапов |
+| `episode_service.py` | Парсинг ASS файлов, загрузка эпизодов, сохранение, подсчёт колец |
 | `actor_service.py` | CRUD операции с актёрами, назначение ролей |
-| `export_service.py` | Экспорт в HTML, Excel, пакетный экспорт |
+| `export_service.py` | Экспорт в HTML, Excel, пакетный экспорт, объединение реплик |
+| `global_settings_service.py` | Глобальные настройки приложения (экспорт, телесуфлёр, объединение) |
 | `osc_worker.py` | OSC сервер для синхронизации с Reaper (поток) |
 
 ### ui/controllers/
@@ -97,6 +100,7 @@ dubbing_manager/
 | `edit_text_dialog.py` | Диалог редактирования текста реплики |
 | `export.py` | Диалог настроек экспорта (ExportSettingsDialog) |
 | `reaper.py` | Диалог настроек экспорта в Reaper (ReaperExportDialog) |
+| `replica_merge.py` | Диалог настроек объединения реплик (ReplicaMergeSettingsDialog) |
 | `roles.py` | Диалог редактирования ролей актёра (ActorRolesDialog) |
 | `search.py` | Диалог глобального поиска (GlobalSearchDialog) |
 | `summary.py` | Диалог сводного отчёта (SummaryDialog) |
@@ -157,5 +161,6 @@ log_exception(logger, "Load failed", e)
 ## Примечания
 
 - **ActorController** — контроллер для управления панелью актёров
-- **ExportService** — поддержка пакетного экспорта
-- **edit_text_dialog.py** — диалог для редактирования текста реплик
+- **ExportService** — поддержка пакетного экспорта, объединение реплик
+- **ReplicaMergeSettingsDialog** — диалог настроек объединения реплик
+- **GlobalSettingsService** — глобальные настройки приложения (сохраняются в ~/.dubbing_manager/ или %APPDATA%)
