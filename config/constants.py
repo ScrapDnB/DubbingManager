@@ -186,5 +186,12 @@ DEFAULT_REPLICA_MERGE_CONFIG = {
     'p_long': 2.0,
 }
 
+# Глобальные настройки приложения по умолчанию
+DEFAULT_GLOBAL_SETTINGS = {
+    'export_config': None,  # Будет инициализировано из DEFAULT_EXPORT_CONFIG
+    'prompter_config': None,  # Будет инициализировано из DEFAULT_PROMPTER_CONFIG
+    'replica_merge_config': None,  # Будет инициализировано из DEFAULT_REPLICA_MERGE_CONFIG
+}
+
 # Версия формата проекта для совместимости
 PROJECT_VERSION = "1.0"

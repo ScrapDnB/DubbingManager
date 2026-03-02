@@ -58,7 +58,8 @@ from services import (
     ProjectService,
     EpisodeService,
     ActorService,
-    ExportService
+    ExportService,
+    GlobalSettingsService
 )
 from ui.controllers import ActorController
 from .dialogs import (
@@ -101,6 +102,7 @@ class MainWindow(QMainWindow):
         self.project_service = ProjectService()
         self.episode_service = EpisodeService()
         self.actor_service = ActorService()
+        self.global_settings_service = GlobalSettingsService()
 
         # Контроллеры
         self.actor_controller: Optional[ActorController] = None
@@ -113,8 +115,14 @@ class MainWindow(QMainWindow):
         self.preview_window = None
         self.teleprompter_window = None
 
+        # Загрузка глобальных настроек
+        self.global_settings = self.global_settings_service.load_settings()
+
         # Данные проекта
         self.data = self.project_service.create_new_project("Новый проект")
+        
+        # Применение глобальных настроек к проекту
+        self._apply_global_settings_to_project()
 
         self.current_ep_stats = []
         self.character_names_changed = {}
@@ -1155,24 +1163,37 @@ class MainWindow(QMainWindow):
         )
         if dialog.exec():
             self.data["export_config"] = dialog.get_settings()
+            
+            # Сохраняем в глобальные настройки
+            self.global_settings_service.update_export_config(
+                self.data["export_config"]
+            )
+            self.global_settings_service.save_settings(self.global_settings)
+            
             self.change_episode()
             self.set_dirty()
 
     def open_replica_merge_settings(self) -> None:
         """Открытие настроек объединения реплик"""
         from .dialogs.replica_merge import ReplicaMergeSettingsDialog
-        
+
         dialog = ReplicaMergeSettingsDialog(
             self.data.get("replica_merge_config", {}), self
         )
         if dialog.exec():
             self.data["replica_merge_config"] = dialog.get_settings()
-            
+
+            # Сохраняем в глобальные настройки
+            self.global_settings_service.update_replica_merge_config(
+                self.data["replica_merge_config"]
+            )
+            self.global_settings_service.save_settings(self.global_settings)
+
             # Обновляем настройки в episode_service для пересчёта колец
             self.episode_service.set_merge_gap_from_config(
                 self.data["replica_merge_config"]
             )
-            
+
             # Пересчитываем статистику для текущего эпизода
             ep: Optional[str] = self.ep_combo.currentData()
             if ep:
@@ -1180,7 +1201,7 @@ class MainWindow(QMainWindow):
                 if path and os.path.exists(path):
                     self._parse_episode(ep, path)
                     self.refresh_main_table()
-            
+
             self.set_dirty()
 
     def open_global_search(self) -> None:
@@ -1212,6 +1233,35 @@ class MainWindow(QMainWindow):
 
         self.teleprompter_window = TeleprompterWindow(self, ep)
         self.teleprompter_window.show()
+
+    def _apply_global_settings_to_project(self) -> None:
+        """Применение глобальных настроек к текущему проекту"""
+        # Применяем глобальные настройки экспорта
+        if self.global_settings.get('export_config'):
+            self.data["export_config"].update(
+                self.global_settings['export_config']
+            )
+        
+        # Применяем глобальные настройки телесуфлёра
+        if self.global_settings.get('prompter_config'):
+            self.data["prompter_config"].update(
+                self.global_settings['prompter_config']
+            )
+        
+        # Применяем глобальные настройки объединения
+        if self.global_settings.get('replica_merge_config'):
+            self.data["replica_merge_config"].update(
+                self.global_settings['replica_merge_config']
+            )
+            # Обновляем episode_service
+            self.episode_service.set_merge_gap_from_config(
+                self.data["replica_merge_config"]
+            )
+
+    def save_global_prompter_settings(self, config: Dict[str, Any]) -> None:
+        """Сохранение настроек телесуфлёра в глобальные"""
+        self.global_settings_service.update_prompter_config(config)
+        self.global_settings_service.save_settings(self.global_settings)
 
     def export_to_reaper_rpp(self) -> None:
         """Экспорт в Reaper RPP"""

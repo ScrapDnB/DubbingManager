@@ -1080,7 +1080,10 @@ class TeleprompterWindow(QDialog):
         self.cfg["f_char"] = self.spin_font_char.value()
         self.cfg["f_actor"] = self.spin_font_actor.value()
         self.cfg["f_text"] = self.spin_font_text.value()
-        
+
+        # Сохраняем в глобальные настройки
+        self.main_app.save_global_prompter_settings(self.cfg)
+
         if not getattr(self, '_initializing', False):
             self.main_app.set_dirty(True)
         self.build_prompter_content()
@@ -1144,10 +1147,14 @@ class TeleprompterWindow(QDialog):
     def open_color_settings_dialog(self) -> None:
         """Открытие диалога цветов"""
         from .dialogs.colors import PrompterColorDialog
-        
+
         dialog = PrompterColorDialog(self.cfg["colors"], self)
         if dialog.exec():
             self.cfg["colors"] = dialog.get_final_colors()
+            
+            # Сохраняем в глобальные настройки
+            self.main_app.save_global_prompter_settings(self.cfg)
+            
             self.main_app.set_dirty(True)
             self.build_prompter_content()
     
@@ -1467,6 +1474,10 @@ class TeleprompterWindow(QDialog):
         self.cfg["sync_out"] = self.chk_reaper_follow.isChecked()
         self.cfg["reaper_offset_enabled"] = self.chk_offset.isChecked()
         self.cfg["reaper_offset_seconds"] = self.spin_offset.value()
+        
+        # Сохраняем в глобальные настройки
+        self.main_app.save_global_prompter_settings(self.cfg)
+        
         self.main_app.set_dirty(True)
     
     def toggle_osc_connection_status(self, checked: bool) -> None:
