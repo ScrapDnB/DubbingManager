@@ -5,11 +5,13 @@ from .episode_service import EpisodeService
 from .actor_service import ActorService
 from .export_service import ExportService
 from .global_settings_service import GlobalSettingsService
+from .project_folder_service import ProjectFolderService
 
 __all__ = [
     'ProjectService',
     'EpisodeService',
     'ActorService',
     'ExportService',
-    'GlobalSettingsService'
+    'GlobalSettingsService',
+    'ProjectFolderService'
 ]

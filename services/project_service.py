@@ -58,7 +58,7 @@ class ProjectService:
             Словарь с данными проекта
         """
         now = datetime.now().isoformat()
-        
+
         return {
             "metadata": {
                 "format_version": PROJECT_FORMAT_VERSION,
@@ -76,6 +76,7 @@ class ProjectService:
             "export_config": DEFAULT_EXPORT_CONFIG.copy(),
             "prompter_config": DEFAULT_PROMPTER_CONFIG.copy(),
             "replica_merge_config": DEFAULT_REPLICA_MERGE_CONFIG.copy(),
+            "project_folder": None,  # Путь к папке проекта
         }
 
     def load_project(self, path: str) -> Optional[Dict[str, Any]]:
@@ -371,6 +372,10 @@ class ProjectService:
                 }
             else:
                 data["replica_merge_config"] = DEFAULT_REPLICA_MERGE_CONFIG.copy()
+        
+        # Добавляем project_folder для старых проектов
+        if "project_folder" not in data:
+            data["project_folder"] = None
 
         # Проверка metadata для старых проектов
         if "metadata" not in data:

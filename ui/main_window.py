@@ -59,7 +59,8 @@ from services import (
     EpisodeService,
     ActorService,
     ExportService,
-    GlobalSettingsService
+    GlobalSettingsService,
+    ProjectFolderService,
 )
 from ui.controllers import ActorController
 from .dialogs import (
@@ -70,11 +71,26 @@ from .dialogs import (
     ReaperExportDialog,
     ActorRolesDialog,
     GlobalSearchDialog,
-    SummaryDialog
+    SummaryDialog,
+    ProjectFilesDialog,
 )
 from .teleprompter import TeleprompterWindow
 from .preview import HtmlLivePreview
 from .video import VideoPreviewWindow
+from core.commands import (
+    UndoStack,
+    AddActorCommand,
+    DeleteActorCommand,
+    RenameActorCommand,
+    UpdateActorColorCommand,
+    AssignActorToCharacterCommand,
+    RenameCharacterCommand,
+    AddEpisodeCommand,
+    RenameEpisodeCommand,
+    DeleteEpisodeCommand,
+    UpdateProjectNameCommand,
+    SetProjectFolderCommand,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -103,9 +119,14 @@ class MainWindow(QMainWindow):
         self.episode_service = EpisodeService()
         self.actor_service = ActorService()
         self.global_settings_service = GlobalSettingsService()
+        self.project_folder_service = ProjectFolderService()
 
         # Контроллеры
         self.actor_controller: Optional[ActorController] = None
+
+        # Стек отмены/повтора действий
+        self.undo_stack = UndoStack()
+        self.undo_stack.on_change(self._on_undo_stack_change)
 
         # Состояние
         self.current_project_path = None
@@ -151,6 +172,25 @@ class MainWindow(QMainWindow):
         # Правая панель - основной контент
         self._init_main_panel(main_layout)
 
+        # Горячие клавиши для Undo/Redo
+        self._setup_undo_redo_shortcuts()
+
+    def _setup_undo_redo_shortcuts(self) -> None:
+        """Настройка горячих клавиш для Undo/Redo"""
+        # Ctrl+Z для Undo
+        undo_shortcut = QKeySequence("Ctrl+Z")
+        undo_action = QAction("Undo", self)
+        undo_action.setShortcut(undo_shortcut)
+        undo_action.triggered.connect(self.undo)
+        self.addAction(undo_action)
+
+        # Ctrl+Shift+Z для Redo
+        redo_shortcut = QKeySequence("Ctrl+Shift+Z")
+        redo_action = QAction("Redo", self)
+        redo_action.setShortcut(redo_shortcut)
+        redo_action.triggered.connect(self.redo)
+        self.addAction(redo_action)
+
     def _init_actor_panel(self, main_layout: QHBoxLayout) -> None:
         """Инициализация панели актёров"""
         left_panel: QVBoxLayout = QVBoxLayout()
@@ -176,9 +216,19 @@ class MainWindow(QMainWindow):
 
         left_panel.addWidget(self.actor_table)
 
+        # Кнопки управления актёрами
+        btn_layout = QHBoxLayout()
+        
         btn_add = QPushButton("+ Актер")
         btn_add.clicked.connect(self.add_actor_dialog)
-        left_panel.addWidget(btn_add)
+        btn_layout.addWidget(btn_add)
+        
+        btn_delete = QPushButton("- Актер")
+        btn_delete.setToolTip("Удалить выбранного актёра из базы")
+        btn_delete.clicked.connect(self.delete_actor_dialog)
+        btn_layout.addWidget(btn_delete)
+        
+        left_panel.addLayout(btn_layout)
 
         btn_sum = QPushButton("📋 Сводный отчет проекта")
         btn_sum.clicked.connect(self.show_project_summary)
@@ -225,7 +275,45 @@ class MainWindow(QMainWindow):
         btn_copy.clicked.connect(self.save_project_as)
         top.addWidget(btn_copy)
 
+        # Кнопки Undo/Redo
+        self.btn_undo = QPushButton("↶ Отмена")
+        self.btn_undo.setToolTip("Отменить последнее действие (Ctrl+Z)")
+        self.btn_undo.clicked.connect(self.undo)
+        self.btn_undo.setEnabled(False)
+        top.addWidget(self.btn_undo)
+
+        self.btn_redo = QPushButton("↷ Повтор")
+        self.btn_redo.setToolTip("Повторить отменённое действие (Ctrl+Shift+Z)")
+        self.btn_redo.clicked.connect(self.redo)
+        self.btn_redo.setEnabled(False)
+        top.addWidget(self.btn_redo)
+
+        top.addSpacing(20)
+
+        # Папка проекта
+        self.lbl_project_folder = QLabel("")
+        self.lbl_project_folder.setToolTip("Папка проекта")
+        self.lbl_project_folder.setStyleSheet("color: #666;")
+        top.addWidget(self.lbl_project_folder)
+
+        btn_folder = QPushButton("📁 Папка")
+        btn_folder.setToolTip("Установить папку проекта")
+        btn_folder.clicked.connect(self.set_project_folder_dialog)
+        top.addWidget(btn_folder)
+
+        btn_unlink = QPushButton("🔓")
+        btn_unlink.setToolTip("Отвязать папку проекта")
+        btn_unlink.setFixedWidth(30)
+        btn_unlink.clicked.connect(self.clear_project_folder)
+        top.addWidget(btn_unlink)
+
         top.addStretch()
+
+        # Кнопка файлов проекта
+        btn_files = QPushButton("📋 Файлы")
+        btn_files.setToolTip("Просмотр структуры файлов проекта")
+        btn_files.clicked.connect(self.open_project_files_dialog)
+        top.addWidget(btn_files)
 
         btn_about = QPushButton("ℹ️")
         btn_about.setFixedWidth(30)
@@ -449,7 +537,12 @@ class MainWindow(QMainWindow):
 
     def on_project_name_changed(self, text: str) -> None:
         """Изменение имени проекта"""
-        self.project_service.set_project_name(self.data, text)
+        old_name = self.data.get("project_name", "")
+        if text != old_name:
+            # Используем команду для отмены действия
+            command = UpdateProjectNameCommand(self.data, text)
+            self.undo_stack.push(command)
+            self.set_dirty()
 
     # === Методы работы с персонажами ===
     
@@ -468,23 +561,16 @@ class MainWindow(QMainWindow):
         if new_name == old_name or not new_name:
             return
 
-        # Обновляем global_map
-        if old_name in self.data["global_map"]:
-            aid = self.data["global_map"][old_name]
-            del self.data["global_map"][old_name]
-            self.data["global_map"][new_name] = aid
-
-        # Обновляем загруженные эпизоды
-        if ep in self.data.get("loaded_episodes", {}):
-            for line in self.data["loaded_episodes"][ep]:
-                if line['char'] == old_name:
-                    line['char'] = new_name
-
-        # Обновляем статистику эпизода
-        for stat in self.current_ep_stats:
-            if stat["name"] == old_name:
-                stat["name"] = new_name
-                break
+        # Используем команду для отмены действия
+        command = RenameCharacterCommand(
+            self.data["global_map"],
+            self.data.get("loaded_episodes", {}),
+            self.current_ep_stats,
+            ep,
+            old_name,
+            new_name
+        )
+        self.undo_stack.push(command)
 
         # Инвалидируем кэш в episode_service
         self.episode_service.invalidate_episode(ep)
@@ -592,7 +678,113 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self, "Ошибка", f"Не удалось загрузить проект: {e}"
             )
-    
+
+        # Очищаем стек отмены при загрузке нового проекта
+        self.undo_stack.clear()
+
+        # Обновляем отображение папки проекта
+        self._update_project_folder_label()
+
+        # Сканируем папку проекта если она есть
+        self._scan_project_folder()
+
+    def _update_project_folder_label(self) -> None:
+        """Обновление метки папки проекта"""
+        folder = self.project_folder_service.get_project_folder(self.data)
+        if folder:
+            folder_name = os.path.basename(folder)
+            self.lbl_project_folder.setText(f"📁 {folder_name}")
+            self.lbl_project_folder.setToolTip(folder)
+        else:
+            self.lbl_project_folder.setText("")
+            self.lbl_project_folder.setToolTip("")
+
+    def _scan_project_folder(self) -> None:
+        """Сканирование папки проекта и связывание файлов"""
+        folder = self.project_folder_service.get_project_folder(self.data)
+        if folder:
+            ass_count, video_count = (
+                self.project_folder_service.scan_and_link_files(self.data, folder)
+            )
+            if ass_count > 0 or video_count > 0:
+                self.update_ep_list()
+                QMessageBox.information(
+                    self,
+                    "Папка проекта",
+                    f"Найдено и добавлено:\n"
+                    f"• ASS файлов: {ass_count}\n"
+                    f"• Видео файлов: {video_count}"
+                )
+
+    def set_project_folder_dialog(self) -> None:
+        """Диалог установки папки проекта"""
+        current_folder = self.project_folder_service.get_project_folder(self.data)
+        
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Выберите папку проекта",
+            current_folder or ""
+        )
+        
+        if folder:
+            # Используем команду для отмены действия
+            command = SetProjectFolderCommand(self.data, folder)
+            self.undo_stack.push(command)
+            
+            # Устанавливаем папку
+            self.project_folder_service.set_project_folder(self.data, folder)
+            
+            # Обновляем UI
+            self._update_project_folder_label()
+            self._scan_project_folder()
+            self.set_dirty()
+
+    def clear_project_folder(self) -> None:
+        """Очистка папки проекта"""
+        current_folder = self.project_folder_service.get_project_folder(self.data)
+        
+        if not current_folder:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Отвязать папку",
+            "Отвязать папку проекта?\n\nФайлы останутся в проекте, но автоматический поиск будет отключен.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            # Используем команду для отмены действия
+            command = SetProjectFolderCommand(self.data, None)
+            self.undo_stack.push(command)
+            
+            # Очищаем папку
+            self.project_folder_service.clear_project_folder(self.data)
+            
+            # Обновляем UI
+            self._update_project_folder_label()
+            self.set_dirty()
+
+    def _on_undo_stack_change(self) -> None:
+        """Обработчик изменений стека отмены"""
+        self.btn_undo.setEnabled(self.undo_stack.can_undo())
+        self.btn_redo.setEnabled(self.undo_stack.can_redo())
+
+    def undo(self) -> None:
+        """Отмена последнего действия"""
+        if self.undo_stack.undo():
+            self.refresh_actor_list()
+            self.refresh_main_table()
+            self.set_dirty()
+
+    def redo(self) -> None:
+        """Повтор отменённого действия"""
+        if self.undo_stack.redo():
+            self.refresh_actor_list()
+            self.refresh_main_table()
+            self.set_dirty()
+
     # === Методы работы с сериями ===
     
     def on_header_clicked(self, index: int) -> None:
@@ -615,30 +807,57 @@ class MainWindow(QMainWindow):
             if ok and name:
                 dialog = CustomColorDialog(self)
                 if dialog.exec():
-                    self.actor_controller.add_actor(name, dialog.selected_color)
+                    # Используем команду для отмены действия
+                    actor_id = str(datetime.now().timestamp())
+                    command = AddActorCommand(
+                        self.data["actors"],
+                        actor_id,
+                        name,
+                        dialog.selected_color
+                    )
+                    self.undo_stack.push(command)
+                    self.actor_controller.refresh()
                     self.refresh_main_table()
+                    self.set_dirty()
 
     def on_actor_renamed(self, item: QTableWidgetItem) -> None:
         """Переименование актёра"""
         if self.actor_controller:
             aid: Optional[str] = item.data(Qt.UserRole)
             if aid:
-                self.actor_controller.rename_actor(aid, item.text())
+                new_name = item.text()
+                # Используем команду для отмены действия
+                command = RenameActorCommand(
+                    self.data["actors"],
+                    aid,
+                    new_name
+                )
+                self.undo_stack.push(command)
+                self.actor_controller.refresh()
                 self.refresh_main_table()
+                self.set_dirty()
 
     def on_actor_color_clicked(self, aid: str) -> None:
         """Клик по цвету актёра"""
         if self.actor_controller:
             dialog = CustomColorDialog(self)
             if dialog.exec() and dialog.selected_color:
-                self.actor_controller.update_actor_color(aid, dialog.selected_color)
+                # Используем команду для отмены действия
+                command = UpdateActorColorCommand(
+                    self.data["actors"],
+                    aid,
+                    dialog.selected_color
+                )
+                self.undo_stack.push(command)
+                self.actor_controller.refresh()
                 self.refresh_main_table()
+                self.set_dirty()
 
     def bulk_assign_actor(self) -> None:
         """Массовое назначение актёра"""
         if not self.actor_controller:
             return
-            
+
         selected: List[int] = self.main_table.selectionModel().selectedRows()
         if not selected:
             return
@@ -662,6 +881,59 @@ class MainWindow(QMainWindow):
             ]
             self.actor_controller.bulk_assign_actors(characters, aid)
             self.refresh_main_table()
+
+    def delete_actor_dialog(self) -> None:
+        """Диалог удаления актёра"""
+        if not self.actor_controller:
+            return
+
+        # Получаем выбранную строку
+        selected_rows = self.actor_table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.information(
+                self, "Инфо", "Выберите актёра для удаления."
+            )
+            return
+
+        row = selected_rows[0].row()
+        item = self.actor_table.item(row, 0)
+        if not item:
+            return
+
+        actor_id = item.data(Qt.UserRole)
+        actor_name = item.text()
+
+        # Проверяем, есть ли у актёра роли
+        roles = self.actor_controller.get_actor_roles(actor_id)
+        
+        warning_message = f"Вы уверены, что хотите удалить актёра \"{actor_name}\"?"
+        if roles:
+            warning_message += (
+                f"\n\n⚠️ У актёра есть роли ({len(roles)}):\n"
+                f"{', '.join(roles[:5])}"
+                f"{('...' if len(roles) > 5 else '')}"
+                "\n\nВсе назначения будут удалены."
+            )
+
+        reply = QMessageBox.question(
+            self,
+            "Удаление актёра",
+            warning_message,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            # Используем команду для отмены действия
+            command = DeleteActorCommand(
+                self.data["actors"],
+                self.data["global_map"],
+                actor_id
+            )
+            self.undo_stack.push(command)
+            self.actor_controller.refresh()
+            self.refresh_main_table()
+            self.set_dirty()
 
     def set_episode_video(self) -> None:
         """Установка видео для серии"""
@@ -724,7 +996,13 @@ class MainWindow(QMainWindow):
                 )
 
                 if ok and name:
-                    self.data["episodes"][name] = path
+                    # Используем команду для отмены действия
+                    command = AddEpisodeCommand(
+                        self.data["episodes"],
+                        name,
+                        path
+                    )
+                    self.undo_stack.push(command)
                     self._parse_episode(name, path)
                     self.set_dirty()
 
@@ -743,17 +1021,19 @@ class MainWindow(QMainWindow):
             self.set_dirty()
 
     def update_map(
-        self, 
-        char_name: str, 
+        self,
+        char_name: str,
         combo: QComboBox
     ) -> None:
         """Обновление маппинга персонаж-актёр"""
         aid = combo.currentData()
-        if aid:
-            self.data["global_map"][char_name] = aid
-        elif char_name in self.data["global_map"]:
-            del self.data["global_map"][char_name]
-        
+        # Используем команду для отмены действия
+        command = AssignActorToCharacterCommand(
+            self.data["global_map"],
+            char_name,
+            aid
+        )
+        self.undo_stack.push(command)
         self.refresh_actor_list()
         self.set_dirty(True)
     
@@ -877,10 +1157,14 @@ class MainWindow(QMainWindow):
         new_name, ok = QInputDialog.getText(
             self, "Rename", "New name:", text=str(old)
         )
-        if ok and new_name:
-            self.data["episodes"][new_name] = (
-                self.data["episodes"].pop(old)
+        if ok and new_name and new_name != old:
+            # Используем команду для отмены действия
+            command = RenameEpisodeCommand(
+                self.data["episodes"],
+                old,
+                new_name
             )
+            self.undo_stack.push(command)
             self.update_ep_list(new_name)
             self.set_dirty()
 
@@ -905,15 +1189,14 @@ class MainWindow(QMainWindow):
 
     def delete_episode(self, ep: str) -> None:
         """Удаление серии из проекта"""
-        # Удаляем из словаря эпизодов
-        self.data["episodes"].pop(ep, None)
-
-        # Удаляем путь к видео
-        self.data["video_paths"].pop(ep, None)
-
-        # Удаляем из кэша загруженных эпизодов
-        if "loaded_episodes" in self.data:
-            self.data["loaded_episodes"].pop(ep, None)
+        # Используем команду для отмены действия
+        command = DeleteEpisodeCommand(
+            self.data["episodes"],
+            self.data.get("video_paths", {}),
+            self.data.get("loaded_episodes", {}),
+            ep
+        )
+        self.undo_stack.push(command)
 
         # Очищаем кэш в episode service
         self.episode_service.invalidate_episode(ep)
@@ -1469,3 +1752,19 @@ class MainWindow(QMainWindow):
                 "6.10.2"
             )
         )
+
+    def open_project_files_dialog(self) -> None:
+        """Открытие диалога файлов проекта"""
+        dialog = ProjectFilesDialog(self.data, self)
+        dialog.exec()
+
+    def _on_files_changed(self) -> None:
+        """Обработчик изменений в файлах проекта"""
+        # Обновляем список эпизодов
+        self.update_ep_list()
+        
+        # Обновляем таблицу
+        self.change_episode()
+        
+        # Помечаем проект как изменённый
+        self.set_dirty()

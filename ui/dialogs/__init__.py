@@ -6,6 +6,7 @@ from .replica_merge import ReplicaMergeSettingsDialog
 from .roles import ActorRolesDialog
 from .search import GlobalSearchDialog
 from .summary import SummaryDialog
+from .project_files import ProjectFilesDialog
 
 __all__ = [
     'ActorFilterDialog',
@@ -16,5 +17,6 @@ __all__ = [
     'ReplicaMergeSettingsDialog',
     'ActorRolesDialog',
     'GlobalSearchDialog',
-    'SummaryDialog'
+    'SummaryDialog',
+    'ProjectFilesDialog'
 ]
