@@ -181,7 +181,7 @@ DEFAULT_EXPORT_CONFIG = {
 # Настройки объединения реплик по умолчанию
 DEFAULT_REPLICA_MERGE_CONFIG = {
     'merge': True,
-    'merge_gap': 5,
+    'merge_gap': 120,  # Максимальный промежуток между репликами в секундах для их объединения
     'p_short': 0.5,
     'p_long': 2.0,
 }
