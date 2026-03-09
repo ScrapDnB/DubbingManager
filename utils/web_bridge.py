@@ -78,5 +78,16 @@ class WebBridge(QObject):
                         logger.warning(f"Error updating preview: {e}")
 
                     logger.debug(f"Updated line {lid}: {new_text}")
+                
+                # Обновляем флаг изменений текста
+                ep = self.main_app.ep_combo.currentData()
+                if ep:
+                    if not hasattr(self.main_app, 'text_changes'):
+                        self.main_app.text_changes = {}
+                    self.main_app.text_changes[ep] = True
+                    try:
+                        self.main_app.update_save_ass_button()
+                    except Exception as e:
+                        logger.warning(f"Error updating save button: {e}")
         except Exception as e:
             logger.error(f"Error updating text: {e}")

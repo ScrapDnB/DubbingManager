@@ -33,8 +33,9 @@ class ExportService:
         """Логика слияния реплик"""
         p_short = cfg.get('p_short', 0.5)
         p_long = cfg.get('p_long', 2.0)
-        # Конвертируем merge_gap из кадров в секунды (25 кадров/сек)
-        gap_seconds = cfg.get('merge_gap', 5) / 25.0
+        fps = cfg.get('fps', 25.0)
+        # Конвертируем merge_gap из кадров в секунды
+        gap_seconds = cfg.get('merge_gap', 5) / fps
 
         res = []
         curr = None

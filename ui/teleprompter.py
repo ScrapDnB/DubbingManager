@@ -1722,7 +1722,7 @@ class TeleprompterWindow(QDialog):
                 self,
                 "Несохраненные изменения",
                 "У вас есть несохраненные изменения в тексте.\n"
-                "Хотите сохранить их в .ASS перед выходом?",
+                "Хотите сохранить их перед выходом?",
                 QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel
             )
             if reply == QMessageBox.Yes:
@@ -1734,7 +1734,7 @@ class TeleprompterWindow(QDialog):
             elif reply == QMessageBox.No:
                 # Пользователь отказался от сохранения — сбрасываем флаги
                 self._has_text_changes = False
-                # Сбрасываем dirty флаг главного окна, т.к. изменения не ��ыли сохранены
+                # Сбрасываем dirty флаг главного окна, т.к. изменения не были сохранены
                 self.main_app.set_dirty(False)
                 event.accept()
             else:

@@ -1,18 +1,21 @@
 """Вспомогательные функции"""
 
 import re
+import subprocess
 import traceback
 from typing import Optional
 from PySide6.QtGui import QColor
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
 # Import UI constants
 try:
-    from config.constants import TABLE_ROW_HEIGHT
+    from config.constants import TABLE_ROW_HEIGHT, FPS
 except ImportError:
     TABLE_ROW_HEIGHT = 32  # Default fallback
+    FPS = 25  # Default fallback
 
 
 def log_exception(logger_obj: logging.Logger, message: str, exc: Exception) -> None:
@@ -35,6 +38,18 @@ def ass_time_to_seconds(time_str: str) -> float:
         return int(h) * 3600 + int(m) * 60 + float(s)
     except (ValueError, AttributeError) as e:
         logger.warning(f"Invalid time format: {time_str}, error: {e}")
+        return 0.0
+
+
+def srt_time_to_seconds(time_str: str) -> float:
+    """Конвертация SRT времени в секунды (формат: HH:MM:SS,mmm)"""
+    try:
+        # SRT format: 00:00:01,000
+        main_part = time_str.replace(',', '.')
+        h, m, s = main_part.split(':')
+        return int(h) * 3600 + int(m) * 60 + float(s)
+    except (ValueError, AttributeError) as e:
+        logger.warning(f"Invalid SRT time format: {time_str}, error: {e}")
         return 0.0
 
 
@@ -90,18 +105,80 @@ def split_merged_text(text: str, ids: list) -> list:
     """
     if not text or len(ids) < 2:
         return []
-    
+
     parts = []
-    
+
     # Сначала пробуем ' // '
     if ' // ' in text:
         parts = [p.strip() for p in text.split(' // ') if p.strip()]
     # Затем пробуем ' / '
     elif ' / ' in text:
         parts = [p.strip() for p in text.split(' / ') if p.strip()]
-    
+
     # Возвращаем только если получили нужное количество частей
     if len(parts) == len(ids):
         return parts
-    
+
     return []
+
+
+def get_video_fps(video_path: str) -> float:
+    """
+    Извлечение FPS из видеофайла через ffprobe
+
+    Args:
+        video_path: путь к видеофайлу
+
+    Returns:
+        FPS видео или 25.0 по умолчанию при ошибке
+    """
+    try:
+        cmd = [
+            'ffprobe',
+            '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_streams',
+            video_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        
+        if result.returncode != 0:
+            logger.warning(f"ffprobe failed for {video_path}")
+            return FPS
+        
+        data = json.loads(result.stdout)
+        
+        # Ищем видеопоток
+        for stream in data.get('streams', []):
+            if stream.get('codec_type') == 'video':
+                # Пробуем получить avg_frame_rate
+                avg_frame_rate = stream.get('avg_frame_rate')
+                if avg_frame_rate:
+                    num, den = avg_frame_rate.split('/')
+                    if den and int(den) != 0:
+                        return float(num) / float(den)
+                
+                # Если нет, пробуем r_frame_rate
+                r_frame_rate = stream.get('r_frame_rate')
+                if r_frame_rate:
+                    num, den = r_frame_rate.split('/')
+                    if den and int(den) != 0:
+                        return float(num) / float(den)
+                
+                # Если нет, пробуем nb_frames и duration
+                avg_fps = stream.get('avg_frame_rate')
+                if avg_fps:
+                    return float(avg_fps)
+        
+        logger.warning(f"Could not find video stream in {video_path}")
+        return FPS
+        
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
+        logger.warning(f"Error getting FPS from {video_path}: {e}")
+        return FPS
+    except (json.JSONDecodeError, KeyError, ValueError, ZeroDivisionError) as e:
+        logger.warning(f"Error parsing ffprobe output for {video_path}: {e}")
+        return FPS
+    except Exception as e:
+        logger.warning(f"Unexpected error getting FPS from {video_path}: {e}")
+        return FPS

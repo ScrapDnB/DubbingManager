@@ -52,7 +52,8 @@ from utils.helpers import (
     hex_to_rgba_string,
     customize_table,
     wrap_widget,
-    log_exception
+    log_exception,
+    get_video_fps
 )
 from services import (
     ProjectService,
@@ -116,7 +117,6 @@ class MainWindow(QMainWindow):
 
         # Сервисы
         self.project_service = ProjectService()
-        self.episode_service = EpisodeService()
         self.actor_service = ActorService()
         self.global_settings_service = GlobalSettingsService()
         self.project_folder_service = ProjectFolderService()
@@ -141,12 +141,16 @@ class MainWindow(QMainWindow):
 
         # Данные проекта
         self.data = self.project_service.create_new_project("Новый проект")
-        
+
+        # Инициализация episode_service с настройками по умолчанию
+        self.episode_service = EpisodeService()
+
         # Применение глобальных настроек к проекту
         self._apply_global_settings_to_project()
 
         self.current_ep_stats = []
         self.character_names_changed = {}
+        self.text_changes = {}  # Флаг изменений текста для каждого эпизода
 
         self._init_ui()
         self.update_window_title()
@@ -336,6 +340,10 @@ class MainWindow(QMainWindow):
         btn_ass.clicked.connect(lambda: self.import_ass())
         ep_ctrl.addWidget(btn_ass)
 
+        btn_srt = QPushButton("+ .SRT")
+        btn_srt.clicked.connect(lambda: self.import_srt())
+        ep_ctrl.addWidget(btn_srt)
+
         btn_ren = QPushButton("✎")
         btn_ren.setFixedWidth(BTN_RENAME_WIDTH)
         btn_ren.clicked.connect(self.rename_episode)
@@ -514,6 +522,7 @@ class MainWindow(QMainWindow):
         """Установка флага изменений"""
         self.project_service.set_dirty(dirty)
         self.update_window_title()
+        self.update_save_ass_button()
 
     def update_window_title(self) -> None:
         """Обновление заголовка окна"""
@@ -595,11 +604,15 @@ class MainWindow(QMainWindow):
             self.teleprompter_window.refresh_episode_data()
     
     def update_save_ass_button(self) -> None:
-        """Обновление кнопки сохранения ASS"""
+        """Обновление кнопки сохранения ASS/SRT"""
         ep = self.ep_combo.currentData()
         has_changes = self.character_names_changed.get(ep, False)
         
-        if has_changes:
+        # Проверяем, есть ли несохранённые изменения текста
+        # Используем отдельный флаг text_changes, а не просто наличие в loaded_episodes
+        has_text_changes = self.text_changes.get(ep, False)
+
+        if has_changes or has_text_changes:
             self.btn_save_ass.setText("💾 Сохранить*")
             self.btn_save_ass.setStyleSheet(
                 "font-weight: bold; color: red;"
@@ -609,17 +622,25 @@ class MainWindow(QMainWindow):
             self.btn_save_ass.setStyleSheet("")
     
     def save_current_episode_ass(self) -> None:
-        """Сохранение текущей серии в ASS"""
+        """Сохранение текущей серии в ASS/SRT"""
         ep = self.ep_combo.currentData()
         if not ep:
             QMessageBox.warning(self, "Ошибка", "Выберите серию.")
             return
-        
+
         if self.save_episode_to_ass(ep):
             self.character_names_changed[ep] = False
+            self.text_changes[ep] = False
+            # Сбрасываем кэш загруженных эпизодов
+            self.episode_service.invalidate_episode(ep)
+            self.data.get('loaded_episodes', {}).pop(ep, None)
             self.update_save_ass_button()
+            
+            # Определяем тип файла для сообщения
+            source_path = self.data["episodes"].get(ep, "")
+            file_type = "SRT" if source_path.lower().endswith('.srt') else "ASS"
             QMessageBox.information(
-                self, "Успех", f"Серия {ep} сохранена в ASS файл."
+                self, "Успех", f"Серия {ep} сохранена в {file_type} файл."
             )
     
     # === Методы работы с проектом ===
@@ -950,6 +971,12 @@ class MainWindow(QMainWindow):
                 if "video_paths" not in self.data:
                     self.data["video_paths"] = {}
                 self.data["video_paths"][ep] = path
+                
+                # Извлекаем FPS из видео и обновляем настройки
+                fps = get_video_fps(path)
+                self.data["replica_merge_config"]["fps"] = fps
+                self.episode_service.set_fps(fps)
+                
                 self.set_dirty()
     
     def change_episode(self) -> None:
@@ -961,12 +988,20 @@ class MainWindow(QMainWindow):
         path: Optional[str] = self.data["episodes"].get(ep)
         if path and os.path.exists(path):
             self.table_stack.setCurrentIndex(0)
-            self._parse_episode(ep, path)
-            self.get_episode_lines(ep)
+            # Определяем тип файла по расширению
+            if path.lower().endswith('.srt'):
+                self._parse_srt_episode(ep, path)
+                self.get_srt_episode_lines(ep)
+            else:
+                self._parse_episode(ep, path)
+                self.get_episode_lines(ep)
             self.refresh_main_table()
             self.update_save_ass_button()
         else:
             self.table_stack.setCurrentIndex(1)
+            
+        # При смене эпизода не сбрасываем флаг text_changes,
+        # т.к. он нужен для отображения состояния кнопки
 
     def _parse_episode(self, ep: str, path: str) -> None:
         """Парсинг эпизода и получение статистики"""
@@ -1008,12 +1043,52 @@ class MainWindow(QMainWindow):
 
             self.update_ep_list()
 
+    def import_srt(self, paths: Optional[List[str]] = None) -> None:
+        """Импорт SRT файлов"""
+        if not paths:
+            paths, _ = QFileDialog.getOpenFileNames(
+                self, "SRT", "", "*.srt"
+            )
+
+        if paths:
+            for path in paths:
+                numbers: List[str] = re.findall(r'\d+', os.path.basename(path))
+                num: str = " ".join(numbers) or "1"
+
+                name: str
+                ok: bool
+                name, ok = QInputDialog.getText(
+                    self,
+                    "Ep",
+                    f"Ep for {os.path.basename(path)}:",
+                    text=num
+                )
+
+                if ok and name:
+                    # Используем команду для отмены действия
+                    command = AddEpisodeCommand(
+                        self.data["episodes"],
+                        name,
+                        path
+                    )
+                    self.undo_stack.push(command)
+                    self._parse_srt_episode(name, path)
+                    self.set_dirty()
+
+            self.update_ep_list()
+
+    def _parse_srt_episode(self, ep: str, path: str) -> None:
+        """Парсинг SRT эпизода и получение статистики"""
+        stats: List[Dict[str, Any]]
+        stats, _ = self.episode_service.parse_srt_file(path)
+        self.current_ep_stats = stats
+
     def relink_file(self) -> None:
         """Перепривязка файла"""
         ep: Optional[str] = self.ep_combo.currentData()
         path: str
         path, _ = QFileDialog.getOpenFileName(
-            self, "Файл", "", "*.ass"
+            self, "Файл", "", "Subtitle Files (*.ass *.srt)"
         )
         if path:
             self.data["episodes"][ep] = path
@@ -1361,10 +1436,16 @@ class MainWindow(QMainWindow):
         ep_num: str,
         target_path: Optional[str] = None
     ) -> bool:
-        """Сохранение серии в ASS"""
+        """Сохранение серии в ASS/SRT"""
         mem_lines = self.get_episode_lines(ep_num)
         if not mem_lines:
             QMessageBox.warning(self, "Ошибка", "Нет данных.")
+            return False
+
+        # Определяем тип файла
+        source_path = self.data["episodes"].get(ep_num)
+        if not source_path:
+            QMessageBox.warning(self, "Ошибка", "Файл не найден.")
             return False
 
         success, message = self.episode_service.save_episode_to_ass(
@@ -1409,6 +1490,21 @@ class MainWindow(QMainWindow):
             return self.data["loaded_episodes"][ep]
 
         lines = self.episode_service.load_episode(ep, self.data["episodes"])
+
+        if lines:
+            self.data["loaded_episodes"][ep] = lines
+
+        return lines
+
+    def get_srt_episode_lines(self, ep: str) -> List[Dict[str, Any]]:
+        """Получение строк SRT серии"""
+        if "loaded_episodes" not in self.data:
+            self.data["loaded_episodes"] = {}
+
+        if ep in self.data["loaded_episodes"]:
+            return self.data["loaded_episodes"][ep]
+
+        lines = self.episode_service.load_srt_episode(ep, self.data["episodes"])
 
         if lines:
             self.data["loaded_episodes"][ep] = lines

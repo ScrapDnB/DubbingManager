@@ -22,7 +22,7 @@ class ProjectFolderService:
     """
 
     # Расширения файлов
-    ASS_EXTENSIONS = {'.ass'}
+    ASS_EXTENSIONS = {'.ass', '.srt'}
     VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv'}
 
     def __init__(self):
