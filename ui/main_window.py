@@ -2131,7 +2131,7 @@ class MainWindow(QMainWindow):
             "О программе",
             "<h2>Dubbing Manager</h2>"
             "<p>Приложение для управления проектами дубляжа и озвучивания.</p>"
-            "<p><b>Версия:</b> 1.1</p>"
+            "<p><b>Версия:</b> 1.2</p>"
             "<p><b>GitHub:</b> <a href='https://github.com/ScrapDnB/DubbingManager/'>ScrapDnB/DubbingManager</a></p>"
             "<p><b>Python:</b> {}.{}.{}</p>"
             "<p><b>PySide6:</b> {}</p>"
