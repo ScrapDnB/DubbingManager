@@ -45,6 +45,10 @@ from config.constants import (
     TABLE_ROW_HEIGHT,
     VIDEO_BTN_WIDTH,
     AUTOSAVE_INTERVAL_MS,
+    PROJECT_BAR_SPACING,
+    PROJECT_FOLDER_BTN_WIDTH,
+    ABOUT_BTN_WIDTH,
+    EXPORT_PANEL_SPACING,
 )
 from utils.helpers import (
     ass_time_to_seconds,
@@ -292,7 +296,7 @@ class MainWindow(QMainWindow):
         self.btn_redo.setEnabled(False)
         top.addWidget(self.btn_redo)
 
-        top.addSpacing(20)
+        top.addSpacing(PROJECT_BAR_SPACING)
 
         # Папка проекта
         self.lbl_project_folder = QLabel("")
@@ -307,7 +311,7 @@ class MainWindow(QMainWindow):
 
         btn_unlink = QPushButton("🔓")
         btn_unlink.setToolTip("Отвязать папку проекта")
-        btn_unlink.setFixedWidth(30)
+        btn_unlink.setFixedWidth(PROJECT_FOLDER_BTN_WIDTH)
         btn_unlink.clicked.connect(self.clear_project_folder)
         top.addWidget(btn_unlink)
 
@@ -320,7 +324,7 @@ class MainWindow(QMainWindow):
         top.addWidget(btn_files)
 
         btn_about = QPushButton("ℹ️")
-        btn_about.setFixedWidth(30)
+        btn_about.setFixedWidth(ABOUT_BTN_WIDTH)
         btn_about.clicked.connect(self.show_about)
         top.addWidget(btn_about)
 
@@ -454,12 +458,6 @@ class MainWindow(QMainWindow):
         btn_reaper.clicked.connect(self.export_to_reaper_rpp)
         tools_sidebar_layout.addWidget(btn_reaper)
 
-        # Кнопка "Назначить выделенным" закомментирована
-        # tools_sidebar_layout.addSpacing(20)
-        # btn_bulk = QPushButton("⚡ Назначить выделенным")
-        # btn_bulk.clicked.connect(self.bulk_assign_actor)
-        # tools_sidebar_layout.addWidget(btn_bulk)
-
         tools_sidebar_layout.addStretch()
         layout.addWidget(tools_sidebar_widget)
     
@@ -484,13 +482,13 @@ class MainWindow(QMainWindow):
         btn_cfg.clicked.connect(self.open_export_settings)
         exp_lay.addWidget(btn_cfg)
 
-        exp_lay.addSpacing(10)
+        exp_lay.addSpacing(EXPORT_PANEL_SPACING)
 
         btn_preview = QPushButton("📃 Превью")
         btn_preview.clicked.connect(self.open_live_preview)
         exp_lay.addWidget(btn_preview)
 
-        exp_lay.addSpacing(10)
+        exp_lay.addSpacing(EXPORT_PANEL_SPACING)
 
         self.chk_exp_html = QCheckBox("Лист")
         self.chk_exp_html.setChecked(True)
@@ -507,10 +505,10 @@ class MainWindow(QMainWindow):
 
         exp_lay.addWidget(self.chk_exp_html)
         exp_lay.addWidget(self.chk_exp_xls)
-        exp_lay.addSpacing(10)
+        exp_lay.addSpacing(EXPORT_PANEL_SPACING)
         exp_lay.addWidget(self.radio_cur)
         exp_lay.addWidget(self.radio_all)
-        exp_lay.addSpacing(10)
+        exp_lay.addSpacing(EXPORT_PANEL_SPACING)
         exp_lay.addWidget(self.btn_run_export)
 
         bottom_panel.addWidget(exp_group)
@@ -908,36 +906,6 @@ class MainWindow(QMainWindow):
                 self.actor_controller.refresh()
                 self.refresh_main_table()
                 self.set_dirty()
-
-    # Метод bulk_assign_actor закомментирован, т.к. кнопка не используется
-    # def bulk_assign_actor(self) -> None:
-    #     """Массовое назначение актёра"""
-    #     if not self.actor_controller:
-    #         return
-    #
-    #     selected: List[int] = self.main_table.selectionModel().selectedRows()
-    #     if not selected:
-    #         return
-    #
-    #     names: List[str] = ["- Удалить -"] + [
-    #         a["name"] for a in self.data["actors"].values()
-    #     ]
-    #     ids: List[Optional[str]] = [None] + list(self.data["actors"].keys())
-    #
-    #     name: str
-    #     ok: bool
-    #     name, ok = QInputDialog.getItem(
-    #         self, "Назначить", "Актер:", names, 0, False
-    #     )
-    #
-    #     if ok:
-    #         aid: Optional[str] = ids[names.index(name)]
-    #         characters: List[str] = [
-    #             self.main_table.item(idx.row(), 0).text()
-    #             for idx in selected
-    #         ]
-    #         self.actor_controller.bulk_assign_actors(characters, aid)
-    #         self.refresh_main_table()
 
     def delete_actor_dialog(self) -> None:
         """Диалог удаления актёра"""

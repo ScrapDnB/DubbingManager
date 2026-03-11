@@ -149,13 +149,25 @@ def get_video_fps(video_path: str) -> float:
     Returns:
         FPS видео или 25.0 по умолчанию при ошибке
     """
+    # Валидация пути: запрещаем path traversal
+    if '..' in video_path:
+        logger.warning(f"Invalid video path (path traversal detected): {video_path}")
+        return FPS
+
     try:
+        path = Path(video_path).resolve()
+        
+        # Проверка существования файла
+        if not path.exists() or not path.is_file():
+            logger.warning(f"Video file not found: {video_path}")
+            return FPS
+
         cmd = [
             'ffprobe',
             '-v', 'quiet',
             '-print_format', 'json',
             '-show_streams',
-            video_path
+            str(path)
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
 
