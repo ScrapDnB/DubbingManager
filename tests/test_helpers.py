@@ -233,7 +233,18 @@ class TestGetVideoFps:
             stdout=json.dumps(mock_data)
         )
 
-        result = get_video_fps("/path/to/video.mp4")
+        # Тест с моком Path.exists и Path.is_file
+        def mock_path_factory(path_str):
+            mock_path = MagicMock()
+            mock_path.exists.return_value = True
+            mock_path.is_file.return_value = True
+            mock_path.stat.return_value.st_mtime = 12345
+            mock_path.resolve.return_value = mock_path
+            mock_path.__str__ = lambda self: path_str
+            return mock_path
+            
+        with patch('utils.helpers.Path', side_effect=mock_path_factory):
+            result = get_video_fps("/path/to/video.mp4")
         assert abs(result - 29.97) < 0.01
 
     @patch('utils.helpers.subprocess.run')
@@ -250,7 +261,16 @@ class TestGetVideoFps:
             stdout=json.dumps(mock_data)
         )
 
-        result = get_video_fps("/path/to/video.mp4")
+        def mock_path_factory(path_str):
+            mock_path = MagicMock()
+            mock_path.exists.return_value = True
+            mock_path.is_file.return_value = True
+            mock_path.resolve.return_value = mock_path
+            mock_path.__str__ = lambda self: path_str
+            return mock_path
+            
+        with patch('utils.helpers.Path', side_effect=mock_path_factory):
+            result = get_video_fps("/path/to/video.mp4")
         assert result == 25.0
 
     @patch('utils.helpers.subprocess.run')
@@ -318,6 +338,42 @@ class TestGetVideoFps:
             returncode=0,
             stdout=json.dumps(mock_data)
         )
-        
+
         result = get_video_fps("/path/to/video.mp4")
         assert result == 25.0
+
+    @patch('utils.helpers.subprocess.run')
+    def test_path_traversal_blocked(self, mock_run):
+        """Тест блокировки path traversal"""
+        result = get_video_fps("../etc/passwd")
+        
+        assert result == 25.0
+        mock_run.assert_not_called()
+
+    @patch('utils.helpers.subprocess.run')
+    def test_file_not_exists(self, mock_run):
+        """Тест несуществующего файла"""
+        mock_path_instance = MagicMock()
+        mock_path_instance.exists.return_value = False
+        mock_path_instance.is_file.return_value = False
+        mock_path_instance.resolve.return_value = mock_path_instance
+        
+        with patch('utils.helpers.Path', return_value=mock_path_instance):
+            result = get_video_fps("/nonexistent.mp4")
+        
+        assert result == 25.0
+        mock_run.assert_not_called()
+
+    @patch('utils.helpers.subprocess.run')
+    def test_is_file_false(self, mock_run):
+        """Тест когда путь не файл"""
+        mock_path_instance = MagicMock()
+        mock_path_instance.exists.return_value = True
+        mock_path_instance.is_file.return_value = False
+        mock_path_instance.resolve.return_value = mock_path_instance
+        
+        with patch('utils.helpers.Path', return_value=mock_path_instance):
+            result = get_video_fps("/directory/")
+        
+        assert result == 25.0
+        mock_run.assert_not_called()

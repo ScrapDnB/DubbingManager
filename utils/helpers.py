@@ -3,6 +3,7 @@
 import re
 import subprocess
 import traceback
+from pathlib import Path
 from typing import Optional
 from PySide6.QtGui import QColor
 import logging
