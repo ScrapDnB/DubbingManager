@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class DocxImportDialog(QDialog):
     """Диалог импорта DOCX файлов с настройкой маппинга колонок"""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, file_path: Optional[str] = None):
         super().__init__(parent)
         self.setWindowTitle("Импорт DOCX - Настройка колонок")
         self.setMinimumSize(900, 700)
@@ -34,8 +34,13 @@ class DocxImportDialog(QDialog):
         self.current_mapping: Dict[str, Optional[int]] = DEFAULT_COLUMN_MAPPING.copy()
         self.available_columns: List[int] = []
         self.time_separators: List[str] = DEFAULT_TIME_SEPARATORS.copy()
+        self.file_path: Optional[str] = file_path
 
         self._init_ui()
+        
+        # Если передан файл, загружаем его
+        if file_path:
+            self._load_file(file_path)
 
     def _init_ui(self) -> None:
         """Инициализация UI"""

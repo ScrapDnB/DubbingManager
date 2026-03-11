@@ -1,7 +1,7 @@
 """Мост между JS и Python для веб-компонентов"""
 
 from PySide6.QtCore import QObject, Slot
-from typing import Any, Optional
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,12 +13,6 @@ class WebBridge(QObject):
     def __init__(self, main_app: Any, parent=None):
         super().__init__(parent)
         self.main_app = main_app
-
-    @Slot(int, int)
-    def sync_scroll_index(self, index: int, total: int) -> None:
-        """Обновляет счетчик в окне предпросмотра при прокрутке"""
-        if self.main_app and hasattr(self.main_app, 'preview_window'):
-            self.main_app.preview_window.update_counter_label(index, total)
 
     @Slot(str, str)
     def update_text(self, line_id: str, new_text: str) -> None:

@@ -1,7 +1,7 @@
 """Сервис для управления актёрами"""
 
 import logging
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Any
 from datetime import datetime
 
 from config.constants import MY_PALETTE

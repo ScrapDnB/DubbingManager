@@ -22,7 +22,8 @@ class EpisodeService:
     def set_merge_gap_from_config(self, replica_merge_config: Dict[str, Any]) -> None:
         """Установка зазора для слияния реплик из конфига"""
         self.merge_gap = replica_merge_config.get('merge_gap', 5)
-        self.fps = replica_merge_config.get('fps', 25.0)
+        # Защита от None и 0 значения
+        self.fps = replica_merge_config.get('fps', 25.0) or 25.0
 
     def set_fps(self, fps: float) -> None:
         """Установка частоты кадров"""
@@ -31,6 +32,9 @@ class EpisodeService:
     def parse_ass_file(self, path: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Парсинг ASS файла
+
+        Args:
+            path: путь к ASS файлу
 
         Returns:
             Tuple containing:
@@ -98,6 +102,108 @@ class EpisodeService:
             logger.error(f"Error parsing ASS: {e}")
             return [], []
 
+    def _parse_srt_content(
+        self,
+        content: str,
+        add_id: bool = False
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Общий метод парсинга SRT контента
+
+        Args:
+            content: содержимое SRT файла
+            add_id: добавлять ли id к репликам
+
+        Returns:
+            Tuple containing:
+            - char_data: статистика по персонажам (name, lines, rings, words)
+            - lines_list: список всех реплик
+        """
+        char_data: Dict[str, Dict[str, Any]] = defaultdict(
+            lambda: {"lines": 0, "raw": []}
+        )
+
+        # Разделяем на блоки (каждый блок - отдельная реплика)
+        blocks = re.split(r'\n\s*\n', content.strip())
+        lines_list = []
+        idx = 0
+
+        for block in blocks:
+            block_lines = block.strip().split('\n')
+            if len(block_lines) < 3:
+                continue
+
+            try:
+                time_line = block_lines[1]
+                time_parts = time_line.split(' --> ')
+                if len(time_parts) != 2:
+                    continue
+
+                start_time = time_parts[0].strip()
+                end_time = time_parts[1].strip()
+
+                # Текст реплики (может быть несколько строк)
+                text_lines = block_lines[2:]
+                full_text = '\n'.join(text_lines).strip()
+
+                # Извлекаем имя персонажа из текста (формат: "Имя: реплика")
+                char_name = ""
+                replica_text = full_text
+
+                # Ищем первое двоеточие для извлечения имени
+                colon_match = re.match(r'^([^:]+):\s*(.*)', full_text, re.DOTALL)
+                if colon_match:
+                    char_name = colon_match.group(1).strip()
+                    replica_text = colon_match.group(2).strip()
+
+                if replica_text:
+                    line_data = {
+                        's': srt_time_to_seconds(start_time),
+                        'e': srt_time_to_seconds(end_time),
+                        'char': char_name,
+                        'text': replica_text,
+                        's_raw': start_time
+                    }
+                    if add_id:
+                        line_data['id'] = idx
+                    lines_list.append(line_data)
+
+                    char_data[char_name]["lines"] += 1
+                    char_data[char_name]["raw"].append(line_data)
+                    idx += 1
+
+            except (IndexError, ValueError) as e:
+                logger.warning(f"Skipping invalid SRT block: {e}")
+                continue
+
+        # Вычисление статистики
+        # Конвертируем merge_gap из кадров в секунды
+        merge_gap_seconds = self.merge_gap / self.fps
+
+        stats = []
+        for char, info in char_data.items():
+            rings = 1
+            words = 0
+            char_lines = info["raw"]
+
+            if char_lines:
+                words = len(char_lines[0]['text'].split())
+
+                for i in range(1, len(char_lines)):
+                    # При слиянии реплик игнорируем префикс "Имя_персонажа:"
+                    if char_lines[i]['s'] - char_lines[i-1]['e'] >= merge_gap_seconds:
+                        rings += 1
+                    words += len(char_lines[i]['text'].split())
+
+            stats.append({
+                "name": char,
+                "lines": info["lines"],
+                "rings": rings,
+                "words": words
+            })
+
+        return stats, lines_list
+
     def parse_srt_file(self, path: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Парсинг SRT файла
@@ -110,95 +216,11 @@ class EpisodeService:
             - char_data: статистика по персонажам (name, lines, rings, words)
             - lines_list: список всех реплик
         """
-        char_data: Dict[str, Dict[str, Any]] = defaultdict(
-            lambda: {"lines": 0, "raw": []}
-        )
-
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            # Разделяем на блоки (каждый блок - отдельная реплика)
-            blocks = re.split(r'\n\s*\n', content.strip())
-            lines_list = []
-
-            for block in blocks:
-                lines = block.strip().split('\n')
-                if len(lines) < 3:
-                    continue
-
-                # Первая строка - номер, вторая - время, остальные - текст
-                try:
-                    time_line = lines[1]
-                    time_parts = time_line.split(' --> ')
-                    if len(time_parts) != 2:
-                        continue
-
-                    start_time = time_parts[0].strip()
-                    end_time = time_parts[1].strip()
-
-                    # Текст реплики (может быть несколько строк)
-                    text_lines = lines[2:]
-                    full_text = '\n'.join(text_lines).strip()
-
-                    # Извлекаем имя персонажа из текста (формат: "Имя: реплика")
-                    char_name = ""
-                    replica_text = full_text
-
-                    # Ищем первое двоеточие для извлечения имени
-                    colon_match = re.match(r'^([^:]+):\s*(.*)', full_text, re.DOTALL)
-                    if colon_match:
-                        char_name = colon_match.group(1).strip()
-                        replica_text = colon_match.group(2).strip()
-                    else:
-                        # Если двоеточия нет, используем пустое имя
-                        char_name = ""
-                        replica_text = full_text
-
-                    if replica_text:
-                        line_data = {
-                            's': srt_time_to_seconds(start_time),
-                            'e': srt_time_to_seconds(end_time),
-                            'char': char_name,
-                            'text': replica_text,
-                            's_raw': start_time
-                        }
-                        lines_list.append(line_data)
-
-                        char_data[char_name]["lines"] += 1
-                        char_data[char_name]["raw"].append(line_data)
-
-                except (IndexError, ValueError) as e:
-                    logger.warning(f"Skipping invalid SRT block: {e}")
-                    continue
-
-            # Вычисление статистики
-            # Конвертируем merge_gap из кадров в секунды
-            merge_gap_seconds = self.merge_gap / self.fps
-
-            stats = []
-            for char, info in char_data.items():
-                rings = 1
-                words = 0
-                char_lines = info["raw"]
-
-                if char_lines:
-                    words = len(char_lines[0]['text'].split())
-
-                    for i in range(1, len(char_lines)):
-                        # При слиянии реплик игнорируем префикс "Имя_персонажа:"
-                        if char_lines[i]['s'] - char_lines[i-1]['e'] >= merge_gap_seconds:
-                            rings += 1
-                        words += len(char_lines[i]['text'].split())
-
-                stats.append({
-                    "name": char,
-                    "lines": info["lines"],
-                    "rings": rings,
-                    "words": words
-                })
-
-            return stats, lines_list
+            return self._parse_srt_content(content, add_id=False)
 
         except Exception as e:
             logger.error(f"Error parsing SRT: {e}")
@@ -280,53 +302,8 @@ class EpisodeService:
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            # Разделяем на блоки
-            blocks = re.split(r'\n\s*\n', content.strip())
-            lines = []
-            idx = 0
-
-            for block in blocks:
-                block_lines = block.strip().split('\n')
-                if len(block_lines) < 3:
-                    continue
-
-                try:
-                    time_line = block_lines[1]
-                    time_parts = time_line.split(' --> ')
-                    if len(time_parts) != 2:
-                        continue
-
-                    start_time = time_parts[0].strip()
-                    end_time = time_parts[1].strip()
-
-                    # Текст реплики
-                    text_lines = block_lines[2:]
-                    full_text = '\n'.join(text_lines).strip()
-
-                    # Извлекаем имя персонажа
-                    char_name = ""
-                    replica_text = full_text
-
-                    colon_match = re.match(r'^([^:]+):\s*(.*)', full_text, re.DOTALL)
-                    if colon_match:
-                        char_name = colon_match.group(1).strip()
-                        replica_text = colon_match.group(2).strip()
-
-                    if replica_text:
-                        lines.append({
-                            'id': idx,
-                            's': srt_time_to_seconds(start_time),
-                            'e': srt_time_to_seconds(end_time),
-                            'char': char_name,
-                            'text': replica_text,
-                            's_raw': start_time
-                        })
-                        idx += 1
-
-                except (IndexError, ValueError) as e:
-                    logger.warning(f"Skipping invalid SRT block: {e}")
-                    continue
-
+            # Используем общий метод парсинга, но без статистики
+            _, lines = self._parse_srt_content(content, add_id=True)
             self._loaded_episodes[ep_num] = lines
             return lines
 

@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox, QGroupBox, QFormLayout, QMessageBox, QSlider,
     QAbstractItemView, QStackedWidget, QDoubleSpinBox, QRadioButton,
     QGridLayout, QScrollArea, QSplitter, QSizePolicy, QToolBar,
-    QDialogButtonBox, QTextEdit, QDialog, QRadioButton
+    QDialogButtonBox, QTextEdit, QDialog
 )
 from PySide6.QtGui import QColor, QFont, QAction, QKeySequence, QPen, QBrush
 from PySide6.QtCore import Qt, QUrl, QTimer, Signal, QRectF, QEvent, Slot
@@ -336,17 +336,10 @@ class MainWindow(QMainWindow):
         ep_ctrl.addWidget(QLabel("Серия:"))
         ep_ctrl.addWidget(self.ep_combo)
 
-        btn_ass = QPushButton("+ .ASS")
-        btn_ass.clicked.connect(lambda: self.import_ass())
-        ep_ctrl.addWidget(btn_ass)
-
-        btn_srt = QPushButton("+ .SRT")
-        btn_srt.clicked.connect(lambda: self.import_srt())
-        ep_ctrl.addWidget(btn_srt)
-
-        btn_docx = QPushButton("+ .DOCX")
-        btn_docx.clicked.connect(lambda: self.import_docx())
-        ep_ctrl.addWidget(btn_docx)
+        # Кнопка "Импорт" с автоопределением типа файла
+        btn_import = QPushButton("📥 Импорт")
+        btn_import.clicked.connect(self.import_files)
+        ep_ctrl.addWidget(btn_import)
 
         btn_ren = QPushButton("✎")
         btn_ren.setFixedWidth(BTN_RENAME_WIDTH)
@@ -452,10 +445,6 @@ class MainWindow(QMainWindow):
         btn_all_v = QPushButton("📺 Просмотр серии")
         btn_all_v.clicked.connect(lambda: self.open_preview(None))
         tools_sidebar_layout.addWidget(btn_all_v)
-        
-        btn_live_html = QPushButton("📃 Монтажный лист")
-        btn_live_html.clicked.connect(self.open_live_preview)
-        tools_sidebar_layout.addWidget(btn_live_html)
 
         btn_prompter = QPushButton("🎤 Телесуфлёр")
         btn_prompter.clicked.connect(self.open_teleprompter)
@@ -465,10 +454,11 @@ class MainWindow(QMainWindow):
         btn_reaper.clicked.connect(self.export_to_reaper_rpp)
         tools_sidebar_layout.addWidget(btn_reaper)
 
-        tools_sidebar_layout.addSpacing(20)
-        btn_bulk = QPushButton("⚡ Назначить выделенным")
-        btn_bulk.clicked.connect(self.bulk_assign_actor)
-        tools_sidebar_layout.addWidget(btn_bulk)
+        # Кнопка "Назначить выделенным" закомментирована
+        # tools_sidebar_layout.addSpacing(20)
+        # btn_bulk = QPushButton("⚡ Назначить выделенным")
+        # btn_bulk.clicked.connect(self.bulk_assign_actor)
+        # tools_sidebar_layout.addWidget(btn_bulk)
 
         tools_sidebar_layout.addStretch()
         layout.addWidget(tools_sidebar_widget)
@@ -485,14 +475,20 @@ class MainWindow(QMainWindow):
 
         bottom_panel.addStretch()
 
-        # Правая часть: экспорт
-        exp_group = QGroupBox("Экспорт")
+        # Правая часть: экспорт монтажных листов
+        exp_group = QGroupBox("Экспорт монтажных листов")
         exp_lay = QHBoxLayout(exp_group)
         exp_lay.setContentsMargins(5, 5, 5, 5)
 
         btn_cfg = QPushButton("⚙ Настройки")
         btn_cfg.clicked.connect(self.open_export_settings)
         exp_lay.addWidget(btn_cfg)
+
+        exp_lay.addSpacing(10)
+
+        btn_preview = QPushButton("📃 Превью")
+        btn_preview.clicked.connect(self.open_live_preview)
+        exp_lay.addWidget(btn_preview)
 
         exp_lay.addSpacing(10)
 
@@ -652,7 +648,12 @@ class MainWindow(QMainWindow):
                 # Загружаем данные из нового ASS файла в кэш
                 self.episode_service.invalidate_episode(ep)
                 self.data.get('loaded_episodes', {}).pop(ep, None)
-                lines = self.episode_service.load_episode(ep, self.data["episodes"])
+                # Определяем тип файла по расширению
+                ep_path = self.data["episodes"].get(ep, "")
+                if ep_path.lower().endswith('.srt'):
+                    lines = self.episode_service.load_srt_episode(ep, self.data["episodes"])
+                else:
+                    lines = self.episode_service.load_episode(ep, self.data["episodes"])
                 if lines:
                     self.data["loaded_episodes"][ep] = lines
         else:
@@ -719,6 +720,11 @@ class MainWindow(QMainWindow):
             logger.info(f"Project loaded from {path}")
             logger.info(f"Actors count: {len(self.data.get('actors', {}))}")
             logger.info(f"Global map count: {len(self.data.get('global_map', {}))}")
+
+            # Очищаем кэш загруженных эпизодов и статистику
+            self.data["loaded_episodes"] = {}
+            self.current_ep_stats = []
+            self.episode_service.clear_cache()
 
             self.refresh_actor_list()
             self.update_ep_list()
@@ -903,34 +909,35 @@ class MainWindow(QMainWindow):
                 self.refresh_main_table()
                 self.set_dirty()
 
-    def bulk_assign_actor(self) -> None:
-        """Массовое назначение актёра"""
-        if not self.actor_controller:
-            return
-
-        selected: List[int] = self.main_table.selectionModel().selectedRows()
-        if not selected:
-            return
-
-        names: List[str] = ["- Удалить -"] + [
-            a["name"] for a in self.data["actors"].values()
-        ]
-        ids: List[Optional[str]] = [None] + list(self.data["actors"].keys())
-
-        name: str
-        ok: bool
-        name, ok = QInputDialog.getItem(
-            self, "Назначить", "Актер:", names, 0, False
-        )
-
-        if ok:
-            aid: Optional[str] = ids[names.index(name)]
-            characters: List[str] = [
-                self.main_table.item(idx.row(), 0).text()
-                for idx in selected
-            ]
-            self.actor_controller.bulk_assign_actors(characters, aid)
-            self.refresh_main_table()
+    # Метод bulk_assign_actor закомментирован, т.к. кнопка не используется
+    # def bulk_assign_actor(self) -> None:
+    #     """Массовое назначение актёра"""
+    #     if not self.actor_controller:
+    #         return
+    #
+    #     selected: List[int] = self.main_table.selectionModel().selectedRows()
+    #     if not selected:
+    #         return
+    #
+    #     names: List[str] = ["- Удалить -"] + [
+    #         a["name"] for a in self.data["actors"].values()
+    #     ]
+    #     ids: List[Optional[str]] = [None] + list(self.data["actors"].keys())
+    #
+    #     name: str
+    #     ok: bool
+    #     name, ok = QInputDialog.getItem(
+    #         self, "Назначить", "Актер:", names, 0, False
+    #     )
+    #
+    #     if ok:
+    #         aid: Optional[str] = ids[names.index(name)]
+    #         characters: List[str] = [
+    #             self.main_table.item(idx.row(), 0).text()
+    #             for idx in selected
+    #         ]
+    #         self.actor_controller.bulk_assign_actors(characters, aid)
+    #         self.refresh_main_table()
 
     def delete_actor_dialog(self) -> None:
         """Диалог удаления актёра"""
@@ -1018,6 +1025,8 @@ class MainWindow(QMainWindow):
         if "loaded_episodes" in self.data and ep in self.data["loaded_episodes"]:
             # Загружаем из кэша
             lines = self.data["loaded_episodes"][ep]
+            # Пересчитываем статистику для отображения в таблице
+            self._recalculate_episode_stats(lines)
             self._display_episode_lines(lines)
             self.table_stack.setCurrentIndex(0)
             self.refresh_main_table()
@@ -1047,6 +1056,52 @@ class MainWindow(QMainWindow):
         # Этот метод используется для DOCX импорта, когда данные уже в кэше
         pass  # Данные уже в main_table через refresh_main_table
 
+    def _recalculate_episode_stats(self, lines: List[Dict[str, Any]]) -> None:
+        """
+        Пересчёт статистики эпизода из загруженных реплик.
+
+        Args:
+            lines: Список реплик эпизода
+        """
+        from collections import defaultdict
+
+        char_data: Dict[str, Dict[str, Any]] = defaultdict(
+            lambda: {"lines": 0, "raw": []}
+        )
+
+        # Собираем данные по персонажам
+        for line in lines:
+            char = line.get('char', '')
+            if char:
+                char_data[char]["lines"] += 1
+                char_data[char]["raw"].append(line)
+
+        # Вычисляем статистику
+        merge_gap_seconds = self.episode_service.merge_gap / self.episode_service.fps
+
+        stats = []
+        for char, info in char_data.items():
+            rings = 1
+            words = 0
+            char_lines = info["raw"]
+
+            if char_lines:
+                words = len(char_lines[0]['text'].split())
+
+                for i in range(1, len(char_lines)):
+                    if char_lines[i]['s'] - char_lines[i-1]['e'] >= merge_gap_seconds:
+                        rings += 1
+                    words += len(char_lines[i]['text'].split())
+
+            stats.append({
+                "name": char,
+                "lines": info["lines"],
+                "rings": rings,
+                "words": words
+            })
+
+        self.current_ep_stats = stats
+
     def _parse_episode(self, ep: str, path: str) -> None:
         """Парсинг эпизода и получение статистики"""
         stats: List[Dict[str, Any]]
@@ -1062,28 +1117,7 @@ class MainWindow(QMainWindow):
 
         if paths:
             for path in paths:
-                numbers: List[str] = re.findall(r'\d+', os.path.basename(path))
-                num: str = " ".join(numbers) or "1"
-
-                name: str
-                ok: bool
-                name, ok = QInputDialog.getText(
-                    self,
-                    "Ep",
-                    f"Ep for {os.path.basename(path)}:",
-                    text=num
-                )
-
-                if ok and name:
-                    # Используем команду для отмены действия
-                    command = AddEpisodeCommand(
-                        self.data["episodes"],
-                        name,
-                        path
-                    )
-                    self.undo_stack.push(command)
-                    self._parse_episode(name, path)
-                    self.set_dirty()
+                self._import_single_file(path)
 
             self.update_ep_list()
 
@@ -1096,30 +1130,158 @@ class MainWindow(QMainWindow):
 
         if paths:
             for path in paths:
-                numbers: List[str] = re.findall(r'\d+', os.path.basename(path))
-                num: str = " ".join(numbers) or "1"
-
-                name: str
-                ok: bool
-                name, ok = QInputDialog.getText(
-                    self,
-                    "Ep",
-                    f"Ep for {os.path.basename(path)}:",
-                    text=num
-                )
-
-                if ok and name:
-                    # Используем команду для отмены действия
-                    command = AddEpisodeCommand(
-                        self.data["episodes"],
-                        name,
-                        path
-                    )
-                    self.undo_stack.push(command)
-                    self._parse_srt_episode(name, path)
-                    self.set_dirty()
+                self._import_single_file(path)
 
             self.update_ep_list()
+
+    def _import_single_file(self, path: str) -> None:
+        """
+        Импорт отдельного файла с автоопределением типа.
+
+        Args:
+            path: Путь к файлу
+        """
+        numbers: List[str] = re.findall(r'\d+', os.path.basename(path))
+        num: str = " ".join(numbers) or "1"
+
+        name: str
+        ok: bool
+        name, ok = QInputDialog.getText(
+            self,
+            "Ep",
+            f"Ep для {os.path.basename(path)}:",
+            text=num
+        )
+
+        if ok and name:
+            # Используем команду для отмены действия
+            command = AddEpisodeCommand(
+                self.data["episodes"],
+                name,
+                path
+            )
+            self.undo_stack.push(command)
+
+            # Парсим файл в зависимости от расширения
+            ext = os.path.splitext(path)[1].lower()
+            if ext == '.srt':
+                self._parse_srt_episode(name, path)
+            else:
+                self._parse_episode(name, path)
+
+            self.set_dirty()
+
+    def import_files(self, paths: Optional[List[str]] = None) -> None:
+        """
+        Импорт файлов с автоопределением типа (ASS/SRT/DOCX).
+
+        Args:
+            paths: Список путей к файлам (если None, открывается диалог)
+        """
+        if not paths:
+            paths, _ = QFileDialog.getOpenFileNames(
+                self,
+                "Импорт субтитров",
+                "",
+                "Поддерживаемые форматы (*.ass *.srt *.docx);;Все файлы (*)"
+            )
+
+        if not paths:
+            return
+
+        for path in paths:
+            ext = os.path.splitext(path)[1].lower()
+
+            if ext in {'.ass', '.srt'}:
+                self._import_single_file(path)
+            elif ext == '.docx':
+                # Для DOCX открываем диалог с настройками, передавая путь к файлу
+                self.import_docx_with_dialog(path)
+
+        self.update_ep_list()
+
+    def import_docx_with_dialog(self, file_path: str) -> None:
+        """
+        Импорт DOCX файла с показом диалога настройки колонок.
+
+        Args:
+            file_path: Путь к DOCX файлу
+        """
+        from ui.dialogs import DocxImportDialog
+        from core.commands import AddEpisodeCommand
+        import re
+        import os
+
+        # Показываем диалог импорта с переданным файлом
+        dialog = DocxImportDialog(self, file_path)
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        # Получаем результат
+        result = dialog.get_result()
+        if not result:
+            return
+
+        # Генерируем номер эпизода
+        numbers: List[str] = re.findall(r'\d+', os.path.basename(file_path))
+        num: str = " ".join(numbers) or "1"
+
+        name: str
+        ok: bool
+        name, ok = QInputDialog.getText(
+            self,
+            "Ep",
+            f"Номер эпизода для импорта:",
+            text=num
+        )
+
+        if not ok or not name:
+            return
+
+        # Сохраняем данные в эпизод
+        lines = result['lines']
+
+        # Конвертируем в формат для хранения
+        episode_lines = []
+        for idx, line_data in enumerate(lines):
+            episode_lines.append({
+                'id': idx,
+                's': line_data['s'],
+                'e': line_data['e'],
+                'char': line_data['char'],
+                'text': line_data['text'],
+                's_raw': line_data.get('s_raw', ''),
+                'e_raw': line_data.get('e_raw', ''),
+            })
+
+        # Добавляем эпизод в данные
+        command = AddEpisodeCommand(
+            self.data["episodes"],
+            name,
+            file_path
+        )
+        self.undo_stack.push(command)
+
+        # Сохраняем распарсенные данные в кэш loaded_episodes
+        if "loaded_episodes" not in self.data:
+            self.data["loaded_episodes"] = {}
+        self.data["loaded_episodes"][name] = episode_lines
+
+        # Также сохраняем в кэш episode_service для совместимости
+        self.episode_service._loaded_episodes[name] = episode_lines
+
+        # Устанавливаем статистику
+        self.current_ep_stats = result['stats']
+
+        # Обновляем UI
+        self.update_ep_list()
+        self.set_dirty()
+
+        QMessageBox.information(
+            self, "Импорт завершён",
+            f"Импортировано {len(lines)} реплик из DOCX файла." +
+            (f"\n({result.get('tables_count', 1)} таблиц(ы))" if result.get('tables_count', 1) > 1 else "")
+        )
 
     def _parse_srt_episode(self, ep: str, path: str) -> None:
         """Парсинг SRT эпизода и получение статистики"""
@@ -1127,14 +1289,19 @@ class MainWindow(QMainWindow):
         stats, _ = self.episode_service.parse_srt_file(path)
         self.current_ep_stats = stats
 
-    def import_docx(self) -> None:
-        """Импорт DOCX файлов с гибкой настройкой колонок"""
+    def import_docx(self, paths: Optional[List[str]] = None) -> None:
+        """
+        Импорт DOCX файлов с гибкой настройкой колонок.
+
+        Args:
+            paths: Список путей к файлам (если None, открывается диалог)
+        """
         from ui.dialogs import DocxImportDialog
         from core.commands import AddEpisodeCommand
         import re
         import os
 
-        # Показываем диалог импорта
+        # Для DOCX всегда показываем полный диалог с настройками
         dialog = DocxImportDialog(self)
         if dialog.exec() != QDialog.Accepted:
             return
@@ -1161,7 +1328,6 @@ class MainWindow(QMainWindow):
             return
 
         # Сохраняем данные в эпизод
-        # Для DOCX мы сохраняем распарсенные данные напрямую в память
         lines = result['lines']
 
         # Конвертируем в формат для хранения
@@ -1178,7 +1344,6 @@ class MainWindow(QMainWindow):
             })
 
         # Добавляем эпизод в данные
-        # Для DOCX сохраняем путь к файлу и распарсенные данные
         command = AddEpisodeCommand(
             self.data["episodes"],
             name,
@@ -1195,7 +1360,6 @@ class MainWindow(QMainWindow):
         self.episode_service._loaded_episodes[name] = episode_lines
 
         # Устанавливаем статистику
-        # Для DOCX используем упрощённую статистику
         self.current_ep_stats = result['stats']
 
         # Обновляем UI
@@ -1498,7 +1662,7 @@ class MainWindow(QMainWindow):
         processed: List[Dict[str, Any]],
         cfg: Optional[Dict[str, Any]] = None
     ) -> Any:
-        """Создание Excel книги (устарело, использовать ExportService)"""
+        """Создание Excel книги (ус��арело, использовать ExportService)"""
         export_service = ExportService(self.data)
         return export_service.create_excel_book(ep, processed, cfg)
 
@@ -1614,7 +1778,12 @@ class MainWindow(QMainWindow):
         if ep in self.data["loaded_episodes"]:
             return self.data["loaded_episodes"][ep]
 
-        lines = self.episode_service.load_episode(ep, self.data["episodes"])
+        # Определяем тип файла по расширению
+        path = self.data["episodes"].get(ep, "")
+        if path.lower().endswith('.srt'):
+            lines = self.episode_service.load_srt_episode(ep, self.data["episodes"])
+        else:
+            lines = self.episode_service.load_episode(ep, self.data["episodes"])
 
         if lines:
             self.data["loaded_episodes"][ep] = lines

@@ -125,6 +125,14 @@ class ExportService:
         use_color = cfg.get('use_color', True)
 
         for idx, line in enumerate(processed):
+            # Валидация данных реплики
+            if 'char' not in line:
+                logger.warning(f"Skipping line without 'char' field: {line}")
+                continue
+            if 'text' not in line:
+                logger.warning(f"Skipping line without 'text' field: {line}")
+                continue
+
             aid = global_map.get(line['char'])
             actor = actors.get(aid, {"name": "-", "color": "#ffffff"})
 
@@ -215,65 +223,7 @@ class ExportService:
             var backend;
             new QWebChannel(qt.webChannelTransport, function (channel) {
                 backend = channel.objects.backend;
-                window.updateScrollStatus();
             });
-
-            window.updateScrollStatus = function() {
-                var blocks = Array.from(
-                    document.querySelectorAll('.highlighted-block')
-                );
-                if (blocks.length === 0 || !backend) return;
-                var midLine = window.innerHeight / 2;
-                var closestIndex = 0;
-                var minDistance = Infinity;
-                blocks.forEach((block, index) => {
-                    var rect = block.getBoundingClientRect();
-                    var distance = Math.abs(
-                        (rect.top + rect.height/2) - midLine
-                    );
-                    if (distance < minDistance) {
-                        minDistance = distance;
-                        closestIndex = index;
-                    }
-                });
-                backend.sync_scroll_index(closestIndex, blocks.length);
-            };
-
-            var scrollTimeout;
-            window.onscroll = function() {
-                clearTimeout(scrollTimeout);
-                scrollTimeout = setTimeout(
-                    window.updateScrollStatus, 50
-                );
-            };
-
-            window.jumpToNextHighlighted = function(direction) {
-                var blocks = Array.from(
-                    document.querySelectorAll('.highlighted-block')
-                );
-                if (blocks.length === 0) return;
-                var targetIndex = -1;
-                var threshold = 160;
-                if (direction === 'next') {
-                    targetIndex = blocks.findIndex(
-                        b => b.getBoundingClientRect().top > threshold
-                    );
-                    if (targetIndex === -1) targetIndex = 0;
-                } else {
-                    targetIndex = blocks.findLastIndex(
-                        b => b.getBoundingClientRect().top < 50
-                    );
-                    if (targetIndex === -1)
-                        targetIndex = blocks.length - 1;
-                }
-                var target = blocks[targetIndex];
-                blocks.forEach(b => b.classList.remove('active-replica'));
-                target.classList.add('active-replica');
-                target.scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'center'
-                });
-            };
 
             function onBlur(el) {
                 if(backend) {
@@ -306,12 +256,6 @@ class ExportService:
             .highlighted-block {
                 transition: outline 0.3s, box-shadow 0.3s;
             }
-            .active-replica {
-                outline: 6px solid #FFD700 !important;
-                outline-offset: -6px;
-                box-shadow: 0 0 25px rgba(255, 215, 0, 0.8) !important;
-                z-index: 99;
-            }
         </style>
         """
 
@@ -321,12 +265,6 @@ class ExportService:
         <style>
             .highlighted-block {
                 transition: outline 0.3s, box-shadow 0.3s;
-            }
-            .active-replica {
-                outline: 6px solid #FFD700 !important;
-                outline-offset: -6px;
-                box-shadow: 0 0 25px rgba(255, 215, 0, 0.8) !important;
-                z-index: 99;
             }
         </style>
         """

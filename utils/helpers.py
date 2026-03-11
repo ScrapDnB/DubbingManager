@@ -141,13 +141,13 @@ def get_video_fps(video_path: str) -> float:
             video_path
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        
+
         if result.returncode != 0:
             logger.warning(f"ffprobe failed for {video_path}")
             return FPS
-        
+
         data = json.loads(result.stdout)
-        
+
         # Ищем видеопоток
         for stream in data.get('streams', []):
             if stream.get('codec_type') == 'video':
@@ -157,22 +157,25 @@ def get_video_fps(video_path: str) -> float:
                     num, den = avg_frame_rate.split('/')
                     if den and int(den) != 0:
                         return float(num) / float(den)
-                
+
                 # Если нет, пробуем r_frame_rate
                 r_frame_rate = stream.get('r_frame_rate')
                 if r_frame_rate:
                     num, den = r_frame_rate.split('/')
                     if den and int(den) != 0:
                         return float(num) / float(den)
-                
+
                 # Если нет, пробуем nb_frames и duration
                 avg_fps = stream.get('avg_frame_rate')
                 if avg_fps:
                     return float(avg_fps)
-        
+
         logger.warning(f"Could not find video stream in {video_path}")
         return FPS
-        
+
+    except FileNotFoundError:
+        logger.warning(f"ffprobe not found in PATH for {video_path}")
+        return FPS
     except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
         logger.warning(f"Error getting FPS from {video_path}: {e}")
         return FPS
