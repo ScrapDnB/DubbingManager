@@ -344,6 +344,10 @@ class MainWindow(QMainWindow):
         btn_srt.clicked.connect(lambda: self.import_srt())
         ep_ctrl.addWidget(btn_srt)
 
+        btn_docx = QPushButton("+ .DOCX")
+        btn_docx.clicked.connect(lambda: self.import_docx())
+        ep_ctrl.addWidget(btn_docx)
+
         btn_ren = QPushButton("✎")
         btn_ren.setFixedWidth(BTN_RENAME_WIDTH)
         btn_ren.clicked.connect(self.rename_episode)
@@ -628,19 +632,44 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Ошибка", "Выберите серию.")
             return
 
-        if self.save_episode_to_ass(ep):
+        # Проверяем, есть ли файл на диске
+        source_path = self.data["episodes"].get(ep, "")
+        
+        # Для DOCX эпизодов (файл не существует) спрашиваем где сохранить
+        if not os.path.exists(source_path) or source_path.lower().endswith('.docx'):
+            save_path, _ = QFileDialog.getSaveFileName(
+                self, "Сохранить как", f"Episode_{ep}.ass", "ASS Files (*.ass)"
+            )
+            if not save_path:
+                return
+            success = self.save_episode_to_ass(ep, save_path)
+
+            # Переключаем источник на ASS файл
+            if success:
+                self.data["episodes"][ep] = save_path
+                self.update_ep_list()  # Обновляем список эпизодов
+                
+                # Загружаем данные из нового ASS файла в кэш
+                self.episode_service.invalidate_episode(ep)
+                self.data.get('loaded_episodes', {}).pop(ep, None)
+                lines = self.episode_service.load_episode(ep, self.data["episodes"])
+                if lines:
+                    self.data["loaded_episodes"][ep] = lines
+        else:
+            success = self.save_episode_to_ass(ep)
+
+        if success:
             self.character_names_changed[ep] = False
             self.text_changes[ep] = False
-            # Сбрасываем кэш загруженных эпизодов
-            self.episode_service.invalidate_episode(ep)
-            self.data.get('loaded_episodes', {}).pop(ep, None)
+            # Сбрасываем кэш загруженных эпизодов (для обычных ASS/SRT)
+            if os.path.exists(source_path) and not source_path.lower().endswith('.docx'):
+                self.episode_service.invalidate_episode(ep)
+                self.data.get('loaded_episodes', {}).pop(ep, None)
             self.update_save_ass_button()
-            
-            # Определяем тип файла для сообщения
-            source_path = self.data["episodes"].get(ep, "")
-            file_type = "SRT" if source_path.lower().endswith('.srt') else "ASS"
+
             QMessageBox.information(
-                self, "Успех", f"Серия {ep} сохранена в {file_type} файл."
+                self, "Успех", f"Серия {ep} сохранена." +
+                ("\nТеперь используется ASS файл." if not os.path.exists(source_path) or source_path.lower().endswith('.docx') else "")
             )
     
     # === Методы работы с проектом ===
@@ -985,6 +1014,16 @@ class MainWindow(QMainWindow):
         if not ep:
             return
 
+        # Проверяем, есть ли эпизод в кэше loaded_episodes (для DOCX импорта)
+        if "loaded_episodes" in self.data and ep in self.data["loaded_episodes"]:
+            # Загружаем из кэша
+            lines = self.data["loaded_episodes"][ep]
+            self._display_episode_lines(lines)
+            self.table_stack.setCurrentIndex(0)
+            self.refresh_main_table()
+            self.update_save_ass_button()
+            return
+
         path: Optional[str] = self.data["episodes"].get(ep)
         if path and os.path.exists(path):
             self.table_stack.setCurrentIndex(0)
@@ -999,9 +1038,14 @@ class MainWindow(QMainWindow):
             self.update_save_ass_button()
         else:
             self.table_stack.setCurrentIndex(1)
-            
+
         # При смене эпизода не сбрасываем флаг text_changes,
         # т.к. он нужен для отображения состояния кнопки
+
+    def _display_episode_lines(self, lines: List[Dict[str, Any]]) -> None:
+        """Отображение загруженных строк эпизода в таблице"""
+        # Этот метод используется для DOCX импорта, когда данные уже в кэше
+        pass  # Данные уже в main_table через refresh_main_table
 
     def _parse_episode(self, ep: str, path: str) -> None:
         """Парсинг эпизода и получение статистики"""
@@ -1082,6 +1126,87 @@ class MainWindow(QMainWindow):
         stats: List[Dict[str, Any]]
         stats, _ = self.episode_service.parse_srt_file(path)
         self.current_ep_stats = stats
+
+    def import_docx(self) -> None:
+        """Импорт DOCX файлов с гибкой настройкой колонок"""
+        from ui.dialogs import DocxImportDialog
+        from core.commands import AddEpisodeCommand
+        import re
+        import os
+
+        # Показываем диалог импорта
+        dialog = DocxImportDialog(self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        # Получаем результат
+        result = dialog.get_result()
+        if not result:
+            return
+
+        # Генерируем номер эпизода
+        numbers: List[str] = re.findall(r'\d+', dialog.file_label.text())
+        num: str = " ".join(numbers) or "1"
+
+        name: str
+        ok: bool
+        name, ok = QInputDialog.getText(
+            self,
+            "Ep",
+            f"Номер эпизода для импорта:",
+            text=num
+        )
+
+        if not ok or not name:
+            return
+
+        # Сохраняем данные в эпизод
+        # Для DOCX мы сохраняем распарсенные данные напрямую в память
+        lines = result['lines']
+
+        # Конвертируем в формат для хранения
+        episode_lines = []
+        for idx, line_data in enumerate(lines):
+            episode_lines.append({
+                'id': idx,
+                's': line_data['s'],
+                'e': line_data['e'],
+                'char': line_data['char'],
+                'text': line_data['text'],
+                's_raw': line_data.get('s_raw', ''),
+                'e_raw': line_data.get('e_raw', ''),
+            })
+
+        # Добавляем эпизод в данные
+        # Для DOCX сохраняем путь к файлу и распарсенные данные
+        command = AddEpisodeCommand(
+            self.data["episodes"],
+            name,
+            dialog.file_label.text().replace('📄 ', '') if hasattr(dialog, 'file_label') else "DOCX Import"
+        )
+        self.undo_stack.push(command)
+
+        # Сохраняем распарсенные данные в кэш loaded_episodes
+        if "loaded_episodes" not in self.data:
+            self.data["loaded_episodes"] = {}
+        self.data["loaded_episodes"][name] = episode_lines
+
+        # Также сохраняем в кэш episode_service для совместимости
+        self.episode_service._loaded_episodes[name] = episode_lines
+
+        # Устанавливаем статистику
+        # Для DOCX используем упрощённую статистику
+        self.current_ep_stats = result['stats']
+
+        # Обновляем UI
+        self.update_ep_list()
+        self.set_dirty()
+
+        QMessageBox.information(
+            self, "Импорт завершён",
+            f"Импортировано {len(lines)} реплик из DOCX файла." +
+            (f"\n({result.get('tables_count', 1)} таблиц(ы))" if result.get('tables_count', 1) > 1 else "")
+        )
 
     def relink_file(self) -> None:
         """Перепривязка файла"""
@@ -1562,7 +1687,7 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self.data["replica_merge_config"] = dialog.get_settings()
 
-            # Сохраняем в глобальные настройки
+            # Со��раняем в глобальные настройки
             self.global_settings_service.update_replica_merge_config(
                 self.data["replica_merge_config"]
             )
@@ -1665,7 +1790,7 @@ class MainWindow(QMainWindow):
             f"Ep{ep_num}.rpp"
         )
         save_path, _ = QFileDialog.getSaveFileName(
-            self, "Сохранить RPP", default_name, "Reaper Project (*.rpp)"
+            self, "Сохран��ть RPP", default_name, "Reaper Project (*.rpp)"
         )
         if not save_path:
             return

@@ -365,15 +365,22 @@ class EpisodeService:
             return False, "Нет данных для сохранения"
 
         source_path = episodes.get(ep_num)
-        if not source_path or not os.path.exists(source_path):
+        if not source_path:
             return False, "Файл не найден"
 
+        # Для DOCX файлов (которые не существуют на диске) сохраняем в новый ASS файл
+        if not os.path.exists(source_path) or source_path.lower().endswith('.docx'):
+            # Сохраняем как новый ASS файл
+            if target_path is None:
+                target_path = source_path.replace('.docx', '.ass') if source_path.lower().endswith('.docx') else f"{ep_num}.ass"
+            return self.save_episode_to_ass_new(ep_num, memory_lines, target_path)
+
         save_path = target_path or source_path
-        
+
         # Определяем тип файла
         if source_path.lower().endswith('.srt'):
             return self.save_episode_to_srt(ep_num, episodes, memory_lines, target_path)
-        
+
         new_file_content = []
 
         try:
@@ -411,6 +418,80 @@ class EpisodeService:
         except Exception as e:
             logger.error(f"Error saving ASS: {e}")
             return False, f"Ошибка записи: {e}"
+
+    def save_episode_to_ass_new(
+        self,
+        ep_num: str,
+        memory_lines: List[Dict[str, Any]],
+        save_path: str
+    ) -> Tuple[bool, str]:
+        """
+        Сохранение эпизода в новый ASS файл (для DOCX импорта)
+
+        Args:
+            ep_num: номер эпизода
+            memory_lines: реплики из памяти
+            save_path: путь для сохранения
+
+        Returns:
+            Tuple[success, message]
+        """
+        if not memory_lines:
+            return False, "Нет данных для сохранения"
+
+        # Стандартный заголовок ASS файла
+        ass_header = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+Timer: 100.0000
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+        try:
+            with open(save_path, 'w', encoding='utf-8') as f:
+                f.write(ass_header)
+
+                for line in memory_lines:
+                    # Конвертируем секунды обратно в ASS формат времени
+                    start_time = self._seconds_to_ass_time(line.get('s', 0))
+                    end_time = self._seconds_to_ass_time(line.get('e', 0))
+                    char = line.get('char', '')
+                    text = line.get('text', '')
+
+                    # Формат ASS: Dialogue: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+                    # Name (Actor) - это имя персонажа
+                    dialogue_line = f"Dialogue: 0,{start_time},{end_time},,{char},0,0,0,,{text}\n"
+                    f.write(dialogue_line)
+
+            logger.info(f"New ASS saved to {save_path}")
+            return True, f"Серия {ep_num} сохранена в {save_path}"
+
+        except Exception as e:
+            logger.error(f"Error saving new ASS: {e}")
+            return False, f"Ошибка записи: {e}"
+
+    def _seconds_to_ass_time(self, seconds: float) -> str:
+        """
+        Конвертация секунд в формат времени ASS (H:MM:SS.mm)
+
+        Args:
+            seconds: время в секундах
+
+        Returns:
+            Строка времени в формате ASS
+        """
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        centis = int((seconds % 1) * 100)
+        return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
 
     def save_episode_to_srt(
         self,
