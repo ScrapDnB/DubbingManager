@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox, QGroupBox, QFormLayout, QMessageBox, QSlider,
     QAbstractItemView, QStackedWidget, QDoubleSpinBox, QRadioButton,
     QGridLayout, QScrollArea, QSplitter, QSizePolicy, QToolBar,
-    QDialogButtonBox, QTextEdit, QDialog
+    QDialogButtonBox, QTextEdit, QDialog, QProgressDialog, QApplication
 )
 from PySide6.QtGui import QColor, QFont, QAction, QKeySequence, QPen, QBrush
 from PySide6.QtCore import Qt, QUrl, QTimer, Signal, QRectF, QEvent, Slot
@@ -1641,18 +1641,40 @@ class MainWindow(QMainWindow):
         do_xls: bool,
         folder: str
     ) -> None:
-        """Пакетный экспорт через ExportService"""
+        """Пакетный экспорт через ExportService с прогрессбаром"""
         export_service = ExportService(self.data)
+        
+        # Создаём прогрессбар
+        progress = QProgressDialog(self)
+        progress.setWindowTitle("Экспорт")
+        progress.setLabelText("Экспорт серий...")
+        progress.setRange(0, len(episodes))
+        progress.setValue(0)
+        progress.setCancelButton(None)  # Без кнопки отмены
+        progress.setWindowModality(Qt.WindowModal)
+        progress.show()
+        
+        # Callback для обновления прогресса
+        def progress_callback(current: int, total: int, message: str):
+            progress.setValue(current)
+            progress.setLabelText(message)
+            progress.repaint()
+            QApplication.processEvents()
+        
         success, message = export_service.export_batch(
             episodes=episodes,
             get_lines_callback=self.get_episode_lines,
             do_html=do_html,
             do_xls=do_xls,
-            folder=folder
+            folder=folder,
+            progress_callback=progress_callback
         )
-
+        
+        progress.close()
+        
         if success:
             logger.info(message)
+            QMessageBox.information(self, "Экспорт завершён", message)
         else:
             QMessageBox.critical(self, "Ошибка экспорта", message)
 
@@ -1669,7 +1691,7 @@ class MainWindow(QMainWindow):
     def export_to_excel(self, ep: str) -> None:
         """Экспорт в Excel"""
         lines = self.get_episode_lines(ep)
-        cfg = self.data["export_config"]
+        export_cfg = self.data["export_config"]
         merge_cfg = self.data.get("replica_merge_config", {})
 
         export_service = ExportService(self.data)
@@ -1679,7 +1701,7 @@ class MainWindow(QMainWindow):
 
         if path:
             success, message = export_service.export_to_excel(
-                ep=ep, lines=lines, cfg=merge_cfg, save_path=path
+                ep=ep, lines=lines, cfg=export_cfg, save_path=path, merge_cfg=merge_cfg
             )
             if success:
                 if sys.platform == 'win32':

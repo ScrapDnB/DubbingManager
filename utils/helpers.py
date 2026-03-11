@@ -62,6 +62,23 @@ def format_seconds_to_tc(seconds: float, round_flag: bool = False) -> str:
     return f"{hours}:{minutes:02d}:{secs:02d}"
 
 
+def format_seconds_to_full_tc(seconds: float) -> str:
+    """Форматирование секунд в полный таймкод HH:MM:SS,mmm"""
+    total_ms = int(round(seconds * 1000))
+    hours = total_ms // 3600000
+    minutes = (total_ms % 3600000) // 60000
+    seconds_part = (total_ms % 60000) // 1000
+    milliseconds = total_ms % 1000
+    return f"{hours}:{minutes:02d}:{seconds_part:02d},{milliseconds:03d}"
+
+
+def format_timing_range(start_seconds: float, end_seconds: float) -> str:
+    """Форматирование диапазона таймингов HH:MM:SS,mmm-HH:MM:SS,mmm"""
+    start_tc = format_seconds_to_full_tc(start_seconds)
+    end_tc = format_seconds_to_full_tc(end_seconds)
+    return f"{start_tc}-{end_tc}"
+
+
 def hex_to_rgba_string(hex_code: str, alpha: float) -> str:
     """Преобразует HEX цвет в строку rgba(r, g, b, a)"""
     color = QColor(hex_code)
