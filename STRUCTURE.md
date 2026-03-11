@@ -22,10 +22,11 @@ dubbing_manager/
 ├── services/                    # Бизнес-логика (Service Layer)
 │   ├── __init__.py
 │   ├── project_service.py       # Управление проектами (загрузка/сохранение)
-│   ├── episode_service.py       # Управление эпизодами (парсинг ASS)
+│   ├── episode_service.py       # Управление эпизодами (парсинг ASS/SRT, сохранение)
 │   ├── actor_service.py         # Управление актёрами (CRUD операции)
 │   ├── export_service.py        # Экспорт (HTML, Excel, пакетный экспорт)
 │   ├── global_settings_service.py # Глобальные настройки приложения
+│   ├── docx_import_service.py   # Импорт DOCX с гибкой настройкой колонок
 │   └── osc_worker.py            # OSC сервер для синхронизации с Reaper
 │
 ├── ui/                          # Пользовательский интерфейс
@@ -43,6 +44,7 @@ dubbing_manager/
 │       ├── __init__.py
 │       ├── actor_filter.py      # Выбор актёров для подсветки
 │       ├── colors.py            # Настройка цветовой схемы
+│       ├── docx_import.py       # Импорт DOCX с настройкой колонок
 │       ├── edit_text_dialog.py  # Редактирование текста реплики
 │       ├── export.py            # Настройки экспорта
 │       ├── reaper.py            # Настройки экспорта в Reaper
@@ -56,11 +58,17 @@ dubbing_manager/
 │   ├── helpers.py               # Вспомогательные функции
 │   └── web_bridge.py            # Мост между JS и Python (для WebEngine)
 │
+├── docs/                        # Документация
+│   ├── DOCX_IMPORT.md           # Документация по импорту DOCX
+│   └── DOCX_IMPORT_IMPLEMENTATION.md  # Техническая документация
+│
 ├── tests/                       # Тесты
 │   ├── __init__.py
 │   ├── README.md
 │   ├── test_services.py         # Тесты сервисов
-│   └── test_additional.py       # Дополнительные тесты
+│   ├── test_additional.py       # Дополнительные тесты
+│   ├── test_docx_import.py      # Тесты импорта DOCX
+│   └── test_docx_save.py        # Тесты сохранения DOCX
 │
 └── dist/                        # Скомпилированные приложения (git-ignored)
 ```
@@ -81,10 +89,11 @@ dubbing_manager/
 | Файл | Описание |
 |------|----------|
 | `project_service.py` | Загрузка/сохранение проектов, автосохранение, ротация бэкапов |
-| `episode_service.py` | Парсинг ASS файлов, загрузка эпизодов, сохранение, подсчёт колец |
+| `episode_service.py` | Парсинг ASS/SRT файлов, загрузка эпизодов, сохранение, подсчёт колец |
 | `actor_service.py` | CRUD операции с актёрами, назначение ролей |
 | `export_service.py` | Экспорт в HTML, Excel, пакетный экспорт, объединение реплик |
 | `global_settings_service.py` | Глобальные настройки приложения (экспорт, телесуфлёр, объединение) |
+| `docx_import_service.py` | Импорт DOCX: извлечение таблиц, маппинг колонок, парсинг таймингов |
 | `osc_worker.py` | OSC сервер для синхронизации с Reaper (поток) |
 
 ### ui/controllers/
@@ -97,6 +106,7 @@ dubbing_manager/
 |------|----------|
 | `actor_filter.py` | Диалог выбора актёров для фильтрации/подсветки |
 | `colors.py` | Диалоги настройки цветовой схемы (PrompterColorDialog, CustomColorDialog) |
+| `docx_import.py` | Диалог импорта DOCX: маппинг колонок, предпросмотр, импорт нескольких таблиц |
 | `edit_text_dialog.py` | Диалог редактирования текста реплики |
 | `export.py` | Диалог настроек экспорта (ExportSettingsDialog) |
 | `reaper.py` | Диалог настроек экспорта в Reaper (ReaperExportDialog) |
@@ -154,6 +164,7 @@ log_exception(logger, "Load failed", e)
 | `pyside6-addons` | 6.10.2 | Дополнительные компоненты Qt |
 | `python-osc` | 1.9.3 | OSC протокол |
 | `openpyxl` | >=3.0.0 | Excel экспорт |
+| `python-docx` | >=1.0.0 | Импорт DOCX файлов |
 | `requests` | 2.32.5 | HTTP запросы |
 | `pytest` | >=7.0.0 | Тестирование |
 | `pytest-cov` | >=4.0.0 | Покрытие кода |
@@ -161,6 +172,27 @@ log_exception(logger, "Load failed", e)
 ## Примечания
 
 - **ActorController** — контроллер для управления панелью актёров
+- **DocxImportService** — сервис импорта DOCX с гибкой настройкой колонок
+- **DocxImportDialog** — диалог импорта DOCX с предпросмотром и поддержкой нескольких таблиц
 - **ExportService** — поддержка пакетного экспорта, объединение реплик
 - **ReplicaMergeSettingsDialog** — диалог настроек объединения реплик
 - **GlobalSettingsService** — глобальные настройки приложения (сохраняются в ~/.dubbing_manager/ или %APPDATA%)
+
+## Новые возможности (DOCX импорт)
+
+### Основные возможности
+- **Импорт DOCX** — кнопка "+ .DOCX" в панели управления сериями
+- **Гибкий маппинг** — настройка соответствия колонок таблицы полям (имя персонажа, тайминг, текст)
+- **Автоопределение** — автоматическое распознавание колонок по заголовкам
+- **Тайминг в одной колонке** — поддержка формата `00:00:01,000 - 00:00:03,000`
+- **Настраиваемые разделители** — `-`, `–`, `—`, `|`, `/` и другие
+- **Предпросмотр** — визуальная проверка данных перед импортом
+- **Импорт нескольких таблиц** — поддержка документов с несколькими таблицами
+- **Сохранение в ASS** — конвертация DOCX в ASS формат с сохранением имён персонажей
+
+### Файлы
+- `services/docx_import_service.py` — сервис импорта
+- `ui/dialogs/docx_import.py` — диалог импорта
+- `docs/DOCX_IMPORT.md` — документация пользователя
+- `tests/test_docx_import.py` — тесты импорта
+- `tests/test_docx_save.py` — тесты сохранения
