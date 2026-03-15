@@ -30,3 +30,5 @@ dubbing_manager.log
 *.bak
 *.log
 *.tmp
+QWEN.md
+.qwen/

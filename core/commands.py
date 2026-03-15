@@ -428,11 +428,14 @@ class SetProjectFolderCommand(Command):
 class UndoStack:
     """
     Стек отмены/повтора действий.
-    
+
     Хранит историю выполненных команд и позволяет:
     - Отменять последние действия (undo)
     - Повторять отменённые действия (redo)
     - Очищать историю
+    
+    Примечание: для предотвращения утечки памяти при достижении
+    max_size старые команды удаляются без вызова undo().
     """
 
     def __init__(self, max_size: int = 100):
@@ -444,22 +447,38 @@ class UndoStack:
     def push(self, command: Command) -> None:
         """
         Выполнение и сохранение команды.
-        
+
         Args:
             command: Команда для выполнения
         """
         command.execute()
         self._undo_stack.append(command)
-        
-        # Ограничиваем размер стека
-        if len(self._undo_stack) > self._max_size:
-            self._undo_stack.pop(0)
-        
+
+        # Ограничиваем размер стека - удаляем старые команды
+        # (без вызова undo, т.к. они уже применены)
+        while len(self._undo_stack) > self._max_size:
+            old_command = self._undo_stack.pop(0)
+            # Очищаем ссылки на данные для предотвращения утечек памяти
+            self._cleanup_command(old_command)
+
         # Очищаем redo стек при новом действии
         self._redo_stack.clear()
-        
+
         self._notify_change()
         logger.debug(f"Command pushed: {command.get_description()}")
+
+    def _cleanup_command(self, command: Command) -> None:
+        """
+        Очистка ссылок на данные в команде для предотвращения утечек памяти.
+        
+        Args:
+            command: Команда для очистки
+        """
+        # Очищаем атрибуты команды, которые могут держать большие объекты
+        for attr_name in ['_old_data', '_deleted_data', '_removed_mappings', 
+                          '_old_name', '_old_color', '_old_folder', '_old_actor_id']:
+            if hasattr(command, attr_name):
+                setattr(command, attr_name, None)
 
     def undo(self) -> bool:
         """
@@ -508,7 +527,13 @@ class UndoStack:
         return len(self._redo_stack) > 0
 
     def clear(self) -> None:
-        """Очистка всех стеков"""
+        """Очистка всех стеков с освобождением памяти"""
+        # Очищаем все команды для освобождения памяти
+        for command in self._undo_stack:
+            self._cleanup_command(command)
+        for command in self._redo_stack:
+            self._cleanup_command(command)
+            
         self._undo_stack.clear()
         self._redo_stack.clear()
         self._notify_change()
