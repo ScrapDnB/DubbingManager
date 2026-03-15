@@ -32,3 +32,4 @@ dubbing_manager.log
 *.tmp
 QWEN.md
 .qwen/
+build.sh
