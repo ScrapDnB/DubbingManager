@@ -1,5 +1,6 @@
 from .actor_filter import ActorFilterDialog
 from .colors import PrompterColorDialog, CustomColorDialog
+from .docx_import import DocxImportDialog
 from .export import ExportSettingsDialog
 from .reaper import ReaperExportDialog
 from .replica_merge import ReplicaMergeSettingsDialog
@@ -12,6 +13,7 @@ __all__ = [
     'ActorFilterDialog',
     'PrompterColorDialog',
     'CustomColorDialog',
+    'DocxImportDialog',
     'ExportSettingsDialog',
     'ReaperExportDialog',
     'ReplicaMergeSettingsDialog',

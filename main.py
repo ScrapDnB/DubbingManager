@@ -13,9 +13,9 @@ def get_log_path() -> Path:
     """Получить путь для лог-файла в пользовательской директории."""
     if sys.platform == 'win32':
         # Windows: используем %LOCALAPPDATA%
-        base = os.environ.get('LOCALAPPDATA')
+        base = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA')
         if not base:
-            base = os.environ.get('APPDATA', str(Path.home()))
+            base = str(Path.home())
         log_dir = Path(base) / 'DubbingManager' / 'logs'
     elif sys.platform == 'darwin':
         # macOS: ~/Library/Logs
@@ -23,7 +23,7 @@ def get_log_path() -> Path:
     else:
         # Linux и другие: ~/.local/share
         log_dir = Path.home() / '.local' / 'share' / 'dubbing-manager' / 'logs'
-    
+
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir / 'dubbing_manager.log'
 

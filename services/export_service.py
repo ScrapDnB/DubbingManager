@@ -3,15 +3,16 @@
 import os
 import sys
 import logging
-from typing import Dict, List, Any, Optional, Set, Tuple
+import re
+from typing import Dict, List, Any, Optional, Set, Tuple, Callable
 
-from utils.helpers import hex_to_rgba_string
+from utils.helpers import hex_to_rgba_string, format_timing_range, format_seconds_to_tc
 
 logger = logging.getLogger(__name__)
 
 try:
     import openpyxl
-    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
     EXCEL_AVAILABLE = True
 except ImportError:
@@ -33,8 +34,9 @@ class ExportService:
         """Логика слияния реплик"""
         p_short = cfg.get('p_short', 0.5)
         p_long = cfg.get('p_long', 2.0)
-        # Конвертируем merge_gap из кадров в секунды (25 кадров/сек)
-        gap_seconds = cfg.get('merge_gap', 5) / 25.0
+        fps = cfg.get('fps', 25.0)
+        # Конвертируем merge_gap из кадров в секунды
+        gap_seconds = cfg.get('merge_gap', 5) / fps
 
         res = []
         curr = None
@@ -124,6 +126,14 @@ class ExportService:
         use_color = cfg.get('use_color', True)
 
         for idx, line in enumerate(processed):
+            # Валидация данных реплики
+            if 'char' not in line:
+                logger.warning(f"Skipping line without 'char' field: {line}")
+                continue
+            if 'text' not in line:
+                logger.warning(f"Skipping line without 'text' field: {line}")
+                continue
+
             aid = global_map.get(line['char'])
             actor = actors.get(aid, {"name": "-", "color": "#ffffff"})
 
@@ -214,65 +224,7 @@ class ExportService:
             var backend;
             new QWebChannel(qt.webChannelTransport, function (channel) {
                 backend = channel.objects.backend;
-                window.updateScrollStatus();
             });
-
-            window.updateScrollStatus = function() {
-                var blocks = Array.from(
-                    document.querySelectorAll('.highlighted-block')
-                );
-                if (blocks.length === 0 || !backend) return;
-                var midLine = window.innerHeight / 2;
-                var closestIndex = 0;
-                var minDistance = Infinity;
-                blocks.forEach((block, index) => {
-                    var rect = block.getBoundingClientRect();
-                    var distance = Math.abs(
-                        (rect.top + rect.height/2) - midLine
-                    );
-                    if (distance < minDistance) {
-                        minDistance = distance;
-                        closestIndex = index;
-                    }
-                });
-                backend.sync_scroll_index(closestIndex, blocks.length);
-            };
-
-            var scrollTimeout;
-            window.onscroll = function() {
-                clearTimeout(scrollTimeout);
-                scrollTimeout = setTimeout(
-                    window.updateScrollStatus, 50
-                );
-            };
-
-            window.jumpToNextHighlighted = function(direction) {
-                var blocks = Array.from(
-                    document.querySelectorAll('.highlighted-block')
-                );
-                if (blocks.length === 0) return;
-                var targetIndex = -1;
-                var threshold = 160;
-                if (direction === 'next') {
-                    targetIndex = blocks.findIndex(
-                        b => b.getBoundingClientRect().top > threshold
-                    );
-                    if (targetIndex === -1) targetIndex = 0;
-                } else {
-                    targetIndex = blocks.findLastIndex(
-                        b => b.getBoundingClientRect().top < 50
-                    );
-                    if (targetIndex === -1)
-                        targetIndex = blocks.length - 1;
-                }
-                var target = blocks[targetIndex];
-                blocks.forEach(b => b.classList.remove('active-replica'));
-                target.classList.add('active-replica');
-                target.scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'center'
-                });
-            };
 
             function onBlur(el) {
                 if(backend) {
@@ -305,12 +257,6 @@ class ExportService:
             .highlighted-block {
                 transition: outline 0.3s, box-shadow 0.3s;
             }
-            .active-replica {
-                outline: 6px solid #FFD700 !important;
-                outline-offset: -6px;
-                box-shadow: 0 0 25px rgba(255, 215, 0, 0.8) !important;
-                z-index: 99;
-            }
         </style>
         """
 
@@ -320,12 +266,6 @@ class ExportService:
         <style>
             .highlighted-block {
                 transition: outline 0.3s, box-shadow 0.3s;
-            }
-            .active-replica {
-                outline: 6px solid #FFD700 !important;
-                outline-offset: -6px;
-                box-shadow: 0 0 25px rgba(255, 215, 0, 0.8) !important;
-                z-index: 99;
             }
         </style>
         """
@@ -433,76 +373,311 @@ class ExportService:
     # Excel экспорт
     # ==========================================================================
 
+    def _get_times_font(self, size: float = 14.0, bold: bool = False, italic: bool = False) -> Font:
+        """Создание шрифта Times New Roman"""
+        return Font(name='Times New Roman', size=size, bold=bold, italic=italic, charset=204)
+
+    def _get_thin_border(self) -> Border:
+        """Создание тонких границ ячеек"""
+        side = Side(style='thin', color='00000000')
+        return Border(left=side, right=side, top=side, bottom=side)
+
+    def _count_words(self, text: str) -> int:
+        """Подсчёт количества слов в тексте"""
+        if not text:
+            return 0
+        # Разбиваем по пробельным символам и считаем непустые токены
+        words = re.findall(r'\S+', text.strip())
+        return len(words)
+
+    def _apply_cell_styling(
+        self,
+        cell,
+        font_size: float = 14.0,
+        wrap_text: bool = False,
+        fill_color: Optional[str] = None,
+        border: Optional[Border] = None
+    ):
+        """Применение стилей к ячейке"""
+        cell.font = self._get_times_font(size=font_size)
+        cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=wrap_text)
+        if border:
+            cell.border = border
+        if fill_color:
+            # Ensure color is in ARGB format (8 chars)
+            color = fill_color.replace('#', '')
+            if len(color) == 6:
+                color = 'FF' + color  # Add alpha channel
+            fill = PatternFill(start_color=color, end_color=color, fill_type='solid')
+            cell.fill = fill
+
+    def _create_actors_summary_sheet(
+        self,
+        wb: openpyxl.Workbook,
+        episodes_data: Dict[str, List[Dict[str, Any]]],
+        cfg: Dict[str, Any]
+    ):
+        """Создание листа со сводкой по актёрам"""
+        # Удаляем стандартный лист если он есть
+        if 'Sheet' in wb.sheetnames:
+            del wb['Sheet']
+
+        ws = wb.create_sheet(title='Сводка')
+
+        actors = self.project_data.get('actors', {})
+        global_map = self.project_data.get('global_map', {})
+
+        # Сортируем номера серий для правильного порядка колонок
+        sorted_ep_keys = sorted(episodes_data.keys(), key=lambda x: int(x))
+
+        # Собираем статистику по актёрам
+        actor_stats: Dict[str, Dict[str, Any]] = {}
+        for actor_id, actor_data in actors.items():
+            actor_stats[actor_id] = {
+                'name': actor_data.get('name', ''),
+                'color': actor_data.get('color', '#FFFFFF'),
+                'roles': [],
+                'episode_words': {}
+            }
+
+        # Маппинг персонажей к актёрам
+        char_to_actor: Dict[str, str] = {}
+        for char_name, actor_id in global_map.items():
+            char_to_actor[char_name] = actor_id
+            if actor_id in actor_stats:
+                if char_name not in actor_stats[actor_id]['roles']:
+                    actor_stats[actor_id]['roles'].append(char_name)
+
+        # Подсчёт слов по сериям с использованием реальных номеров эпизодов
+        for ep_key in sorted_ep_keys:
+            lines = episodes_data[ep_key]
+            for line in lines:
+                char_name = line.get('char', '')
+                actor_id = char_to_actor.get(char_name)
+                if actor_id and actor_id in actor_stats:
+                    if ep_key not in actor_stats[actor_id]['episode_words']:
+                        actor_stats[actor_id]['episode_words'][ep_key] = 0
+                    actor_stats[actor_id]['episode_words'][ep_key] += self._count_words(line.get('text', ''))
+
+        # Динамические заголовки с реальными номерами серий
+        headers = ['Актёр', 'Персонаж']
+        for ep_key in sorted_ep_keys:
+            headers.append(f'{ep_key} серия')
+        headers.append('Всего слов')
+        ws.append(headers)
+
+        # Стили заголовков
+        header_font = self._get_times_font(size=14.0)
+        header_alignment = Alignment(horizontal='left', vertical='top')
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_font
+            cell.alignment = header_alignment
+
+        # Ширина колонок
+        ws.column_dimensions['A'].width = 21.5
+        ws.column_dimensions['B'].width = 55.33
+        # Динамическая ширина для колонок серий
+        for i in range(1, len(sorted_ep_keys) + 2):
+            col_letter = openpyxl.utils.get_column_letter(2 + i)
+            ws.column_dimensions[col_letter].width = 11.83
+
+        # Высота первой строки
+        ws.row_dimensions[1].height = 20.0
+
+        # Заполнение данными
+        row_num = 2
+        thin_border = self._get_thin_border()
+        for actor_id, stats in actor_stats.items():
+            if not stats['roles']:  # Пропускаем актёров без ролей
+                continue
+
+            actor_name = stats['name']
+            roles_str = ', '.join(stats['roles'])
+            episode_words = stats['episode_words']
+
+            # Цвет актёра
+            color_hex = stats['color'].replace('#', '')
+            fill_color = color_hex if color_hex else 'FFFFFF'
+
+            # Ячейка с именем актёра
+            name_cell = ws.cell(row=row_num, column=1, value=actor_name)
+            self._apply_cell_styling(name_cell, font_size=14.0, fill_color=fill_color, border=thin_border)
+
+            # Ячейка с персонажами
+            roles_cell = ws.cell(row=row_num, column=2, value=roles_str)
+            self._apply_cell_styling(roles_cell, font_size=9.0, border=thin_border)
+
+            # Ячейки с количеством слов по сериям (в порядке отсортированных ключей)
+            total_words = 0
+            for ep_idx, ep_key in enumerate(sorted_ep_keys):
+                word_count = episode_words.get(ep_key, 0)
+                total_words += word_count
+                cell = ws.cell(row=row_num, column=3 + ep_idx, value=word_count)
+                self._apply_cell_styling(cell, font_size=14.0, border=thin_border)
+
+            # Ячейка с итоговым количеством слов
+            total_cell = ws.cell(row=row_num, column=3 + len(sorted_ep_keys), value=total_words)
+            self._apply_cell_styling(total_cell, font_size=14.0, border=thin_border)
+
+            row_num += 1
+
+        # Фильтр НЕ добавляем - сортировка на странице актёров не нужна
+
+    def _create_episode_sheet(
+        self,
+        wb: openpyxl.Workbook,
+        ep_num: str,
+        processed: List[Dict[str, Any]],
+        cfg: Dict[str, Any]
+    ):
+        """Создание листа с эпизодом"""
+        sheet_name = f'серия ({ep_num})'
+        ws = wb.create_sheet(title=sheet_name)
+
+        actors = self.project_data.get('actors', {})
+        global_map = self.project_data.get('global_map', {})
+        use_color = cfg.get('use_color', True)
+        round_time = cfg.get('round_time', False)
+
+        # Определяем колонки на основе настроек
+        col_tc = cfg.get('col_tc', True)
+        col_char = cfg.get('col_char', True)
+        col_actor = cfg.get('col_actor', True)
+        col_text = cfg.get('col_text', True)
+
+        # Заголовки только для выбранных колонок
+        headers = ['Номер']
+        if col_tc:
+            headers.append('Таймкод')
+        if col_char:
+            headers.append('Персонаж')
+        if col_actor:
+            headers.append('Актёр')
+        if col_text:
+            headers.append('Реплика')
+        ws.append(headers)
+
+        # Стили заголовков
+        header_fonts = {
+            'номер': self._get_times_font(size=14.0),
+            'тайм': self._get_times_font(size=13.0),
+            'персонаж': self._get_times_font(size=12.0),
+            'актёр': self._get_times_font(size=14.0),
+            'реплика': self._get_times_font(size=14.0)
+        }
+        header_alignment = Alignment(horizontal='left', vertical='top')
+
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_fonts.get(header, self._get_times_font(size=14.0))
+            cell.alignment = header_alignment
+
+        # Ширина колонок
+        col_widths = {
+            'Номер': 8.66,
+            'Таймкод': 13.0,  # Уменьшено для переноса тайминга на 2 строки
+            'Персонаж': 28.83,
+            'Актёр': 29.5,
+            'Реплика': 92.33
+        }
+        for col_idx, header in enumerate(headers, 1):
+            col_letter = openpyxl.utils.get_column_letter(col_idx)
+            ws.column_dimensions[col_letter].width = col_widths.get(header, 13.0)
+
+        # Тонкие границы для всех ячеек
+        thin_border = self._get_thin_border()
+
+        # Заполнение данными
+        for row_idx, line in enumerate(processed, 2):
+            char_name = line.get('char', '')
+            actor_id = global_map.get(char_name)
+            actor = actors.get(actor_id, {}) if actor_id else {}
+            actor_name = actor.get('name', '-') if actor else '-'
+
+            # Определяем цвет
+            if use_color and actor_id:
+                color_hex = actor.get('color', '#FFFFFF').replace('#', '')
+            else:
+                color_hex = 'FFFFFF'
+
+            # Форматируем тайминг
+            if round_time:
+                # Округлённый формат без миллисекунд: HH:MM:SS-HH:MM:SS
+                timing = f"{format_seconds_to_tc(line.get('s', 0))}-{format_seconds_to_tc(line.get('e', 0))}"
+            else:
+                # Полный формат с миллисекундами: HH:MM:SS,mmm-HH:MM:SS,mmm
+                timing = format_timing_range(line.get('s', 0), line.get('e', 0))
+
+            # Данные строки только для выбранных колонок
+            row_data = [row_idx - 1]  # номер строки всегда
+            if col_tc:
+                row_data.append(timing)
+            if col_char:
+                row_data.append(char_name)
+            if col_actor:
+                row_data.append(actor_name)
+            if col_text:
+                row_data.append(line.get('text', ''))
+
+            for col, value in enumerate(row_data, 1):
+                cell = ws.cell(row=row_idx, column=col, value=value)
+
+                # Применяем стили
+                font_size = 14.0
+                # wrap_text для тайминга и для реплики
+                timing_col = 2 if col_tc else None  # Колонка с таймингом (вторая после номера)
+                wrap_text = (timing_col and col == timing_col) or (col_text and col == len(row_data))
+
+                self._apply_cell_styling(
+                    cell,
+                    font_size=font_size,
+                    wrap_text=wrap_text,
+                    fill_color=color_hex,
+                    border=thin_border
+                )
+
+                # Для колонки с репликой устанавливаем высоту строки
+                if col_text and col == len(row_data):
+                    # Примерная высота строки на основе количества текста
+                    text = value if isinstance(value, str) else ''
+                    lines_count = max(1, text.count('\n') + 1 + len(text) // 80)
+                    ws.row_dimensions[row_idx].height = min(120, 20 + lines_count * 15)
+
+        # Добавляем фильтр
+        last_col_letter = openpyxl.utils.get_column_letter(len(headers))
+        ws.auto_filter.ref = f'A1:{last_col_letter}{len(processed) + 1}'
+
     def create_excel_book(
         self,
-        ep: str,
-        processed: List[Dict[str, Any]],
+        episodes_data: Dict[str, List[Dict[str, Any]]],
         cfg: Optional[Dict[str, Any]] = None
     ) -> Any:
-        """Создание Excel книги"""
+        """
+        Создание Excel книги с несколькими листами
+
+        Args:
+            episodes_data: словарь {номер_серии: список_реплик}
+            cfg: конфигурация экспорта
+
+        Returns:
+            openpyxl.Workbook
+        """
         if not EXCEL_AVAILABLE:
             raise ImportError("openpyxl not available")
 
         if cfg is None:
-            cfg = self.project_data["export_config"]
+            cfg = self.project_data.get("export_config", {})
 
         wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.append(["№", "Таймкод", "Персонаж", "Актер", "Текст"])
 
-        use_color = cfg.get('use_color', True)
-        highlight_ids = cfg.get('highlight_ids_export')
-        all_actor_ids = set(self.project_data["actors"].keys())
+        # Создаём лист со сводкой по актёрам
+        self._create_actors_summary_sheet(wb, episodes_data, cfg)
 
-        is_full_filter = (
-            highlight_ids is not None and
-            set(highlight_ids) == all_actor_ids
-        )
-        effective_filter = (
-            None
-            if (highlight_ids is None or is_full_filter)
-            else set(highlight_ids)
-        )
-
-        for i, line in enumerate(processed, 2):
-            aid = self.project_data["global_map"].get(line['char'])
-            actor = self.project_data["actors"].get(
-                aid, {"name": "-", "color": "#FFFFFF"}
-            )
-
-            ws.append([
-                i-1,
-                line['s_raw'],
-                line['char'],
-                actor['name'],
-                line['text']
-            ])
-
-            if use_color:
-                is_highlighted = (
-                    effective_filter is None or
-                    aid in effective_filter
-                )
-                if is_highlighted:
-                    color = actor['color'].replace("#", "")
-                else:
-                    color = "FFFFFF"
-            else:
-                color = "FFFFFF"
-
-            fill = PatternFill(
-                start_color=color,
-                end_color=color,
-                fill_type="solid"
-            )
-
-            for col in range(1, 6):
-                cell = ws.cell(row=i, column=col)
-                cell.fill = fill
-                cell.alignment = Alignment(
-                    vertical='top',
-                    wrap_text=(col == 5)
-                )
+        # Создаём листы для каждой серии (отсортированы по порядку)
+        for ep_num in sorted(episodes_data.keys(), key=lambda x: int(x)):
+            lines = episodes_data[ep_num]
+            self._create_episode_sheet(wb, ep_num, lines, cfg)
 
         return wb
 
@@ -511,10 +686,20 @@ class ExportService:
         ep: str,
         lines: List[Dict[str, Any]],
         cfg: Dict[str, Any],
-        save_path: str
+        save_path: str,
+        all_episodes: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        merge_cfg: Optional[Dict[str, Any]] = None
     ) -> Tuple[bool, str]:
         """
         Экспорт в Excel файл
+
+        Args:
+            ep: номер текущего эпизода
+            lines: реплики текущего эпизода
+            cfg: конфигурация экспорта (export_config)
+            save_path: путь сохранения файла
+            all_episodes: все эпизоды для сводки (если None, используется только текущий)
+            merge_cfg: конфигурация объединения реплик (replica_merge_config)
 
         Returns:
             Tuple[success, message]
@@ -523,8 +708,21 @@ class ExportService:
             return False, "openpyxl не установлен"
 
         try:
-            processed = self.process_merge_logic(lines, cfg)
-            wb = self.create_excel_book(ep, processed, cfg)
+            # Если переданы все эпизоды, используем их для сводки
+            if all_episodes:
+                episodes_data = all_episodes
+            else:
+                episodes_data = {ep: lines}
+
+            # Используем merge_cfg для обработки реплик, cfg для форматирования
+            if merge_cfg is None:
+                merge_cfg = self.project_data.get("replica_merge_config", {})
+
+            processed_episodes = {}
+            for ep_num, ep_lines in episodes_data.items():
+                processed_episodes[ep_num] = self.process_merge_logic(ep_lines, merge_cfg)
+
+            wb = self.create_excel_book(processed_episodes, cfg)
             wb.save(save_path)
             return True, f"Excel сохранён: {save_path}"
         except Exception as e:
@@ -541,7 +739,8 @@ class ExportService:
         get_lines_callback,
         do_html: bool = True,
         do_xls: bool = False,
-        folder: str = None
+        folder: str = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None
     ) -> Tuple[bool, str]:
         """
         Пакетный экспорт нескольких эпизодов
@@ -552,6 +751,7 @@ class ExportService:
             do_html: экспортировать в HTML
             do_xls: экспортировать в Excel
             folder: папка для сохранения
+            progress_callback: callback(current, total, message) для обновления прогресса
 
         Returns:
             Tuple[success, message]
@@ -563,12 +763,26 @@ class ExportService:
         merge_cfg = self.project_data.get("replica_merge_config", {})
         project_name = self.project_data.get('project_name', 'Project')
         exported_count = 0
+        total_episodes = len(episodes)
 
         try:
-            for ep, path in episodes.items():
+            # Собираем все эпизоды для сводки в Excel
+            all_episodes_data = {}
+            if do_xls:
+                for ep, path in episodes.items():
+                    lines = get_lines_callback(ep)
+                    if lines:
+                        all_episodes_data[ep] = lines
+
+            for idx, (ep, path) in enumerate(episodes.items(), 1):
                 lines = get_lines_callback(ep)
                 if not lines:
+                    if progress_callback:
+                        progress_callback(idx, total_episodes, f"Пропуск серии {ep}...")
                     continue
+
+                if progress_callback:
+                    progress_callback(idx - 1, total_episodes, f"Экспорт серии {ep}...")
 
                 if do_html:
                     filename = f"{project_name} - Ep{ep}.html"
@@ -586,13 +800,18 @@ class ExportService:
                     exported_count += 1
 
                 if do_xls and EXCEL_AVAILABLE:
-                    filename = f"{project_name} - Ep{ep}.xlsx"
+                    # Экспортируем один общий Excel файл со всеми сериями
+                    filename = f"{project_name} - Все серии.xlsx"
                     filepath = os.path.join(folder, filename)
                     success, _ = self.export_to_excel(
-                        ep, lines, merge_cfg, filepath
+                        ep, lines, cfg, filepath, all_episodes_data, merge_cfg
                     )
                     if success:
                         exported_count += 1
+
+            # Обновляем прогресс до конца
+            if progress_callback:
+                progress_callback(total_episodes, total_episodes, "Готово!")
 
             # Открыть папку
             if exported_count > 0:

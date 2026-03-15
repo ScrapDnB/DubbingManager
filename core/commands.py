@@ -87,20 +87,21 @@ class DeleteActorCommand(Command):
 
     def execute(self) -> None:
         self._deleted_data = self.actors.get(self.actor_id)
-        
+
         # Сохраняем и удаляем маппинги
         self._removed_mappings = [
             (char, aid) for char, aid in self.global_map.items()
             if aid == self.actor_id
         ]
-        for char in list(self.global_map.keys()):
-            if self.global_map[char] == self.actor_id:
-                del self.global_map[char]
-        
+        # Явно создаём копию списка ключей для безопасного удаления
+        chars_to_remove = [char for char, aid in self.global_map.items() if aid == self.actor_id]
+        for char in chars_to_remove:
+            del self.global_map[char]
+
         # Удаляем актёра
         if self.actor_id in self.actors:
             del self.actors[self.actor_id]
-        
+
         logger.debug(f"DeleteActorCommand executed: {self.actor_id}")
 
     def undo(self) -> None:

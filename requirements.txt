@@ -12,6 +12,7 @@ urllib3==2.6.3
 
 # Optional dependencies
 openpyxl>=3.0.0  # Excel export
+python-docx>=1.0.0  # DOCX import
 
 # Development dependencies
 pytest>=7.0.0

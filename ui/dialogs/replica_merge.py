@@ -22,9 +22,10 @@ class ReplicaMergeSettingsDialog(QDialog):
         self.settings: Dict[str, Any] = current_settings.copy()
 
         self._merge_enabled: QCheckBox
-        self._merge_gap: QSpinBox
+        self._merge_gap: QDoubleSpinBox
         self._p_short: QDoubleSpinBox
         self._p_long: QDoubleSpinBox
+        self._fps: QDoubleSpinBox
 
         self._init_ui()
 
@@ -51,10 +52,21 @@ class ReplicaMergeSettingsDialog(QDialog):
         self._merge_enabled.setChecked(self.settings.get('merge', True))
         merge_layout.addRow(self._merge_enabled)
 
+        self._fps = QDoubleSpinBox()
+        self._fps.setRange(1.0, 120.0)
+        self._fps.setSingleStep(0.001)
+        self._fps.setValue(self.settings.get('fps', 25.0))
+        self._fps.setToolTip(
+            "Частота кадров видео (FPS). Используется для расчёта времени\n"
+            "при объединении реплик (merge_gap указывается в кадрах)."
+        )
+        merge_layout.addRow("FPS:", self._fps)
+
+        fps = self.settings.get('fps', 25.0)
         self._merge_gap = QDoubleSpinBox()
         self._merge_gap.setRange(0.0, 10.0)
         self._merge_gap.setSingleStep(0.1)
-        self._merge_gap.setValue(self.settings.get('merge_gap', 5) / 25.0)  # Конвертируем кадры в секунды
+        self._merge_gap.setValue(self.settings.get('merge_gap', 5) / fps)  # Конвертируем кадры в секунды
         self._merge_gap.setToolTip(
             "Максимальный промежуток между репликами (в секундах),\n"
             "при котором они могут быть объединены"
@@ -117,11 +129,13 @@ class ReplicaMergeSettingsDialog(QDialog):
 
     def get_settings(self) -> Dict[str, Any]:
         """Возвращает обновлённые настройки"""
-        # Конвертируем секунды обратно в кадры (25 кадров/сек)
-        merge_gap_frames = int(self._merge_gap.value() * 25)
+        fps = self._fps.value()
+        # Конвертируем секунды обратно в кадры
+        merge_gap_frames = int(self._merge_gap.value() * fps)
         return {
             'merge': self._merge_enabled.isChecked(),
             'merge_gap': merge_gap_frames,
+            'fps': fps,
             'p_short': self._p_short.value(),
             'p_long': self._p_long.value(),
         }

@@ -150,13 +150,17 @@ class ProjectFilesDialog(QDialog):
             if ass_path:
                 total_count += 1
                 status_text, status_color = self._get_file_status(ass_path)
-                
+
                 if status_text.startswith("✓"):
                     found_count += 1
+
+                # Определяем тип файла по расширению
+                file_ext = ".srt" if ass_path.lower().endswith('.srt') else ".ass"
+                file_icon = "📄"
                 
                 ass_item = QTreeWidgetItem([
                     "",
-                    "📄 Субтитры (.ass)",
+                    f"{file_icon} Субтитры ({file_ext})",
                     status_text,
                     ass_path or ""
                 ])
@@ -226,8 +230,13 @@ class ProjectFilesDialog(QDialog):
         # Определяем текущий путь и фильтр файлов
         if file_type == "ass":
             current_path = self.data.get("episodes", {}).get(ep_num)
-            file_filter = "ASS Files (*.ass)"
-            title = "Выберите ASS файл"
+            # Определяем расширение текущего файла
+            if current_path and current_path.lower().endswith('.srt'):
+                file_filter = "Subtitle Files (*.srt *.ass)"
+                title = "Выберите файл субтитров"
+            else:
+                file_filter = "Subtitle Files (*.ass *.srt)"
+                title = "Выберите файл субтитров"
         else:
             current_path = self.data.get("video_paths", {}).get(ep_num)
             file_filter = "Video Files (*.mp4 *.mkv *.avi *.mov *.m4v *.wmv)"

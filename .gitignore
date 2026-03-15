@@ -12,7 +12,7 @@ env/
 .venv312/
 build/
 dist/
-docs/
+test_files
 
 # Файлы с секретами
 .env
@@ -27,3 +27,6 @@ docs/
 dubbing_manager.log
 /Output
 *.iss
+*.bak
+*.log
+*.tmp

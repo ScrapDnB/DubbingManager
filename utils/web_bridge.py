@@ -1,7 +1,7 @@
 """Мост между JS и Python для веб-компонентов"""
 
 from PySide6.QtCore import QObject, Slot
-from typing import Any, Optional
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,12 +13,6 @@ class WebBridge(QObject):
     def __init__(self, main_app: Any, parent=None):
         super().__init__(parent)
         self.main_app = main_app
-
-    @Slot(int, int)
-    def sync_scroll_index(self, index: int, total: int) -> None:
-        """Обновляет счетчик в окне предпросмотра при прокрутке"""
-        if self.main_app and hasattr(self.main_app, 'preview_window'):
-            self.main_app.preview_window.update_counter_label(index, total)
 
     @Slot(str, str)
     def update_text(self, line_id: str, new_text: str) -> None:
@@ -78,5 +72,16 @@ class WebBridge(QObject):
                         logger.warning(f"Error updating preview: {e}")
 
                     logger.debug(f"Updated line {lid}: {new_text}")
+                
+                # Обновляем флаг изменений текста
+                ep = self.main_app.ep_combo.currentData()
+                if ep:
+                    if not hasattr(self.main_app, 'text_changes'):
+                        self.main_app.text_changes = {}
+                    self.main_app.text_changes[ep] = True
+                    try:
+                        self.main_app.update_save_ass_button()
+                    except Exception as e:
+                        logger.warning(f"Error updating save button: {e}")
         except Exception as e:
             logger.error(f"Error updating text: {e}")

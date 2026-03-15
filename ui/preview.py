@@ -5,9 +5,9 @@ from PySide6.QtWidgets import (
     QLabel, QComboBox, QSpinBox, QGroupBox, QFormLayout,
     QFrame, QMessageBox, QFileDialog
 )
-from PySide6.QtCore import Qt, QTimer, Slot, QObject
+from PySide6.QtCore import Qt
 from PySide6.QtWebChannel import QWebChannel
-from typing import Dict, List, Any, Optional, Set, Callable
+from typing import Dict, List, Any, Optional, Set
 import logging
 import os
 import sys
@@ -39,7 +39,6 @@ class HtmlLivePreview(QDialog):
     main_app: Any
     ep_num: str
     highlight_ids: Optional[List[str]]
-    current_h_index: int
     _has_text_changes: bool
 
     def __init__(self, main_app: Any, ep_num: str) -> None:
@@ -50,7 +49,6 @@ class HtmlLivePreview(QDialog):
         self.resize(PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT)
 
         self.highlight_ids = None
-        self.current_h_index: int = -1
         self._has_text_changes: bool = False
 
         self._init_ui()
@@ -88,28 +86,7 @@ class HtmlLivePreview(QDialog):
         self.btn_toggle_sidebar.setCheckable(True)
         self.btn_toggle_sidebar.clicked.connect(self.toggle_sidebar)
 
-        self.btn_prev_h = QPushButton("⏮ Пред. реплика (Alt+←)")
-        self.btn_prev_h.setShortcut("Alt+Left")
-        self.btn_prev_h.clicked.connect(
-            lambda: self.scroll_to_highlight("prev")
-        )
-
-        self.lbl_h_count = QLabel("0 / 0")
-        self.lbl_h_count.setStyleSheet(
-            "font-weight: bold; margin: 0 10px;"
-        )
-
-        self.btn_next_h = QPushButton("След. реплика (Alt+→) ⏭")
-        self.btn_next_h.setShortcut("Alt+Right")
-        self.btn_next_h.clicked.connect(
-            lambda: self.scroll_to_highlight("next")
-        )
-
         self.nav_panel.addWidget(self.btn_toggle_sidebar)
-        self.nav_panel.addSpacing(20)
-        self.nav_panel.addWidget(self.btn_prev_h)
-        self.nav_panel.addWidget(self.lbl_h_count)
-        self.nav_panel.addWidget(self.btn_next_h)
         self.nav_panel.addStretch()
 
         self.root_layout.addLayout(self.nav_panel)
@@ -187,13 +164,15 @@ class HtmlLivePreview(QDialog):
         # Сохранение
         save_group = QGroupBox("Сохранение")
         sg_layout = QVBoxLayout(save_group)
-        
-        btn_save_ass = QPushButton("💾 Сохранить в .ASS")
+
+        btn_save_ass = QPushButton("💾 Сохранить")
         btn_save_ass.clicked.connect(self.save_to_original_ass)
-        
+        btn_save_ass.setToolTip("Сохранить изменения в файл субтитров")
+
         btn_save_copy = QPushButton("Сохранить копию...")
         btn_save_copy.clicked.connect(self.save_ass_copy)
-        
+        btn_save_copy.setToolTip("Сохранить копию файла субтитров")
+
         sg_layout.addWidget(btn_save_ass)
         sg_layout.addWidget(btn_save_copy)
         sp_layout.addWidget(save_group)
@@ -210,64 +189,9 @@ class HtmlLivePreview(QDialog):
             self.browser.setOpenExternalLinks(False)
         self.content_layout.addWidget(self.browser)
     
-    @Slot()
     def on_page_loaded(self, ok: bool) -> None:
         """Обработка загрузки страницы"""
-        if ok:
-            QTimer.singleShot(
-                100, 
-                lambda: self.browser.page().runJavaScript(
-                    "window.updateScrollStatus();"
-                )
-            )
-    
-    def update_counter_label(self, index: int, total: int) -> None:
-        """Обновление счетчика реплик"""
-        self.current_h_index = index
-        if total > 0:
-            self.lbl_h_count.setText(f"{index + 1} / {total}")
-        else:
-            self.lbl_h_count.setText("0 / 0")
-
-    def scroll_to_highlight(self, direction: str) -> None:
-        """Прокрутка к подсвеченной реплике"""
-        js_get_total = (
-            "document.querySelectorAll('.highlighted-block').length"
-        )
-        
-        def navigate(total: Any) -> None:
-            if not total or int(total) == 0:
-                return
-            total = int(total)
-            
-            if direction == "next":
-                target_index = self.current_h_index + 1
-                if target_index >= total:
-                    target_index = 0
-            else:
-                target_index = self.current_h_index - 1
-                if target_index < 0:
-                    target_index = total - 1
-            
-            js_jump = f"""
-            (function() {{
-                var blocks = document.querySelectorAll('.highlighted-block');
-                var target = blocks[{target_index}];
-                if (target) {{
-                    blocks.forEach(b => b.classList.remove('active-replica'));
-                    target.classList.add('active-replica');
-                    target.scrollIntoView({{ 
-                        behavior: 'smooth', 
-                        block: 'center' 
-                    }});
-                }}
-            }})();
-            """
-            self.browser.page().runJavaScript(js_jump)
-            self.current_h_index = target_index
-            self.lbl_h_count.setText(f"{target_index + 1} / {total}")
-
-        self.browser.page().runJavaScript(js_get_total, navigate)
+        pass
 
     def update_preview(self) -> None:
         """Обновление предпросмотра"""
@@ -357,11 +281,15 @@ class HtmlLivePreview(QDialog):
             self.update_preview()
     
     def save_to_original_ass(self) -> None:
-        """Сохранение в оригинальный ASS"""
+        """Сохранение в оригинальный ASS/SRT"""
+        # Определяем тип файла
+        ep_path = self.main_app.data["episodes"].get(self.ep_num, "")
+        file_ext = "SRT" if ep_path.lower().endswith('.srt') else "ASS"
+        
         if QMessageBox.question(
-            self, 
+            self,
             "Подтверждение",
-            "Это перезапишет исходный файл .ass на диске.\nПродолжить?",
+            f"Это перезапишет исходный файл .{file_ext.lower()} на диске.\nПродолжить?",
             QMessageBox.Yes | QMessageBox.No
         ) == QMessageBox.Yes:
             if self.main_app.save_episode_to_ass(self.ep_num):
@@ -371,12 +299,18 @@ class HtmlLivePreview(QDialog):
                 )
     
     def save_ass_copy(self) -> None:
-        """Сохранение копии ASS"""
+        """Сохранение копии субтитров"""
+        # Определяем расширение исходного файла
+        ep_path = self.main_app.data["episodes"].get(self.ep_num, "")
+        default_ext = ".ass"
+        if ep_path.lower().endswith('.srt'):
+            default_ext = '.srt'
+        
         fn, _ = QFileDialog.getSaveFileName(
-            self, 
-            "Сохранить копию", 
-            f"Episode_{self.ep_num}_edit.ass", 
-            "ASS Files (*.ass)"
+            self,
+            "Сохранить копию",
+            f"Episode_{self.ep_num}_edit{default_ext}",
+            "Subtitle Files (*.ass *.srt)"
         )
         if fn:
             if self.main_app.save_episode_to_ass(self.ep_num, fn):
@@ -386,32 +320,21 @@ class HtmlLivePreview(QDialog):
     
     def keyPressEvent(self, event) -> None:
         """Обработка клавиш"""
-        modifiers = event.modifiers()
-        is_alt = modifiers & Qt.AltModifier
-        
-        if event.key() == Qt.Key_Left or (
-            event.key() == Qt.Key_Left and is_alt
-        ):
-            self.scroll_to_highlight("prev")
-        elif event.key() == Qt.Key_Right or (
-            event.key() == Qt.Key_Right and is_alt
-        ):
-            self.scroll_to_highlight("next")
-        elif event.key() == Qt.Key_Up and is_alt:
-            self.scroll_to_highlight("prev")
-        elif event.key() == Qt.Key_Down and is_alt:
-            self.scroll_to_highlight("next")
-        else:
-            super().keyPressEvent(event)
+        # Навигация по репликам удалена - используйте телесуфлёр
+        super().keyPressEvent(event)
     
     def closeEvent(self, event) -> None:
         """Закрытие окна"""
         if self._has_text_changes:
+            # Определяем тип файла
+            ep_path = self.main_app.data["episodes"].get(self.ep_num, "")
+            file_ext = "SRT" if ep_path.lower().endswith('.srt') else "ASS"
+            
             reply = QMessageBox.question(
                 self,
                 "Несохраненные изменения",
-                "У вас есть несохраненные изменения в тексте.\n"
-                "Хотите сохранить их в .ASS перед выходом?",
+                f"У вас есть несохраненные изменения в тексте.\n"
+                f"Хотите сохранить их в .{file_ext.upper()} перед выходом?",
                 QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel
             )
             if reply == QMessageBox.Yes:
