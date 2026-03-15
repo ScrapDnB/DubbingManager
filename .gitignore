@@ -23,7 +23,6 @@ test_files
 
 # MacOS
 .DS_Store
-*.spec
 dubbing_manager.log
 /Output
 *.iss
