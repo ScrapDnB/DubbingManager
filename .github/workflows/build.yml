@@ -2,10 +2,8 @@ name: Build Dubbing Manager
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ master ]
     tags: [ 'v*' ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -185,6 +183,17 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v5
       
+    - name: Get version from tag or use dev
+      id: version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/v* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        else
+          VERSION="0.0.0-dev.${GITHUB_SHA:0:7}"
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION"
+      
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
@@ -214,10 +223,10 @@ jobs:
         # Copy binary
         cp -r dist/Dubbing\ Manager dubbing-manager/usr/bin/dubbing-manager
         
-        # Create control file
+        # Create control file with correct version
         cat > dubbing-manager/DEBIAN/control << EOF
         Package: dubbing-manager
-        Version: ${GITHUB_REF#refs/tags/v}
+        Version: ${{ steps.version.outputs.version }}
         Section: utils
         Priority: optional
         Architecture: amd64
