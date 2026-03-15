@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import logging
+import fcntl
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -165,34 +166,47 @@ class ProjectService:
 
     def _do_save(self, data: Dict[str, Any], path: str) -> bool:
         """
-        Внутренний метод сохранения с атомарностью.
-        
-        Использует временный файл и атомарную замену для предотвращения
-        повреждения данных при ошибке записи.
-        
+        Внутренний метод сохранения с атомарностью и блокировкой файла.
+
+        Использует временный файл, атомарную замену и файловую блокировку
+        для предотвращения повреждения данных при одновременной записи.
+
         Args:
             data: Данные проекта
             path: Путь для сохранения
-            
+
         Returns:
             True если сохранение успешно
         """
         # Обновление metadata перед сохранением
         self._update_metadata_on_save(data)
-        
+
         # Временный файл для атомарного сохранения
         temp_path = path + ".tmp"
-        
+
         try:
-            # Запись во временный файл
+            # Запись во временный файл с эксклюзивной блокировкой
             with open(temp_path, 'w', encoding='utf-8') as f:
+                # Устанавливаем эксклюзивную блокировку (неблокирующую)
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except (IOError, OSError) as lock_err:
+                    logger.warning(f"Could not acquire lock on {temp_path}: {lock_err}")
+                    # Продолжаем без блокировки - лучше сохранить, чем потерять данные
+                
                 json.dump(data, f, ensure_ascii=False, indent=4)
                 f.flush()
                 os.fsync(f.fileno())  # Гарантируем запись на диск
-            
+                
+                # Освобождаем блокировку
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                except (IOError, OSError):
+                    pass
+
             # Атомарная замена основного файла
             os.replace(temp_path, path)
-            
+
             self.is_dirty = False
             logger.info(f"Project saved to {path}")
             return True

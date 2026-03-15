@@ -3,8 +3,15 @@
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Any
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_hex_color(color: str, field_name: str) -> None:
+    """Валидация HEX цвета"""
+    if not re.match(r'^#[0-9A-Fa-f]{6}$', color):
+        raise ValueError(f"Invalid hex color for {field_name}: {color}")
 
 
 @dataclass
@@ -17,14 +24,24 @@ class PrompterColors:
     actor: str = "#AAAAAA"
     header_bg: str = "#111111"
     header_text: str = "#00FF00"
-    
+
+    def __post_init__(self) -> None:
+        """Валидация цветов после инициализации"""
+        _validate_hex_color(self.bg, "bg")
+        _validate_hex_color(self.active_text, "active_text")
+        _validate_hex_color(self.inactive_text, "inactive_text")
+        _validate_hex_color(self.tc, "tc")
+        _validate_hex_color(self.actor, "actor")
+        _validate_hex_color(self.header_bg, "header_bg")
+        _validate_hex_color(self.header_text, "header_text")
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PrompterColors':
         """Создание из словаря с обратной совместимостью"""
         valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
         filtered = {k: v for k, v in data.items() if k in valid_keys}
         return cls(**filtered)
-    
+
     def to_dict(self) -> Dict[str, str]:
         return asdict(self)
 
@@ -49,33 +66,52 @@ class PrompterConfig:
     key_next: str = "Right"
     scroll_smoothness_slider: int = 18
     colors: PrompterColors = field(default_factory=PrompterColors)
-    
+
+    def __post_init__(self) -> None:
+        """Валидация диапазонов значений после инициализации"""
+        if not 10 <= self.f_tc <= 150:
+            raise ValueError(f"f_tc must be 10-150, got {self.f_tc}")
+        if not 10 <= self.f_char <= 150:
+            raise ValueError(f"f_char must be 10-150, got {self.f_char}")
+        if not 10 <= self.f_actor <= 150:
+            raise ValueError(f"f_actor must be 10-150, got {self.f_actor}")
+        if not 10 <= self.f_text <= 300:
+            raise ValueError(f"f_text must be 10-300, got {self.f_text}")
+        if not 0.0 <= self.focus_ratio <= 1.0:
+            raise ValueError(f"focus_ratio must be 0.0-1.0, got {self.focus_ratio}")
+        if not 1024 <= self.port_in <= 65535:
+            raise ValueError(f"port_in must be 1024-65535, got {self.port_in}")
+        if not 1024 <= self.port_out <= 65535:
+            raise ValueError(f"port_out must be 1024-65535, got {self.port_out}")
+        if not 0 <= self.scroll_smoothness_slider <= 100:
+            raise ValueError(f"scroll_smoothness_slider must be 0-100, got {self.scroll_smoothness_slider}")
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PrompterConfig':
         """Создание из словаря с обратной совместимостью"""
         if not data:
             return cls()
-        
+
         # Обрабатываем вложенные цвета
         colors_data = data.get('colors', {})
         if isinstance(colors_data, dict):
             colors = PrompterColors.from_dict(colors_data)
         else:
             colors = PrompterColors()
-        
+
         valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
         valid_keys.discard('colors')  # Обрабатываем отдельно
-        
+
         filtered = {k: v for k, v in data.items() if k in valid_keys}
         filtered['colors'] = colors
-        
+
         return cls(**filtered)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         result = asdict(self)
         result['colors'] = self.colors.to_dict()
         return result
-    
+
     def ensure_defaults(self) -> None:
         """Гарантирует наличие всех ключей для обратной совместимости"""
         defaults = PrompterConfig()
@@ -91,6 +127,18 @@ class ReplicaMergeConfig:
     merge_gap: int = 5
     p_short: float = 0.5
     p_long: float = 2.0
+    fps: float = 25.0
+
+    def __post_init__(self) -> None:
+        """Валидация диапазонов значений после инициализации"""
+        if not 1 <= self.merge_gap <= 1000:
+            raise ValueError(f"merge_gap must be 1-1000, got {self.merge_gap}")
+        if not 0.0 <= self.p_short <= 10.0:
+            raise ValueError(f"p_short must be 0.0-10.0, got {self.p_short}")
+        if not 0.0 <= self.p_long <= 10.0:
+            raise ValueError(f"p_long must be 0.0-10.0, got {self.p_long}")
+        if not 1.0 <= self.fps <= 120.0:
+            raise ValueError(f"fps must be 1.0-120.0, got {self.fps}")
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ReplicaMergeConfig':
@@ -123,6 +171,19 @@ class ExportConfig:
     round_time: bool = False
     allow_edit: bool = True
     highlight_ids_export: Optional[List[str]] = None
+
+    def __post_init__(self) -> None:
+        """Валидация диапазонов значений после инициализации"""
+        if self.layout_type not in ['Таблица', 'Сценарий']:
+            raise ValueError(f"layout_type must be 'Таблица' or 'Сценарий', got {self.layout_type}")
+        if not 10 <= self.f_time <= 150:
+            raise ValueError(f"f_time must be 10-150, got {self.f_time}")
+        if not 10 <= self.f_char <= 150:
+            raise ValueError(f"f_char must be 10-150, got {self.f_char}")
+        if not 10 <= self.f_actor <= 150:
+            raise ValueError(f"f_actor must be 10-150, got {self.f_actor}")
+        if not 10 <= self.f_text <= 300:
+            raise ValueError(f"f_text must be 10-300, got {self.f_text}")
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ExportConfig':

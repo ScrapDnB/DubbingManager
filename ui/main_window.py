@@ -45,6 +45,10 @@ from config.constants import (
     TABLE_ROW_HEIGHT,
     VIDEO_BTN_WIDTH,
     AUTOSAVE_INTERVAL_MS,
+    PROJECT_BAR_SPACING,
+    PROJECT_FOLDER_BTN_WIDTH,
+    ABOUT_BTN_WIDTH,
+    EXPORT_PANEL_SPACING,
 )
 from utils.helpers import (
     ass_time_to_seconds,
@@ -63,7 +67,12 @@ from services import (
     GlobalSettingsService,
     ProjectFolderService,
 )
-from ui.controllers import ActorController
+from ui.controllers import (
+    ActorController,
+    EpisodeController,
+    ExportController,
+    ProjectController,
+)
 from .dialogs import (
     ActorFilterDialog,
     PrompterColorDialog,
@@ -120,9 +129,13 @@ class MainWindow(QMainWindow):
         self.actor_service = ActorService()
         self.global_settings_service = GlobalSettingsService()
         self.project_folder_service = ProjectFolderService()
+        self.episode_service = EpisodeService()
 
         # Контроллеры
         self.actor_controller: Optional[ActorController] = None
+        self.episode_controller: Optional[EpisodeController] = None
+        self.export_controller: Optional[ExportController] = None
+        self.project_controller: Optional[ProjectController] = None
 
         # Стек отмены/повтора действий
         self.undo_stack = UndoStack()
@@ -142,8 +155,8 @@ class MainWindow(QMainWindow):
         # Данные проекта
         self.data = self.project_service.create_new_project("Новый проект")
 
-        # Инициализация episode_service с настройками по умолчанию
-        self.episode_service = EpisodeService()
+        # Инициализация контроллеров
+        self._init_controllers()
 
         # Применение глобальных настроек к проекту
         self._apply_global_settings_to_project()
@@ -160,9 +173,29 @@ class MainWindow(QMainWindow):
         self.autosave_timer.timeout.connect(self._on_autosave_timer)
         self.autosave_timer.start(AUTOSAVE_INTERVAL_MS)
 
+    def _init_controllers(self) -> None:
+        """Инициализация контроллеров"""
+        self.episode_controller = EpisodeController(
+            episode_service=self.episode_service,
+            data_ref=self.data,
+            on_dirty_callback=self.set_dirty
+        )
+        self.export_controller = ExportController(
+            data_ref=self.data,
+            episode_service=self.episode_service,
+            on_dirty_callback=self.set_dirty
+        )
+        self.project_controller = ProjectController(
+            project_service=self.project_service,
+            data_ref=self.data,
+            undo_stack=self.undo_stack,
+            on_dirty_callback=self.set_dirty
+        )
+
     def _on_autosave_timer(self) -> None:
         """Обработчик таймера автосохранения"""
-        self.project_service.auto_save(self.data)
+        if self.project_controller:
+            self.project_controller.auto_save()
 
     def _init_ui(self) -> None:
         """Инициализация интерфейса"""
@@ -292,7 +325,7 @@ class MainWindow(QMainWindow):
         self.btn_redo.setEnabled(False)
         top.addWidget(self.btn_redo)
 
-        top.addSpacing(20)
+        top.addSpacing(PROJECT_BAR_SPACING)
 
         # Папка проекта
         self.lbl_project_folder = QLabel("")
@@ -307,7 +340,7 @@ class MainWindow(QMainWindow):
 
         btn_unlink = QPushButton("🔓")
         btn_unlink.setToolTip("Отвязать папку проекта")
-        btn_unlink.setFixedWidth(30)
+        btn_unlink.setFixedWidth(PROJECT_FOLDER_BTN_WIDTH)
         btn_unlink.clicked.connect(self.clear_project_folder)
         top.addWidget(btn_unlink)
 
@@ -320,7 +353,7 @@ class MainWindow(QMainWindow):
         top.addWidget(btn_files)
 
         btn_about = QPushButton("ℹ️")
-        btn_about.setFixedWidth(30)
+        btn_about.setFixedWidth(ABOUT_BTN_WIDTH)
         btn_about.clicked.connect(self.show_about)
         top.addWidget(btn_about)
 
@@ -454,12 +487,6 @@ class MainWindow(QMainWindow):
         btn_reaper.clicked.connect(self.export_to_reaper_rpp)
         tools_sidebar_layout.addWidget(btn_reaper)
 
-        # Кнопка "Назначить выделенным" закомментирована
-        # tools_sidebar_layout.addSpacing(20)
-        # btn_bulk = QPushButton("⚡ Назначить выделенным")
-        # btn_bulk.clicked.connect(self.bulk_assign_actor)
-        # tools_sidebar_layout.addWidget(btn_bulk)
-
         tools_sidebar_layout.addStretch()
         layout.addWidget(tools_sidebar_widget)
     
@@ -484,13 +511,13 @@ class MainWindow(QMainWindow):
         btn_cfg.clicked.connect(self.open_export_settings)
         exp_lay.addWidget(btn_cfg)
 
-        exp_lay.addSpacing(10)
+        exp_lay.addSpacing(EXPORT_PANEL_SPACING)
 
         btn_preview = QPushButton("📃 Превью")
         btn_preview.clicked.connect(self.open_live_preview)
         exp_lay.addWidget(btn_preview)
 
-        exp_lay.addSpacing(10)
+        exp_lay.addSpacing(EXPORT_PANEL_SPACING)
 
         self.chk_exp_html = QCheckBox("Лист")
         self.chk_exp_html.setChecked(True)
@@ -507,10 +534,10 @@ class MainWindow(QMainWindow):
 
         exp_lay.addWidget(self.chk_exp_html)
         exp_lay.addWidget(self.chk_exp_xls)
-        exp_lay.addSpacing(10)
+        exp_lay.addSpacing(EXPORT_PANEL_SPACING)
         exp_lay.addWidget(self.radio_cur)
         exp_lay.addWidget(self.radio_all)
-        exp_lay.addSpacing(10)
+        exp_lay.addSpacing(EXPORT_PANEL_SPACING)
         exp_lay.addWidget(self.btn_run_export)
 
         bottom_panel.addWidget(exp_group)
@@ -520,16 +547,24 @@ class MainWindow(QMainWindow):
 
     def set_dirty(self, dirty: bool = True) -> None:
         """Установка флага изменений"""
-        self.project_service.set_dirty(dirty)
+        if self.project_controller:
+            self.project_controller.set_dirty(dirty)
+        else:
+            self.project_service.set_dirty(dirty)
         self.update_window_title()
         self.update_save_ass_button()
 
     def update_window_title(self) -> None:
         """Обновление заголовка окна"""
-        self.setWindowTitle(self.project_service.get_window_title(self.data))
+        if self.project_controller:
+            self.setWindowTitle(self.project_controller.get_window_title())
+        else:
+            self.setWindowTitle(self.project_service.get_window_title(self.data))
     
     def maybe_save(self) -> bool:
         """Проверка необходимости сохранения"""
+        if self.project_controller:
+            return self.project_controller.maybe_save(self)
         if not self.project_service.is_dirty:
             return True
 
@@ -674,39 +709,58 @@ class MainWindow(QMainWindow):
             )
     
     # === Методы работы с проектом ===
-    
+
     def save_project(self) -> bool:
         """Сохранение проекта"""
-        if self.current_project_path:
-            return self.project_service.save_project(self.data)
+        if not self.project_controller:
+            return False
+        
+        if self.project_controller.get_current_project_path():
+            result = self.project_controller.save_project()
+            if result:
+                self.current_project_path = self.project_controller.get_current_project_path()
+                self.update_window_title()
+            return result
         return self.save_project_as()
 
     def save_project_as(self) -> bool:
         """Сохранение проекта как..."""
+        if not self.project_controller:
+            return False
+        
         path, _ = QFileDialog.getSaveFileName(
             self, "Сохранить", "", "*.json"
         )
         if path:
-            result = self.project_service.save_project_as(self.data, path)
-            self.current_project_path = self.project_service.current_project_path
+            result = self.project_controller.save_project_as(path)
+            self.current_project_path = self.project_controller.get_current_project_path()
             self.update_window_title()
             return result
         return False
-    
+
     def load_project_dialog(self) -> None:
         """Диалог загрузки проекта"""
-        if self.maybe_save():
+        if not self.project_controller:
+            return
+        
+        if self.project_controller.maybe_save(self):
             path, _ = QFileDialog.getOpenFileName(
                 self, "Открыть", "", "*.json"
             )
             if path:
                 self._load_from_path(path)
-    
+
     def _load_from_path(self, path: str) -> None:
         """Загрузка из файла"""
+        if not self.project_controller:
+            return
+        
         try:
-            self.data = self.project_service.load_project(path)
-            self.current_project_path = self.project_service.current_project_path
+            data = self.project_controller.load_project(path)
+            if not data:
+                return
+            
+            self.current_project_path = self.project_controller.get_current_project_path()
 
             # Обновляем ссылку на данные в контроллере актёров
             if self.actor_controller:
@@ -908,36 +962,6 @@ class MainWindow(QMainWindow):
                 self.actor_controller.refresh()
                 self.refresh_main_table()
                 self.set_dirty()
-
-    # Метод bulk_assign_actor закомментирован, т.к. кнопка не используется
-    # def bulk_assign_actor(self) -> None:
-    #     """Массовое назначение актёра"""
-    #     if not self.actor_controller:
-    #         return
-    #
-    #     selected: List[int] = self.main_table.selectionModel().selectedRows()
-    #     if not selected:
-    #         return
-    #
-    #     names: List[str] = ["- Удалить -"] + [
-    #         a["name"] for a in self.data["actors"].values()
-    #     ]
-    #     ids: List[Optional[str]] = [None] + list(self.data["actors"].keys())
-    #
-    #     name: str
-    #     ok: bool
-    #     name, ok = QInputDialog.getItem(
-    #         self, "Назначить", "Актер:", names, 0, False
-    #     )
-    #
-    #     if ok:
-    #         aid: Optional[str] = ids[names.index(name)]
-    #         characters: List[str] = [
-    #             self.main_table.item(idx.row(), 0).text()
-    #             for idx in selected
-    #         ]
-    #         self.actor_controller.bulk_assign_actors(characters, aid)
-    #         self.refresh_main_table()
 
     def delete_actor_dialog(self) -> None:
         """Диалог удаления актёра"""
@@ -1690,19 +1714,15 @@ class MainWindow(QMainWindow):
 
     def export_to_excel(self, ep: str) -> None:
         """Экспорт в Excel"""
-        lines = self.get_episode_lines(ep)
-        export_cfg = self.data["export_config"]
-        merge_cfg = self.data.get("replica_merge_config", {})
-
-        export_service = ExportService(self.data)
+        if not self.export_controller:
+            return
+        
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Excel", f"Script_{ep}.xlsx", "*.xlsx"
         )
 
         if path:
-            success, message = export_service.export_to_excel(
-                ep=ep, lines=lines, cfg=export_cfg, save_path=path, merge_cfg=merge_cfg
-            )
+            success, message = self.export_controller.export_to_excel(ep, path)
             if success:
                 if sys.platform == 'win32':
                     os.startfile(path)
@@ -1713,34 +1733,22 @@ class MainWindow(QMainWindow):
 
     def export_to_html(self, ep: str) -> None:
         """Экспорт в HTML"""
-        cfg = self.data["export_config"]
-        merge_cfg = self.data.get("replica_merge_config", {})
-        lines = self.get_episode_lines(ep)
-
-        export_service = ExportService(self.data)
-        processed = export_service.process_merge_logic(lines, merge_cfg)
-
-        html = export_service.generate_html(
-            ep,
-            processed,
-            cfg,
-            cfg.get('highlight_ids_export'),
-            layout_type=cfg.get('layout_type', 'Таблица'),
-            is_editable=cfg.get('allow_edit', True)
-        )
-
+        if not self.export_controller:
+            return
+        
         path, _ = QFileDialog.getSaveFileName(
             self, "Save HTML", f"Script_{ep}.html", "*.html"
         )
 
         if path:
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(html)
-
-            if sys.platform == 'darwin':
-                os.system(f'open "{path}"')
+            success, message = self.export_controller.export_to_html(ep, path)
+            if success:
+                if sys.platform == 'win32':
+                    os.startfile(path)
+                else:
+                    os.system(f'open "{path}"')
             else:
-                os.startfile(path)
+                QMessageBox.warning(self, "Ошибка", message)
 
     def save_episode_to_ass(
         self,
@@ -1748,31 +1756,16 @@ class MainWindow(QMainWindow):
         target_path: Optional[str] = None
     ) -> bool:
         """Сохранение серии в ASS/SRT"""
-        mem_lines = self.get_episode_lines(ep_num)
-        if not mem_lines:
-            QMessageBox.warning(self, "Ошибка", "Нет данных.")
+        if not self.episode_controller:
             return False
-
-        # Определяем тип файла
-        source_path = self.data["episodes"].get(ep_num)
-        if not source_path:
-            QMessageBox.warning(self, "Ошибка", "Файл не найден.")
-            return False
-
-        success, message = self.episode_service.save_episode_to_ass(
-            ep_num,
-            self.data["episodes"],
-            mem_lines,
-            target_path
-        )
-
+        
+        success, message = self.episode_controller.save_episode(ep_num, target_path)
         if not success:
             QMessageBox.warning(self, "Ошибка", message)
-
         return success
-    
-    
-    
+
+
+
     # === Диалоги и окна ===
     
     def open_preview(self, char: Optional[str]) -> None:

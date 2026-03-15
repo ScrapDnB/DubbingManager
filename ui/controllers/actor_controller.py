@@ -59,7 +59,7 @@ class ActorController:
         
         # Подключаем обработчик клика по ячейке (для цвета)
         self.actor_table.cellClicked.connect(self._on_cell_clicked)
-    
+
     def _on_cell_clicked(self, row: int, col: int) -> None:
         """Обработчик клика по ячейке"""
         if col == 2 and self.on_color_click_callback:  # Колонка "Цвет"
@@ -69,23 +69,35 @@ class ActorController:
                 if aid:
                     self.on_color_click_callback(aid)
 
+    def _find_actor_row(self, actor_id: str) -> Optional[int]:
+        """Поиск строки актёра по ID"""
+        for row in range(self.actor_table.rowCount()):
+            item = self.actor_table.item(row, 0)
+            if item and item.data(Qt.UserRole) == actor_id:
+                return row
+        return None
+
+    def _get_actor_roles(self) -> Dict[str, List[str]]:
+        """Получение списка ролей для всех актёров"""
+        actor_roles: Dict[str, List[str]] = {
+            aid: [] for aid in self.data_ref["actors"]
+        }
+        for char, aid in self.data_ref["global_map"].items():
+            if aid in actor_roles:
+                actor_roles[aid].append(char)
+        return actor_roles
+
     def refresh(self) -> None:
         """Обновление списка актёров в таблице"""
         import logging
         logger = logging.getLogger(__name__)
-        
+
         logger.info(f"ActorController.refresh: actors={len(self.data_ref.get('actors', {}))}, table={self.actor_table}")
-        
+
         self.actor_table.blockSignals(True)
         self.actor_table.setRowCount(0)
 
-        actor_roles: Dict[str, List[str]] = {
-            aid: [] for aid in self.data_ref["actors"]
-        }
-
-        for char, aid in self.data_ref["global_map"].items():
-            if aid in actor_roles:
-                actor_roles[aid].append(char)
+        actor_roles = self._get_actor_roles()
 
         aid: str
         info: Dict[str, Any]
@@ -116,37 +128,39 @@ class ActorController:
         self.actor_table.blockSignals(False)
         logger.info(f"ActorController.refresh: loaded {self.actor_table.rowCount()} actors")
 
-    def add_actor(self, name: str, color: Optional[str] = None) -> str:
-        """
-        Добавление нового актёра.
-        
-        Args:
-            name: Имя актёра
-            color: Цвет актёра (если None, выбирается автоматически)
-            
-        Returns:
-            ID нового актёра
-        """
-        actor_id: str = self.actor_service.add_actor(
-            self.data_ref["actors"], name, color
-        )
-        self.refresh()
-        self._mark_dirty()
-        return actor_id
-
     def update_actor_color(self, actor_id: str, color: str) -> None:
-        """Обновление цвета актёра"""
+        """Обновление цвета актёра (оптимизировано - обновляет только ячейку цвета)"""
         self.actor_service.update_actor_color(
             self.data_ref["actors"], actor_id, color
         )
-        self.refresh()
+        
+        # Обновляем только ячейку цвета вместо полной перерисовки
+        row = self._find_actor_row(actor_id)
+        if row is not None:
+            color_item = self.actor_table.item(row, 2)
+            if color_item:
+                color_item.setBackground(QColor(color))
+            else:
+                # Если ячейки нет, создаём её
+                color_item = QTableWidgetItem()
+                color_item.setBackground(QColor(color))
+                self.actor_table.setItem(row, 2, color_item)
+        
         self._mark_dirty()
 
     def rename_actor(self, actor_id: str, new_name: str) -> None:
-        """Переименование актёра"""
+        """Переименование актёра (оптимизировано - обновляет только ячейку имени)"""
         self.actor_service.rename_actor(
             self.data_ref["actors"], actor_id, new_name
         )
+        
+        # Обновляем только ячейку имени вместо полной перерисовки
+        row = self._find_actor_row(actor_id)
+        if row is not None:
+            item = self.actor_table.item(row, 0)
+            if item:
+                item.setText(new_name)
+        
         self._mark_dirty()
 
     def update_actor_roles(
@@ -154,11 +168,20 @@ class ActorController:
         actor_id: str,
         new_roles: List[str]
     ) -> None:
-        """Обновление ролей актёра"""
+        """Обновление ролей актёра (оптимизировано - обновляет только кнопку ролей)"""
         self.actor_service.update_actor_roles(
             self.data_ref["global_map"], actor_id, new_roles
         )
-        self.refresh()
+        
+        # Обновляем только кнопку ролей вместо полной перерисовки
+        row = self._find_actor_row(actor_id)
+        if row is not None:
+            btn_widget = self.actor_table.cellWidget(row, 1)
+            if btn_widget:
+                btn = btn_widget.findChild(QPushButton)
+                if btn:
+                    btn.setText(f"Роли ({len(new_roles)})")
+        
         self._mark_dirty()
 
     def bulk_assign_actors(

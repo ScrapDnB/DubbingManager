@@ -3,6 +3,7 @@
 import os
 import re
 import logging
+from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from collections import defaultdict
 
@@ -18,6 +19,7 @@ class EpisodeService:
         self.merge_gap = merge_gap
         self.fps = fps
         self._loaded_episodes: Dict[str, List[Dict[str, Any]]] = {}
+        self._cache_timestamps: Dict[str, float] = {}  # Временные метки кэша
 
     def set_merge_gap_from_config(self, replica_merge_config: Dict[str, Any]) -> None:
         """Установка зазора для слияния реплик из конфига"""
@@ -232,7 +234,7 @@ class EpisodeService:
         episodes: Dict[str, str]
     ) -> List[Dict[str, Any]]:
         """
-        Загрузка эпизода в память
+        Загрузка эпизода в память с проверкой актуальности кэша
 
         Args:
             ep_num: номер эпизода
@@ -241,11 +243,22 @@ class EpisodeService:
         Returns:
             Список реплик эпизода
         """
-        # Проверяем кэш
-        if ep_num in self._loaded_episodes:
-            return self._loaded_episodes[ep_num]
-
         path = episodes.get(ep_num)
+        
+        # Проверяем кэш только если файл существует и не изменился
+        if ep_num in self._loaded_episodes and path:
+            # Проверяем timestamp файла
+            try:
+                file_mtime = Path(path).stat().st_mtime
+                cache_mtime = self._cache_timestamps.get(ep_num, 0)
+                
+                if file_mtime <= cache_mtime:
+                    # Кэш актуален
+                    return self._loaded_episodes[ep_num]
+            except (OSError, FileNotFoundError):
+                pass  # Если ошибка - перезагружаем
+        
+        # Файл не найден или кэш устарел
         if not path or not os.path.exists(path):
             return []
 
@@ -269,6 +282,8 @@ class EpisodeService:
                             idx += 1
 
                 self._loaded_episodes[ep_num] = lines
+                # Сохраняем timestamp кэша
+                self._cache_timestamps[ep_num] = Path(path).stat().st_mtime
                 return lines
 
         except Exception as e:
@@ -281,7 +296,7 @@ class EpisodeService:
         episodes: Dict[str, str]
     ) -> List[Dict[str, Any]]:
         """
-        Загрузка SRT эпизода в память
+        Загрузка SRT эпизода в память с проверкой актуальности кэша
 
         Args:
             ep_num: номер эпизода
@@ -290,11 +305,19 @@ class EpisodeService:
         Returns:
             Список реплик эпизода
         """
-        # Проверяем кэш
-        if ep_num in self._loaded_episodes:
-            return self._loaded_episodes[ep_num]
-
         path = episodes.get(ep_num)
+        
+        # Проверяем кэш только если файл существует и не изменился
+        if ep_num in self._loaded_episodes and path:
+            try:
+                file_mtime = Path(path).stat().st_mtime
+                cache_mtime = self._cache_timestamps.get(ep_num, 0)
+                
+                if file_mtime <= cache_mtime:
+                    return self._loaded_episodes[ep_num]
+            except (OSError, FileNotFoundError):
+                pass
+        
         if not path or not os.path.exists(path):
             return []
 
@@ -305,6 +328,8 @@ class EpisodeService:
             # Используем общий метод парсинга, но без статистики
             _, lines = self._parse_srt_content(content, add_id=True)
             self._loaded_episodes[ep_num] = lines
+            # Сохраняем timestamp кэша
+            self._cache_timestamps[ep_num] = Path(path).stat().st_mtime
             return lines
 
         except Exception as e:
@@ -560,13 +585,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         """
         if ep_num:
             self._loaded_episodes.pop(ep_num, None)
+            self._cache_timestamps.pop(ep_num, None)
         else:
             self._loaded_episodes.clear()
+            self._cache_timestamps.clear()
 
     def invalidate_episode(self, ep_num: str) -> None:
         """Инвалидация кэша эпизода после изменений"""
         if ep_num in self._loaded_episodes:
             del self._loaded_episodes[ep_num]
+        if ep_num in self._cache_timestamps:
+            del self._cache_timestamps[ep_num]
 
     def set_merge_gap(self, gap: int) -> None:
         """Установка зазора для слияния реплик"""

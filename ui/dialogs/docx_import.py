@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QComboBox, QPushButton, QTableWidget,
     QTableWidgetItem, QFileDialog, QMessageBox,
-    QHeaderView, QSplitter, QWidget, QFrame, QLineEdit
+    QHeaderView, QWidget, QFrame, QLineEdit
 )
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QFont
@@ -51,21 +51,13 @@ class DocxImportDialog(QDialog):
         top_panel = self._create_top_panel()
         layout.addLayout(top_panel)
 
-        # Разделитель для колонок и предпросмотра
-        splitter = QSplitter(Qt.Horizontal)
-
-        # Левая панель - маппинг колонок
+        # Панель маппинга колонок
         mapping_widget = self._create_mapping_panel()
-        splitter.addWidget(mapping_widget)
+        layout.addWidget(mapping_widget)
 
-        # Правая панель - предпросмотр
+        # Панель предпросмотра (внизу)
         preview_widget = self._create_preview_panel()
-        splitter.addWidget(preview_widget)
-
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 2)
-
-        layout.addWidget(splitter)
+        layout.addWidget(preview_widget)
 
         # Нижняя панель с кнопками
         bottom_panel = self._create_bottom_panel()
@@ -212,6 +204,7 @@ class DocxImportDialog(QDialog):
         header = self.preview_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Stretch)
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.preview_table.setMinimumHeight(200)
 
         layout.addWidget(self.preview_table)
 

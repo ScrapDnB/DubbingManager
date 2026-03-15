@@ -3,6 +3,7 @@
 import sys
 import os
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
@@ -28,15 +29,33 @@ def get_log_path() -> Path:
     return log_dir / 'dubbing_manager.log'
 
 
-# Настройка логирования
+# Настройка логирования с ротацией файлов
 log_path = get_log_path()
+
+# Создаём formatter
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+# Создаём handler с ротацией: макс. 10MB, храним 5 последних файлов
+file_handler = RotatingFileHandler(
+    log_path,
+    encoding='utf-8',
+    maxBytes=10 * 1024 * 1024,  # 10 MB
+    backupCount=5
+)
+file_handler.setFormatter(formatter)
+file_handler.setLevel(logging.DEBUG)
+
+# Консольный handler
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(formatter)
+stream_handler.setLevel(logging.INFO)
+
+# Настраиваем корневой логгер
 logging.basicConfig(
     level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_path, encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+    handlers=[file_handler, stream_handler]
 )
 
 logger = logging.getLogger(__name__)
