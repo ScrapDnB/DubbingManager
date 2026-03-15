@@ -10,8 +10,12 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 # fcntl доступен только на Unix-системах
-if sys.platform != 'win32':
+# Используем try/except для надёжности при сборке PyInstaller
+try:
     import fcntl
+    HAS_FCNTL = True
+except ImportError:
+    HAS_FCNTL = False
 
 from PySide6.QtWidgets import QMessageBox
 
@@ -193,7 +197,7 @@ class ProjectService:
             with open(temp_path, 'w', encoding='utf-8') as f:
                 # Устанавливаем эксклюзивную блокировку (неблокирующую)
                 # fcntl доступен только на Unix-системах
-                if sys.platform != 'win32':
+                if HAS_FCNTL:
                     try:
                         fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                     except (IOError, OSError) as lock_err:
@@ -205,7 +209,7 @@ class ProjectService:
                 os.fsync(f.fileno())  # Гарантируем запись на диск
 
                 # Освобождаем блокировку
-                if sys.platform != 'win32':
+                if HAS_FCNTL:
                     try:
                         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
                     except (IOError, OSError):
