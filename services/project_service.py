@@ -4,10 +4,14 @@ import json
 import os
 import shutil
 import logging
-import fcntl
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
+
+# fcntl доступен только на Unix-системах
+if sys.platform != 'win32':
+    import fcntl
 
 from PySide6.QtWidgets import QMessageBox
 
@@ -188,21 +192,24 @@ class ProjectService:
             # Запись во временный файл с эксклюзивной блокировкой
             with open(temp_path, 'w', encoding='utf-8') as f:
                 # Устанавливаем эксклюзивную блокировку (неблокирующую)
-                try:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except (IOError, OSError) as lock_err:
-                    logger.warning(f"Could not acquire lock on {temp_path}: {lock_err}")
-                    # Продолжаем без блокировки - лучше сохранить, чем потерять данные
-                
+                # fcntl доступен только на Unix-системах
+                if sys.platform != 'win32':
+                    try:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except (IOError, OSError) as lock_err:
+                        logger.warning(f"Could not acquire lock on {temp_path}: {lock_err}")
+                        # Продолжаем без блокировки - лучше сохранить, чем потерять данные
+
                 json.dump(data, f, ensure_ascii=False, indent=4)
                 f.flush()
                 os.fsync(f.fileno())  # Гарантируем запись на диск
-                
+
                 # Освобождаем блокировку
-                try:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                except (IOError, OSError):
-                    pass
+                if sys.platform != 'win32':
+                    try:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                    except (IOError, OSError):
+                        pass
 
             # Атомарная замена основного файла
             os.replace(temp_path, path)

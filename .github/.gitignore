@@ -1,0 +1,6 @@
+# GitHub Actions artifacts
+*.zip
+*.dmg
+*.tar.gz
+*.AppImage
+*.deb
