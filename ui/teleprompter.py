@@ -611,6 +611,7 @@ class TeleprompterWindow(QDialog):
         self.highlight_ids = None
         self._has_text_changes: bool = False
         self._initializing: bool = True
+        self._manual_scroll_override: bool = False
 
         # UI
         self._init_ui()
@@ -827,6 +828,8 @@ class TeleprompterWindow(QDialog):
         self.prompter_view.setFrameShape(QFrame.NoFrame)
         self.prompter_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.prompter_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.prompter_view.viewport().installEventFilter(self)
+        self.prompter_view.installEventFilter(self)
         self.h_splitter.addWidget(self.prompter_view)
 
         self.v_splitter.addWidget(self.h_splitter)
@@ -836,6 +839,40 @@ class TeleprompterWindow(QDialog):
         self.header_panel.setVisible(self.cfg["show_header"])
         self.v_splitter.setSizes(PROMPTER_V_SPLITTER_SIZES)
         self.h_splitter.setSizes(PROMPTER_H_SPLITTER_SIZES)
+
+    def eventFilter(self, obj, event) -> bool:
+        """Отменить автоскролл, когда пользователь вручную двигает суфлёр."""
+        manual_scroll_events = {
+            QEvent.Wheel,
+            QEvent.MouseButtonPress,
+            QEvent.KeyPress,
+            QEvent.TouchBegin,
+        }
+        if (
+            obj in (self.prompter_view, self.prompter_view.viewport())
+            and event.type() in manual_scroll_events
+        ):
+            self.enter_manual_scroll_override()
+
+        return super().eventFilter(obj, event)
+
+    def enter_manual_scroll_override(self) -> None:
+        """Разрешить свободный ручной скролл поверх входящей синхронизации."""
+        self._manual_scroll_override = True
+        self.cancel_pending_prompter_scroll()
+
+    def exit_manual_scroll_override(self) -> None:
+        """Вернуть управление позиции явной навигации или Reaper."""
+        self._manual_scroll_override = False
+
+    def cancel_pending_prompter_scroll(self) -> None:
+        """Остановить незавершённую плавную прокрутку сцены."""
+        self._scroll_target_y = None
+        if (
+            hasattr(self, "smooth_scroll_timer")
+            and self.smooth_scroll_timer.isActive()
+        ):
+            self.smooth_scroll_timer.stop()
     
     def _init_side_panel(self) -> None:
         """Инициализация боковой панели настроек"""
@@ -1390,8 +1427,8 @@ class TeleprompterWindow(QDialog):
         if hasattr(self, 'float_window') and self.float_window:
             self.float_window.sync_replica_list()
     
-    def update_view_position_by_time(self, time_seconds: float) -> None:
-        """Синхронизация позиции по времени"""
+    def update_timecode_display(self, time_seconds: float) -> None:
+        """Обновить известное время и крупный таймкод без движения сцены."""
         self.last_known_time = time_seconds
 
         ms = int((time_seconds % 1) * 1000)
@@ -1401,6 +1438,10 @@ class TeleprompterWindow(QDialog):
 
         if self.header_panel.isVisible():
             self.update_big_timecode_font_size()
+
+    def update_view_position_by_time(self, time_seconds: float) -> None:
+        """Синхронизация позиции по времени"""
+        self.update_timecode_display(time_seconds)
 
         if not self.time_map:
             return
@@ -1468,6 +1509,7 @@ class TeleprompterWindow(QDialog):
     
     def jump_to_specific_time(self, t: float) -> None:
         """Прыжок к таймкоду"""
+        self.exit_manual_scroll_override()
         self.last_known_time = t
         self.update_view_position_by_time(t)
         
@@ -1569,6 +1611,8 @@ class TeleprompterWindow(QDialog):
         self.cfg["sync_out"] = self.chk_reaper_follow.isChecked()
         self.cfg["reaper_offset_enabled"] = self.chk_offset.isChecked()
         self.cfg["reaper_offset_seconds"] = self.spin_offset.value()
+        if self.cfg["sync_in"]:
+            self.exit_manual_scroll_override()
         
         # Сохраняем в глобальные настройки
         self.main_app.save_global_prompter_settings(self.cfg)
@@ -1609,11 +1653,15 @@ class TeleprompterWindow(QDialog):
         """Получение времени из OSC"""
         # Обновляем позицию только если включена синхронизация с Reaper
         if self.cfg.get("sync_in", False):
-            self.update_view_position_by_time(time_val)
+            if self._manual_scroll_override:
+                self.update_timecode_display(time_val)
+            else:
+                self.update_view_position_by_time(time_val)
     
     @Slot(str)
     def navigate_from_osc(self, direction: str) -> None:
         """Навигация из OSC"""
+        self.exit_manual_scroll_override()
         step = 1 if direction == "next" else -1
         self.navigate_to_replica_in_direction(step)
     
