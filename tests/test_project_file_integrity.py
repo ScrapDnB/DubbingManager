@@ -7,7 +7,7 @@ import tempfile
 import shutil
 from datetime import datetime
 from services import ProjectService
-from config.constants import PROJECT_VERSION
+from config.constants import DEFAULT_PROMPTER_CONFIG, PROJECT_VERSION
 
 
 class TestProjectFileStructure:
@@ -53,6 +53,16 @@ class TestProjectFileStructure:
         assert isinstance(data["video_paths"], dict)
         assert isinstance(data["episode_texts"], dict)
         assert isinstance(data["episode_actor_map"], dict)
+
+    def test_create_new_project_deep_copies_default_configs(self):
+        """Проверка, что вложенные настройки не разделяют default dict."""
+        first = self.project_service.create_new_project("First")
+        second = self.project_service.create_new_project("Second")
+
+        first["prompter_config"]["colors"]["bg"] = "#ABCDEF"
+
+        assert second["prompter_config"]["colors"]["bg"] == "#000000"
+        assert DEFAULT_PROMPTER_CONFIG["colors"]["bg"] == "#000000"
 
     def test_save_and_load_project(self):
         """Проверка сохранения и загрузки проекта"""

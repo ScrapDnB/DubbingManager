@@ -1,6 +1,7 @@
 """Окно телесуфлёра"""
 
 import platform
+from copy import deepcopy
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QSpinBox, QSlider, QCheckBox, QFrame,
@@ -625,7 +626,9 @@ class TeleprompterWindow(QDialog):
             "prompter_config" not in self.main_app.data or
             self.main_app.data["prompter_config"] is None
         ):
-            self.main_app.data["prompter_config"] = DEFAULT_PROMPTER_CONFIG.copy()
+            self.main_app.data["prompter_config"] = deepcopy(
+                DEFAULT_PROMPTER_CONFIG
+            )
 
         self.cfg: Dict[str, Any] = self.main_app.data["prompter_config"]
 

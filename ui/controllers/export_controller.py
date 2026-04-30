@@ -6,6 +6,7 @@ from typing import Dict, List, Any, Optional, Tuple
 
 import os
 import logging
+from copy import deepcopy
 
 from services import ExportService, ScriptTextService
 from config.constants import DEFAULT_EXPORT_CONFIG, DEFAULT_REPLICA_MERGE_CONFIG
@@ -83,8 +84,14 @@ class ExportController:
             Tuple[success, message]
         """
         try:
-            export_config = self.data_ref.get("export_config", DEFAULT_EXPORT_CONFIG.copy())
-            merge_config = self.data_ref.get("replica_merge_config", DEFAULT_REPLICA_MERGE_CONFIG.copy())
+            export_config = self.data_ref.get(
+                "export_config",
+                deepcopy(DEFAULT_EXPORT_CONFIG)
+            )
+            merge_config = self.data_ref.get(
+                "replica_merge_config",
+                deepcopy(DEFAULT_REPLICA_MERGE_CONFIG)
+            )
 
             lines = self._get_episode_lines(ep)
 
@@ -137,8 +144,14 @@ class ExportController:
             Tuple[success, message]
         """
         try:
-            export_config = self.data_ref.get("export_config", DEFAULT_EXPORT_CONFIG.copy())
-            merge_config = self.data_ref.get("replica_merge_config", DEFAULT_REPLICA_MERGE_CONFIG.copy())
+            export_config = self.data_ref.get(
+                "export_config",
+                deepcopy(DEFAULT_EXPORT_CONFIG)
+            )
+            merge_config = self.data_ref.get(
+                "replica_merge_config",
+                deepcopy(DEFAULT_REPLICA_MERGE_CONFIG)
+            )
 
             if all_episodes:
                 # Собираем данные по всем эпизодам
@@ -177,8 +190,7 @@ class ExportController:
     def export_to_reaper_rpp(
         self,
         ep: str,
-        save_path: str,
-        reaper_offset: float = 0.0
+        save_path: str
     ) -> Tuple[bool, str]:
         """
         Экспорт в Reaper RPP
@@ -186,7 +198,6 @@ class ExportController:
         Args:
             ep: номер эпизода
             save_path: путь сохранения
-            reaper_offset: смещение времени для Reaper
 
         Returns:
             Tuple[success, message]
@@ -197,8 +208,12 @@ class ExportController:
             if not lines:
                 return False, self._missing_working_text_message(ep)
 
-            # Генерируем RPP файл
-            rpp_content = self._generate_rpp(lines, reaper_offset)
+            export_service = ExportService(self.data_ref)
+            rpp_content = export_service.generate_reaper_rpp(
+                ep,
+                lines,
+                merge_cfg=self.data_ref.get("replica_merge_config", {})
+            )
 
             with open(save_path, 'w', encoding='utf-8') as f:
                 f.write(rpp_content)
@@ -209,56 +224,6 @@ class ExportController:
         except Exception as e:
             logger.error(f"Reaper export failed: {e}")
             return False, f"Ошибка экспорта: {e}"
-
-    def _generate_rpp(
-        self,
-        lines: List[Dict[str, Any]],
-        offset: float = 0.0
-    ) -> str:
-        """
-        Генерация RPP файла для Reaper
-
-        Args:
-            lines: список реплик
-            offset: смещение времени
-
-        Returns:
-            Содержимое RPP файла
-        """
-        rpp_lines = [
-            "<REAPER_PROJECT 0.1",
-            "  RENDERSETTINGS 2",
-        ]
-
-        # Группируем реплики по персонажам
-        char_lines: Dict[str, List[Dict[str, Any]]] = {}
-        for line in lines:
-            char = line.get('char', '')
-            if char not in char_lines:
-                char_lines[char] = []
-            char_lines[char].append(line)
-
-        # Создаём треки для каждого персонажа
-        track_num = 1
-        for char, char_data in char_lines.items():
-            rpp_lines.append(f"  <TRACK")
-            rpp_lines.append(f"    NAME \"{char}\"")
-            rpp_lines.append(f"    NUM {track_num}")
-
-            # Добавляем маркеры для каждой реплики
-            for line in char_data:
-                start = line.get('s', 0) + offset
-                end = line.get('e', 0) + offset
-                text = line.get('text', '').replace('"', '\\"')
-
-                rpp_lines.append(f"    <MARKER {start} {end} \"\" \"{text}\" 0")
-
-            rpp_lines.append(f"  >")
-            track_num += 1
-
-        rpp_lines.append(">")
-
-        return "\n".join(rpp_lines)
 
     def run_unified_export(
         self,
@@ -337,8 +302,14 @@ class ExportController:
         Returns:
             HTML для превью
         """
-        export_config = self.data_ref.get("export_config", DEFAULT_EXPORT_CONFIG.copy())
-        merge_config = self.data_ref.get("replica_merge_config", DEFAULT_REPLICA_MERGE_CONFIG.copy())
+        export_config = self.data_ref.get(
+            "export_config",
+            deepcopy(DEFAULT_EXPORT_CONFIG)
+        )
+        merge_config = self.data_ref.get(
+            "replica_merge_config",
+            deepcopy(DEFAULT_REPLICA_MERGE_CONFIG)
+        )
 
         lines = self._get_episode_lines(ep)
 

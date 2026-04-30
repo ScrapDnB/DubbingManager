@@ -3,6 +3,7 @@
 import pytest
 from typing import Dict, List, Any
 
+import services.export_service as export_module
 from services.export_service import ExportService
 from core.models import ExportConfig, ReplicaMergeConfig
 
@@ -245,6 +246,54 @@ class TestExportService:
         
         assert "highlighted-block" in html
 
+    def test_generate_html_escapes_user_content(
+        self,
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: HTML экранирует пользовательский текст и атрибуты."""
+        project_data = {
+            "project_name": "Project <unsafe>",
+            "actors": {
+                "actor1": {
+                    "name": "Actor <b>One</b>",
+                    "color": "#FF0000",
+                    "roles": []
+                },
+            },
+            "global_map": {
+                "Hero<script>": "actor1",
+            }
+        }
+        processed = [{
+            "id": "line",
+            "s": 0.0,
+            "e": 1.0,
+            "char": "Hero<script>",
+            "text": "<img src=x onerror=alert(1)> & line",
+            "s_raw": "0:00<bad>",
+            "parts": [{
+                "id": "p' onclick='bad",
+                "text": "<img src=x onerror=alert(1)> & part",
+                "sep": "<sep>"
+            }]
+        }]
+
+        html = ExportService(project_data).generate_html(
+            ep="1<bad>",
+            processed=processed,
+            cfg=export_config,
+            layout_type="Таблица",
+            is_editable=True
+        )
+
+        assert "Project &lt;unsafe&gt; - Серия 1&lt;bad&gt;" in html
+        assert "Hero&lt;script&gt;" in html
+        assert "Actor &lt;b&gt;One&lt;/b&gt;" in html
+        assert "&lt;img src=x onerror=alert(1)&gt; &amp; part" in html
+        assert "id='p&#x27; onclick=&#x27;bad'" in html
+        assert "<img src=x" not in html
+        assert "Hero<script>" not in html
+
     def test_process_merge_logic_keeps_working_text_lines(self) -> None:
         """Тест: рабочие тексты не объединяются повторно"""
         service = ExportService({})
@@ -282,6 +331,146 @@ class TestExportService:
 
         assert actor1_fill == "FFFF0000"
         assert actor2_fill in ("FFFFFFFF", "00FFFFFF")
+
+    def test_create_excel_book_accepts_non_numeric_episode_ids(
+        self,
+        sample_project_data: Dict[str, Any]
+    ) -> None:
+        """Тест: Excel экспорт не требует числовых id серий."""
+        pytest.importorskip("openpyxl")
+        service = ExportService(sample_project_data)
+        line = {
+            "id": 1,
+            "s": 0.0,
+            "e": 2.0,
+            "char": "Character1",
+            "text": "Hello",
+            "s_raw": "0:00:00.00"
+        }
+
+        wb = service.create_excel_book({
+            "pilot": [line],
+            "1A": [line],
+            "S01E02": [line],
+        })
+
+        assert "серия (1A)" in wb.sheetnames
+        assert "серия (S01E02)" in wb.sheetnames
+        assert "серия (pilot)" in wb.sheetnames
+
+    def test_export_batch_writes_shared_excel_once(
+        self,
+        sample_project_data: Dict[str, Any],
+        monkeypatch,
+        tmp_path
+    ) -> None:
+        """Тест: общий Excel при пакетном экспорте создаётся один раз."""
+        pytest.importorskip("openpyxl")
+        sample_project_data["export_config"] = {}
+        sample_project_data["replica_merge_config"] = {"merge": False}
+        service = ExportService(sample_project_data)
+        calls = []
+
+        def fake_export_to_excel(
+            ep, lines, cfg, save_path, all_episodes=None, merge_cfg=None
+        ):
+            calls.append((ep, save_path, list((all_episodes or {}).keys())))
+            return True, "ok"
+
+        monkeypatch.setattr(service, "export_to_excel", fake_export_to_excel)
+        monkeypatch.setattr(export_module.sys, "platform", "darwin")
+        monkeypatch.setattr(export_module.os, "system", lambda command: 0)
+
+        def get_lines(ep):
+            return [{
+                "id": 1,
+                "s": 0.0,
+                "e": 1.0,
+                "char": "Character1",
+                "text": f"Line {ep}",
+                "s_raw": "0:00:00.00"
+            }]
+
+        success, message = service.export_batch(
+            episodes={"1": "one.ass", "2": "two.ass", "3": "three.ass"},
+            get_lines_callback=get_lines,
+            do_html=False,
+            do_xls=True,
+            folder=str(tmp_path)
+        )
+
+        assert success is True
+        assert message == "Экспортировано файлов: 1"
+        assert len(calls) == 1
+        assert calls[0][2] == ["1", "2", "3"]
+
+    def test_generate_reaper_rpp_uses_shared_generator_and_merge_config(
+        self,
+        sample_project_data: Dict[str, Any]
+    ) -> None:
+        """Тест: RPP экспорт использует общую генерацию и настройки слияния."""
+        service = ExportService(sample_project_data)
+        lines = [
+            {
+                "id": 1,
+                "s": 0.0,
+                "e": 1.0,
+                "char": "Character1",
+                "text": "First",
+                "s_raw": "0:00:00.00"
+            },
+            {
+                "id": 2,
+                "s": 1.1,
+                "e": 2.0,
+                "char": "Character1",
+                "text": "Second",
+                "s_raw": "0:00:01.10"
+            },
+        ]
+
+        rpp = service.generate_reaper_rpp(
+            "1",
+            lines,
+            merge_cfg={"merge": True, "merge_gap": 120, "fps": 25}
+        )
+
+        assert rpp.startswith('<REAPER_PROJECT 0.1 "7.0"')
+        assert rpp.count("  MARKER ") == 2
+        assert "Character1: First  Second" in rpp
+        assert 'MARKER 1 0.0000 "Character1: First  Second" 1 16777471' in rpp
+        assert 'MARKER 1 2.0000 "" 1 16777471' in rpp
+        assert 'NAME "Actor One"' in rpp
+        assert "PEAKCOL 16777471" in rpp
+
+    def test_generate_reaper_rpp_supports_video_and_phrase_regions(
+        self,
+        sample_project_data: Dict[str, Any]
+    ) -> None:
+        """Тест: RPP умеет видео и регионы точно по началу/концу фразы."""
+        service = ExportService(sample_project_data)
+        lines = [{
+            "id": 1,
+            "s": 1.0,
+            "e": 1.2,
+            "char": "Character1",
+            "text": 'Quote "line"\nnext',
+            "s_raw": "0:00:01.00"
+        }]
+
+        rpp = service.generate_reaper_rpp(
+            "1",
+            lines,
+            merge_cfg={"merge": False},
+            video_path="/tmp/video file.mov",
+            use_video=True,
+            use_regions=True
+        )
+
+        assert 'MARKER 1 1.0000 "Character1: Quote \' line\'  next" 1 16777471' in rpp
+        assert 'MARKER 1 1.2000 "" 1 16777471' in rpp
+        assert 'NAME "VIDEO"' in rpp
+        assert 'FILE "/tmp/video file.mov"' in rpp
 
     def test_count_words(self) -> None:
         """Тест: подсчёт количества слов"""

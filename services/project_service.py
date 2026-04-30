@@ -5,6 +5,7 @@ import os
 import shutil
 import logging
 import sys
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -85,9 +86,9 @@ class ProjectService:
             "episodes": {},
             "video_paths": {},
             "episode_texts": {},
-            "export_config": DEFAULT_EXPORT_CONFIG.copy(),
-            "prompter_config": DEFAULT_PROMPTER_CONFIG.copy(),
-            "replica_merge_config": DEFAULT_REPLICA_MERGE_CONFIG.copy(),
+            "export_config": deepcopy(DEFAULT_EXPORT_CONFIG),
+            "prompter_config": deepcopy(DEFAULT_PROMPTER_CONFIG),
+            "replica_merge_config": deepcopy(DEFAULT_REPLICA_MERGE_CONFIG),
             "project_folder": None,  # Путь к папке проекта
         }
 
@@ -398,9 +399,9 @@ class ProjectService:
         if "episode_texts" not in data:
             data["episode_texts"] = {}
         if "export_config" not in data:
-            data["export_config"] = DEFAULT_EXPORT_CONFIG.copy()
+            data["export_config"] = deepcopy(DEFAULT_EXPORT_CONFIG)
         if "prompter_config" not in data:
-            data["prompter_config"] = DEFAULT_PROMPTER_CONFIG.copy()
+            data["prompter_config"] = deepcopy(DEFAULT_PROMPTER_CONFIG)
         if "global_map" not in data:
             data["global_map"] = {}
         if "episode_actor_map" not in data:
@@ -418,7 +419,9 @@ class ProjectService:
                     'p_long': export_cfg.get('p_long', 2.0),
                 }
             else:
-                data["replica_merge_config"] = DEFAULT_REPLICA_MERGE_CONFIG.copy()
+                data["replica_merge_config"] = deepcopy(
+                    DEFAULT_REPLICA_MERGE_CONFIG
+                )
         
         # Добавляем project_folder для старых проектов
         if "project_folder" not in data:

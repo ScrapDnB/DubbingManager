@@ -4,6 +4,7 @@ import os
 import sys
 import logging
 import re
+from html import escape
 from typing import Dict, List, Any, Optional, Set, Tuple, Callable
 
 from services.assignment_service import get_actor_for_character
@@ -127,8 +128,9 @@ class ExportService:
         js = self._get_js_for_mode(is_editable)
         html = self._get_html_header(js, cfg)
 
-        project_name = self.project_data.get('project_name', 'Project')
-        html += f"<h1>{project_name} - Серия {ep}</h1>"
+        project_name = escape(str(self.project_data.get('project_name', 'Project')))
+        ep_label = escape(str(ep))
+        html += f"<h1>{project_name} - Серия {ep_label}</h1>"
 
         actors = self.project_data.get("actors", {})
         all_actor_ids = set(actors.keys())
@@ -314,20 +316,23 @@ class ExportService:
         if 'parts' in line:
             for part in line['parts']:
                 if part['sep']:
-                    text_html += f"<span class='sep'>{part['sep']}</span>"
+                    sep = escape(str(part['sep']))
+                    text_html += f"<span class='sep'>{sep}</span>"
+                part_text = escape(str(part.get('text', '')))
                 if is_editable:
+                    part_id = escape(str(part.get('id', '')), quote=True)
                     text_html += (
-                        f"<span id='{part['id']}' "
+                        f"<span id='{part_id}' "
                         f"class='edit-span' "
                         f"contenteditable='true' "
                         f"onblur='onBlur(this)' "
                         f"onkeypress='onKeyPress(event, this)'>"
-                        f"{part['text']}</span>"
+                        f"{part_text}</span>"
                     )
                 else:
-                    text_html += f"<span>{part['text']}</span>"
+                    text_html += f"<span>{part_text}</span>"
         else:
-            text_html = line['text']
+            text_html = escape(str(line.get('text', '')))
 
         return text_html
 
@@ -342,12 +347,15 @@ class ExportService:
         is_last: bool
     ) -> str:
         """Построение строки таблицы"""
+        s_raw = escape(str(line.get('s_raw', '')))
+        char = escape(str(line.get('char', '')))
+        actor_name = escape(str(actor.get('name', '-')))
         row = (
             f"<tr style='background-color:{bg_color}' "
             f"class='{h_class}'>"
-            f"<td class='t'>{line['s_raw']}</td>"
-            f"<td class='c'>{line['char']}</td>"
-            f"<td class='a'>{actor['name']}</td>"
+            f"<td class='t'>{s_raw}</td>"
+            f"<td class='c'>{char}</td>"
+            f"<td class='a'>{actor_name}</td>"
             f"<td class='txt'>{text_html}</td></tr>"
         )
 
@@ -375,16 +383,28 @@ class ExportService:
         h_class: str
     ) -> str:
         """Построение строки сценария"""
+        char = escape(str(line.get('char', '')))
+        s_raw = escape(str(line.get('s_raw', '')))
+        actor_name = escape(str(actor.get('name', '-')))
         return (
             f"<div class='line-container {h_class}' "
             f"style='background-color:{bg_color}; "
             f"border-left-color:{border_col}'>"
             f"<div class='meta'>"
-            f"<span class='c'><b>{line['char']}</b></span>"
-            f" <span class='t'>[{line['s_raw']}]</span>"
-            f" <span class='a'><i>({actor['name']})</i></span>"
+            f"<span class='c'><b>{char}</b></span>"
+            f" <span class='t'>[{s_raw}]</span>"
+            f" <span class='a'><i>({actor_name})</i></span>"
             f"</div>"
             f"<div class='txt'>{text_html}</div></div>"
+        )
+
+    def _episode_sort_key(self, ep_num: Any) -> Tuple[Any, ...]:
+        """Естественная сортировка серий без требования числового id."""
+        parts = re.split(r'(\d+)', str(ep_num))
+        return tuple(
+            (0, int(part)) if part.isdigit() else (1, part.lower())
+            for part in parts
+            if part != ''
         )
 
     # ==========================================================================
@@ -446,7 +466,7 @@ class ExportService:
         effective_filter = self._get_effective_highlight_filter(cfg)
 
         # Сортируем номера серий для правильного порядка колонок
-        sorted_ep_keys = sorted(episodes_data.keys(), key=lambda x: int(x))
+        sorted_ep_keys = sorted(episodes_data.keys(), key=self._episode_sort_key)
 
         # Собираем статистику по актёрам
         actor_stats: Dict[str, Dict[str, Any]] = {}
@@ -702,7 +722,7 @@ class ExportService:
         self._create_actors_summary_sheet(wb, episodes_data, cfg)
 
         # Создаём листы для каждой серии (отсортированы по порядку)
-        for ep_num in sorted(episodes_data.keys(), key=lambda x: int(x)):
+        for ep_num in sorted(episodes_data.keys(), key=self._episode_sort_key):
             lines = episodes_data[ep_num]
             self._create_episode_sheet(wb, ep_num, lines, cfg)
 
@@ -755,6 +775,127 @@ class ExportService:
         except Exception as e:
             logger.error(f"Excel export error: {e}")
             return False, f"Ошибка экспорта: {e}"
+
+    # ==========================================================================
+    # Reaper RPP экспорт
+    # ==========================================================================
+
+    def _hex_to_reaper_color(self, hex_color: str) -> int:
+        """Конвертация HEX в BGR Int для Reaper."""
+        if not hex_color or not isinstance(hex_color, str):
+            return 0
+
+        value = hex_color.strip().lstrip('#')
+        if len(value) != 6:
+            return 0
+
+        try:
+            red = int(value[0:2], 16)
+            green = int(value[2:4], 16)
+            blue = int(value[4:6], 16)
+        except ValueError:
+            return 0
+
+        return 0x01000000 | (blue << 16) | (green << 8) | red
+
+    def _escape_rpp_text(self, text: Any) -> str:
+        """Подготовить строку для безопасной вставки в RPP кавычки."""
+        return (
+            str(text)
+            .replace('"', "' ")
+            .replace('\r', ' ')
+            .replace('\n', ' ')
+            .strip()
+        )
+
+    def generate_reaper_rpp(
+        self,
+        ep: str,
+        lines: List[Dict[str, Any]],
+        merge_cfg: Optional[Dict[str, Any]] = None,
+        video_path: Optional[str] = None,
+        use_video: bool = False,
+        use_regions: bool = True
+    ) -> str:
+        """Сгенерировать RPP-файл для Reaper из реплик эпизода."""
+        if merge_cfg is None:
+            merge_cfg = self.project_data.get("replica_merge_config", {})
+
+        processed_lines = self.process_merge_logic(lines, merge_cfg)
+        actors = self.project_data.get("actors", {})
+
+        active_actor_ids: Set[str] = set()
+        for line in processed_lines:
+            actor_id = get_actor_for_character(
+                self.project_data,
+                line.get('char', ''),
+                ep
+            )
+            if actor_id:
+                active_actor_ids.add(actor_id)
+
+        max_time = 600.0
+        if processed_lines:
+            max_time = max(float(line.get('e', 0.0)) for line in processed_lines)
+            max_time += 600.0
+
+        rpp = ['<REAPER_PROJECT 0.1 "7.0"']
+
+        if use_regions:
+            for i, line in enumerate(processed_lines):
+                start = float(line.get('s', 0.0))
+                end = float(line.get('e', 0.0))
+
+                char = line.get('char', '')
+                label = (
+                    f"{self._escape_rpp_text(char)}: "
+                    f"{self._escape_rpp_text(line.get('text', ''))}"
+                )
+
+                actor_id = get_actor_for_character(self.project_data, char, ep)
+                actor = actors.get(actor_id, {}) if actor_id else {}
+                color_int = self._hex_to_reaper_color(actor.get("color", ""))
+
+                rpp.append(
+                    f'  MARKER {i + 1} {start:.4f} "{label}" 1 {color_int}'
+                )
+                rpp.append(
+                    f'  MARKER {i + 1} {end:.4f} "" 1 {color_int}'
+                )
+
+        if use_video and video_path:
+            rpp.append('   <TRACK')
+            rpp.append('    NAME "VIDEO"')
+            rpp.append('     <ITEM')
+            rpp.append('      POSITION 0.0')
+            rpp.append('      LOOP 0')
+            rpp.append(f'      LENGTH {max_time:.4f}')
+            rpp.append('       <SOURCE VIDEO')
+            rpp.append(f'        FILE "{self._escape_rpp_text(video_path)}"')
+            rpp.append('       >')
+            rpp.append('     >')
+            rpp.append('   >')
+
+        sorted_actors = sorted(
+            (
+                actors[actor_id]
+                for actor_id in active_actor_ids
+                if actor_id in actors
+            ),
+            key=lambda actor: actor.get('name', '').lower()
+        )
+
+        for actor in sorted_actors:
+            color_int = self._hex_to_reaper_color(actor.get('color', ''))
+            rpp.append('   <TRACK')
+            rpp.append(f'    NAME "{self._escape_rpp_text(actor.get("name", ""))}"')
+            rpp.append(f'    PEAKCOL {color_int}')
+            rpp.append('    REC 0')
+            rpp.append('    SHOWINMIX 1')
+            rpp.append('   >')
+
+        rpp.append('>')
+        return '\n'.join(rpp)
 
     # ==========================================================================
     # Пакетный экспорт
@@ -826,15 +967,17 @@ class ExportService:
                         f.write(html)
                     exported_count += 1
 
-                if do_xls and EXCEL_AVAILABLE:
-                    # Экспортируем один общий Excel файл со всеми сериями
-                    filename = f"{project_name} - Все серии.xlsx"
-                    filepath = os.path.join(folder, filename)
-                    success, _ = self.export_to_excel(
-                        ep, lines, cfg, filepath, all_episodes_data, merge_cfg
-                    )
-                    if success:
-                        exported_count += 1
+            if do_xls and EXCEL_AVAILABLE and all_episodes_data:
+                filename = f"{project_name} - Все серии.xlsx"
+                filepath = os.path.join(folder, filename)
+                first_ep = next(iter(all_episodes_data))
+                first_lines = all_episodes_data[first_ep]
+                success, _ = self.export_to_excel(
+                    first_ep, first_lines, cfg, filepath,
+                    all_episodes_data, merge_cfg
+                )
+                if success:
+                    exported_count += 1
 
             # Обновляем прогресс до конца
             if progress_callback:

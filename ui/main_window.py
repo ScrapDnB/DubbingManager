@@ -2353,90 +2353,19 @@ class MainWindow(QMainWindow):
             )
             return
 
-        active_actor_ids: Set[str] = set()
-
-        max_time = 600.0
-        if lines:
-            max_time = max(l['e'] for l in lines) + 600.0
-            for line in lines:
-                aid = get_actor_for_character(self.data, line['char'], ep_num)
-                if aid:
-                    active_actor_ids.add(aid)
-
         export_service = ExportService(self.data)
-        processed_lines = export_service.process_merge_logic(
-            lines, self.data["export_config"]
+        rpp_content = export_service.generate_reaper_rpp(
+            ep_num,
+            lines,
+            merge_cfg=self.data.get("replica_merge_config", {}),
+            video_path=video_path,
+            use_video=use_video,
+            use_regions=use_regions
         )
-        
-        rpp = []
-        rpp.append('<REAPER_PROJECT 0.1 "7.0"')
-        
-        if use_regions:
-            for i, line in enumerate(processed_lines):
-                start = float(line['s'])
-                end = float(line['e'])
-                
-                if (end - start) < 0.5:
-                    end = start + 2.0
-                
-                char = line['char']
-                safe_text = (
-                    line['text']
-                    .replace('"', "' ")
-                    .replace('\n', ' ')
-                    .strip()
-                )
-                label = f"{char}: {safe_text}"
-                
-                aid = get_actor_for_character(self.data, char, ep_num)
-                color_int = 0
-                if aid and aid in self.data["actors"]:
-                    color_int = int(
-                        self.hex_to_reaper_color(
-                            self.data["actors"][aid]["color"]
-                        )
-                    )
-                
-                rpp.append(
-                    f'  MARKER {i+1} {start:.4f} "{label}" '
-                    f'1 {color_int} {end:.4f}'
-                )
-        
-        if use_video and video_path:
-            rpp.append('   <TRACK')
-            rpp.append('    NAME "VIDEO"')
-            rpp.append('     <ITEM')
-            rpp.append('      POSITION 0.0')
-            rpp.append('      LOOP 0')
-            rpp.append(f'      LENGTH {max_time:.4f}')
-            rpp.append('       <SOURCE VIDEO')
-            rpp.append(f'        FILE "{video_path}"')
-            rpp.append('       >')
-            rpp.append('     >')
-            rpp.append('   >')
-        
-        sorted_actors = []
-        for aid in active_actor_ids:
-            if aid in self.data["actors"]:
-                sorted_actors.append(self.data["actors"][aid])
-        sorted_actors.sort(key=lambda x: x['name'])
-        
-        for actor in sorted_actors:
-            color_int = int(
-                self.hex_to_reaper_color(actor['color'])
-            )
-            rpp.append('   <TRACK')
-            rpp.append(f'    NAME "{actor["name"]}"')
-            rpp.append(f'    PEAKCOL {color_int}')
-            rpp.append('    REC 0')
-            rpp.append('    SHOWINMIX 1')
-            rpp.append('   >')
-        
-        rpp.append('>')
         
         try:
             with open(save_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(rpp))
+                f.write(rpp_content)
             
             reply = QMessageBox.question(
                 self,
@@ -2457,23 +2386,6 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self, "Ошибка", f"Не удалось сохранить: {e}"
             )
-    
-    def hex_to_reaper_color(self, hex_color: str) -> int:
-        """Конвертация HEX в BGR Int для Reaper"""
-        if not hex_color or not hex_color.startswith('#'):
-            return 0
-        
-        color = QColor(hex_color)
-        if not color.isValid():
-            return 0
-        
-        val = 0x01000000 | (
-            color.blue() << 16
-        ) | (
-            color.green() << 8
-        ) | color.red()
-        
-        return val
     
     def switch_to_episode(self, ep_num: str) -> None:
         """Переключение на серию"""
