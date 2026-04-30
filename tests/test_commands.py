@@ -267,6 +267,20 @@ class TestDeleteActorCommand:
         assert "Персонаж 1" in global_map
         assert global_map["Персонаж 1"] == "actor1"
 
+    def test_execute_removes_extra_mappings(self, actors, global_map):
+        """Тест удаления маппингов из дополнительных карт"""
+        episode_map = {"Персонаж 3": "actor1", "Персонаж 4": "actor2"}
+        cmd = DeleteActorCommand(actors, global_map, "actor1", [episode_map])
+
+        cmd.execute()
+
+        assert "Персонаж 3" not in episode_map
+        assert episode_map["Персонаж 4"] == "actor2"
+
+        cmd.undo()
+
+        assert episode_map["Персонаж 3"] == "actor1"
+
     def test_get_description(self, actors):
         """Тест описания команды"""
         cmd = DeleteActorCommand(actors, {}, "actor1")

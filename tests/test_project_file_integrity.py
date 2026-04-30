@@ -7,6 +7,7 @@ import tempfile
 import shutil
 from datetime import datetime
 from services import ProjectService
+from config.constants import PROJECT_VERSION
 
 
 class TestProjectFileStructure:
@@ -33,6 +34,7 @@ class TestProjectFileStructure:
         assert "episodes" in data
         assert "video_paths" in data
         assert "episode_texts" in data
+        assert "episode_actor_map" in data
         assert "export_config" in data
         assert "prompter_config" in data
         assert "replica_merge_config" in data
@@ -50,6 +52,7 @@ class TestProjectFileStructure:
         assert isinstance(data["episodes"], dict)
         assert isinstance(data["video_paths"], dict)
         assert isinstance(data["episode_texts"], dict)
+        assert isinstance(data["episode_actor_map"], dict)
 
     def test_save_and_load_project(self):
         """Проверка сохранения и загрузки проекта"""
@@ -202,7 +205,7 @@ class TestProjectFileStructure:
         
         # modified_at должен обновиться
         assert loaded_data["metadata"]["modified_at"] >= original_modified
-        assert loaded_data["metadata"]["format_version"] == "1.1"
+        assert loaded_data["metadata"]["format_version"] == PROJECT_VERSION
 
     def test_project_folder_in_file(self):
         """Проверка сохранения project_folder"""

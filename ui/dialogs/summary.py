@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QColor
 from typing import Dict, Any, Optional, List
 from services import ExportService
+from services.assignment_service import get_actor_for_character
 
 
 class SummaryDialog(QDialog):
@@ -95,7 +96,9 @@ class SummaryDialog(QDialog):
             # Подсчёт статистики
             line: Dict[str, Any]
             for line in merged:
-                aid: Optional[str] = self.data["global_map"].get(line['char'])
+                aid: Optional[str] = get_actor_for_character(
+                    self.data, line['char'], ep_num
+                )
                 target = (
                     stats[aid]
                     if aid and aid in stats

@@ -19,6 +19,7 @@ from services.project_service import ProjectService, MAX_BACKUPS
 from services.episode_service import EpisodeService
 from services.actor_service import ActorService
 from services.export_service import ExportService, EXCEL_AVAILABLE
+from config.constants import PROJECT_VERSION
 
 
 # =============================================================================
@@ -165,10 +166,11 @@ class TestProjectService:
         
         assert project["project_name"] == "Новый проект"
         assert "metadata" in project
-        assert project["metadata"]["format_version"] == "1.1"
+        assert project["metadata"]["format_version"] == PROJECT_VERSION
         assert "created_at" in project["metadata"]
         assert "actors" in project
         assert "episodes" in project
+        assert "episode_actor_map" in project
         assert "export_config" in project
         assert "prompter_config" in project
 
@@ -401,7 +403,7 @@ class TestProjectService:
             saved_data = json.load(f)
         
         assert "metadata" in saved_data
-        assert saved_data["metadata"]["format_version"] == "1.1"
+        assert saved_data["metadata"]["format_version"] == PROJECT_VERSION
         assert "modified_at" in saved_data["metadata"]
 
 

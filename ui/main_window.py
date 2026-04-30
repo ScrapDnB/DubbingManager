@@ -43,6 +43,9 @@ from config.constants import (
     BTN_RENAME_WIDTH,
     TABLE_ROW_HEIGHT,
     VIDEO_BTN_WIDTH,
+    MAIN_TABLE_COUNT_COL_WIDTH,
+    MAIN_TABLE_SCOPE_COL_WIDTH,
+    MAIN_TABLE_VIDEO_COL_WIDTH,
     AUTOSAVE_INTERVAL_MS,
     PROJECT_BAR_SPACING,
     PROJECT_FOLDER_BTN_WIDTH,
@@ -66,6 +69,14 @@ from services import (
     GlobalSettingsService,
     ProjectFolderService,
     ScriptTextService,
+    ASSIGNMENT_SCOPE_GLOBAL,
+    ASSIGNMENT_SCOPE_EPISODE,
+    LOCAL_UNASSIGNED_ACTOR_ID,
+    get_actor_for_character,
+    get_actor_roles,
+    get_assignment_map,
+    get_assignment_scope,
+    rename_character_assignments,
 )
 from ui.controllers import (
     ActorController,
@@ -419,20 +430,34 @@ class MainWindow(QMainWindow):
         # Стек таблиц
         self.table_stack = QStackedWidget()
 
-        self.main_table = QTableWidget(0, 6)
+        self.main_table = QTableWidget(0, 7)
         self.main_table.setHorizontalHeaderLabels([
-            "Персонаж", "Строчек", "Колец", "Слов", "Актер", "📺"
+            "Персонаж", "Строчек", "Колец", "Слов",
+            "Область", "Актер", "📺"
         ])
         customize_table(self.main_table)
-        self.main_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Stretch
-        )
+        header = self.main_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.Fixed)
+        header.setSectionResizeMode(4, QHeaderView.Fixed)
+        header.setSectionResizeMode(5, QHeaderView.Stretch)
+        header.setSectionResizeMode(6, QHeaderView.Fixed)
+        self.main_table.setColumnWidth(1, MAIN_TABLE_COUNT_COL_WIDTH)
+        self.main_table.setColumnWidth(2, MAIN_TABLE_COUNT_COL_WIDTH)
+        self.main_table.setColumnWidth(3, MAIN_TABLE_COUNT_COL_WIDTH)
+        self.main_table.setColumnWidth(4, MAIN_TABLE_SCOPE_COL_WIDTH)
+        self.main_table.setColumnWidth(6, MAIN_TABLE_VIDEO_COL_WIDTH)
         self.main_table.horizontalHeader().setSectionsClickable(True)
         self.main_table.horizontalHeader().sectionClicked.connect(
             self.on_header_clicked
         )
         self.main_table.itemChanged.connect(
             self.on_character_name_changed
+        )
+        self.main_table.itemSelectionChanged.connect(
+            self.update_selected_character_stats
         )
 
         self.missing_file_widget = QWidget()
@@ -484,6 +509,24 @@ class MainWindow(QMainWindow):
         tools_sidebar_layout.addWidget(btn_reaper)
 
         tools_sidebar_layout.addStretch()
+
+        self.character_stats_group = QGroupBox("Статистика персонажа")
+        stats_layout = QVBoxLayout(self.character_stats_group)
+        self.lbl_character_stats_name = QLabel("Выберите персонажа")
+        self.lbl_character_stats_name.setWordWrap(True)
+        self.lbl_character_stats_name.setStyleSheet("font-weight: bold;")
+        stats_layout.addWidget(self.lbl_character_stats_name)
+
+        self.lbl_character_stats_totals = QLabel("Колец: -\nСлов: -")
+        stats_layout.addWidget(self.lbl_character_stats_totals)
+
+        self.txt_character_stats_episodes = QTextEdit()
+        self.txt_character_stats_episodes.setReadOnly(True)
+        self.txt_character_stats_episodes.setFrameShape(QFrame.NoFrame)
+        stats_layout.addWidget(self.txt_character_stats_episodes)
+        self._reset_character_stats_panel()
+        tools_sidebar_layout.addWidget(self.character_stats_group)
+
         layout.addWidget(tools_sidebar_widget)
     
     def _init_bottom_panel(self, layout) -> None:
@@ -609,11 +652,14 @@ class MainWindow(QMainWindow):
             ep,
             old_name,
             new_name,
-            lambda from_name, to_name: self.script_text_service.rename_character(
-                self.data,
-                from_name,
-                to_name,
-                ep
+            lambda from_name, to_name: (
+                rename_character_assignments(self.data, from_name, to_name),
+                self.script_text_service.rename_character(
+                    self.data,
+                    from_name,
+                    to_name,
+                    ep
+                )
             )
         )
         self.undo_stack.push(command)
@@ -643,6 +689,93 @@ class MainWindow(QMainWindow):
     def update_save_ass_button(self) -> None:
         """Совместимость со старым UI сохранения ASS/SRT."""
         pass
+
+    def _reset_character_stats_panel(self) -> None:
+        """Сброс панели статистики персонажа."""
+        if not hasattr(self, "lbl_character_stats_name"):
+            return
+        self.lbl_character_stats_name.setText("Выберите персонажа")
+        self.lbl_character_stats_totals.setText("Колец: -\nСлов: -")
+        self.txt_character_stats_episodes.setPlainText("")
+
+    def update_selected_character_stats(self) -> None:
+        """Обновить статистику выбранного персонажа в правой панели."""
+        selected_items = self.main_table.selectedItems()
+        if not selected_items:
+            self._reset_character_stats_panel()
+            return
+
+        row = min(item.row() for item in selected_items)
+        name_item = self.main_table.item(row, 0)
+        if not name_item:
+            self._reset_character_stats_panel()
+            return
+
+        self.update_character_stats_panel(
+            name_item.data(Qt.UserRole) or name_item.text()
+        )
+
+    def update_character_stats_panel(self, char_name: str) -> None:
+        """Показать серии, кольца и слова для персонажа."""
+        stats = self._calculate_character_project_stats(char_name)
+        self.lbl_character_stats_name.setText(char_name)
+        self.lbl_character_stats_totals.setText(
+            f"Колец: {stats['rings']}\nСлов: {stats['words']}"
+        )
+
+        if not stats["episodes"]:
+            self.txt_character_stats_episodes.setPlainText("Нет в сериях")
+            return
+
+        lines = [
+            f"Серия {item['episode']}: {item['rings']} колец, {item['words']} слов"
+            for item in stats["episodes"]
+        ]
+        self.txt_character_stats_episodes.setPlainText("\n".join(lines))
+
+    def _calculate_character_project_stats(
+        self,
+        char_name: str
+    ) -> Dict[str, Any]:
+        """Посчитать статистику персонажа по всем сериям."""
+        result: Dict[str, Any] = {
+            "rings": 0,
+            "words": 0,
+            "episodes": []
+        }
+        export_service = ExportService(self.data)
+
+        for ep in sorted(
+            self.data.get("episodes", {}).keys(),
+            key=lambda value: int(value) if str(value).isdigit() else 0
+        ):
+            lines = self.get_episode_lines(str(ep))
+            if not lines:
+                continue
+
+            processed = export_service.process_merge_logic(
+                lines,
+                self.data.get("replica_merge_config", {})
+            )
+            ep_rings = 0
+            ep_words = 0
+
+            for line in processed:
+                if line.get("char") != char_name:
+                    continue
+                ep_rings += 1
+                ep_words += len(line.get("text", "").split())
+
+            if ep_rings:
+                result["episodes"].append({
+                    "episode": str(ep),
+                    "rings": ep_rings,
+                    "words": ep_words
+                })
+                result["rings"] += ep_rings
+                result["words"] += ep_words
+
+        return result
 
     # === Методы работы с проектом ===
 
@@ -1043,7 +1176,12 @@ class MainWindow(QMainWindow):
             command = DeleteActorCommand(
                 self.data["actors"],
                 self.data["global_map"],
-                actor_id
+                actor_id,
+                [
+                    mapping for mapping in
+                    self.data.get("episode_actor_map", {}).values()
+                    if isinstance(mapping, dict)
+                ]
             )
             self.undo_stack.push(command)
             self.actor_controller.refresh()
@@ -1472,17 +1610,61 @@ class MainWindow(QMainWindow):
     def update_map(
         self,
         char_name: str,
-        combo: QComboBox
+        actor_combo: QComboBox,
+        scope_combo: Optional[QComboBox] = None
     ) -> None:
         """Обновление маппинга персонаж-актёр"""
-        aid = combo.currentData()
+        aid = actor_combo.currentData()
+        ep = self.ep_combo.currentData()
+        scope = (
+            scope_combo.currentData()
+            if scope_combo is not None
+            else ASSIGNMENT_SCOPE_GLOBAL
+        )
+        target_map = get_assignment_map(self.data, scope, ep)
+        stored_aid = (
+            LOCAL_UNASSIGNED_ACTOR_ID
+            if scope == ASSIGNMENT_SCOPE_EPISODE and aid is None
+            else aid
+        )
         # Используем команду для отмены действия
         command = AssignActorToCharacterCommand(
-            self.data["global_map"],
+            target_map,
             char_name,
-            aid
+            stored_aid
         )
         self.undo_stack.push(command)
+        self.refresh_actor_list()
+        self.set_dirty(True)
+
+    def update_assignment_scope(
+        self,
+        char_name: str,
+        scope_combo: QComboBox,
+        actor_combo: QComboBox
+    ) -> None:
+        """Переключение назначения персонажа между проектом и серией."""
+        ep = self.ep_combo.currentData()
+        if not ep:
+            return
+
+        scope = scope_combo.currentData()
+        local_map = get_assignment_map(self.data, ASSIGNMENT_SCOPE_EPISODE, ep)
+
+        if scope == ASSIGNMENT_SCOPE_EPISODE:
+            aid = actor_combo.currentData() or LOCAL_UNASSIGNED_ACTOR_ID
+            command = AssignActorToCharacterCommand(local_map, char_name, aid)
+        else:
+            command = AssignActorToCharacterCommand(local_map, char_name, None)
+
+        self.undo_stack.push(command)
+
+        actor_id = get_actor_for_character(self.data, char_name, ep)
+        actor_combo.blockSignals(True)
+        actor_index = actor_combo.findData(actor_id)
+        actor_combo.setCurrentIndex(actor_index if actor_index >= 0 else 0)
+        actor_combo.blockSignals(False)
+
         self.refresh_actor_list()
         self.set_dirty(True)
     
@@ -1505,7 +1687,9 @@ class MainWindow(QMainWindow):
             if query and query not in stat["name"].lower():
                 continue
             
-            is_assigned = stat["name"] in self.data["global_map"]
+            ep = self.ep_combo.currentData()
+            actor_id = get_actor_for_character(self.data, stat["name"], ep)
+            is_assigned = actor_id is not None
             if only_unassigned and is_assigned:
                 continue
             
@@ -1529,29 +1713,40 @@ class MainWindow(QMainWindow):
                 row, 3, QTableWidgetItem(str(stat["words"]))
             )
             
+            scope_combo = QComboBox()
+            scope_combo.addItem("Глобально", ASSIGNMENT_SCOPE_GLOBAL)
+            scope_combo.addItem("Серия", ASSIGNMENT_SCOPE_EPISODE)
+            scope_combo.setCurrentIndex(
+                scope_combo.findData(
+                    get_assignment_scope(self.data, stat["name"], ep)
+                )
+            )
+            self.main_table.setCellWidget(row, 4, scope_combo)
+
             combo = QComboBox()
             combo.addItem("-", None)
             for aid, info in self.data["actors"].items():
                 combo.addItem(info["name"], aid)
             
             if is_assigned:
-                combo.setCurrentIndex(
-                    combo.findData(
-                        self.data["global_map"][stat["name"]]
-                    )
-                )
+                combo.setCurrentIndex(combo.findData(actor_id))
             
             combo.currentIndexChanged.connect(
-                lambda _, c=stat["name"], b=combo: self.update_map(c, b)
+                lambda _, c=stat["name"], b=combo, s=scope_combo:
+                self.update_map(c, b, s)
             )
-            self.main_table.setCellWidget(row, 4, combo)
+            scope_combo.currentIndexChanged.connect(
+                lambda _, c=stat["name"], s=scope_combo, b=combo:
+                self.update_assignment_scope(c, s, b)
+            )
+            self.main_table.setCellWidget(row, 5, combo)
 
             btn = QPushButton("📺")
             btn.setFixedWidth(VIDEO_BTN_WIDTH)
             btn.clicked.connect(
                 lambda ch=False, c=stat["name"]: self.open_preview(c)
             )
-            self.main_table.setCellWidget(row, 5, wrap_widget(btn))
+            self.main_table.setCellWidget(row, 6, wrap_widget(btn))
         
         self.main_table.blockSignals(False)
 
@@ -1571,9 +1766,8 @@ class MainWindow(QMainWindow):
                 aid: [] for aid in self.data["actors"]
             }
 
-            for char, aid in self.data["global_map"].items():
-                if aid in actor_roles:
-                    actor_roles[aid].append(char)
+            for aid in actor_roles:
+                actor_roles[aid] = get_actor_roles(self.data, aid)
 
             aid: str
             info: Dict[str, Any]
@@ -1611,7 +1805,8 @@ class MainWindow(QMainWindow):
             command = RenameEpisodeCommand(
                 self.data["episodes"],
                 old,
-                new_name
+                new_name,
+                self.data.get("episode_actor_map", {})
             )
             self.undo_stack.push(command)
             self.update_ep_list(new_name)
@@ -1643,7 +1838,8 @@ class MainWindow(QMainWindow):
             self.data["episodes"],
             self.data.get("video_paths", {}),
             self.data.get("loaded_episodes", {}),
-            ep
+            ep,
+            self.data.get("episode_actor_map", {})
         )
         self.undo_stack.push(command)
 
@@ -1986,7 +2182,7 @@ class MainWindow(QMainWindow):
 
             for line in processed:
                 char_name = line.get("char", "")
-                if self.data.get("global_map", {}).get(char_name) != actor_id:
+                if get_actor_for_character(self.data, char_name, str(ep)) != actor_id:
                     continue
 
                 if char_name not in stats:
@@ -2163,7 +2359,7 @@ class MainWindow(QMainWindow):
         if lines:
             max_time = max(l['e'] for l in lines) + 600.0
             for line in lines:
-                aid = self.data["global_map"].get(line['char'])
+                aid = get_actor_for_character(self.data, line['char'], ep_num)
                 if aid:
                     active_actor_ids.add(aid)
 
@@ -2192,7 +2388,7 @@ class MainWindow(QMainWindow):
                 )
                 label = f"{char}: {safe_text}"
                 
-                aid = self.data["global_map"].get(char)
+                aid = get_actor_for_character(self.data, char, ep_num)
                 color_int = 0
                 if aid and aid in self.data["actors"]:
                     color_int = int(

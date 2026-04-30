@@ -6,6 +6,7 @@ import logging
 import re
 from typing import Dict, List, Any, Optional, Set, Tuple, Callable
 
+from services.assignment_service import get_actor_for_character
 from utils.helpers import hex_to_rgba_string, format_timing_range, format_seconds_to_tc
 
 logger = logging.getLogger(__name__)
@@ -130,8 +131,6 @@ class ExportService:
         html += f"<h1>{project_name} - Серия {ep}</h1>"
 
         actors = self.project_data.get("actors", {})
-        global_map = self.project_data.get("global_map", {})
-
         all_actor_ids = set(actors.keys())
         is_full_filter = (
             highlight_ids is not None and
@@ -153,7 +152,7 @@ class ExportService:
                 logger.warning(f"Skipping line without 'text' field: {line}")
                 continue
 
-            aid = global_map.get(line['char'])
+            aid = get_actor_for_character(self.project_data, line['char'], ep)
             actor = actors.get(aid, {"name": "-", "color": "#ffffff"})
 
             is_highlighted = (
@@ -444,7 +443,6 @@ class ExportService:
         ws = wb.create_sheet(title='Сводка')
 
         actors = self.project_data.get('actors', {})
-        global_map = self.project_data.get('global_map', {})
         effective_filter = self._get_effective_highlight_filter(cfg)
 
         # Сортируем номера серий для правильного порядка колонок
@@ -460,21 +458,17 @@ class ExportService:
                 'episode_words': {}
             }
 
-        # Маппинг персонажей к актёрам
-        char_to_actor: Dict[str, str] = {}
-        for char_name, actor_id in global_map.items():
-            char_to_actor[char_name] = actor_id
-            if actor_id in actor_stats:
-                if char_name not in actor_stats[actor_id]['roles']:
-                    actor_stats[actor_id]['roles'].append(char_name)
-
         # Подсчёт слов по сериям с использованием реальных номеров эпизодов
         for ep_key in sorted_ep_keys:
             lines = episodes_data[ep_key]
             for line in lines:
                 char_name = line.get('char', '')
-                actor_id = char_to_actor.get(char_name)
+                actor_id = get_actor_for_character(
+                    self.project_data, char_name, ep_key
+                )
                 if actor_id and actor_id in actor_stats:
+                    if char_name not in actor_stats[actor_id]['roles']:
+                        actor_stats[actor_id]['roles'].append(char_name)
                     if ep_key not in actor_stats[actor_id]['episode_words']:
                         actor_stats[actor_id]['episode_words'][ep_key] = 0
                     actor_stats[actor_id]['episode_words'][ep_key] += self._count_words(line.get('text', ''))
@@ -563,7 +557,6 @@ class ExportService:
         ws = wb.create_sheet(title=sheet_name)
 
         actors = self.project_data.get('actors', {})
-        global_map = self.project_data.get('global_map', {})
         use_color = cfg.get('use_color', True)
         round_time = cfg.get('round_time', False)
         effective_filter = self._get_effective_highlight_filter(cfg)
@@ -619,7 +612,9 @@ class ExportService:
         # Заполнение данными
         for row_idx, line in enumerate(processed, 2):
             char_name = line.get('char', '')
-            actor_id = global_map.get(char_name)
+            actor_id = get_actor_for_character(
+                self.project_data, char_name, ep_num
+            )
             actor = actors.get(actor_id, {}) if actor_id else {}
             actor_name = actor.get('name', '-') if actor else '-'
 

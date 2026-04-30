@@ -230,9 +230,6 @@ class ExportController:
             "  RENDERSETTINGS 2",
         ]
 
-        global_map = self.data_ref.get("global_map", {})
-        actors = self.data_ref.get("actors", {})
-
         # Группируем реплики по персонажам
         char_lines: Dict[str, List[Dict[str, Any]]] = {}
         for line in lines:

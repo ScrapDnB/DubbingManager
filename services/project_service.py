@@ -81,6 +81,7 @@ class ProjectService:
             "project_name": name,
             "actors": {},
             "global_map": {},
+            "episode_actor_map": {},
             "episodes": {},
             "video_paths": {},
             "episode_texts": {},
@@ -361,6 +362,15 @@ class ProjectService:
             raise ProjectValidationError(
                 "Field 'global_map' must be a dictionary"
             )
+
+        # Проверка episode_actor_map (если есть)
+        if (
+            "episode_actor_map" in data and
+            not isinstance(data["episode_actor_map"], dict)
+        ):
+            raise ProjectValidationError(
+                "Field 'episode_actor_map' must be a dictionary"
+            )
         
         # Проверка video_paths (если есть)
         if "video_paths" in data and not isinstance(data["video_paths"], dict):
@@ -393,6 +403,8 @@ class ProjectService:
             data["prompter_config"] = DEFAULT_PROMPTER_CONFIG.copy()
         if "global_map" not in data:
             data["global_map"] = {}
+        if "episode_actor_map" not in data:
+            data["episode_actor_map"] = {}
         if "loaded_episodes" not in data:
             data["loaded_episodes"] = {}
         if "replica_merge_config" not in data:

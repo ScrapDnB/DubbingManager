@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 from typing import Dict, List, Any, Optional, Callable
 
 from services import ActorService
+from services.assignment_service import get_actor_roles
 from utils.helpers import wrap_widget
 
 
@@ -82,9 +83,8 @@ class ActorController:
         actor_roles: Dict[str, List[str]] = {
             aid: [] for aid in self.data_ref["actors"]
         }
-        for char, aid in self.data_ref["global_map"].items():
-            if aid in actor_roles:
-                actor_roles[aid].append(char)
+        for aid in actor_roles:
+            actor_roles[aid] = get_actor_roles(self.data_ref, aid)
         return actor_roles
 
     def refresh(self) -> None:
@@ -198,9 +198,7 @@ class ActorController:
 
     def get_actor_roles(self, actor_id: str) -> List[str]:
         """Получение списка ролей актёра"""
-        return self.actor_service.get_actor_roles(
-            self.data_ref["global_map"], actor_id
-        )
+        return get_actor_roles(self.data_ref, actor_id)
 
     def get_unassigned_characters(self) -> List[str]:
         """Получение списка неназначенных персонажей"""

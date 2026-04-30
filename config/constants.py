@@ -34,6 +34,9 @@ BTN_SAVE_ASS_WIDTH = 120
 # Таблицы
 TABLE_ROW_HEIGHT = 32
 VIDEO_BTN_WIDTH = 40
+MAIN_TABLE_COUNT_COL_WIDTH = 72
+MAIN_TABLE_SCOPE_COL_WIDTH = 130
+MAIN_TABLE_VIDEO_COL_WIDTH = 58
 
 # =============================================================================
 # КОНСТАНТЫ UI — ТЕЛЕСУФЛЁР
@@ -220,7 +223,7 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Версия формата проекта для совместимости
-PROJECT_VERSION = "1.1"
+PROJECT_VERSION = "1.2"
 
 # Папка для рабочих текстов Dubbing Manager
 SCRIPT_TEXT_DIR_NAME = "texts_dm"

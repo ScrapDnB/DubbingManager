@@ -67,6 +67,7 @@ from config.constants import (
     FLOAT_MARGIN_X,
 )
 from services import ExportService, ScriptTextService
+from services.assignment_service import get_actor_for_character
 from services.osc_worker import OscWorker, OSC_AVAILABLE
 from utils.helpers import ass_time_to_seconds, format_seconds_to_tc, log_exception
 
@@ -1290,7 +1291,9 @@ class TeleprompterWindow(QDialog):
         )
         
         for i, replica in enumerate(processed):
-            actor_id = self.main_app.data["global_map"].get(replica['char'])
+            actor_id = get_actor_for_character(
+                self.main_app.data, replica['char'], self.ep_num
+            )
             actor_info = self.main_app.data["actors"].get(
                 actor_id, {"name": "-", "color": "#FFFFFF"}
             )
