@@ -26,12 +26,31 @@ class ExportService:
     def __init__(self, project_data: Dict[str, Any]):
         self.project_data = project_data
 
+    def _get_effective_highlight_filter(
+        self,
+        cfg: Dict[str, Any]
+    ) -> Optional[Set[str]]:
+        """Получить фильтр подсветки из настроек экспорта."""
+        highlight_ids = cfg.get('highlight_ids_export')
+        if highlight_ids is None:
+            return None
+
+        selected_ids = set(highlight_ids)
+        all_actor_ids = set(self.project_data.get("actors", {}).keys())
+        if selected_ids == all_actor_ids:
+            return None
+
+        return selected_ids
+
     def process_merge_logic(
         self,
         lines: List[Dict[str, Any]],
         cfg: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """Логика слияния реплик"""
+        if lines and all(line.get("_working_text") for line in lines):
+            return [line.copy() for line in lines]
+
         p_short = cfg.get('p_short', 0.5)
         p_long = cfg.get('p_long', 2.0)
         fps = cfg.get('fps', 25.0)
@@ -426,6 +445,7 @@ class ExportService:
 
         actors = self.project_data.get('actors', {})
         global_map = self.project_data.get('global_map', {})
+        effective_filter = self._get_effective_highlight_filter(cfg)
 
         # Сортируем номера серий для правильного порядка колонок
         sorted_ep_keys = sorted(episodes_data.keys(), key=lambda x: int(x))
@@ -497,8 +517,15 @@ class ExportService:
             episode_words = stats['episode_words']
 
             # Цвет актёра
-            color_hex = stats['color'].replace('#', '')
-            fill_color = color_hex if color_hex else 'FFFFFF'
+            is_highlighted = (
+                effective_filter is None or
+                actor_id in effective_filter
+            )
+            if is_highlighted:
+                color_hex = stats['color'].replace('#', '')
+                fill_color = color_hex if color_hex else 'FFFFFF'
+            else:
+                fill_color = 'FFFFFF'
 
             # Ячейка с именем актёра
             name_cell = ws.cell(row=row_num, column=1, value=actor_name)
@@ -539,6 +566,7 @@ class ExportService:
         global_map = self.project_data.get('global_map', {})
         use_color = cfg.get('use_color', True)
         round_time = cfg.get('round_time', False)
+        effective_filter = self._get_effective_highlight_filter(cfg)
 
         # Определяем колонки на основе настроек
         col_tc = cfg.get('col_tc', True)
@@ -596,7 +624,11 @@ class ExportService:
             actor_name = actor.get('name', '-') if actor else '-'
 
             # Определяем цвет
-            if use_color and actor_id:
+            is_highlighted = (
+                effective_filter is None or
+                actor_id in effective_filter
+            )
+            if use_color and actor_id and is_highlighted:
                 color_hex = actor.get('color', '#FFFFFF').replace('#', '')
             else:
                 color_hex = 'FFFFFF'

@@ -29,40 +29,47 @@ def get_log_path() -> Path:
     return log_dir / 'dubbing_manager.log'
 
 
-# Настройка логирования с ротацией файлов
-log_path = get_log_path()
-
-# Создаём formatter
-formatter = logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
-# Создаём handler с ротацией: макс. 10MB, храним 5 последних файлов
-file_handler = RotatingFileHandler(
-    log_path,
-    encoding='utf-8',
-    maxBytes=10 * 1024 * 1024,  # 10 MB
-    backupCount=5
-)
-file_handler.setFormatter(formatter)
-file_handler.setLevel(logging.DEBUG)
-
-# Консольный handler
-stream_handler = logging.StreamHandler()
-stream_handler.setFormatter(formatter)
-stream_handler.setLevel(logging.INFO)
-
-# Настраиваем корневой логгер
-logging.basicConfig(
-    level=logging.DEBUG,
-    handlers=[file_handler, stream_handler]
-)
-
 logger = logging.getLogger(__name__)
+
+
+def setup_logging() -> None:
+    """Настроить логирование приложения с ротацией файлов."""
+    root_logger = logging.getLogger()
+    if any(getattr(handler, "_dubbing_manager_handler", False) for handler in root_logger.handlers):
+        return
+
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    stream_handler.setLevel(logging.INFO)
+    stream_handler._dubbing_manager_handler = True
+
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(stream_handler)
+
+    try:
+        file_handler = RotatingFileHandler(
+            get_log_path(),
+            encoding='utf-8',
+            maxBytes=10 * 1024 * 1024,
+            backupCount=5
+        )
+    except OSError as exc:
+        logger.warning("File logging is disabled: %s", exc)
+        return
+
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler._dubbing_manager_handler = True
+    root_logger.addHandler(file_handler)
 
 
 def main() -> int:
     """Точка входа приложения"""
+    setup_logging()
     logger.info("Starting Dubbing Manager")
     
     # Настройка High DPI

@@ -41,7 +41,6 @@ from config.constants import (
     SEARCH_EDIT_WIDTH,
     EPISODE_COMBO_MIN_WIDTH,
     BTN_RENAME_WIDTH,
-    BTN_SAVE_ASS_WIDTH,
     TABLE_ROW_HEIGHT,
     VIDEO_BTN_WIDTH,
     AUTOSAVE_INTERVAL_MS,
@@ -66,6 +65,7 @@ from services import (
     ExportService,
     GlobalSettingsService,
     ProjectFolderService,
+    ScriptTextService,
 )
 from ui.controllers import (
     ActorController,
@@ -129,6 +129,7 @@ class MainWindow(QMainWindow):
         self.actor_service = ActorService()
         self.global_settings_service = GlobalSettingsService()
         self.project_folder_service = ProjectFolderService()
+        self.script_text_service = ScriptTextService()
         self.episode_service = EpisodeService()
 
         # Контроллеры
@@ -384,12 +385,6 @@ class MainWindow(QMainWindow):
         btn_del.clicked.connect(self.delete_episode_dialog)
         ep_ctrl.addWidget(btn_del)
 
-        self.btn_save_ass = QPushButton()
-        self.btn_save_ass.setFixedWidth(BTN_SAVE_ASS_WIDTH)
-        self.btn_save_ass.clicked.connect(self.save_current_episode_ass)
-        self.update_save_ass_button()
-        ep_ctrl.addWidget(self.btn_save_ass)
-        
         btn_vid = QPushButton("🎬 Видео")
         btn_vid.clicked.connect(self.set_episode_video)
         ep_ctrl.addWidget(btn_vid)
@@ -612,7 +607,13 @@ class MainWindow(QMainWindow):
             self.current_ep_stats,
             ep,
             old_name,
-            new_name
+            new_name,
+            lambda from_name, to_name: self.script_text_service.rename_character(
+                self.data,
+                from_name,
+                to_name,
+                ep
+            )
         )
         self.undo_stack.push(command)
 
@@ -639,75 +640,9 @@ class MainWindow(QMainWindow):
             self.teleprompter_window.refresh_episode_data()
     
     def update_save_ass_button(self) -> None:
-        """Обновление кнопки сохранения ASS/SRT"""
-        ep = self.ep_combo.currentData()
-        has_changes = self.character_names_changed.get(ep, False)
-        
-        # Проверяем, есть ли несохранённые изменения текста
-        # Используем отдельный флаг text_changes, а не просто наличие в loaded_episodes
-        has_text_changes = self.text_changes.get(ep, False)
+        """Совместимость со старым UI сохранения ASS/SRT."""
+        pass
 
-        if has_changes or has_text_changes:
-            self.btn_save_ass.setText("💾 Сохранить*")
-            self.btn_save_ass.setStyleSheet(
-                "font-weight: bold; color: red;"
-            )
-        else:
-            self.btn_save_ass.setText("💾 Сохранить")
-            self.btn_save_ass.setStyleSheet("")
-    
-    def save_current_episode_ass(self) -> None:
-        """Сохранение текущей серии в ASS/SRT"""
-        ep = self.ep_combo.currentData()
-        if not ep:
-            QMessageBox.warning(self, "Ошибка", "Выберите серию.")
-            return
-
-        # Проверяем, есть ли файл на диске
-        source_path = self.data["episodes"].get(ep, "")
-        
-        # Для DOCX эпизодов (файл не существует) спрашиваем где сохранить
-        if not os.path.exists(source_path) or source_path.lower().endswith('.docx'):
-            save_path, _ = QFileDialog.getSaveFileName(
-                self, "Сохранить как", f"Episode_{ep}.ass", "ASS Files (*.ass)"
-            )
-            if not save_path:
-                return
-            success = self.save_episode_to_ass(ep, save_path)
-
-            # Переключаем источник на ASS файл
-            if success:
-                self.data["episodes"][ep] = save_path
-                self.update_ep_list()  # Обновляем список эпизодов
-                
-                # Загружаем данные из нового ASS файла в кэш
-                self.episode_service.invalidate_episode(ep)
-                self.data.get('loaded_episodes', {}).pop(ep, None)
-                # Определяем тип файла по расширению
-                ep_path = self.data["episodes"].get(ep, "")
-                if ep_path.lower().endswith('.srt'):
-                    lines = self.episode_service.load_srt_episode(ep, self.data["episodes"])
-                else:
-                    lines = self.episode_service.load_episode(ep, self.data["episodes"])
-                if lines:
-                    self.data["loaded_episodes"][ep] = lines
-        else:
-            success = self.save_episode_to_ass(ep)
-
-        if success:
-            self.character_names_changed[ep] = False
-            self.text_changes[ep] = False
-            # Сбрасываем кэш загруженных эпизодов (для обычных ASS/SRT)
-            if os.path.exists(source_path) and not source_path.lower().endswith('.docx'):
-                self.episode_service.invalidate_episode(ep)
-                self.data.get('loaded_episodes', {}).pop(ep, None)
-            self.update_save_ass_button()
-
-            QMessageBox.information(
-                self, "Успех", f"Серия {ep} сохранена." +
-                ("\nТеперь используется ASS файл." if not os.path.exists(source_path) or source_path.lower().endswith('.docx') else "")
-            )
-    
     # === Методы работы с проектом ===
 
     def save_project(self) -> bool:
@@ -788,6 +723,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self, "Ошибка", f"Не удалось загрузить проект: {e}"
             )
+            return
 
         # Очищаем стек отмены при загрузке нового проекта
         self.undo_stack.clear()
@@ -797,6 +733,7 @@ class MainWindow(QMainWindow):
 
         # Сканируем папку проекта если она есть
         self._scan_project_folder()
+        self._prompt_working_text_migration()
 
     def _update_project_folder_label(self) -> None:
         """Обновление метки папки проекта"""
@@ -813,18 +750,100 @@ class MainWindow(QMainWindow):
         """Сканирование папки проекта и связывание файлов"""
         folder = self.project_folder_service.get_project_folder(self.data)
         if folder:
-            ass_count, video_count = (
+            ass_count, video_count, text_count = (
                 self.project_folder_service.scan_and_link_files(self.data, folder)
             )
-            if ass_count > 0 or video_count > 0:
+            if ass_count > 0 or video_count > 0 or text_count > 0:
                 self.update_ep_list()
                 QMessageBox.information(
                     self,
                     "Папка проекта",
-                    f"Найдено и добавлено:\n"
-                    f"• ASS файлов: {ass_count}\n"
-                    f"• Видео файлов: {video_count}"
+                    f"Обновлены пути:\n"
+                    f"• Субтитры: {ass_count}\n"
+                    f"• Видео: {video_count}\n"
+                    f"• Рабочие тексты: {text_count}"
                 )
+
+    def _episode_text_exists(self, ep: str) -> bool:
+        """Проверить, есть ли рабочий текст серии на диске."""
+        text_path = self.data.get("episode_texts", {}).get(str(ep))
+        return bool(text_path and os.path.exists(text_path))
+
+    def _episodes_needing_working_texts(self) -> List[str]:
+        """Список серий, для которых рабочий текст ещё не создан."""
+        episodes = self.data.get("episodes", {})
+        return [
+            str(ep)
+            for ep, path in episodes.items()
+            if (
+                not self._episode_text_exists(str(ep)) and
+                self._is_subtitle_source_path(path)
+            )
+        ]
+
+    def _is_subtitle_source_path(self, path: str) -> bool:
+        """Проверить, похож ли путь на исходный файл субтитров."""
+        return os.path.splitext(path or "")[1].lower() in {'.ass', '.srt'}
+
+    def _prompt_working_text_migration(self) -> None:
+        """Предложить создать рабочие тексты для проекта старого формата."""
+        missing_episodes = self._episodes_needing_working_texts()
+        if not missing_episodes:
+            return
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Рабочие тексты")
+        msg.setIcon(QMessageBox.Question)
+        msg.setText(
+            "Этот проект использует старый формат текстов.\n\n"
+            "Можно создать рабочие тексты из найденных ASS/SRT-файлов сейчас. "
+            "Если часть файлов была перенесена, их можно будет найти позже через менеджер файлов проекта."
+        )
+        create_button = msg.addButton(
+            "Создать для найденных серий",
+            QMessageBox.AcceptRole
+        )
+        msg.addButton("Позже", QMessageBox.RejectRole)
+        msg.exec()
+
+        if msg.clickedButton() == create_button:
+            self.create_missing_working_texts(missing_episodes)
+
+    def create_missing_working_texts(
+        self,
+        episodes: Optional[List[str]] = None
+    ) -> Tuple[int, int]:
+        """Создать рабочие тексты для серий, где найдены исходные субтитры."""
+        target_episodes = episodes or self._episodes_needing_working_texts()
+        created_count = 0
+        skipped_count = 0
+
+        for ep in target_episodes:
+            path = self.data.get("episodes", {}).get(str(ep), "")
+            if (
+                not path or
+                not self._is_subtitle_source_path(path) or
+                not os.path.exists(path)
+            ):
+                skipped_count += 1
+                continue
+
+            if self._build_working_text_from_source(str(ep), path):
+                created_count += 1
+            else:
+                skipped_count += 1
+
+        if created_count:
+            self.update_ep_list()
+            self.set_dirty(True)
+
+        QMessageBox.information(
+            self,
+            "Рабочие тексты",
+            f"Создано рабочих текстов: {created_count}\n"
+            f"Пропущено: {skipped_count}"
+        )
+        return created_count, skipped_count
 
     def set_project_folder_dialog(self) -> None:
         """Диалог установки папки проекта"""
@@ -1045,11 +1064,8 @@ class MainWindow(QMainWindow):
         if not ep:
             return
 
-        # Проверяем, есть ли эпизод в кэше loaded_episodes (для DOCX импорта)
-        if "loaded_episodes" in self.data and ep in self.data["loaded_episodes"]:
-            # Загружаем из кэша
-            lines = self.data["loaded_episodes"][ep]
-            # Пересчитываем статистику для отображения в таблице
+        lines = self.get_episode_lines(ep)
+        if lines:
             self._recalculate_episode_stats(lines)
             self._display_episode_lines(lines)
             self.table_stack.setCurrentIndex(0)
@@ -1057,20 +1073,7 @@ class MainWindow(QMainWindow):
             self.update_save_ass_button()
             return
 
-        path: Optional[str] = self.data["episodes"].get(ep)
-        if path and os.path.exists(path):
-            self.table_stack.setCurrentIndex(0)
-            # Определяем тип файла по расширению
-            if path.lower().endswith('.srt'):
-                self._parse_srt_episode(ep, path)
-                self.get_srt_episode_lines(ep)
-            else:
-                self._parse_episode(ep, path)
-                self.get_episode_lines(ep)
-            self.refresh_main_table()
-            self.update_save_ass_button()
-        else:
-            self.table_stack.setCurrentIndex(1)
+        self.table_stack.setCurrentIndex(1)
 
         # При смене эпизода не сбрасываем флаг text_changes,
         # т.к. он нужен для отображения состояния кнопки
@@ -1126,11 +1129,32 @@ class MainWindow(QMainWindow):
 
         self.current_ep_stats = stats
 
-    def _parse_episode(self, ep: str, path: str) -> None:
+    def _parse_episode(self, ep: str, path: str) -> List[Dict[str, Any]]:
         """Парсинг эпизода и получение статистики"""
         stats: List[Dict[str, Any]]
-        stats, _ = self.episode_service.parse_ass_file(path)
+        lines: List[Dict[str, Any]]
+        stats, lines = self.episode_service.parse_ass_file(path)
         self.current_ep_stats = stats
+        return lines
+
+    def _create_working_text_for_episode(
+        self,
+        ep: str,
+        path: str,
+        lines: List[Dict[str, Any]]
+    ) -> None:
+        """Создание рабочего текста эпизода после импорта."""
+        if not lines:
+            return
+
+        self.script_text_service.create_episode_text(
+            self.data,
+            ep,
+            path,
+            lines,
+            self.data.get("replica_merge_config", {}),
+            self.current_project_path
+        )
 
     def import_ass(self, paths: Optional[List[str]] = None) -> None:
         """Импорт ASS файлов"""
@@ -1189,9 +1213,11 @@ class MainWindow(QMainWindow):
             # Парсим файл в зависимости от расширения
             ext = os.path.splitext(path)[1].lower()
             if ext == '.srt':
-                self._parse_srt_episode(name, path)
+                lines = self._parse_srt_episode(name, path)
             else:
-                self._parse_episode(name, path)
+                lines = self._parse_episode(name, path)
+
+            self._create_working_text_for_episode(name, path, lines)
 
             self.set_dirty()
 
@@ -1307,11 +1333,13 @@ class MainWindow(QMainWindow):
             (f"\n({result.get('tables_count', 1)} таблиц(ы))" if result.get('tables_count', 1) > 1 else "")
         )
 
-    def _parse_srt_episode(self, ep: str, path: str) -> None:
+    def _parse_srt_episode(self, ep: str, path: str) -> List[Dict[str, Any]]:
         """Парсинг SRT эпизода и получение статистики"""
         stats: List[Dict[str, Any]]
-        stats, _ = self.episode_service.parse_srt_file(path)
+        lines: List[Dict[str, Any]]
+        stats, lines = self.episode_service.parse_srt_file(path)
         self.current_ep_stats = stats
+        return lines
 
     def import_docx(self, paths: Optional[List[str]] = None) -> None:
         """
@@ -1755,14 +1783,14 @@ class MainWindow(QMainWindow):
         ep_num: str,
         target_path: Optional[str] = None
     ) -> bool:
-        """Сохранение серии в ASS/SRT"""
-        if not self.episode_controller:
-            return False
-        
-        success, message = self.episode_controller.save_episode(ep_num, target_path)
-        if not success:
-            QMessageBox.warning(self, "Ошибка", message)
-        return success
+        """Сохранение серии в ASS/SRT отключено в UI."""
+        QMessageBox.warning(
+            self,
+            "Сохранение отключено",
+            "Запись изменений обратно в ASS/SRT отключена.\n"
+            "Редактируйте рабочий текст, он сохраняется в JSON автоматически."
+        )
+        return False
 
 
 
@@ -1786,24 +1814,21 @@ class MainWindow(QMainWindow):
             VideoPreviewWindow(vp, lines, ep, self).exec()
     
     def get_episode_lines(self, ep: str) -> List[Dict[str, Any]]:
-        """Получение строк серии"""
+        """Получение строк серии из рабочего текста проекта."""
         if "loaded_episodes" not in self.data:
             self.data["loaded_episodes"] = {}
 
-        if ep in self.data["loaded_episodes"]:
-            return self.data["loaded_episodes"][ep]
+        working_lines = self.script_text_service.load_episode_lines(self.data, ep)
+        if working_lines:
+            self.data["loaded_episodes"][ep] = working_lines
+            return working_lines
 
-        # Определяем тип файла по расширению
         path = self.data["episodes"].get(ep, "")
-        if path.lower().endswith('.srt'):
-            lines = self.episode_service.load_srt_episode(ep, self.data["episodes"])
-        else:
-            lines = self.episode_service.load_episode(ep, self.data["episodes"])
+        if self._is_subtitle_source_path(path):
+            self.data["loaded_episodes"].pop(ep, None)
+            return []
 
-        if lines:
-            self.data["loaded_episodes"][ep] = lines
-
-        return lines
+        return self.data["loaded_episodes"].get(ep, [])
 
     def get_srt_episode_lines(self, ep: str) -> List[Dict[str, Any]]:
         """Получение строк SRT серии"""
@@ -1819,6 +1844,70 @@ class MainWindow(QMainWindow):
             self.data["loaded_episodes"][ep] = lines
 
         return lines
+
+    def regenerate_episode_text(
+        self,
+        ep: str,
+        source_path: Optional[str] = None
+    ) -> bool:
+        """Пересоздать рабочий текст эпизода из ASS/SRT."""
+        path = source_path or self.data.get("episodes", {}).get(ep, "")
+
+        if not path or not os.path.exists(path):
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "Файл субтитров не найден."
+            )
+            return False
+
+        if not self._build_working_text_from_source(ep, path):
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "Не удалось получить реплики из файла субтитров."
+            )
+            return False
+
+        self.get_episode_lines(ep)
+        self.set_dirty(True)
+
+        QMessageBox.information(
+            self,
+            "Готово",
+            f"Рабочий текст серии {ep} пересоздан."
+        )
+        return True
+
+    def _build_working_text_from_source(self, ep: str, path: str) -> bool:
+        """Создать рабочий текст серии из исходного ASS/SRT без UI-сообщений."""
+        try:
+            ext = os.path.splitext(path)[1].lower()
+            if ext == '.srt':
+                stats, lines = self.episode_service.parse_srt_file(path)
+            else:
+                stats, lines = self.episode_service.parse_ass_file(path)
+        except Exception as e:
+            log_exception(logger, f"Failed to build working text for episode {ep}", e)
+            return False
+
+        if not lines:
+            return False
+
+        self.data.setdefault("episodes", {})[str(ep)] = path
+        self.current_ep_stats = stats
+        self.script_text_service.create_episode_text(
+            self.data,
+            str(ep),
+            path,
+            lines,
+            self.data.get("replica_merge_config", {}),
+            self.current_project_path
+        )
+
+        self.data.get("loaded_episodes", {}).pop(str(ep), None)
+        self.episode_service.invalidate_episode(str(ep))
+        return True
     
     def show_project_summary(self) -> None:
         """Показать сводку проекта"""
@@ -1916,6 +2005,15 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Инфо", "Выберите серию.")
             return
 
+        if not self.get_episode_lines(ep):
+            QMessageBox.warning(
+                self,
+                "Рабочий текст не найден",
+                "Для этой серии нет рабочего текста.\n\n"
+                "Откройте «Файлы проекта» и создайте рабочий текст из субтитров."
+            )
+            return
+
         if self.teleprompter_window is not None:
             self.teleprompter_window.close()
 
@@ -1980,6 +2078,15 @@ class MainWindow(QMainWindow):
             return
         
         lines = self.get_episode_lines(ep_num)
+        if not lines:
+            QMessageBox.warning(
+                self,
+                "Рабочий текст не найден",
+                "Для этой серии нет рабочего текста.\n\n"
+                "Откройте «Файлы проекта» и создайте рабочий текст из субтитров."
+            )
+            return
+
         active_actor_ids: Set[str] = set()
 
         max_time = 600.0

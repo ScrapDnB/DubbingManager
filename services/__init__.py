@@ -7,6 +7,7 @@ from .export_service import ExportService
 from .global_settings_service import GlobalSettingsService
 from .project_folder_service import ProjectFolderService
 from .docx_import_service import DocxImportService
+from .script_text_service import ScriptTextService
 
 __all__ = [
     'ProjectService',
@@ -15,5 +16,6 @@ __all__ = [
     'ExportService',
     'GlobalSettingsService',
     'ProjectFolderService',
-    'DocxImportService'
+    'DocxImportService',
+    'ScriptTextService'
 ]

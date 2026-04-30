@@ -32,6 +32,7 @@ class TestProjectFileStructure:
         assert "global_map" in data
         assert "episodes" in data
         assert "video_paths" in data
+        assert "episode_texts" in data
         assert "export_config" in data
         assert "prompter_config" in data
         assert "replica_merge_config" in data
@@ -48,6 +49,7 @@ class TestProjectFileStructure:
         assert isinstance(data["global_map"], dict)
         assert isinstance(data["episodes"], dict)
         assert isinstance(data["video_paths"], dict)
+        assert isinstance(data["episode_texts"], dict)
 
     def test_save_and_load_project(self):
         """Проверка сохранения и загрузки проекта"""
@@ -63,6 +65,7 @@ class TestProjectFileStructure:
         data["global_map"]["Character1"] = "actor1"
         data["episodes"]["1"] = "/path/to/episode1.ass"
         data["video_paths"]["1"] = "/path/to/video1.mp4"
+        data["episode_texts"]["1"] = "/path/to/episode_1.json"
         data["project_folder"] = self.test_dir
         
         # Сохраняем
@@ -80,6 +83,7 @@ class TestProjectFileStructure:
         assert loaded_data["global_map"]["Character1"] == "actor1"
         assert loaded_data["episodes"]["1"] == "/path/to/episode1.ass"
         assert loaded_data["video_paths"]["1"] == "/path/to/video1.mp4"
+        assert loaded_data["episode_texts"]["1"] == "/path/to/episode_1.json"
         assert loaded_data["project_folder"] == self.test_dir
 
     def test_json_valid_format(self):
@@ -305,6 +309,7 @@ class TestBackwardCompatibility:
         assert "prompter_config" in loaded_data
         assert "replica_merge_config" in loaded_data
         assert "video_paths" in loaded_data
+        assert "episode_texts" in loaded_data
         assert "global_map" in loaded_data
 
     def test_load_old_project_with_export_merge_config(self):

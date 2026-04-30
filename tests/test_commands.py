@@ -427,6 +427,25 @@ class TestRenameCharacterCommand:
         )
         assert cmd.get_description() == "Переименован персонаж: Персонаж 1 -> Новый Персонаж"
 
+    def test_callback_called_on_execute_and_undo(self, global_map, episodes):
+        """Тест callback для внешних хранилищ имён"""
+        calls = []
+        loaded_episodes = {"1": [{"char": "Персонаж 1", "text": "test"}]}
+        current_ep_stats = [{"name": "Персонаж 1", "lines": 5}]
+        cmd = RenameCharacterCommand(
+            global_map, loaded_episodes, current_ep_stats,
+            "1", "Персонаж 1", "Новый Персонаж",
+            lambda old, new: calls.append((old, new))
+        )
+
+        cmd.execute()
+        cmd.undo()
+
+        assert calls == [
+            ("Персонаж 1", "Новый Персонаж"),
+            ("Новый Персонаж", "Персонаж 1")
+        ]
+
 
 # =============================================================================
 # Tests for AddEpisodeCommand

@@ -82,6 +82,7 @@ class ProjectService:
             "global_map": {},
             "episodes": {},
             "video_paths": {},
+            "episode_texts": {},
             "export_config": DEFAULT_EXPORT_CONFIG.copy(),
             "prompter_config": DEFAULT_PROMPTER_CONFIG.copy(),
             "replica_merge_config": DEFAULT_REPLICA_MERGE_CONFIG.copy(),
@@ -366,6 +367,12 @@ class ProjectService:
                 "Field 'video_paths' must be a dictionary"
             )
 
+        # Проверка episode_texts (если есть)
+        if "episode_texts" in data and not isinstance(data["episode_texts"], dict):
+            raise ProjectValidationError(
+                "Field 'episode_texts' must be a dictionary"
+            )
+
     def _ensure_compatibility(self, data: Dict[str, Any]) -> None:
         """
         Обеспечение обратной совместимости формата проекта.
@@ -377,6 +384,8 @@ class ProjectService:
         """
         if "video_paths" not in data:
             data["video_paths"] = {}
+        if "episode_texts" not in data:
+            data["episode_texts"] = {}
         if "export_config" not in data:
             data["export_config"] = DEFAULT_EXPORT_CONFIG.copy()
         if "prompter_config" not in data:

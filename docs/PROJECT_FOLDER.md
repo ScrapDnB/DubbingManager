@@ -160,12 +160,12 @@ folder = service.get_project_folder(data)
 # Очистка
 service.clear_project_folder(data)
 
-# Сканирование и связывание
-ass_count, video_count = service.scan_and_link_files(data, folder)
+# Сканирование и перепривязка потерянных путей
+ass_count, video_count, text_count = service.scan_and_link_files(data, folder)
 
 # Поиск всех файлов
 found = service.find_all_media_files(folder)
-# {"ass": {"1": "/path/1.ass"}, "video": {"1": "/path/1.mkv"}}
+# {"ass": {"1": "/path/1.ass"}, "video": {"1": "/path/1.mkv"}, "text": {"1": "/path/episode_1.json"}}
 
 # Статистика
 stats = service.get_folder_stats(folder)

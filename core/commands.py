@@ -221,7 +221,8 @@ class RenameCharacterCommand(Command):
         current_ep_stats: List[Dict[str, Any]],
         episode: str,
         old_name: str,
-        new_name: str
+        new_name: str,
+        rename_callback: Optional[Callable[[str, str], None]] = None
     ):
         self.global_map = global_map
         self.loaded_episodes = loaded_episodes
@@ -229,6 +230,7 @@ class RenameCharacterCommand(Command):
         self.episode = episode
         self.old_name = old_name
         self.new_name = new_name
+        self.rename_callback = rename_callback
 
     def execute(self) -> None:
         self._update_names(self.old_name, self.new_name)
@@ -256,6 +258,9 @@ class RenameCharacterCommand(Command):
             if stat.get("name") == from_name:
                 stat["name"] = to_name
                 break
+
+        if self.rename_callback:
+            self.rename_callback(from_name, to_name)
 
     def get_description(self) -> str:
         return f"Переименован персонаж: {self.old_name} -> {self.new_name}"

@@ -7,7 +7,7 @@ from typing import Dict, List, Any, Optional, Tuple
 import os
 import logging
 
-from services import ExportService
+from services import ExportService, ScriptTextService
 from config.constants import DEFAULT_EXPORT_CONFIG, DEFAULT_REPLICA_MERGE_CONFIG
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,30 @@ class ExportController:
         self.data_ref = data_ref
         self.episode_service = episode_service
         self.on_dirty_callback = on_dirty_callback
+        self.script_text_service = ScriptTextService()
+
+    def _get_episode_lines(self, ep: str) -> List[Dict[str, Any]]:
+        """Получить реплики эпизода только из рабочего текста проекта."""
+        working_lines = self.script_text_service.load_episode_lines(
+            self.data_ref,
+            ep
+        )
+        if working_lines:
+            self.data_ref.setdefault("loaded_episodes", {})[ep] = working_lines
+            return working_lines
+
+        source_path = self.data_ref.get("episodes", {}).get(ep, "")
+        if os.path.splitext(source_path or "")[1].lower() in {'.ass', '.srt'}:
+            self.data_ref.get("loaded_episodes", {}).pop(ep, None)
+
+        return []
+
+    def _missing_working_text_message(self, ep: str) -> str:
+        """Сообщение для серии без рабочего текста."""
+        return (
+            f"Для серии {ep} не найден рабочий текст. "
+            "Создайте его из субтитров в окне «Файлы проекта»."
+        )
 
     def _mark_dirty(self) -> None:
         """Пометка проекта как изменённого"""
@@ -62,11 +86,16 @@ class ExportController:
             export_config = self.data_ref.get("export_config", DEFAULT_EXPORT_CONFIG.copy())
             merge_config = self.data_ref.get("replica_merge_config", DEFAULT_REPLICA_MERGE_CONFIG.copy())
 
-            loaded_episodes = self.data_ref.get("loaded_episodes", {})
-            lines = loaded_episodes.get(ep, [])
+            lines = self._get_episode_lines(ep)
 
             if not lines:
-                return False, "Нет данных для экспорта"
+                return False, self._missing_working_text_message(ep)
+
+            effective_highlight_ids = (
+                highlight_ids
+                if highlight_ids is not None
+                else export_config.get('highlight_ids_export')
+            )
 
             export_service = ExportService(self.data_ref)
             processed = export_service.process_merge_logic(lines, merge_config)
@@ -75,7 +104,7 @@ class ExportController:
                 ep=ep,
                 processed=processed,
                 cfg=export_config,
-                highlight_ids=highlight_ids,
+                highlight_ids=effective_highlight_ids,
                 layout_type=export_config.get('layout_type', 'Таблица'),
                 is_editable=is_editable
             )
@@ -111,20 +140,23 @@ class ExportController:
             export_config = self.data_ref.get("export_config", DEFAULT_EXPORT_CONFIG.copy())
             merge_config = self.data_ref.get("replica_merge_config", DEFAULT_REPLICA_MERGE_CONFIG.copy())
 
-            loaded_episodes = self.data_ref.get("loaded_episodes", {})
-
             if all_episodes:
                 # Собираем данные по всем эпизодам
                 episodes_data = {}
                 for ep_num in self.data_ref.get("episodes", {}).keys():
-                    lines = loaded_episodes.get(ep_num, [])
+                    lines = self._get_episode_lines(ep_num)
                     if lines:
                         export_service = ExportService(self.data_ref)
                         episodes_data[ep_num] = export_service.process_merge_logic(lines, merge_config)
+                if not episodes_data:
+                    return False, (
+                        "Не найдено рабочих текстов для экспорта. "
+                        "Создайте их из субтитров в окне «Файлы проекта»."
+                    )
             else:
-                lines = loaded_episodes.get(ep, [])
+                lines = self._get_episode_lines(ep)
                 if not lines:
-                    return False, "Нет данных для экспорта"
+                    return False, self._missing_working_text_message(ep)
                 export_service = ExportService(self.data_ref)
                 episodes_data = {ep: export_service.process_merge_logic(lines, merge_config)}
 
@@ -160,11 +192,10 @@ class ExportController:
             Tuple[success, message]
         """
         try:
-            loaded_episodes = self.data_ref.get("loaded_episodes", {})
-            lines = loaded_episodes.get(ep, [])
+            lines = self._get_episode_lines(ep)
 
             if not lines:
-                return False, "Нет данных для экспорта"
+                return False, self._missing_working_text_message(ep)
 
             # Генерируем RPP файл
             rpp_content = self._generate_rpp(lines, reaper_offset)
@@ -312,11 +343,20 @@ class ExportController:
         export_config = self.data_ref.get("export_config", DEFAULT_EXPORT_CONFIG.copy())
         merge_config = self.data_ref.get("replica_merge_config", DEFAULT_REPLICA_MERGE_CONFIG.copy())
 
-        loaded_episodes = self.data_ref.get("loaded_episodes", {})
-        lines = loaded_episodes.get(ep, [])
+        lines = self._get_episode_lines(ep)
 
         if not lines:
-            return "<html><body>Нет данных</body></html>"
+            return (
+                "<html><body>"
+                f"<h3>{self._missing_working_text_message(ep)}</h3>"
+                "</body></html>"
+            )
+
+        effective_highlight_ids = (
+            highlight_ids
+            if highlight_ids is not None
+            else export_config.get('highlight_ids_export')
+        )
 
         export_service = ExportService(self.data_ref)
         processed = export_service.process_merge_logic(lines, merge_config)
@@ -325,7 +365,7 @@ class ExportController:
             ep=ep,
             processed=processed,
             cfg=export_config,
-            highlight_ids=highlight_ids,
+            highlight_ids=effective_highlight_ids,
             layout_type=export_config.get('layout_type', 'Таблица'),
             is_editable=False
         )

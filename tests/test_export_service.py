@@ -245,6 +245,44 @@ class TestExportService:
         
         assert "highlighted-block" in html
 
+    def test_process_merge_logic_keeps_working_text_lines(self) -> None:
+        """Тест: рабочие тексты не объединяются повторно"""
+        service = ExportService({})
+        lines = [
+            {"id": 0, "s": 1.0, "e": 2.0, "char": "Hero", "text": "One", "_working_text": True},
+            {"id": 1, "s": 2.1, "e": 3.0, "char": "Hero", "text": "Two", "_working_text": True},
+        ]
+
+        result = service.process_merge_logic(
+            lines,
+            {"merge": True, "merge_gap": 100, "fps": 25}
+        )
+
+        assert len(result) == 2
+        assert result[0]["text"] == "One"
+        assert result[1]["text"] == "Two"
+
+    def test_create_excel_book_respects_highlight_filter(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: Excel подсвечивает только выбранных актёров"""
+        pytest.importorskip("openpyxl")
+        export_config["highlight_ids_export"] = ["actor1"]
+
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        wb = service.create_excel_book({"1": processed}, export_config)
+        ws = wb["серия (1)"]
+
+        actor1_fill = ws.cell(row=2, column=1).fill.start_color.rgb
+        actor2_fill = ws.cell(row=3, column=1).fill.start_color.rgb
+
+        assert actor1_fill == "FFFF0000"
+        assert actor2_fill in ("FFFFFFFF", "00FFFFFF")
+
     def test_count_words(self) -> None:
         """Тест: подсчёт количества слов"""
         service = ExportService({})

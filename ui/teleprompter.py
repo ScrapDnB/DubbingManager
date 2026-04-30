@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QAbstractItemView, QMessageBox,
     QDoubleSpinBox, QSizePolicy, QWidget, QFormLayout,
     QGroupBox, QTextEdit, QDialogButtonBox, QGraphicsView,
-    QGraphicsScene, QGraphicsTextItem, QApplication
+    QGraphicsScene, QGraphicsTextItem, QApplication, QComboBox
 )
 from PySide6.QtGui import (
     QColor, QFont, QPainter, QPen, QBrush, QCursor
@@ -66,7 +66,7 @@ from config.constants import (
     FLOAT_BTN_HIDE_Y,
     FLOAT_MARGIN_X,
 )
-from services import ExportService
+from services import ExportService, ScriptTextService
 from services.osc_worker import OscWorker, OSC_AVAILABLE
 from utils.helpers import ass_time_to_seconds, format_seconds_to_tc, log_exception
 
@@ -673,6 +673,17 @@ class TeleprompterWindow(QDialog):
 
         self.toolbar.addSeparator()
 
+        self.toolbar.addWidget(QLabel("Серия:"))
+        self.combo_episode = QComboBox()
+        self.combo_episode.setMinimumWidth(120)
+        self._populate_episode_combo()
+        self.combo_episode.currentIndexChanged.connect(
+            self.on_episode_combo_changed
+        )
+        self.toolbar.addWidget(self.combo_episode)
+
+        self.toolbar.addSeparator()
+
         self.btn_go_prev = QPushButton("⏮ Предыдущая реплика")
         self.btn_go_prev.setMinimumWidth(PROMPTER_NAV_BUTTON_MIN_WIDTH)
         self.btn_go_prev.clicked.connect(
@@ -705,6 +716,74 @@ class TeleprompterWindow(QDialog):
         self.toolbar.addWidget(btn_close)
 
         self.root_layout.addWidget(self.toolbar)
+
+    def _episode_sort_key(self, ep_num: str) -> Tuple[int, str]:
+        """Ключ сортировки серий для выпадающего списка."""
+        return (int(ep_num), ep_num) if str(ep_num).isdigit() else (0, str(ep_num))
+
+    def _populate_episode_combo(self) -> None:
+        """Заполнить список серий телесуфлёра."""
+        self.combo_episode.blockSignals(True)
+        self.combo_episode.clear()
+
+        episode_nums = sorted(
+            self.main_app.data.get("episodes", {}).keys(),
+            key=self._episode_sort_key
+        )
+        for ep_num in episode_nums:
+            self.combo_episode.addItem(f"Серия {ep_num}", str(ep_num))
+
+        index = self.combo_episode.findData(str(self.ep_num))
+        if index >= 0:
+            self.combo_episode.setCurrentIndex(index)
+
+        self.combo_episode.blockSignals(False)
+
+    def on_episode_combo_changed(self, index: int) -> None:
+        """Обработчик выбора серии в телесуфлёре."""
+        ep_num = self.combo_episode.itemData(index)
+        if ep_num is not None:
+            self.switch_episode(str(ep_num))
+
+    def switch_episode(self, ep_num: str) -> None:
+        """Переключить серию без сброса настроек телесуфлёра."""
+        if str(ep_num) == str(self.ep_num):
+            return
+
+        if str(ep_num) not in self.main_app.data.get("episodes", {}):
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                f"Серия {ep_num} не найдена в проекте."
+            )
+            self._populate_episode_combo()
+            return
+
+        if self.smooth_scroll_timer.isActive():
+            self.smooth_scroll_timer.stop()
+        self._scroll_target_y = None
+        self.last_known_time = 0.0
+        self.ep_num = str(ep_num)
+        self.setWindowTitle(f"Телесуфлёр - Серия {self.ep_num}")
+
+        self._sync_main_episode_selection()
+        self.build_prompter_content()
+
+    def _sync_main_episode_selection(self) -> None:
+        """Синхронизировать выбранную серию с главным окном, если возможно."""
+        combo = getattr(self.main_app, "ep_combo", None)
+        if not combo:
+            return
+
+        index = combo.findData(str(self.ep_num))
+        if index < 0:
+            return
+
+        combo.blockSignals(True)
+        combo.setCurrentIndex(index)
+        combo.blockSignals(False)
+        if hasattr(self.main_app, "change_episode"):
+            self.main_app.change_episode()
 
     def _init_splitters(self) -> None:
         """Инициализация сплиттеров"""
@@ -1173,6 +1252,16 @@ class TeleprompterWindow(QDialog):
 
         lines = self.main_app.get_episode_lines(self.ep_num)
         if not lines:
+            item = QGraphicsTextItem(
+                "Рабочий текст не найден.\n"
+                "Создайте его из субтитров в окне «Файлы проекта»."
+            )
+            item.setFont(QFont("Arial", self.cfg["f_text"], QFont.Bold))
+            item.setDefaultTextColor(QColor(clrs["active_text"]))
+            item.setTextWidth(760)
+            item.setPos(40, 1000)
+            self.prompter_scene.addItem(item)
+            self.prompter_scene.setSceneRect(-50, 0, 900, 1800)
             return
 
         lines.sort(key=lambda x: x['s'])
@@ -1263,9 +1352,12 @@ class TeleprompterWindow(QDialog):
             y_cursor += item_char.boundingRect().height()
             
             # Текст реплики
-            source_ids = replica.get('source_ids', [replica.get('id', i)])
+            if replica.get('_working_text'):
+                editable_ids = [replica.get('id', i)]
+            else:
+                editable_ids = replica.get('source_ids', [replica.get('id', i)])
             item_text = EditableTextItem(
-                replica.get('text', ''), self, source_ids
+                replica.get('text', ''), self, editable_ids
             )
             item_text.setFont(f_text)
             item_text.setDefaultTextColor(text_col)
@@ -1682,6 +1774,18 @@ class TeleprompterWindow(QDialog):
         
         if updated_any:
             try:
+                script_text_service = ScriptTextService()
+                if len(ids) == 1:
+                    script_text_service.update_line_text(
+                        self.main_app.data,
+                        str(self.ep_num),
+                        ids[0],
+                        new_text
+                    )
+            except Exception as e:
+                logger.warning(f"Error saving working text: {e}")
+
+            try:
                 self.main_app.data['loaded_episodes'][str(self.ep_num)] = lines
             except Exception:
                 pass
@@ -1717,27 +1821,4 @@ class TeleprompterWindow(QDialog):
             self.float_window.close()
             self.float_window = None
 
-        if self._has_text_changes:
-            reply = QMessageBox.question(
-                self,
-                "Несохраненные изменения",
-                "У вас есть несохраненные изменения в тексте.\n"
-                "Хотите сохранить их перед выходом?",
-                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel
-            )
-            if reply == QMessageBox.Yes:
-                if self.main_app.save_episode_to_ass(self.ep_num):
-                    self._has_text_changes = False
-                    event.accept()
-                else:
-                    event.ignore()
-            elif reply == QMessageBox.No:
-                # Пользователь отказался от сохранения — сбрасываем флаги
-                self._has_text_changes = False
-                # Сбрасываем dirty флаг главного окна, т.к. изменения не были сохранены
-                self.main_app.set_dirty(False)
-                event.accept()
-            else:
-                event.ignore()
-        else:
-            event.accept()
+        event.accept()
