@@ -95,7 +95,7 @@ DubbingManager/
 Текущая версия формата задаётся в `config/constants.py`:
 
 ```python
-PROJECT_VERSION = "1.2"
+PROJECT_VERSION = "1.3"
 ```
 
 Ключевые поля проекта:

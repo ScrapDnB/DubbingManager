@@ -16,7 +16,7 @@ The current architectural direction is important:
 
 ## Project Format
 
-Current `PROJECT_VERSION`: `1.2` in `config/constants.py`.
+Current `PROJECT_VERSION`: `1.3` in `config/constants.py`.
 
 Project data now includes these important fields:
 

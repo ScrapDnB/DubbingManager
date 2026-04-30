@@ -1,71 +1,55 @@
 # CI/CD для Dubbing Manager
 
-## Автоматическая сборка
+GitHub Actions собирает самодостаточные артефакты для:
 
-Этот проект использует GitHub Actions для автоматической сборки приложений для:
-- **Windows** (.exe)
-- **macOS** (.app + .dmg)
-- **Linux** (.tar.gz + .AppImage + .deb)
+- Windows: ZIP с папкой `Dubbing Manager` и `Dubbing Manager.exe`
+- macOS: `Dubbing_Manager_macOS.dmg` с `Dubbing Manager.app`
 
-## Как работает
+## Когда запускается сборка
 
-### Триггеры сборки:
+- Push в `master` или `main`
+- Pull request в `master` или `main`
+- Теги вида `v*`
+- Ручной запуск через `Actions` -> `Build Dubbing Manager` -> `Run workflow`
 
-1. **Push в main/master** — сборка всех артефактов
-2. **Тег версии (v*)** — сборка + публикация в GitHub Releases
-3. **Pull Request** — тестовая сборка
-4. **Workflow Dispatch** — ручная сборка через UI GitHub
+## Что делает workflow
 
-### Артефакты:
+1. Ставит Python 3.14.
+2. Устанавливает зависимости из `requirements.txt` и `pyinstaller`.
+3. Запускает тесты: `python -m pytest -q`.
+4. Собирает приложение через `python -m PyInstaller dubbing_manager.spec --clean`.
+5. Проверяет наличие итогового артефакта.
+6. Загружает ZIP/DMG в artifacts.
+7. Для тегов `v*` прикрепляет ZIP/DMG к GitHub Release.
 
-После успешной сборки артефакты доступны:
-- В разделе **Actions** → выбранная сборка → **Artifacts**
-- В **Releases** (для тегов версий)
+## Локальная macOS-сборка
 
-## Локальная сборка
+Локально macOS лучше собирать тем же скриптом, который повторён в CI:
 
-### Windows:
 ```bash
-pip install -r requirements.txt
-pip install pyinstaller
-pyinstaller dubbing_manager.spec --clean
+./build.sh
 ```
 
-### macOS:
-```bash
-pip install -r requirements.txt
-pip install pyinstaller
-pyinstaller dubbing_manager.spec --clean
-codesign --force --deep --sign - dist/Dubbing\ Manager.app
+Скрипт собирает `.app`, подписывает его ad-hoc подписью, проверяет подпись и удаляет служебную папку PyInstaller `dist/Dubbing Manager`, оставляя финальный `dist/Dubbing Manager.app`.
+
+## Windows-сборка
+
+Windows-артефакт собирается на Windows runner. PyInstaller обычно не умеет корректно собирать Windows `.exe` с macOS.
+
+Команда, которую использует CI:
+
+```powershell
+python -m PyInstaller dubbing_manager.spec --clean
+Compress-Archive -Path "dist\Dubbing Manager" -DestinationPath "Dubbing_Manager_Windows.zip" -Force
 ```
 
-### Linux:
-```bash
-pip install -r requirements.txt
-pip install pyinstaller
-sudo apt-get install libxcb-xinerama0 libxcb-cursor0
-pyinstaller dubbing_manager.spec --clean
-```
+Windows собирается в формате `onedir`, а не `onefile`, чтобы запуск был быстрее и надёжнее для PySide6/Qt.
 
 ## Публикация релиза
 
 ```bash
-# Создать тег версии
 git tag v1.2.0
 git push origin v1.2.0
 ```
 
-GitHub Actions автоматически:
-1. Соберёт приложения для всех платформ
-2. Создаст релиз на GitHub
-3. Прикрепит бинарники к релизу
-
-## Структура артефактов:
-
-| Платформа | Формат | Файл |
-|-----------|--------|------|
-| Windows | ZIP | `Dubbing_Manager_Windows.zip` |
-| macOS | DMG | `Dubbing_Manager_macOS.dmg` |
-| Linux | tar.gz | `Dubbing_Manager_Linux.tar.gz` |
-| Linux | AppImage | `Dubbing_Manager_Linux.AppImage` |
-| Ubuntu/Debian | DEB | `Dubbing_Manager_Ubuntu.deb` |
+После этого workflow соберёт Windows и macOS артефакты и прикрепит их к релизу.

@@ -51,6 +51,7 @@ from config.constants import (
     PROJECT_FOLDER_BTN_WIDTH,
     ABOUT_BTN_WIDTH,
     EXPORT_PANEL_SPACING,
+    APP_VERSION,
 )
 from utils.helpers import (
     ass_time_to_seconds,
@@ -96,8 +97,6 @@ from .dialogs import (
     ProjectFilesDialog,
 )
 from .teleprompter import TeleprompterWindow
-from .preview import HtmlLivePreview
-from .video import VideoPreviewWindow
 from core.commands import (
     UndoStack,
     AddActorCommand,
@@ -2040,6 +2039,8 @@ class MainWindow(QMainWindow):
             vp = self.data.get("video_paths", {}).get(ep)
         
         if vp:
+            from .video import VideoPreviewWindow
+
             VideoPreviewWindow(vp, lines, ep, self).exec()
     
     def get_episode_lines(self, ep: str) -> List[Dict[str, Any]]:
@@ -2261,6 +2262,8 @@ class MainWindow(QMainWindow):
         if self.preview_window is not None:
             self.preview_window.close()
 
+        from .preview import HtmlLivePreview
+
         self.preview_window = HtmlLivePreview(self, ep)
         self.preview_window.show()
 
@@ -2431,11 +2434,12 @@ class MainWindow(QMainWindow):
             "О программе",
             "<h2>Dubbing Manager</h2>"
             "<p>Приложение для управления проектами дубляжа и озвучивания.</p>"
-            "<p><b>Версия:</b> 1.2</p>"
+            "<p><b>Версия:</b> {}</p>"
             "<p><b>GitHub:</b> <a href='https://github.com/ScrapDnB/DubbingManager/'>ScrapDnB/DubbingManager</a></p>"
             "<p><b>Python:</b> {}.{}.{}</p>"
             "<p><b>PySide6:</b> {}</p>"
             "<p>© 2026 Юрий Романов</p>".format(
+                APP_VERSION,
                 sys.version_info.major,
                 sys.version_info.minor,
                 sys.version_info.micro,

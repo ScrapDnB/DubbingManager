@@ -222,8 +222,11 @@ DEFAULT_GLOBAL_SETTINGS = {
     'docx_import_config': None,  # Будет инициализировано из DEFAULT_DOCX_IMPORT_CONFIG
 }
 
+# Версия приложения
+APP_VERSION = "1.3.0"
+
 # Версия формата проекта для совместимости
-PROJECT_VERSION = "1.2"
+PROJECT_VERSION = "1.3"
 
 # Папка для рабочих текстов Dubbing Manager
 SCRIPT_TEXT_DIR_NAME = "texts_dm"
