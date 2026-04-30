@@ -17,6 +17,7 @@ import json
 import re
 import os
 import sys
+from copy import deepcopy
 from datetime import datetime
 import logging
 
@@ -31,6 +32,7 @@ except ImportError:
     logger.warning("openpyxl not available - Excel export disabled")
 
 from config.constants import (
+    DEFAULT_DOCX_IMPORT_CONFIG,
     MY_PALETTE,
     DEFAULT_PROMPTER_CONFIG,
     DEFAULT_EXPORT_CONFIG,
@@ -89,12 +91,13 @@ from .dialogs import (
     ActorFilterDialog,
     PrompterColorDialog,
     CustomColorDialog,
-    ExportSettingsDialog,
     ReaperExportDialog,
     ActorRolesDialog,
     GlobalSearchDialog,
     SummaryDialog,
     ProjectFilesDialog,
+    ProjectHealthDialog,
+    SettingsDialog,
 )
 from .teleprompter import TeleprompterWindow
 from core.commands import (
@@ -325,14 +328,16 @@ class MainWindow(QMainWindow):
         top.addWidget(btn_copy)
 
         # Кнопки Undo/Redo
-        self.btn_undo = QPushButton("↶ Отмена")
+        self.btn_undo = QPushButton("↶")
         self.btn_undo.setToolTip("Отменить последнее действие (Ctrl+Z)")
+        self.btn_undo.setFixedWidth(PROJECT_FOLDER_BTN_WIDTH)
         self.btn_undo.clicked.connect(self.undo)
         self.btn_undo.setEnabled(False)
         top.addWidget(self.btn_undo)
 
-        self.btn_redo = QPushButton("↷ Повтор")
+        self.btn_redo = QPushButton("↷")
         self.btn_redo.setToolTip("Повторить отменённое действие (Ctrl+Shift+Z)")
+        self.btn_redo.setFixedWidth(PROJECT_FOLDER_BTN_WIDTH)
         self.btn_redo.clicked.connect(self.redo)
         self.btn_redo.setEnabled(False)
         top.addWidget(self.btn_redo)
@@ -340,15 +345,10 @@ class MainWindow(QMainWindow):
         top.addSpacing(PROJECT_BAR_SPACING)
 
         # Папка проекта
-        self.lbl_project_folder = QLabel("")
-        self.lbl_project_folder.setToolTip("Папка проекта")
-        self.lbl_project_folder.setStyleSheet("color: #666;")
-        top.addWidget(self.lbl_project_folder)
-
-        btn_folder = QPushButton("📁 Папка")
-        btn_folder.setToolTip("Установить папку проекта")
-        btn_folder.clicked.connect(self.set_project_folder_dialog)
-        top.addWidget(btn_folder)
+        self.btn_folder = QPushButton("📁 Папка")
+        self.btn_folder.setToolTip("Установить папку проекта")
+        self.btn_folder.clicked.connect(self.set_project_folder_dialog)
+        top.addWidget(self.btn_folder)
 
         btn_unlink = QPushButton("🔓")
         btn_unlink.setToolTip("Отвязать папку проекта")
@@ -363,6 +363,11 @@ class MainWindow(QMainWindow):
         btn_files.setToolTip("Просмотр структуры файлов проекта")
         btn_files.clicked.connect(self.open_project_files_dialog)
         top.addWidget(btn_files)
+
+        btn_health = QPushButton("✓ Проверка")
+        btn_health.setToolTip("Проверить проект на потерянные файлы и проблемы в тексте")
+        btn_health.clicked.connect(self.open_project_health_dialog)
+        top.addWidget(btn_health)
 
         btn_about = QPushButton("ℹ️")
         btn_about.setFixedWidth(ABOUT_BTN_WIDTH)
@@ -532,11 +537,11 @@ class MainWindow(QMainWindow):
         """Инициализация нижней панели"""
         bottom_panel = QHBoxLayout()
 
-        # Левая часть: настройки объединения
-        btn_merge_cfg = QPushButton("🔗 Настройки объединения")
-        btn_merge_cfg.setToolTip("Настройки объединения реплик для монтажного листа, телесуфлёра и отчётов")
-        btn_merge_cfg.clicked.connect(self.open_replica_merge_settings)
-        bottom_panel.addWidget(btn_merge_cfg)
+        # Левая часть: общие настройки
+        btn_settings = QPushButton("⚙ Настройки")
+        btn_settings.setToolTip("Общие настройки экспорта, объединения, телесуфлёра и DOCX")
+        btn_settings.clicked.connect(self.open_settings)
+        bottom_panel.addWidget(btn_settings)
 
         bottom_panel.addStretch()
 
@@ -545,7 +550,8 @@ class MainWindow(QMainWindow):
         exp_lay = QHBoxLayout(exp_group)
         exp_lay.setContentsMargins(5, 5, 5, 5)
 
-        btn_cfg = QPushButton("⚙ Настройки")
+        btn_cfg = QPushButton("⚙ Вид листа")
+        btn_cfg.setToolTip("Быстрые настройки монтажного листа")
         btn_cfg.clicked.connect(self.open_export_settings)
         exp_lay.addWidget(btn_cfg)
 
@@ -862,22 +868,22 @@ class MainWindow(QMainWindow):
         self.undo_stack.clear()
 
         # Обновляем отображение папки проекта
-        self._update_project_folder_label()
+        self._update_project_folder_button()
 
         # Сканируем папку проекта если она есть
         self._scan_project_folder()
         self._prompt_working_text_migration()
 
-    def _update_project_folder_label(self) -> None:
-        """Обновление метки папки проекта"""
+    def _update_project_folder_button(self) -> None:
+        """Обновление состояния кнопки папки проекта"""
         folder = self.project_folder_service.get_project_folder(self.data)
         if folder:
             folder_name = os.path.basename(folder)
-            self.lbl_project_folder.setText(f"📁 {folder_name}")
-            self.lbl_project_folder.setToolTip(folder)
+            self.btn_folder.setText("📁 Папка ✓")
+            self.btn_folder.setToolTip(f"Папка проекта: {folder_name}\n{folder}")
         else:
-            self.lbl_project_folder.setText("")
-            self.lbl_project_folder.setToolTip("")
+            self.btn_folder.setText("📁 Папка")
+            self.btn_folder.setToolTip("Установить папку проекта")
 
     def _scan_project_folder(self) -> None:
         """Сканирование папки проекта и связывание файлов"""
@@ -997,7 +1003,7 @@ class MainWindow(QMainWindow):
             self.project_folder_service.set_project_folder(self.data, folder)
             
             # Обновляем UI
-            self._update_project_folder_label()
+            self._update_project_folder_button()
             self._scan_project_folder()
             self.set_dirty()
 
@@ -1025,7 +1031,7 @@ class MainWindow(QMainWindow):
             self.project_folder_service.clear_project_folder(self.data)
             
             # Обновляем UI
-            self._update_project_folder_label()
+            self._update_project_folder_button()
             self.set_dirty()
 
     def _on_undo_stack_change(self) -> None:
@@ -2201,51 +2207,35 @@ class MainWindow(QMainWindow):
         return sorted(stats.values(), key=lambda item: item["name"].lower())
 
     def open_export_settings(self) -> None:
-        """Открытие настроек экспорта"""
-        dialog: ExportSettingsDialog = ExportSettingsDialog(
-            self.data["export_config"], self
-        )
+        """Открытие единого окна настроек на вкладке экспорта."""
+        self.open_settings(initial_tab="export")
+
+    def open_settings(self, initial_tab: str = "export") -> None:
+        """Открытие единого окна настроек"""
+        dialog = SettingsDialog(self.data, self, initial_tab=initial_tab)
         if dialog.exec():
-            self.data["export_config"] = dialog.get_settings()
-            
-            # Сохраняем в глобальные настройки
-            self.global_settings_service.update_export_config(
-                self.data["export_config"]
-            )
-            self.global_settings_service.save_settings(self.global_settings)
-            
-            self.change_episode()
-            self.set_dirty()
+            settings = dialog.get_settings()
 
-    def open_replica_merge_settings(self) -> None:
-        """Открытие настроек объединения реплик"""
-        from .dialogs.replica_merge import ReplicaMergeSettingsDialog
+            self.data["export_config"] = settings["export_config"]
+            self.data["replica_merge_config"] = settings["replica_merge_config"]
+            self.data["prompter_config"] = settings["prompter_config"]
+            self.data["docx_import_config"] = settings["docx_import_config"]
 
-        dialog = ReplicaMergeSettingsDialog(
-            self.data.get("replica_merge_config", {}), self
-        )
-        if dialog.exec():
-            self.data["replica_merge_config"] = dialog.get_settings()
-
-            # Со��раняем в глобальные настройки
-            self.global_settings_service.update_replica_merge_config(
+            self.global_settings["export_config"] = self.data["export_config"]
+            self.global_settings["replica_merge_config"] = (
                 self.data["replica_merge_config"]
             )
+            self.global_settings["prompter_config"] = self.data["prompter_config"]
+            self.global_settings["docx_import_config"] = (
+                self.data["docx_import_config"]
+            )
             self.global_settings_service.save_settings(self.global_settings)
 
-            # Обновляем настройки в episode_service для пересчёта колец
             self.episode_service.set_merge_gap_from_config(
                 self.data["replica_merge_config"]
             )
 
-            # Пересчитываем статистику для текущего эпизода
-            ep: Optional[str] = self.ep_combo.currentData()
-            if ep:
-                path: Optional[str] = self.data["episodes"].get(ep)
-                if path and os.path.exists(path):
-                    self._parse_episode(ep, path)
-                    self.refresh_main_table()
-
+            self.change_episode()
             self.set_dirty()
 
     def open_global_search(self) -> None:
@@ -2311,6 +2301,15 @@ class MainWindow(QMainWindow):
             # Обновляем episode_service
             self.episode_service.set_merge_gap_from_config(
                 self.data["replica_merge_config"]
+            )
+
+        if self.global_settings.get('docx_import_config'):
+            self.data.setdefault(
+                "docx_import_config",
+                deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
+            )
+            self.data["docx_import_config"].update(
+                self.global_settings['docx_import_config']
             )
 
     def save_global_prompter_settings(self, config: Dict[str, Any]) -> None:
@@ -2450,6 +2449,11 @@ class MainWindow(QMainWindow):
     def open_project_files_dialog(self) -> None:
         """Открытие диалога файлов проекта"""
         dialog = ProjectFilesDialog(self.data, self)
+        dialog.exec()
+
+    def open_project_health_dialog(self) -> None:
+        """Открытие диалога проверки проекта"""
+        dialog = ProjectHealthDialog(self.data, self)
         dialog.exec()
 
     def _on_files_changed(self) -> None:
