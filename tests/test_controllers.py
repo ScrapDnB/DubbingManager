@@ -515,14 +515,19 @@ class TestExportController:
         """Тест универсального экспорта HTML"""
         with patch('ui.controllers.export_controller.QFileDialog.getSaveFileName') as mock_save:
             with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as f:
-                mock_save.return_value = (f.name, "")
+                path = f.name
+
+            try:
+                mock_save.return_value = (path, "")
                 
                 success, message = controller.run_unified_export(
                     "1", export_html=True, export_xls=False, parent_widget=None
                 )
                 
                 assert success == True
-                os.unlink(f.name)
+            finally:
+                if os.path.exists(path):
+                    os.unlink(path)
 
     def test_mark_dirty(self, controller):
         """Тест пометки изменений"""

@@ -110,7 +110,9 @@ def sample_lines():
 @pytest.fixture
 def temp_json_file(sample_project_data):
     """Временный JSON файл с данными проекта"""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    with tempfile.NamedTemporaryFile(
+        mode='w', suffix='.json', delete=False, encoding='utf-8'
+    ) as f:
         json.dump(sample_project_data, f, ensure_ascii=False, indent=2)
         temp_path = f.name
     

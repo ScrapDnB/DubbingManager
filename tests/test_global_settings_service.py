@@ -101,7 +101,7 @@ class TestGlobalSettingsService:
         assert result == True
         assert temp_settings_file.exists()
         
-        with open(temp_settings_file, 'r') as f:
+        with open(temp_settings_file, 'r', encoding='utf-8') as f:
             saved_data = json.load(f)
         
         assert saved_data['export_config']['layout_type'] == 'Таблица'
