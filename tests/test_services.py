@@ -165,7 +165,7 @@ class TestProjectService:
         
         assert project["project_name"] == "Новый проект"
         assert "metadata" in project
-        assert project["metadata"]["format_version"] == "1.0"
+        assert project["metadata"]["format_version"] == "1.1"
         assert "created_at" in project["metadata"]
         assert "actors" in project
         assert "episodes" in project
@@ -401,7 +401,7 @@ class TestProjectService:
             saved_data = json.load(f)
         
         assert "metadata" in saved_data
-        assert saved_data["metadata"]["format_version"] == "1.0"
+        assert saved_data["metadata"]["format_version"] == "1.1"
         assert "modified_at" in saved_data["metadata"]
 
 

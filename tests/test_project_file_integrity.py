@@ -202,7 +202,7 @@ class TestProjectFileStructure:
         
         # modified_at должен обновиться
         assert loaded_data["metadata"]["modified_at"] >= original_modified
-        assert loaded_data["metadata"]["format_version"] == "1.0"
+        assert loaded_data["metadata"]["format_version"] == "1.1"
 
     def test_project_folder_in_file(self):
         """Проверка сохранения project_folder"""

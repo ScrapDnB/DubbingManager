@@ -60,7 +60,7 @@ def test_docx_import_creates_working_text(tmp_path, monkeypatch):
 
     text_path = Path(window.data["episode_texts"]["1"])
     assert text_path.exists()
-    assert text_path.parent.name == "project Texts"
+    assert text_path.parent.name == "project_texts_dm"
     assert window.data["episodes"]["1"] == docx_path
     assert window.data["loaded_episodes"]["1"][0]["_working_text"] is True
     assert window.get_episode_lines("1")[0]["text"] == "Hello docx"

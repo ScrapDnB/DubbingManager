@@ -103,6 +103,15 @@ PREVIEW_WINDOW_HEIGHT = 900
 PREVIEW_SETTINGS_PANEL_WIDTH = 280
 
 # =============================================================================
+# КОНСТАНТЫ UI — ДИАЛОГИ
+# =============================================================================
+
+DOCX_IMPORT_DIALOG_WIDTH = 900
+DOCX_IMPORT_DIALOG_HEIGHT = 620
+ACTOR_ROLES_DIALOG_WIDTH = 520
+ACTOR_ROLES_DIALOG_HEIGHT = 420
+
+# =============================================================================
 # КОНСТАНТЫ UI — ВИДЕО
 # =============================================================================
 
@@ -196,12 +205,22 @@ DEFAULT_REPLICA_MERGE_CONFIG = {
     'fps': 25,  # Частота кадров для расчёта времени
 }
 
+# Настройки импорта DOCX по умолчанию
+DEFAULT_DOCX_IMPORT_CONFIG = {
+    'mapping': {},
+    'time_separators': ['-'],
+}
+
 # Глобальные настройки приложения по умолчанию
 DEFAULT_GLOBAL_SETTINGS = {
     'export_config': None,  # Будет инициализировано из DEFAULT_EXPORT_CONFIG
     'prompter_config': None,  # Будет инициализировано из DEFAULT_PROMPTER_CONFIG
     'replica_merge_config': None,  # Будет инициализировано из DEFAULT_REPLICA_MERGE_CONFIG
+    'docx_import_config': None,  # Будет инициализировано из DEFAULT_DOCX_IMPORT_CONFIG
 }
 
 # Версия формата проекта для совместимости
-PROJECT_VERSION = "1.0"
+PROJECT_VERSION = "1.1"
+
+# Папка для рабочих текстов Dubbing Manager
+SCRIPT_TEXT_DIR_NAME = "texts_dm"

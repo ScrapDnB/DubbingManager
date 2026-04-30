@@ -251,6 +251,7 @@ class MainWindow(QMainWindow):
             on_edit_roles_callback=self.edit_roles,
             on_color_click_callback=self.on_actor_color_clicked
         )
+        self.actor_table.itemChanged.connect(self.on_actor_renamed)
 
         left_panel.addWidget(self.actor_table)
 
@@ -951,10 +952,23 @@ class MainWindow(QMainWindow):
 
     def on_actor_renamed(self, item: QTableWidgetItem) -> None:
         """Переименование актёра"""
+        if item.column() != 0:
+            return
+
         if self.actor_controller:
             aid: Optional[str] = item.data(Qt.UserRole)
             if aid:
-                new_name = item.text()
+                old_name = self.data.get("actors", {}).get(aid, {}).get("name", "")
+                new_name = item.text().strip()
+                if not new_name:
+                    self.actor_table.blockSignals(True)
+                    item.setText(old_name)
+                    self.actor_table.blockSignals(False)
+                    return
+
+                if new_name == old_name:
+                    return
+
                 # Используем команду для отмены действия
                 command = RenameActorCommand(
                     self.data["actors"],
@@ -964,6 +978,7 @@ class MainWindow(QMainWindow):
                 self.undo_stack.push(command)
                 self.actor_controller.refresh()
                 self.refresh_main_table()
+                self._refresh_open_windows(self.ep_combo.currentData())
                 self.set_dirty()
 
     def on_actor_color_clicked(self, aid: str) -> None:
@@ -1943,13 +1958,50 @@ class MainWindow(QMainWindow):
         name: str,
         roles: List[str]
     ) -> None:
-        """Редактирование ролей актёра"""
-        if self.actor_controller:
-            dialog: ActorRolesDialog = ActorRolesDialog(name, roles, self)
-            if dialog.exec():
-                new_roles: List[str] = dialog.get_roles()
-                self.actor_controller.update_actor_roles(aid, new_roles)
-                self.refresh_main_table()
+        """Просмотр ролей актёра"""
+        role_stats = self._get_actor_role_stats(aid, roles)
+        ActorRolesDialog(name, roles, self, role_stats).exec()
+
+    def _get_actor_role_stats(
+        self,
+        actor_id: str,
+        roles: List[str]
+    ) -> List[Dict[str, Any]]:
+        """Посчитать кольца и слова по персонажам актёра."""
+        stats = {
+            role: {"name": role, "rings": 0, "words": 0}
+            for role in roles
+        }
+        export_service = ExportService(self.data)
+
+        for ep in self.data.get("episodes", {}).keys():
+            lines = self.get_episode_lines(str(ep))
+            if not lines:
+                continue
+
+            processed = export_service.process_merge_logic(
+                lines,
+                self.data.get("replica_merge_config", {})
+            )
+
+            for line in processed:
+                char_name = line.get("char", "")
+                if self.data.get("global_map", {}).get(char_name) != actor_id:
+                    continue
+
+                if char_name not in stats:
+                    stats[char_name] = {
+                        "name": char_name,
+                        "rings": 0,
+                        "words": 0
+                    }
+
+                stats[char_name]["rings"] += 1
+                stats[char_name]["words"] += len(
+                    line.get("text", "").split()
+                )
+
+        return sorted(stats.values(), key=lambda item: item["name"].lower())
 
     def open_export_settings(self) -> None:
         """Открытие настроек экспорта"""

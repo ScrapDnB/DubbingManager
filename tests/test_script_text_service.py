@@ -50,7 +50,7 @@ class TestScriptTextService:
             project_path
         )
 
-        assert text_path == os.path.join(self.test_dir, "My Project Texts", "episode_1.json")
+        assert text_path == os.path.join(self.test_dir, "My Project_texts_dm", "episode_1.json")
         assert data["episode_texts"]["1"] == text_path
         assert os.path.exists(text_path)
 
@@ -87,7 +87,7 @@ class TestScriptTextService:
             project_path
         )
 
-        assert text_path == os.path.join(project_folder, "Texts", "episode_1.json")
+        assert text_path == os.path.join(project_folder, "texts_dm", "episode_1.json")
         assert os.path.exists(text_path)
 
     def test_create_episode_text_uses_merge_config(self):

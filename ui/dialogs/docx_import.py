@@ -11,6 +11,10 @@ from PySide6.QtGui import QFont
 from typing import Dict, List, Any, Optional
 import logging
 
+from config.constants import (
+    DOCX_IMPORT_DIALOG_HEIGHT,
+    DOCX_IMPORT_DIALOG_WIDTH,
+)
 from services.docx_import_service import (
     DocxImportService, COLUMN_TYPES, DEFAULT_COLUMN_MAPPING, DEFAULT_TIME_SEPARATORS
 )
@@ -26,7 +30,7 @@ class DocxImportDialog(QDialog):
     def __init__(self, parent=None, file_path: Optional[str] = None):
         super().__init__(parent)
         self.setWindowTitle("Импорт DOCX - Настройка колонок")
-        self.setMinimumSize(900, 620)
+        self.setMinimumSize(DOCX_IMPORT_DIALOG_WIDTH, DOCX_IMPORT_DIALOG_HEIGHT)
 
         self.docx_service = DocxImportService()
         self.global_settings_service = GlobalSettingsService()

@@ -22,13 +22,14 @@ from PySide6.QtWidgets import QMessageBox
 from config.constants import (
     DEFAULT_EXPORT_CONFIG,
     DEFAULT_PROMPTER_CONFIG,
-    DEFAULT_REPLICA_MERGE_CONFIG
+    DEFAULT_REPLICA_MERGE_CONFIG,
+    PROJECT_VERSION,
 )
 
 logger = logging.getLogger(__name__)
 
 # Версия формата проекта
-PROJECT_FORMAT_VERSION = "1.0"
+PROJECT_FORMAT_VERSION = PROJECT_VERSION
 
 # Максимальное количество бэкапов
 MAX_BACKUPS = 10

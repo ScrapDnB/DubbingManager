@@ -63,7 +63,7 @@ def test_create_missing_working_texts_builds_found_sources(tmp_path, monkeypatch
     assert skipped == 1
     text_path = Path(window.data["episode_texts"]["1"])
     assert text_path.exists()
-    assert text_path.parent.name == "project Texts"
+    assert text_path.parent.name == "project_texts_dm"
     assert messages
 
 
@@ -88,5 +88,5 @@ def test_create_missing_working_texts_uses_project_folder(tmp_path, monkeypatch)
     assert created == 1
     assert skipped == 0
     text_path = Path(window.data["episode_texts"]["1"])
-    assert text_path == project_folder / "Texts" / "episode_1.json"
+    assert text_path == project_folder / "texts_dm" / "episode_1.json"
     assert text_path.exists()

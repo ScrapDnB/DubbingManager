@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from config.constants import SCRIPT_TEXT_DIR_NAME
 from services.export_service import ExportService
 
 
@@ -24,13 +25,13 @@ class ScriptTextService:
         """Получить папку для рабочих текстов."""
         project_folder = project_data.get("project_folder")
         if project_folder:
-            return Path(project_folder) / "Texts"
+            return Path(project_folder) / SCRIPT_TEXT_DIR_NAME
 
         if project_path:
             project_file = Path(project_path)
-            return project_file.parent / f"{project_file.stem} Texts"
+            return project_file.parent / f"{project_file.stem}_{SCRIPT_TEXT_DIR_NAME}"
 
-        return Path(source_path).resolve().parent / "Texts"
+        return Path(source_path).resolve().parent / SCRIPT_TEXT_DIR_NAME
 
     def create_episode_text(
         self,

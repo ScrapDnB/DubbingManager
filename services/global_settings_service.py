@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 from config.constants import (
+    DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
     DEFAULT_PROMPTER_CONFIG,
     DEFAULT_REPLICA_MERGE_CONFIG,
@@ -138,10 +139,7 @@ class GlobalSettingsService:
             'export_config': DEFAULT_EXPORT_CONFIG.copy(),
             'prompter_config': DEFAULT_PROMPTER_CONFIG.copy(),
             'replica_merge_config': DEFAULT_REPLICA_MERGE_CONFIG.copy(),
-            'docx_import_config': {
-                'mapping': {},
-                'time_separators': ['-'],
-            },
+            'docx_import_config': DEFAULT_DOCX_IMPORT_CONFIG.copy(),
         }
 
     def get_settings(self) -> Dict[str, Any]:
@@ -166,7 +164,7 @@ class GlobalSettingsService:
         """Получение настроек импорта DOCX"""
         return self.settings.get(
             'docx_import_config',
-            {'mapping': {}, 'time_separators': ['-']}
+            DEFAULT_DOCX_IMPORT_CONFIG.copy()
         )
 
     def update_export_config(self, config: Dict[str, Any]) -> None:
