@@ -5,10 +5,8 @@ from PySide6.QtWidgets import (
     QHeaderView, QAbstractItemView, QFrame, QPushButton, QLabel
 )
 from PySide6.QtGui import QColor
-from typing import Dict, Any, Optional, Set, List
-import os
-import re
-from utils.helpers import ass_time_to_seconds
+from typing import Dict, Any, Optional, List
+from services import ExportService
 
 
 class SummaryDialog(QDialog):
@@ -27,6 +25,7 @@ class SummaryDialog(QDialog):
         )
         self.resize(1000, 700)
         self.data: Dict[str, Any] = data
+        self.main_app = parent
 
         self._table: QTableWidget
         self._init_ui()
@@ -69,65 +68,29 @@ class SummaryDialog(QDialog):
 
     def _calculate_stats(self) -> None:
         """Расчёт статистики по актёрам"""
-        # Используем replica_merge_config вместо export_config
-        gap: int = self.data.get("replica_merge_config", {}).get('merge_gap', 5)
-
         stats: Dict[str, Dict[str, Any]] = {
             aid: {"rings": 0, "words": 0, "roles": set()}
             for aid in self.data["actors"]
         }
         unassigned: Dict[str, Any] = {"rings": 0, "words": 0, "roles": set()}
 
-        eps: Dict[str, str]
         if self.target_ep:
-            eps = {self.target_ep: self.data["episodes"][self.target_ep]}
+            ep_nums = [self.target_ep]
         else:
-            eps = self.data["episodes"]
+            ep_nums = list(self.data.get("episodes", {}).keys())
 
         ep_num: str
-        path: str
-        for ep_num, path in eps.items():
-            if not os.path.exists(path):
-                continue
-
-            lines: List[Dict[str, Any]] = []
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        if line.startswith("Dialogue:"):
-                            parts = line.split(',', 9)
-                            text: str = re.sub(
-                                r'\{.*?\}', '', parts[9]
-                            ).strip()
-                            if text:
-                                lines.append({
-                                    's': ass_time_to_seconds(parts[1]),
-                                    'e': ass_time_to_seconds(parts[2]),
-                                    'char': parts[4].strip(),
-                                    'text': text
-                                })
-            except Exception:
-                continue
+        export_service = ExportService(self.data)
+        for ep_num in ep_nums:
+            lines = self._get_episode_lines(ep_num)
 
             if not lines:
                 continue
 
-            # Слияние реплик
-            merged: List[Dict[str, Any]] = []
-            curr: Dict[str, Any] = lines[0].copy()
-            i: int
-            for i in range(1, len(lines)):
-                nxt = lines[i]
-                if (
-                    nxt['char'] == curr['char'] and
-                    (nxt['s'] - curr['e']) < gap
-                ):
-                    curr['text'] += "  " + nxt['text']
-                    curr['e'] = nxt['e']
-                else:
-                    merged.append(curr)
-                    curr = nxt.copy()
-            merged.append(curr)
+            merged = export_service.process_merge_logic(
+                lines,
+                self.data.get("replica_merge_config", {})
+            )
 
             # Подсчёт статистики
             line: Dict[str, Any]
@@ -191,3 +154,10 @@ class SummaryDialog(QDialog):
                 row, 4,
                 QTableWidgetItem(", ".join(sorted(list(unassigned["roles"]))))
             )
+
+    def _get_episode_lines(self, ep_num: str) -> List[Dict[str, Any]]:
+        """Получить реплики серии через приложение или кэш проекта."""
+        if self.main_app and hasattr(self.main_app, "get_episode_lines"):
+            return self.main_app.get_episode_lines(ep_num)
+
+        return self.data.get("loaded_episodes", {}).get(ep_num, [])

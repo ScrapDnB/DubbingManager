@@ -89,7 +89,11 @@ class TestGlobalSettingsService:
         settings = {
             'export_config': {'layout_type': 'Таблица'},
             'prompter_config': {'f_tc': 25},
-            'replica_merge_config': {'merge': True}
+            'replica_merge_config': {'merge': True},
+            'docx_import_config': {
+                'mapping': {'character': 0, 'text': 2},
+                'time_separators': ['-', '|']
+            }
         }
         
         result = service.save_settings(settings)
@@ -102,6 +106,7 @@ class TestGlobalSettingsService:
         
         assert saved_data['export_config']['layout_type'] == 'Таблица'
         assert saved_data['prompter_config']['f_tc'] == 25
+        assert saved_data['docx_import_config']['mapping']['text'] == 2
 
     def test_save_settings_creates_directory(self, service, tmp_path):
         """Тест создания директории при сохранении"""
@@ -209,6 +214,18 @@ class TestGlobalSettingsService:
         service.update_replica_merge_config({'merge': False})
         
         assert service.settings['replica_merge_config']['merge'] == False
+
+    def test_update_docx_import_config(self, service):
+        """Тест обновления настроек импорта DOCX"""
+        service.settings = {}
+
+        service.update_docx_import_config({
+            'mapping': {'character': 0, 'text': 3},
+            'time_separators': ['-', '|']
+        })
+
+        assert service.settings['docx_import_config']['mapping']['text'] == 3
+        assert service.settings['docx_import_config']['time_separators'] == ['-', '|']
 
     def test_get_settings_file_path_windows(self):
         """Тест пути к файлу на Windows"""

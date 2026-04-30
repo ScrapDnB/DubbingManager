@@ -86,6 +86,11 @@ class GlobalSettingsService:
                     loaded['replica_merge_config']
                 )
 
+            if 'docx_import_config' in loaded and loaded['docx_import_config']:
+                settings['docx_import_config'].update(
+                    loaded['docx_import_config']
+                )
+
             self.settings = settings
             logger.info(f"Global settings loaded from {self._settings_file}")
             return settings
@@ -113,6 +118,7 @@ class GlobalSettingsService:
                 'export_config': settings.get('export_config'),
                 'prompter_config': settings.get('prompter_config'),
                 'replica_merge_config': settings.get('replica_merge_config'),
+                'docx_import_config': settings.get('docx_import_config'),
             }
 
             with open(self._settings_file, 'w', encoding='utf-8') as f:
@@ -132,6 +138,10 @@ class GlobalSettingsService:
             'export_config': DEFAULT_EXPORT_CONFIG.copy(),
             'prompter_config': DEFAULT_PROMPTER_CONFIG.copy(),
             'replica_merge_config': DEFAULT_REPLICA_MERGE_CONFIG.copy(),
+            'docx_import_config': {
+                'mapping': {},
+                'time_separators': ['-'],
+            },
         }
 
     def get_settings(self) -> Dict[str, Any]:
@@ -152,6 +162,13 @@ class GlobalSettingsService:
         """Получение настроек объединения реплик"""
         return self.settings.get('replica_merge_config', DEFAULT_REPLICA_MERGE_CONFIG.copy())
 
+    def get_docx_import_config(self) -> Dict[str, Any]:
+        """Получение настроек импорта DOCX"""
+        return self.settings.get(
+            'docx_import_config',
+            {'mapping': {}, 'time_separators': ['-']}
+        )
+
     def update_export_config(self, config: Dict[str, Any]) -> None:
         """Обновление настроек экспорта"""
         if 'export_config' not in self.settings:
@@ -169,3 +186,9 @@ class GlobalSettingsService:
         if 'replica_merge_config' not in self.settings:
             self.settings['replica_merge_config'] = {}
         self.settings['replica_merge_config'].update(config)
+
+    def update_docx_import_config(self, config: Dict[str, Any]) -> None:
+        """Обновление настроек импорта DOCX"""
+        if 'docx_import_config' not in self.settings:
+            self.settings['docx_import_config'] = {}
+        self.settings['docx_import_config'].update(config)

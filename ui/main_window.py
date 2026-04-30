@@ -1156,6 +1156,24 @@ class MainWindow(QMainWindow):
             self.current_project_path
         )
 
+    def _convert_imported_lines_for_cache(
+        self,
+        lines: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Нормализовать импортированные реплики для кэша приложения."""
+        episode_lines = []
+        for idx, line_data in enumerate(lines):
+            episode_lines.append({
+                'id': idx,
+                's': line_data['s'],
+                'e': line_data['e'],
+                'char': line_data['char'],
+                'text': line_data['text'],
+                's_raw': line_data.get('s_raw', ''),
+                'e_raw': line_data.get('e_raw', ''),
+            })
+        return episode_lines
+
     def import_ass(self, paths: Optional[List[str]] = None) -> None:
         """Импорт ASS файлов"""
         if not paths:
@@ -1290,19 +1308,7 @@ class MainWindow(QMainWindow):
 
         # Сохраняем данные в эпизод
         lines = result['lines']
-
-        # Конвертируем в формат для хранения
-        episode_lines = []
-        for idx, line_data in enumerate(lines):
-            episode_lines.append({
-                'id': idx,
-                's': line_data['s'],
-                'e': line_data['e'],
-                'char': line_data['char'],
-                'text': line_data['text'],
-                's_raw': line_data.get('s_raw', ''),
-                'e_raw': line_data.get('e_raw', ''),
-            })
+        episode_lines = self._convert_imported_lines_for_cache(lines)
 
         # Добавляем эпизод в данные
         command = AddEpisodeCommand(
@@ -1319,6 +1325,14 @@ class MainWindow(QMainWindow):
 
         # Также сохраняем в кэш episode_service для совместимости
         self.episode_service._loaded_episodes[name] = episode_lines
+
+        self._create_working_text_for_episode(name, file_path, episode_lines)
+        working_lines = self.script_text_service.load_episode_lines(
+            self.data,
+            name
+        )
+        if working_lines:
+            self.data["loaded_episodes"][name] = working_lines
 
         # Устанавливаем статистику
         self.current_ep_stats = result['stats']
@@ -1381,25 +1395,21 @@ class MainWindow(QMainWindow):
 
         # Сохраняем данные в эпизод
         lines = result['lines']
-
-        # Конвертируем в формат для хранения
-        episode_lines = []
-        for idx, line_data in enumerate(lines):
-            episode_lines.append({
-                'id': idx,
-                's': line_data['s'],
-                'e': line_data['e'],
-                'char': line_data['char'],
-                'text': line_data['text'],
-                's_raw': line_data.get('s_raw', ''),
-                'e_raw': line_data.get('e_raw', ''),
-            })
+        episode_lines = self._convert_imported_lines_for_cache(lines)
+        docx_path = (
+            result.get('source_path') or
+            (
+                dialog.file_label.text().replace('📄 ', '')
+                if hasattr(dialog, 'file_label')
+                else "DOCX Import"
+            )
+        )
 
         # Добавляем эпизод в данные
         command = AddEpisodeCommand(
             self.data["episodes"],
             name,
-            dialog.file_label.text().replace('📄 ', '') if hasattr(dialog, 'file_label') else "DOCX Import"
+            docx_path
         )
         self.undo_stack.push(command)
 
@@ -1410,6 +1420,14 @@ class MainWindow(QMainWindow):
 
         # Также сохраняем в кэш episode_service для совместимости
         self.episode_service._loaded_episodes[name] = episode_lines
+
+        self._create_working_text_for_episode(name, docx_path, episode_lines)
+        working_lines = self.script_text_service.load_episode_lines(
+            self.data,
+            name
+        )
+        if working_lines:
+            self.data["loaded_episodes"][name] = working_lines
 
         # Устанавливаем статистику
         self.current_ep_stats = result['stats']

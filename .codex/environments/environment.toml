@@ -5,7 +5,10 @@ name = "DubbingManager"
 [setup]
 script = ""
 
+[setup.darwin]
+script = "source .venv/bin/activate"
+
 [[actions]]
 name = "Run"
-icon = "tool"
+icon = "run"
 command = "python main.py"
