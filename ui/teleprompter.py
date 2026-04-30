@@ -1,6 +1,7 @@
 """Окно телесуфлёра"""
 
 import platform
+from copy import deepcopy
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QSpinBox, QSlider, QCheckBox, QFrame,
@@ -8,7 +9,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QAbstractItemView, QMessageBox,
     QDoubleSpinBox, QSizePolicy, QWidget, QFormLayout,
     QGroupBox, QTextEdit, QDialogButtonBox, QGraphicsView,
-    QGraphicsScene, QGraphicsTextItem, QApplication
+    QGraphicsScene, QGraphicsTextItem, QApplication, QComboBox
 )
 from PySide6.QtGui import (
     QColor, QFont, QPainter, QPen, QBrush, QCursor
@@ -66,7 +67,8 @@ from config.constants import (
     FLOAT_BTN_HIDE_Y,
     FLOAT_MARGIN_X,
 )
-from services import ExportService
+from services import ExportService, ScriptTextService
+from services.assignment_service import get_actor_for_character
 from services.osc_worker import OscWorker, OSC_AVAILABLE
 from utils.helpers import ass_time_to_seconds, format_seconds_to_tc, log_exception
 
@@ -610,6 +612,7 @@ class TeleprompterWindow(QDialog):
         self.highlight_ids = None
         self._has_text_changes: bool = False
         self._initializing: bool = True
+        self._manual_scroll_override: bool = False
 
         # UI
         self._init_ui()
@@ -623,7 +626,9 @@ class TeleprompterWindow(QDialog):
             "prompter_config" not in self.main_app.data or
             self.main_app.data["prompter_config"] is None
         ):
-            self.main_app.data["prompter_config"] = DEFAULT_PROMPTER_CONFIG.copy()
+            self.main_app.data["prompter_config"] = deepcopy(
+                DEFAULT_PROMPTER_CONFIG
+            )
 
         self.cfg: Dict[str, Any] = self.main_app.data["prompter_config"]
 
@@ -673,6 +678,17 @@ class TeleprompterWindow(QDialog):
 
         self.toolbar.addSeparator()
 
+        self.toolbar.addWidget(QLabel("Серия:"))
+        self.combo_episode = QComboBox()
+        self.combo_episode.setMinimumWidth(120)
+        self._populate_episode_combo()
+        self.combo_episode.currentIndexChanged.connect(
+            self.on_episode_combo_changed
+        )
+        self.toolbar.addWidget(self.combo_episode)
+
+        self.toolbar.addSeparator()
+
         self.btn_go_prev = QPushButton("⏮ Предыдущая реплика")
         self.btn_go_prev.setMinimumWidth(PROMPTER_NAV_BUTTON_MIN_WIDTH)
         self.btn_go_prev.clicked.connect(
@@ -705,6 +721,74 @@ class TeleprompterWindow(QDialog):
         self.toolbar.addWidget(btn_close)
 
         self.root_layout.addWidget(self.toolbar)
+
+    def _episode_sort_key(self, ep_num: str) -> Tuple[int, str]:
+        """Ключ сортировки серий для выпадающего списка."""
+        return (int(ep_num), ep_num) if str(ep_num).isdigit() else (0, str(ep_num))
+
+    def _populate_episode_combo(self) -> None:
+        """Заполнить список серий телесуфлёра."""
+        self.combo_episode.blockSignals(True)
+        self.combo_episode.clear()
+
+        episode_nums = sorted(
+            self.main_app.data.get("episodes", {}).keys(),
+            key=self._episode_sort_key
+        )
+        for ep_num in episode_nums:
+            self.combo_episode.addItem(f"Серия {ep_num}", str(ep_num))
+
+        index = self.combo_episode.findData(str(self.ep_num))
+        if index >= 0:
+            self.combo_episode.setCurrentIndex(index)
+
+        self.combo_episode.blockSignals(False)
+
+    def on_episode_combo_changed(self, index: int) -> None:
+        """Обработчик выбора серии в телесуфлёре."""
+        ep_num = self.combo_episode.itemData(index)
+        if ep_num is not None:
+            self.switch_episode(str(ep_num))
+
+    def switch_episode(self, ep_num: str) -> None:
+        """Переключить серию без сброса настроек телесуфлёра."""
+        if str(ep_num) == str(self.ep_num):
+            return
+
+        if str(ep_num) not in self.main_app.data.get("episodes", {}):
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                f"Серия {ep_num} не найдена в проекте."
+            )
+            self._populate_episode_combo()
+            return
+
+        if self.smooth_scroll_timer.isActive():
+            self.smooth_scroll_timer.stop()
+        self._scroll_target_y = None
+        self.last_known_time = 0.0
+        self.ep_num = str(ep_num)
+        self.setWindowTitle(f"Телесуфлёр - Серия {self.ep_num}")
+
+        self._sync_main_episode_selection()
+        self.build_prompter_content()
+
+    def _sync_main_episode_selection(self) -> None:
+        """Синхронизировать выбранную серию с главным окном, если возможно."""
+        combo = getattr(self.main_app, "ep_combo", None)
+        if not combo:
+            return
+
+        index = combo.findData(str(self.ep_num))
+        if index < 0:
+            return
+
+        combo.blockSignals(True)
+        combo.setCurrentIndex(index)
+        combo.blockSignals(False)
+        if hasattr(self.main_app, "change_episode"):
+            self.main_app.change_episode()
 
     def _init_splitters(self) -> None:
         """Инициализация сплиттеров"""
@@ -747,6 +831,8 @@ class TeleprompterWindow(QDialog):
         self.prompter_view.setFrameShape(QFrame.NoFrame)
         self.prompter_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.prompter_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.prompter_view.viewport().installEventFilter(self)
+        self.prompter_view.installEventFilter(self)
         self.h_splitter.addWidget(self.prompter_view)
 
         self.v_splitter.addWidget(self.h_splitter)
@@ -756,6 +842,40 @@ class TeleprompterWindow(QDialog):
         self.header_panel.setVisible(self.cfg["show_header"])
         self.v_splitter.setSizes(PROMPTER_V_SPLITTER_SIZES)
         self.h_splitter.setSizes(PROMPTER_H_SPLITTER_SIZES)
+
+    def eventFilter(self, obj, event) -> bool:
+        """Отменить автоскролл, когда пользователь вручную двигает суфлёр."""
+        manual_scroll_events = {
+            QEvent.Wheel,
+            QEvent.MouseButtonPress,
+            QEvent.KeyPress,
+            QEvent.TouchBegin,
+        }
+        if (
+            obj in (self.prompter_view, self.prompter_view.viewport())
+            and event.type() in manual_scroll_events
+        ):
+            self.enter_manual_scroll_override()
+
+        return super().eventFilter(obj, event)
+
+    def enter_manual_scroll_override(self) -> None:
+        """Разрешить свободный ручной скролл поверх входящей синхронизации."""
+        self._manual_scroll_override = True
+        self.cancel_pending_prompter_scroll()
+
+    def exit_manual_scroll_override(self) -> None:
+        """Вернуть управление позиции явной навигации или Reaper."""
+        self._manual_scroll_override = False
+
+    def cancel_pending_prompter_scroll(self) -> None:
+        """Остановить незавершённую плавную прокрутку сцены."""
+        self._scroll_target_y = None
+        if (
+            hasattr(self, "smooth_scroll_timer")
+            and self.smooth_scroll_timer.isActive()
+        ):
+            self.smooth_scroll_timer.stop()
     
     def _init_side_panel(self) -> None:
         """Инициализация боковой панели настроек"""
@@ -1173,6 +1293,16 @@ class TeleprompterWindow(QDialog):
 
         lines = self.main_app.get_episode_lines(self.ep_num)
         if not lines:
+            item = QGraphicsTextItem(
+                "Рабочий текст не найден.\n"
+                "Создайте его из субтитров в окне «Файлы проекта»."
+            )
+            item.setFont(QFont("Arial", self.cfg["f_text"], QFont.Bold))
+            item.setDefaultTextColor(QColor(clrs["active_text"]))
+            item.setTextWidth(760)
+            item.setPos(40, 1000)
+            self.prompter_scene.addItem(item)
+            self.prompter_scene.setSceneRect(-50, 0, 900, 1800)
             return
 
         lines.sort(key=lambda x: x['s'])
@@ -1201,7 +1331,9 @@ class TeleprompterWindow(QDialog):
         )
         
         for i, replica in enumerate(processed):
-            actor_id = self.main_app.data["global_map"].get(replica['char'])
+            actor_id = get_actor_for_character(
+                self.main_app.data, replica['char'], self.ep_num
+            )
             actor_info = self.main_app.data["actors"].get(
                 actor_id, {"name": "-", "color": "#FFFFFF"}
             )
@@ -1263,9 +1395,12 @@ class TeleprompterWindow(QDialog):
             y_cursor += item_char.boundingRect().height()
             
             # Текст реплики
-            source_ids = replica.get('source_ids', [replica.get('id', i)])
+            if replica.get('_working_text'):
+                editable_ids = [replica.get('id', i)]
+            else:
+                editable_ids = replica.get('source_ids', [replica.get('id', i)])
             item_text = EditableTextItem(
-                replica.get('text', ''), self, source_ids
+                replica.get('text', ''), self, editable_ids
             )
             item_text.setFont(f_text)
             item_text.setDefaultTextColor(text_col)
@@ -1295,8 +1430,8 @@ class TeleprompterWindow(QDialog):
         if hasattr(self, 'float_window') and self.float_window:
             self.float_window.sync_replica_list()
     
-    def update_view_position_by_time(self, time_seconds: float) -> None:
-        """Синхронизация позиции по времени"""
+    def update_timecode_display(self, time_seconds: float) -> None:
+        """Обновить известное время и крупный таймкод без движения сцены."""
         self.last_known_time = time_seconds
 
         ms = int((time_seconds % 1) * 1000)
@@ -1306,6 +1441,10 @@ class TeleprompterWindow(QDialog):
 
         if self.header_panel.isVisible():
             self.update_big_timecode_font_size()
+
+    def update_view_position_by_time(self, time_seconds: float) -> None:
+        """Синхронизация позиции по времени"""
+        self.update_timecode_display(time_seconds)
 
         if not self.time_map:
             return
@@ -1373,6 +1512,7 @@ class TeleprompterWindow(QDialog):
     
     def jump_to_specific_time(self, t: float) -> None:
         """Прыжок к таймкоду"""
+        self.exit_manual_scroll_override()
         self.last_known_time = t
         self.update_view_position_by_time(t)
         
@@ -1474,6 +1614,8 @@ class TeleprompterWindow(QDialog):
         self.cfg["sync_out"] = self.chk_reaper_follow.isChecked()
         self.cfg["reaper_offset_enabled"] = self.chk_offset.isChecked()
         self.cfg["reaper_offset_seconds"] = self.spin_offset.value()
+        if self.cfg["sync_in"]:
+            self.exit_manual_scroll_override()
         
         # Сохраняем в глобальные настройки
         self.main_app.save_global_prompter_settings(self.cfg)
@@ -1514,11 +1656,15 @@ class TeleprompterWindow(QDialog):
         """Получение времени из OSC"""
         # Обновляем позицию только если включена синхронизация с Reaper
         if self.cfg.get("sync_in", False):
-            self.update_view_position_by_time(time_val)
+            if self._manual_scroll_override:
+                self.update_timecode_display(time_val)
+            else:
+                self.update_view_position_by_time(time_val)
     
     @Slot(str)
     def navigate_from_osc(self, direction: str) -> None:
         """Навигация из OSC"""
+        self.exit_manual_scroll_override()
         step = 1 if direction == "next" else -1
         self.navigate_to_replica_in_direction(step)
     
@@ -1682,6 +1828,18 @@ class TeleprompterWindow(QDialog):
         
         if updated_any:
             try:
+                script_text_service = ScriptTextService()
+                if len(ids) == 1:
+                    script_text_service.update_line_text(
+                        self.main_app.data,
+                        str(self.ep_num),
+                        ids[0],
+                        new_text
+                    )
+            except Exception as e:
+                logger.warning(f"Error saving working text: {e}")
+
+            try:
                 self.main_app.data['loaded_episodes'][str(self.ep_num)] = lines
             except Exception:
                 pass
@@ -1717,27 +1875,4 @@ class TeleprompterWindow(QDialog):
             self.float_window.close()
             self.float_window = None
 
-        if self._has_text_changes:
-            reply = QMessageBox.question(
-                self,
-                "Несохраненные изменения",
-                "У вас есть несохраненные изменения в тексте.\n"
-                "Хотите сохранить их перед выходом?",
-                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel
-            )
-            if reply == QMessageBox.Yes:
-                if self.main_app.save_episode_to_ass(self.ep_num):
-                    self._has_text_changes = False
-                    event.accept()
-                else:
-                    event.ignore()
-            elif reply == QMessageBox.No:
-                # Пользователь отказался от сохранения — сбрасываем флаги
-                self._has_text_changes = False
-                # Сбрасываем dirty флаг главного окна, т.к. изменения не были сохранены
-                self.main_app.set_dirty(False)
-                event.accept()
-            else:
-                event.ignore()
-        else:
-            event.accept()
+        event.accept()

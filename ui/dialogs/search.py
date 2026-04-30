@@ -7,9 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from typing import Dict, Any, Optional
-import os
-import re
-from utils.helpers import ass_time_to_seconds
+from utils.helpers import format_seconds_to_tc
 
 
 class GlobalSearchDialog(QDialog):
@@ -88,39 +86,24 @@ class GlobalSearchDialog(QDialog):
         self._table.setRowCount(0)
         episodes: Dict[str, str] = self.project_data.get("episodes", {})
 
-        ep_num: str
-        path: str
         for ep_num in sorted(
             episodes.keys(),
             key=lambda x: int(x) if x.isdigit() else 0
         ):
-            path = episodes[ep_num]
-            if not os.path.exists(path):
-                continue
+            for line in self._get_episode_lines(ep_num):
+                char_name = line.get("char", "")
+                text_clean = line.get("text", "")
 
-            lines: list = []
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        if line.startswith("Dialogue:"):
-                            parts = line.split(',', 9)
-                            if len(parts) > 9:
-                                start_time: str = parts[1]
-                                char_name: str = parts[4].strip()
-                                text_clean: str = re.sub(
-                                    r'\{.*?\}', '', parts[9]
-                                ).strip()
-
-                                if (
-                                    query in char_name.lower() or
-                                    query in text_clean.lower()
-                                ):
-                                    self._add_result_row(
-                                        ep_num, start_time, char_name, text_clean
-                                    )
-            except Exception:
-                # Логирование ошибки
-                pass
+                if (
+                    query in char_name.lower() or
+                    query in text_clean.lower()
+                ):
+                    start_time = line.get("s_raw") or format_seconds_to_tc(
+                        float(line.get("s", 0.0))
+                    )
+                    self._add_result_row(
+                        ep_num, start_time, char_name, text_clean
+                    )
 
         if self._table.rowCount() == 0:
             QMessageBox.information(
@@ -150,3 +133,10 @@ class GlobalSearchDialog(QDialog):
         ep_num: str = self._table.item(row, 0).data(Qt.UserRole)
         if self.main_app:
             self.main_app.switch_to_episode(ep_num)
+
+    def _get_episode_lines(self, ep_num: str) -> list:
+        """Получить реплики серии через приложение или кэш проекта."""
+        if self.main_app and hasattr(self.main_app, "get_episode_lines"):
+            return self.main_app.get_episode_lines(ep_num)
+
+        return self.project_data.get("loaded_episodes", {}).get(ep_num, [])

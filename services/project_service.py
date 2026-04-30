@@ -5,6 +5,7 @@ import os
 import shutil
 import logging
 import sys
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -22,13 +23,14 @@ from PySide6.QtWidgets import QMessageBox
 from config.constants import (
     DEFAULT_EXPORT_CONFIG,
     DEFAULT_PROMPTER_CONFIG,
-    DEFAULT_REPLICA_MERGE_CONFIG
+    DEFAULT_REPLICA_MERGE_CONFIG,
+    PROJECT_VERSION,
 )
 
 logger = logging.getLogger(__name__)
 
 # Версия формата проекта
-PROJECT_FORMAT_VERSION = "1.0"
+PROJECT_FORMAT_VERSION = PROJECT_VERSION
 
 # Максимальное количество бэкапов
 MAX_BACKUPS = 10
@@ -80,11 +82,13 @@ class ProjectService:
             "project_name": name,
             "actors": {},
             "global_map": {},
+            "episode_actor_map": {},
             "episodes": {},
             "video_paths": {},
-            "export_config": DEFAULT_EXPORT_CONFIG.copy(),
-            "prompter_config": DEFAULT_PROMPTER_CONFIG.copy(),
-            "replica_merge_config": DEFAULT_REPLICA_MERGE_CONFIG.copy(),
+            "episode_texts": {},
+            "export_config": deepcopy(DEFAULT_EXPORT_CONFIG),
+            "prompter_config": deepcopy(DEFAULT_PROMPTER_CONFIG),
+            "replica_merge_config": deepcopy(DEFAULT_REPLICA_MERGE_CONFIG),
             "project_folder": None,  # Путь к папке проекта
         }
 
@@ -359,11 +363,26 @@ class ProjectService:
             raise ProjectValidationError(
                 "Field 'global_map' must be a dictionary"
             )
+
+        # Проверка episode_actor_map (если есть)
+        if (
+            "episode_actor_map" in data and
+            not isinstance(data["episode_actor_map"], dict)
+        ):
+            raise ProjectValidationError(
+                "Field 'episode_actor_map' must be a dictionary"
+            )
         
         # Проверка video_paths (если есть)
         if "video_paths" in data and not isinstance(data["video_paths"], dict):
             raise ProjectValidationError(
                 "Field 'video_paths' must be a dictionary"
+            )
+
+        # Проверка episode_texts (если есть)
+        if "episode_texts" in data and not isinstance(data["episode_texts"], dict):
+            raise ProjectValidationError(
+                "Field 'episode_texts' must be a dictionary"
             )
 
     def _ensure_compatibility(self, data: Dict[str, Any]) -> None:
@@ -377,12 +396,16 @@ class ProjectService:
         """
         if "video_paths" not in data:
             data["video_paths"] = {}
+        if "episode_texts" not in data:
+            data["episode_texts"] = {}
         if "export_config" not in data:
-            data["export_config"] = DEFAULT_EXPORT_CONFIG.copy()
+            data["export_config"] = deepcopy(DEFAULT_EXPORT_CONFIG)
         if "prompter_config" not in data:
-            data["prompter_config"] = DEFAULT_PROMPTER_CONFIG.copy()
+            data["prompter_config"] = deepcopy(DEFAULT_PROMPTER_CONFIG)
         if "global_map" not in data:
             data["global_map"] = {}
+        if "episode_actor_map" not in data:
+            data["episode_actor_map"] = {}
         if "loaded_episodes" not in data:
             data["loaded_episodes"] = {}
         if "replica_merge_config" not in data:
@@ -396,7 +419,9 @@ class ProjectService:
                     'p_long': export_cfg.get('p_long', 2.0),
                 }
             else:
-                data["replica_merge_config"] = DEFAULT_REPLICA_MERGE_CONFIG.copy()
+                data["replica_merge_config"] = deepcopy(
+                    DEFAULT_REPLICA_MERGE_CONFIG
+                )
         
         # Добавляем project_folder для старых проектов
         if "project_folder" not in data:

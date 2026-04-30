@@ -41,14 +41,17 @@ from config.constants import (
     SEARCH_EDIT_WIDTH,
     EPISODE_COMBO_MIN_WIDTH,
     BTN_RENAME_WIDTH,
-    BTN_SAVE_ASS_WIDTH,
     TABLE_ROW_HEIGHT,
     VIDEO_BTN_WIDTH,
+    MAIN_TABLE_COUNT_COL_WIDTH,
+    MAIN_TABLE_SCOPE_COL_WIDTH,
+    MAIN_TABLE_VIDEO_COL_WIDTH,
     AUTOSAVE_INTERVAL_MS,
     PROJECT_BAR_SPACING,
     PROJECT_FOLDER_BTN_WIDTH,
     ABOUT_BTN_WIDTH,
     EXPORT_PANEL_SPACING,
+    APP_VERSION,
 )
 from utils.helpers import (
     ass_time_to_seconds,
@@ -66,6 +69,15 @@ from services import (
     ExportService,
     GlobalSettingsService,
     ProjectFolderService,
+    ScriptTextService,
+    ASSIGNMENT_SCOPE_GLOBAL,
+    ASSIGNMENT_SCOPE_EPISODE,
+    LOCAL_UNASSIGNED_ACTOR_ID,
+    get_actor_for_character,
+    get_actor_roles,
+    get_assignment_map,
+    get_assignment_scope,
+    rename_character_assignments,
 )
 from ui.controllers import (
     ActorController,
@@ -85,8 +97,6 @@ from .dialogs import (
     ProjectFilesDialog,
 )
 from .teleprompter import TeleprompterWindow
-from .preview import HtmlLivePreview
-from .video import VideoPreviewWindow
 from core.commands import (
     UndoStack,
     AddActorCommand,
@@ -129,6 +139,7 @@ class MainWindow(QMainWindow):
         self.actor_service = ActorService()
         self.global_settings_service = GlobalSettingsService()
         self.project_folder_service = ProjectFolderService()
+        self.script_text_service = ScriptTextService()
         self.episode_service = EpisodeService()
 
         # Контроллеры
@@ -250,6 +261,7 @@ class MainWindow(QMainWindow):
             on_edit_roles_callback=self.edit_roles,
             on_color_click_callback=self.on_actor_color_clicked
         )
+        self.actor_table.itemChanged.connect(self.on_actor_renamed)
 
         left_panel.addWidget(self.actor_table)
 
@@ -384,12 +396,6 @@ class MainWindow(QMainWindow):
         btn_del.clicked.connect(self.delete_episode_dialog)
         ep_ctrl.addWidget(btn_del)
 
-        self.btn_save_ass = QPushButton()
-        self.btn_save_ass.setFixedWidth(BTN_SAVE_ASS_WIDTH)
-        self.btn_save_ass.clicked.connect(self.save_current_episode_ass)
-        self.update_save_ass_button()
-        ep_ctrl.addWidget(self.btn_save_ass)
-        
         btn_vid = QPushButton("🎬 Видео")
         btn_vid.clicked.connect(self.set_episode_video)
         ep_ctrl.addWidget(btn_vid)
@@ -423,20 +429,34 @@ class MainWindow(QMainWindow):
         # Стек таблиц
         self.table_stack = QStackedWidget()
 
-        self.main_table = QTableWidget(0, 6)
+        self.main_table = QTableWidget(0, 7)
         self.main_table.setHorizontalHeaderLabels([
-            "Персонаж", "Строчек", "Колец", "Слов", "Актер", "📺"
+            "Персонаж", "Строчек", "Колец", "Слов",
+            "Область", "Актер", "📺"
         ])
         customize_table(self.main_table)
-        self.main_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Stretch
-        )
+        header = self.main_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.Fixed)
+        header.setSectionResizeMode(4, QHeaderView.Fixed)
+        header.setSectionResizeMode(5, QHeaderView.Stretch)
+        header.setSectionResizeMode(6, QHeaderView.Fixed)
+        self.main_table.setColumnWidth(1, MAIN_TABLE_COUNT_COL_WIDTH)
+        self.main_table.setColumnWidth(2, MAIN_TABLE_COUNT_COL_WIDTH)
+        self.main_table.setColumnWidth(3, MAIN_TABLE_COUNT_COL_WIDTH)
+        self.main_table.setColumnWidth(4, MAIN_TABLE_SCOPE_COL_WIDTH)
+        self.main_table.setColumnWidth(6, MAIN_TABLE_VIDEO_COL_WIDTH)
         self.main_table.horizontalHeader().setSectionsClickable(True)
         self.main_table.horizontalHeader().sectionClicked.connect(
             self.on_header_clicked
         )
         self.main_table.itemChanged.connect(
             self.on_character_name_changed
+        )
+        self.main_table.itemSelectionChanged.connect(
+            self.update_selected_character_stats
         )
 
         self.missing_file_widget = QWidget()
@@ -488,6 +508,24 @@ class MainWindow(QMainWindow):
         tools_sidebar_layout.addWidget(btn_reaper)
 
         tools_sidebar_layout.addStretch()
+
+        self.character_stats_group = QGroupBox("Статистика персонажа")
+        stats_layout = QVBoxLayout(self.character_stats_group)
+        self.lbl_character_stats_name = QLabel("Выберите персонажа")
+        self.lbl_character_stats_name.setWordWrap(True)
+        self.lbl_character_stats_name.setStyleSheet("font-weight: bold;")
+        stats_layout.addWidget(self.lbl_character_stats_name)
+
+        self.lbl_character_stats_totals = QLabel("Колец: -\nСлов: -")
+        stats_layout.addWidget(self.lbl_character_stats_totals)
+
+        self.txt_character_stats_episodes = QTextEdit()
+        self.txt_character_stats_episodes.setReadOnly(True)
+        self.txt_character_stats_episodes.setFrameShape(QFrame.NoFrame)
+        stats_layout.addWidget(self.txt_character_stats_episodes)
+        self._reset_character_stats_panel()
+        tools_sidebar_layout.addWidget(self.character_stats_group)
+
         layout.addWidget(tools_sidebar_widget)
     
     def _init_bottom_panel(self, layout) -> None:
@@ -612,7 +650,16 @@ class MainWindow(QMainWindow):
             self.current_ep_stats,
             ep,
             old_name,
-            new_name
+            new_name,
+            lambda from_name, to_name: (
+                rename_character_assignments(self.data, from_name, to_name),
+                self.script_text_service.rename_character(
+                    self.data,
+                    from_name,
+                    to_name,
+                    ep
+                )
+            )
         )
         self.undo_stack.push(command)
 
@@ -639,75 +686,96 @@ class MainWindow(QMainWindow):
             self.teleprompter_window.refresh_episode_data()
     
     def update_save_ass_button(self) -> None:
-        """Обновление кнопки сохранения ASS/SRT"""
-        ep = self.ep_combo.currentData()
-        has_changes = self.character_names_changed.get(ep, False)
-        
-        # Проверяем, есть ли несохранённые изменения текста
-        # Используем отдельный флаг text_changes, а не просто наличие в loaded_episodes
-        has_text_changes = self.text_changes.get(ep, False)
+        """Совместимость со старым UI сохранения ASS/SRT."""
+        pass
 
-        if has_changes or has_text_changes:
-            self.btn_save_ass.setText("💾 Сохранить*")
-            self.btn_save_ass.setStyleSheet(
-                "font-weight: bold; color: red;"
-            )
-        else:
-            self.btn_save_ass.setText("💾 Сохранить")
-            self.btn_save_ass.setStyleSheet("")
-    
-    def save_current_episode_ass(self) -> None:
-        """Сохранение текущей серии в ASS/SRT"""
-        ep = self.ep_combo.currentData()
-        if not ep:
-            QMessageBox.warning(self, "Ошибка", "Выберите серию.")
+    def _reset_character_stats_panel(self) -> None:
+        """Сброс панели статистики персонажа."""
+        if not hasattr(self, "lbl_character_stats_name"):
+            return
+        self.lbl_character_stats_name.setText("Выберите персонажа")
+        self.lbl_character_stats_totals.setText("Колец: -\nСлов: -")
+        self.txt_character_stats_episodes.setPlainText("")
+
+    def update_selected_character_stats(self) -> None:
+        """Обновить статистику выбранного персонажа в правой панели."""
+        selected_items = self.main_table.selectedItems()
+        if not selected_items:
+            self._reset_character_stats_panel()
             return
 
-        # Проверяем, есть ли файл на диске
-        source_path = self.data["episodes"].get(ep, "")
-        
-        # Для DOCX эпизодов (файл не существует) спрашиваем где сохранить
-        if not os.path.exists(source_path) or source_path.lower().endswith('.docx'):
-            save_path, _ = QFileDialog.getSaveFileName(
-                self, "Сохранить как", f"Episode_{ep}.ass", "ASS Files (*.ass)"
+        row = min(item.row() for item in selected_items)
+        name_item = self.main_table.item(row, 0)
+        if not name_item:
+            self._reset_character_stats_panel()
+            return
+
+        self.update_character_stats_panel(
+            name_item.data(Qt.UserRole) or name_item.text()
+        )
+
+    def update_character_stats_panel(self, char_name: str) -> None:
+        """Показать серии, кольца и слова для персонажа."""
+        stats = self._calculate_character_project_stats(char_name)
+        self.lbl_character_stats_name.setText(char_name)
+        self.lbl_character_stats_totals.setText(
+            f"Колец: {stats['rings']}\nСлов: {stats['words']}"
+        )
+
+        if not stats["episodes"]:
+            self.txt_character_stats_episodes.setPlainText("Нет в сериях")
+            return
+
+        lines = [
+            f"Серия {item['episode']}: {item['rings']} колец, {item['words']} слов"
+            for item in stats["episodes"]
+        ]
+        self.txt_character_stats_episodes.setPlainText("\n".join(lines))
+
+    def _calculate_character_project_stats(
+        self,
+        char_name: str
+    ) -> Dict[str, Any]:
+        """Посчитать статистику персонажа по всем сериям."""
+        result: Dict[str, Any] = {
+            "rings": 0,
+            "words": 0,
+            "episodes": []
+        }
+        export_service = ExportService(self.data)
+
+        for ep in sorted(
+            self.data.get("episodes", {}).keys(),
+            key=lambda value: int(value) if str(value).isdigit() else 0
+        ):
+            lines = self.get_episode_lines(str(ep))
+            if not lines:
+                continue
+
+            processed = export_service.process_merge_logic(
+                lines,
+                self.data.get("replica_merge_config", {})
             )
-            if not save_path:
-                return
-            success = self.save_episode_to_ass(ep, save_path)
+            ep_rings = 0
+            ep_words = 0
 
-            # Переключаем источник на ASS файл
-            if success:
-                self.data["episodes"][ep] = save_path
-                self.update_ep_list()  # Обновляем список эпизодов
-                
-                # Загружаем данные из нового ASS файла в кэш
-                self.episode_service.invalidate_episode(ep)
-                self.data.get('loaded_episodes', {}).pop(ep, None)
-                # Определяем тип файла по расширению
-                ep_path = self.data["episodes"].get(ep, "")
-                if ep_path.lower().endswith('.srt'):
-                    lines = self.episode_service.load_srt_episode(ep, self.data["episodes"])
-                else:
-                    lines = self.episode_service.load_episode(ep, self.data["episodes"])
-                if lines:
-                    self.data["loaded_episodes"][ep] = lines
-        else:
-            success = self.save_episode_to_ass(ep)
+            for line in processed:
+                if line.get("char") != char_name:
+                    continue
+                ep_rings += 1
+                ep_words += len(line.get("text", "").split())
 
-        if success:
-            self.character_names_changed[ep] = False
-            self.text_changes[ep] = False
-            # Сбрасываем кэш загруженных эпизодов (для обычных ASS/SRT)
-            if os.path.exists(source_path) and not source_path.lower().endswith('.docx'):
-                self.episode_service.invalidate_episode(ep)
-                self.data.get('loaded_episodes', {}).pop(ep, None)
-            self.update_save_ass_button()
+            if ep_rings:
+                result["episodes"].append({
+                    "episode": str(ep),
+                    "rings": ep_rings,
+                    "words": ep_words
+                })
+                result["rings"] += ep_rings
+                result["words"] += ep_words
 
-            QMessageBox.information(
-                self, "Успех", f"Серия {ep} сохранена." +
-                ("\nТеперь используется ASS файл." if not os.path.exists(source_path) or source_path.lower().endswith('.docx') else "")
-            )
-    
+        return result
+
     # === Методы работы с проектом ===
 
     def save_project(self) -> bool:
@@ -788,6 +856,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self, "Ошибка", f"Не удалось загрузить проект: {e}"
             )
+            return
 
         # Очищаем стек отмены при загрузке нового проекта
         self.undo_stack.clear()
@@ -797,6 +866,7 @@ class MainWindow(QMainWindow):
 
         # Сканируем папку проекта если она есть
         self._scan_project_folder()
+        self._prompt_working_text_migration()
 
     def _update_project_folder_label(self) -> None:
         """Обновление метки папки проекта"""
@@ -813,18 +883,100 @@ class MainWindow(QMainWindow):
         """Сканирование папки проекта и связывание файлов"""
         folder = self.project_folder_service.get_project_folder(self.data)
         if folder:
-            ass_count, video_count = (
+            ass_count, video_count, text_count = (
                 self.project_folder_service.scan_and_link_files(self.data, folder)
             )
-            if ass_count > 0 or video_count > 0:
+            if ass_count > 0 or video_count > 0 or text_count > 0:
                 self.update_ep_list()
                 QMessageBox.information(
                     self,
                     "Папка проекта",
-                    f"Найдено и добавлено:\n"
-                    f"• ASS файлов: {ass_count}\n"
-                    f"• Видео файлов: {video_count}"
+                    f"Обновлены пути:\n"
+                    f"• Субтитры: {ass_count}\n"
+                    f"• Видео: {video_count}\n"
+                    f"• Рабочие тексты: {text_count}"
                 )
+
+    def _episode_text_exists(self, ep: str) -> bool:
+        """Проверить, есть ли рабочий текст серии на диске."""
+        text_path = self.data.get("episode_texts", {}).get(str(ep))
+        return bool(text_path and os.path.exists(text_path))
+
+    def _episodes_needing_working_texts(self) -> List[str]:
+        """Список серий, для которых рабочий текст ещё не создан."""
+        episodes = self.data.get("episodes", {})
+        return [
+            str(ep)
+            for ep, path in episodes.items()
+            if (
+                not self._episode_text_exists(str(ep)) and
+                self._is_subtitle_source_path(path)
+            )
+        ]
+
+    def _is_subtitle_source_path(self, path: str) -> bool:
+        """Проверить, похож ли путь на исходный файл субтитров."""
+        return os.path.splitext(path or "")[1].lower() in {'.ass', '.srt'}
+
+    def _prompt_working_text_migration(self) -> None:
+        """Предложить создать рабочие тексты для проекта старого формата."""
+        missing_episodes = self._episodes_needing_working_texts()
+        if not missing_episodes:
+            return
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Рабочие тексты")
+        msg.setIcon(QMessageBox.Question)
+        msg.setText(
+            "Этот проект использует старый формат текстов.\n\n"
+            "Можно создать рабочие тексты из найденных ASS/SRT-файлов сейчас. "
+            "Если часть файлов была перенесена, их можно будет найти позже через менеджер файлов проекта."
+        )
+        create_button = msg.addButton(
+            "Создать для найденных серий",
+            QMessageBox.AcceptRole
+        )
+        msg.addButton("Позже", QMessageBox.RejectRole)
+        msg.exec()
+
+        if msg.clickedButton() == create_button:
+            self.create_missing_working_texts(missing_episodes)
+
+    def create_missing_working_texts(
+        self,
+        episodes: Optional[List[str]] = None
+    ) -> Tuple[int, int]:
+        """Создать рабочие тексты для серий, где найдены исходные субтитры."""
+        target_episodes = episodes or self._episodes_needing_working_texts()
+        created_count = 0
+        skipped_count = 0
+
+        for ep in target_episodes:
+            path = self.data.get("episodes", {}).get(str(ep), "")
+            if (
+                not path or
+                not self._is_subtitle_source_path(path) or
+                not os.path.exists(path)
+            ):
+                skipped_count += 1
+                continue
+
+            if self._build_working_text_from_source(str(ep), path):
+                created_count += 1
+            else:
+                skipped_count += 1
+
+        if created_count:
+            self.update_ep_list()
+            self.set_dirty(True)
+
+        QMessageBox.information(
+            self,
+            "Рабочие тексты",
+            f"Создано рабочих текстов: {created_count}\n"
+            f"Пропущено: {skipped_count}"
+        )
+        return created_count, skipped_count
 
     def set_project_folder_dialog(self) -> None:
         """Диалог установки папки проекта"""
@@ -932,10 +1084,23 @@ class MainWindow(QMainWindow):
 
     def on_actor_renamed(self, item: QTableWidgetItem) -> None:
         """Переименование актёра"""
+        if item.column() != 0:
+            return
+
         if self.actor_controller:
             aid: Optional[str] = item.data(Qt.UserRole)
             if aid:
-                new_name = item.text()
+                old_name = self.data.get("actors", {}).get(aid, {}).get("name", "")
+                new_name = item.text().strip()
+                if not new_name:
+                    self.actor_table.blockSignals(True)
+                    item.setText(old_name)
+                    self.actor_table.blockSignals(False)
+                    return
+
+                if new_name == old_name:
+                    return
+
                 # Используем команду для отмены действия
                 command = RenameActorCommand(
                     self.data["actors"],
@@ -945,6 +1110,7 @@ class MainWindow(QMainWindow):
                 self.undo_stack.push(command)
                 self.actor_controller.refresh()
                 self.refresh_main_table()
+                self._refresh_open_windows(self.ep_combo.currentData())
                 self.set_dirty()
 
     def on_actor_color_clicked(self, aid: str) -> None:
@@ -1009,7 +1175,12 @@ class MainWindow(QMainWindow):
             command = DeleteActorCommand(
                 self.data["actors"],
                 self.data["global_map"],
-                actor_id
+                actor_id,
+                [
+                    mapping for mapping in
+                    self.data.get("episode_actor_map", {}).values()
+                    if isinstance(mapping, dict)
+                ]
             )
             self.undo_stack.push(command)
             self.actor_controller.refresh()
@@ -1045,11 +1216,8 @@ class MainWindow(QMainWindow):
         if not ep:
             return
 
-        # Проверяем, есть ли эпизод в кэше loaded_episodes (для DOCX импорта)
-        if "loaded_episodes" in self.data and ep in self.data["loaded_episodes"]:
-            # Загружаем из кэша
-            lines = self.data["loaded_episodes"][ep]
-            # Пересчитываем статистику для отображения в таблице
+        lines = self.get_episode_lines(ep)
+        if lines:
             self._recalculate_episode_stats(lines)
             self._display_episode_lines(lines)
             self.table_stack.setCurrentIndex(0)
@@ -1057,20 +1225,7 @@ class MainWindow(QMainWindow):
             self.update_save_ass_button()
             return
 
-        path: Optional[str] = self.data["episodes"].get(ep)
-        if path and os.path.exists(path):
-            self.table_stack.setCurrentIndex(0)
-            # Определяем тип файла по расширению
-            if path.lower().endswith('.srt'):
-                self._parse_srt_episode(ep, path)
-                self.get_srt_episode_lines(ep)
-            else:
-                self._parse_episode(ep, path)
-                self.get_episode_lines(ep)
-            self.refresh_main_table()
-            self.update_save_ass_button()
-        else:
-            self.table_stack.setCurrentIndex(1)
+        self.table_stack.setCurrentIndex(1)
 
         # При смене эпизода не сбрасываем флаг text_changes,
         # т.к. он нужен для отображения состояния кнопки
@@ -1126,11 +1281,50 @@ class MainWindow(QMainWindow):
 
         self.current_ep_stats = stats
 
-    def _parse_episode(self, ep: str, path: str) -> None:
+    def _parse_episode(self, ep: str, path: str) -> List[Dict[str, Any]]:
         """Парсинг эпизода и получение статистики"""
         stats: List[Dict[str, Any]]
-        stats, _ = self.episode_service.parse_ass_file(path)
+        lines: List[Dict[str, Any]]
+        stats, lines = self.episode_service.parse_ass_file(path)
         self.current_ep_stats = stats
+        return lines
+
+    def _create_working_text_for_episode(
+        self,
+        ep: str,
+        path: str,
+        lines: List[Dict[str, Any]]
+    ) -> None:
+        """Создание рабочего текста эпизода после импорта."""
+        if not lines:
+            return
+
+        self.script_text_service.create_episode_text(
+            self.data,
+            ep,
+            path,
+            lines,
+            self.data.get("replica_merge_config", {}),
+            self.current_project_path
+        )
+
+    def _convert_imported_lines_for_cache(
+        self,
+        lines: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Нормализовать импортированные реплики для кэша приложения."""
+        episode_lines = []
+        for idx, line_data in enumerate(lines):
+            episode_lines.append({
+                'id': idx,
+                's': line_data['s'],
+                'e': line_data['e'],
+                'char': line_data['char'],
+                'text': line_data['text'],
+                's_raw': line_data.get('s_raw', ''),
+                'e_raw': line_data.get('e_raw', ''),
+            })
+        return episode_lines
 
     def import_ass(self, paths: Optional[List[str]] = None) -> None:
         """Импорт ASS файлов"""
@@ -1189,9 +1383,11 @@ class MainWindow(QMainWindow):
             # Парсим файл в зависимости от расширения
             ext = os.path.splitext(path)[1].lower()
             if ext == '.srt':
-                self._parse_srt_episode(name, path)
+                lines = self._parse_srt_episode(name, path)
             else:
-                self._parse_episode(name, path)
+                lines = self._parse_episode(name, path)
+
+            self._create_working_text_for_episode(name, path, lines)
 
             self.set_dirty()
 
@@ -1264,19 +1460,7 @@ class MainWindow(QMainWindow):
 
         # Сохраняем данные в эпизод
         lines = result['lines']
-
-        # Конвертируем в формат для хранения
-        episode_lines = []
-        for idx, line_data in enumerate(lines):
-            episode_lines.append({
-                'id': idx,
-                's': line_data['s'],
-                'e': line_data['e'],
-                'char': line_data['char'],
-                'text': line_data['text'],
-                's_raw': line_data.get('s_raw', ''),
-                'e_raw': line_data.get('e_raw', ''),
-            })
+        episode_lines = self._convert_imported_lines_for_cache(lines)
 
         # Добавляем эпизод в данные
         command = AddEpisodeCommand(
@@ -1294,6 +1478,14 @@ class MainWindow(QMainWindow):
         # Также сохраняем в кэш episode_service для совместимости
         self.episode_service._loaded_episodes[name] = episode_lines
 
+        self._create_working_text_for_episode(name, file_path, episode_lines)
+        working_lines = self.script_text_service.load_episode_lines(
+            self.data,
+            name
+        )
+        if working_lines:
+            self.data["loaded_episodes"][name] = working_lines
+
         # Устанавливаем статистику
         self.current_ep_stats = result['stats']
 
@@ -1307,11 +1499,13 @@ class MainWindow(QMainWindow):
             (f"\n({result.get('tables_count', 1)} таблиц(ы))" if result.get('tables_count', 1) > 1 else "")
         )
 
-    def _parse_srt_episode(self, ep: str, path: str) -> None:
+    def _parse_srt_episode(self, ep: str, path: str) -> List[Dict[str, Any]]:
         """Парсинг SRT эпизода и получение статистики"""
         stats: List[Dict[str, Any]]
-        stats, _ = self.episode_service.parse_srt_file(path)
+        lines: List[Dict[str, Any]]
+        stats, lines = self.episode_service.parse_srt_file(path)
         self.current_ep_stats = stats
+        return lines
 
     def import_docx(self, paths: Optional[List[str]] = None) -> None:
         """
@@ -1353,25 +1547,21 @@ class MainWindow(QMainWindow):
 
         # Сохраняем данные в эпизод
         lines = result['lines']
-
-        # Конвертируем в формат для хранения
-        episode_lines = []
-        for idx, line_data in enumerate(lines):
-            episode_lines.append({
-                'id': idx,
-                's': line_data['s'],
-                'e': line_data['e'],
-                'char': line_data['char'],
-                'text': line_data['text'],
-                's_raw': line_data.get('s_raw', ''),
-                'e_raw': line_data.get('e_raw', ''),
-            })
+        episode_lines = self._convert_imported_lines_for_cache(lines)
+        docx_path = (
+            result.get('source_path') or
+            (
+                dialog.file_label.text().replace('📄 ', '')
+                if hasattr(dialog, 'file_label')
+                else "DOCX Import"
+            )
+        )
 
         # Добавляем эпизод в данные
         command = AddEpisodeCommand(
             self.data["episodes"],
             name,
-            dialog.file_label.text().replace('📄 ', '') if hasattr(dialog, 'file_label') else "DOCX Import"
+            docx_path
         )
         self.undo_stack.push(command)
 
@@ -1382,6 +1572,14 @@ class MainWindow(QMainWindow):
 
         # Также сохраняем в кэш episode_service для совместимости
         self.episode_service._loaded_episodes[name] = episode_lines
+
+        self._create_working_text_for_episode(name, docx_path, episode_lines)
+        working_lines = self.script_text_service.load_episode_lines(
+            self.data,
+            name
+        )
+        if working_lines:
+            self.data["loaded_episodes"][name] = working_lines
 
         # Устанавливаем статистику
         self.current_ep_stats = result['stats']
@@ -1411,17 +1609,61 @@ class MainWindow(QMainWindow):
     def update_map(
         self,
         char_name: str,
-        combo: QComboBox
+        actor_combo: QComboBox,
+        scope_combo: Optional[QComboBox] = None
     ) -> None:
         """Обновление маппинга персонаж-актёр"""
-        aid = combo.currentData()
+        aid = actor_combo.currentData()
+        ep = self.ep_combo.currentData()
+        scope = (
+            scope_combo.currentData()
+            if scope_combo is not None
+            else ASSIGNMENT_SCOPE_GLOBAL
+        )
+        target_map = get_assignment_map(self.data, scope, ep)
+        stored_aid = (
+            LOCAL_UNASSIGNED_ACTOR_ID
+            if scope == ASSIGNMENT_SCOPE_EPISODE and aid is None
+            else aid
+        )
         # Используем команду для отмены действия
         command = AssignActorToCharacterCommand(
-            self.data["global_map"],
+            target_map,
             char_name,
-            aid
+            stored_aid
         )
         self.undo_stack.push(command)
+        self.refresh_actor_list()
+        self.set_dirty(True)
+
+    def update_assignment_scope(
+        self,
+        char_name: str,
+        scope_combo: QComboBox,
+        actor_combo: QComboBox
+    ) -> None:
+        """Переключение назначения персонажа между проектом и серией."""
+        ep = self.ep_combo.currentData()
+        if not ep:
+            return
+
+        scope = scope_combo.currentData()
+        local_map = get_assignment_map(self.data, ASSIGNMENT_SCOPE_EPISODE, ep)
+
+        if scope == ASSIGNMENT_SCOPE_EPISODE:
+            aid = actor_combo.currentData() or LOCAL_UNASSIGNED_ACTOR_ID
+            command = AssignActorToCharacterCommand(local_map, char_name, aid)
+        else:
+            command = AssignActorToCharacterCommand(local_map, char_name, None)
+
+        self.undo_stack.push(command)
+
+        actor_id = get_actor_for_character(self.data, char_name, ep)
+        actor_combo.blockSignals(True)
+        actor_index = actor_combo.findData(actor_id)
+        actor_combo.setCurrentIndex(actor_index if actor_index >= 0 else 0)
+        actor_combo.blockSignals(False)
+
         self.refresh_actor_list()
         self.set_dirty(True)
     
@@ -1444,7 +1686,9 @@ class MainWindow(QMainWindow):
             if query and query not in stat["name"].lower():
                 continue
             
-            is_assigned = stat["name"] in self.data["global_map"]
+            ep = self.ep_combo.currentData()
+            actor_id = get_actor_for_character(self.data, stat["name"], ep)
+            is_assigned = actor_id is not None
             if only_unassigned and is_assigned:
                 continue
             
@@ -1468,29 +1712,40 @@ class MainWindow(QMainWindow):
                 row, 3, QTableWidgetItem(str(stat["words"]))
             )
             
+            scope_combo = QComboBox()
+            scope_combo.addItem("Глобально", ASSIGNMENT_SCOPE_GLOBAL)
+            scope_combo.addItem("Серия", ASSIGNMENT_SCOPE_EPISODE)
+            scope_combo.setCurrentIndex(
+                scope_combo.findData(
+                    get_assignment_scope(self.data, stat["name"], ep)
+                )
+            )
+            self.main_table.setCellWidget(row, 4, scope_combo)
+
             combo = QComboBox()
             combo.addItem("-", None)
             for aid, info in self.data["actors"].items():
                 combo.addItem(info["name"], aid)
             
             if is_assigned:
-                combo.setCurrentIndex(
-                    combo.findData(
-                        self.data["global_map"][stat["name"]]
-                    )
-                )
+                combo.setCurrentIndex(combo.findData(actor_id))
             
             combo.currentIndexChanged.connect(
-                lambda _, c=stat["name"], b=combo: self.update_map(c, b)
+                lambda _, c=stat["name"], b=combo, s=scope_combo:
+                self.update_map(c, b, s)
             )
-            self.main_table.setCellWidget(row, 4, combo)
+            scope_combo.currentIndexChanged.connect(
+                lambda _, c=stat["name"], s=scope_combo, b=combo:
+                self.update_assignment_scope(c, s, b)
+            )
+            self.main_table.setCellWidget(row, 5, combo)
 
             btn = QPushButton("📺")
             btn.setFixedWidth(VIDEO_BTN_WIDTH)
             btn.clicked.connect(
                 lambda ch=False, c=stat["name"]: self.open_preview(c)
             )
-            self.main_table.setCellWidget(row, 5, wrap_widget(btn))
+            self.main_table.setCellWidget(row, 6, wrap_widget(btn))
         
         self.main_table.blockSignals(False)
 
@@ -1510,9 +1765,8 @@ class MainWindow(QMainWindow):
                 aid: [] for aid in self.data["actors"]
             }
 
-            for char, aid in self.data["global_map"].items():
-                if aid in actor_roles:
-                    actor_roles[aid].append(char)
+            for aid in actor_roles:
+                actor_roles[aid] = get_actor_roles(self.data, aid)
 
             aid: str
             info: Dict[str, Any]
@@ -1550,7 +1804,8 @@ class MainWindow(QMainWindow):
             command = RenameEpisodeCommand(
                 self.data["episodes"],
                 old,
-                new_name
+                new_name,
+                self.data.get("episode_actor_map", {})
             )
             self.undo_stack.push(command)
             self.update_ep_list(new_name)
@@ -1582,7 +1837,8 @@ class MainWindow(QMainWindow):
             self.data["episodes"],
             self.data.get("video_paths", {}),
             self.data.get("loaded_episodes", {}),
-            ep
+            ep,
+            self.data.get("episode_actor_map", {})
         )
         self.undo_stack.push(command)
 
@@ -1755,14 +2011,14 @@ class MainWindow(QMainWindow):
         ep_num: str,
         target_path: Optional[str] = None
     ) -> bool:
-        """Сохранение серии в ASS/SRT"""
-        if not self.episode_controller:
-            return False
-        
-        success, message = self.episode_controller.save_episode(ep_num, target_path)
-        if not success:
-            QMessageBox.warning(self, "Ошибка", message)
-        return success
+        """Сохранение серии в ASS/SRT отключено в UI."""
+        QMessageBox.warning(
+            self,
+            "Сохранение отключено",
+            "Запись изменений обратно в ASS/SRT отключена.\n"
+            "Редактируйте рабочий текст, он сохраняется в JSON автоматически."
+        )
+        return False
 
 
 
@@ -1783,27 +2039,26 @@ class MainWindow(QMainWindow):
             vp = self.data.get("video_paths", {}).get(ep)
         
         if vp:
+            from .video import VideoPreviewWindow
+
             VideoPreviewWindow(vp, lines, ep, self).exec()
     
     def get_episode_lines(self, ep: str) -> List[Dict[str, Any]]:
-        """Получение строк серии"""
+        """Получение строк серии из рабочего текста проекта."""
         if "loaded_episodes" not in self.data:
             self.data["loaded_episodes"] = {}
 
-        if ep in self.data["loaded_episodes"]:
-            return self.data["loaded_episodes"][ep]
+        working_lines = self.script_text_service.load_episode_lines(self.data, ep)
+        if working_lines:
+            self.data["loaded_episodes"][ep] = working_lines
+            return working_lines
 
-        # Определяем тип файла по расширению
         path = self.data["episodes"].get(ep, "")
-        if path.lower().endswith('.srt'):
-            lines = self.episode_service.load_srt_episode(ep, self.data["episodes"])
-        else:
-            lines = self.episode_service.load_episode(ep, self.data["episodes"])
+        if self._is_subtitle_source_path(path):
+            self.data["loaded_episodes"].pop(ep, None)
+            return []
 
-        if lines:
-            self.data["loaded_episodes"][ep] = lines
-
-        return lines
+        return self.data["loaded_episodes"].get(ep, [])
 
     def get_srt_episode_lines(self, ep: str) -> List[Dict[str, Any]]:
         """Получение строк SRT серии"""
@@ -1819,6 +2074,70 @@ class MainWindow(QMainWindow):
             self.data["loaded_episodes"][ep] = lines
 
         return lines
+
+    def regenerate_episode_text(
+        self,
+        ep: str,
+        source_path: Optional[str] = None
+    ) -> bool:
+        """Пересоздать рабочий текст эпизода из ASS/SRT."""
+        path = source_path or self.data.get("episodes", {}).get(ep, "")
+
+        if not path or not os.path.exists(path):
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "Файл субтитров не найден."
+            )
+            return False
+
+        if not self._build_working_text_from_source(ep, path):
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "Не удалось получить реплики из файла субтитров."
+            )
+            return False
+
+        self.get_episode_lines(ep)
+        self.set_dirty(True)
+
+        QMessageBox.information(
+            self,
+            "Готово",
+            f"Рабочий текст серии {ep} пересоздан."
+        )
+        return True
+
+    def _build_working_text_from_source(self, ep: str, path: str) -> bool:
+        """Создать рабочий текст серии из исходного ASS/SRT без UI-сообщений."""
+        try:
+            ext = os.path.splitext(path)[1].lower()
+            if ext == '.srt':
+                stats, lines = self.episode_service.parse_srt_file(path)
+            else:
+                stats, lines = self.episode_service.parse_ass_file(path)
+        except Exception as e:
+            log_exception(logger, f"Failed to build working text for episode {ep}", e)
+            return False
+
+        if not lines:
+            return False
+
+        self.data.setdefault("episodes", {})[str(ep)] = path
+        self.current_ep_stats = stats
+        self.script_text_service.create_episode_text(
+            self.data,
+            str(ep),
+            path,
+            lines,
+            self.data.get("replica_merge_config", {}),
+            self.current_project_path
+        )
+
+        self.data.get("loaded_episodes", {}).pop(str(ep), None)
+        self.episode_service.invalidate_episode(str(ep))
+        return True
     
     def show_project_summary(self) -> None:
         """Показать сводку проекта"""
@@ -1836,13 +2155,50 @@ class MainWindow(QMainWindow):
         name: str,
         roles: List[str]
     ) -> None:
-        """Редактирование ролей актёра"""
-        if self.actor_controller:
-            dialog: ActorRolesDialog = ActorRolesDialog(name, roles, self)
-            if dialog.exec():
-                new_roles: List[str] = dialog.get_roles()
-                self.actor_controller.update_actor_roles(aid, new_roles)
-                self.refresh_main_table()
+        """Просмотр ролей актёра"""
+        role_stats = self._get_actor_role_stats(aid, roles)
+        ActorRolesDialog(name, roles, self, role_stats).exec()
+
+    def _get_actor_role_stats(
+        self,
+        actor_id: str,
+        roles: List[str]
+    ) -> List[Dict[str, Any]]:
+        """Посчитать кольца и слова по персонажам актёра."""
+        stats = {
+            role: {"name": role, "rings": 0, "words": 0}
+            for role in roles
+        }
+        export_service = ExportService(self.data)
+
+        for ep in self.data.get("episodes", {}).keys():
+            lines = self.get_episode_lines(str(ep))
+            if not lines:
+                continue
+
+            processed = export_service.process_merge_logic(
+                lines,
+                self.data.get("replica_merge_config", {})
+            )
+
+            for line in processed:
+                char_name = line.get("char", "")
+                if get_actor_for_character(self.data, char_name, str(ep)) != actor_id:
+                    continue
+
+                if char_name not in stats:
+                    stats[char_name] = {
+                        "name": char_name,
+                        "rings": 0,
+                        "words": 0
+                    }
+
+                stats[char_name]["rings"] += 1
+                stats[char_name]["words"] += len(
+                    line.get("text", "").split()
+                )
+
+        return sorted(stats.values(), key=lambda item: item["name"].lower())
 
     def open_export_settings(self) -> None:
         """Открытие настроек экспорта"""
@@ -1906,6 +2262,8 @@ class MainWindow(QMainWindow):
         if self.preview_window is not None:
             self.preview_window.close()
 
+        from .preview import HtmlLivePreview
+
         self.preview_window = HtmlLivePreview(self, ep)
         self.preview_window.show()
 
@@ -1914,6 +2272,15 @@ class MainWindow(QMainWindow):
         ep: Optional[str] = self.ep_combo.currentData()
         if not ep:
             QMessageBox.information(self, "Инфо", "Выберите серию.")
+            return
+
+        if not self.get_episode_lines(ep):
+            QMessageBox.warning(
+                self,
+                "Рабочий текст не найден",
+                "Для этой серии нет рабочего текста.\n\n"
+                "Откройте «Файлы проекта» и создайте рабочий текст из субтитров."
+            )
             return
 
         if self.teleprompter_window is not None:
@@ -1980,90 +2347,28 @@ class MainWindow(QMainWindow):
             return
         
         lines = self.get_episode_lines(ep_num)
-        active_actor_ids: Set[str] = set()
-
-        max_time = 600.0
-        if lines:
-            max_time = max(l['e'] for l in lines) + 600.0
-            for line in lines:
-                aid = self.data["global_map"].get(line['char'])
-                if aid:
-                    active_actor_ids.add(aid)
+        if not lines:
+            QMessageBox.warning(
+                self,
+                "Рабочий текст не найден",
+                "Для этой серии нет рабочего текста.\n\n"
+                "Откройте «Файлы проекта» и создайте рабочий текст из субтитров."
+            )
+            return
 
         export_service = ExportService(self.data)
-        processed_lines = export_service.process_merge_logic(
-            lines, self.data["export_config"]
+        rpp_content = export_service.generate_reaper_rpp(
+            ep_num,
+            lines,
+            merge_cfg=self.data.get("replica_merge_config", {}),
+            video_path=video_path,
+            use_video=use_video,
+            use_regions=use_regions
         )
-        
-        rpp = []
-        rpp.append('<REAPER_PROJECT 0.1 "7.0"')
-        
-        if use_regions:
-            for i, line in enumerate(processed_lines):
-                start = float(line['s'])
-                end = float(line['e'])
-                
-                if (end - start) < 0.5:
-                    end = start + 2.0
-                
-                char = line['char']
-                safe_text = (
-                    line['text']
-                    .replace('"', "' ")
-                    .replace('\n', ' ')
-                    .strip()
-                )
-                label = f"{char}: {safe_text}"
-                
-                aid = self.data["global_map"].get(char)
-                color_int = 0
-                if aid and aid in self.data["actors"]:
-                    color_int = int(
-                        self.hex_to_reaper_color(
-                            self.data["actors"][aid]["color"]
-                        )
-                    )
-                
-                rpp.append(
-                    f'  MARKER {i+1} {start:.4f} "{label}" '
-                    f'1 {color_int} {end:.4f}'
-                )
-        
-        if use_video and video_path:
-            rpp.append('   <TRACK')
-            rpp.append('    NAME "VIDEO"')
-            rpp.append('     <ITEM')
-            rpp.append('      POSITION 0.0')
-            rpp.append('      LOOP 0')
-            rpp.append(f'      LENGTH {max_time:.4f}')
-            rpp.append('       <SOURCE VIDEO')
-            rpp.append(f'        FILE "{video_path}"')
-            rpp.append('       >')
-            rpp.append('     >')
-            rpp.append('   >')
-        
-        sorted_actors = []
-        for aid in active_actor_ids:
-            if aid in self.data["actors"]:
-                sorted_actors.append(self.data["actors"][aid])
-        sorted_actors.sort(key=lambda x: x['name'])
-        
-        for actor in sorted_actors:
-            color_int = int(
-                self.hex_to_reaper_color(actor['color'])
-            )
-            rpp.append('   <TRACK')
-            rpp.append(f'    NAME "{actor["name"]}"')
-            rpp.append(f'    PEAKCOL {color_int}')
-            rpp.append('    REC 0')
-            rpp.append('    SHOWINMIX 1')
-            rpp.append('   >')
-        
-        rpp.append('>')
         
         try:
             with open(save_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(rpp))
+                f.write(rpp_content)
             
             reply = QMessageBox.question(
                 self,
@@ -2084,23 +2389,6 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self, "Ошибка", f"Не удалось сохранить: {e}"
             )
-    
-    def hex_to_reaper_color(self, hex_color: str) -> int:
-        """Конвертация HEX в BGR Int для Reaper"""
-        if not hex_color or not hex_color.startswith('#'):
-            return 0
-        
-        color = QColor(hex_color)
-        if not color.isValid():
-            return 0
-        
-        val = 0x01000000 | (
-            color.blue() << 16
-        ) | (
-            color.green() << 8
-        ) | color.red()
-        
-        return val
     
     def switch_to_episode(self, ep_num: str) -> None:
         """Переключение на серию"""
@@ -2146,11 +2434,12 @@ class MainWindow(QMainWindow):
             "О программе",
             "<h2>Dubbing Manager</h2>"
             "<p>Приложение для управления проектами дубляжа и озвучивания.</p>"
-            "<p><b>Версия:</b> 1.2</p>"
+            "<p><b>Версия:</b> {}</p>"
             "<p><b>GitHub:</b> <a href='https://github.com/ScrapDnB/DubbingManager/'>ScrapDnB/DubbingManager</a></p>"
             "<p><b>Python:</b> {}.{}.{}</p>"
             "<p><b>PySide6:</b> {}</p>"
             "<p>© 2026 Юрий Романов</p>".format(
+                APP_VERSION,
                 sys.version_info.major,
                 sys.version_info.minor,
                 sys.version_info.micro,

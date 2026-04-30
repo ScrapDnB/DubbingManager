@@ -3,13 +3,12 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QComboBox, QSpinBox, QGroupBox, QFormLayout,
-    QFrame, QMessageBox, QFileDialog
+    QFrame
 )
 from PySide6.QtCore import Qt
 from PySide6.QtWebChannel import QWebChannel
 from typing import Dict, List, Any, Optional, Set
 import logging
-import os
 import sys
 
 try:
@@ -161,22 +160,6 @@ class HtmlLivePreview(QDialog):
         sp_layout.addWidget(filter_group)
         sp_layout.addStretch()
         
-        # Сохранение
-        save_group = QGroupBox("Сохранение")
-        sg_layout = QVBoxLayout(save_group)
-
-        btn_save_ass = QPushButton("💾 Сохранить")
-        btn_save_ass.clicked.connect(self.save_to_original_ass)
-        btn_save_ass.setToolTip("Сохранить изменения в файл субтитров")
-
-        btn_save_copy = QPushButton("Сохранить копию...")
-        btn_save_copy.clicked.connect(self.save_ass_copy)
-        btn_save_copy.setToolTip("Сохранить копию файла субтитров")
-
-        sg_layout.addWidget(btn_save_ass)
-        sg_layout.addWidget(btn_save_copy)
-        sp_layout.addWidget(save_group)
-        
         btn_close = QPushButton("Закрыть")
         btn_close.clicked.connect(self.close)
         sp_layout.addWidget(btn_close)
@@ -280,44 +263,6 @@ class HtmlLivePreview(QDialog):
                 self.highlight_ids = selected
             self.update_preview()
     
-    def save_to_original_ass(self) -> None:
-        """Сохранение в оригинальный ASS/SRT"""
-        # Определяем тип файла
-        ep_path = self.main_app.data["episodes"].get(self.ep_num, "")
-        file_ext = "SRT" if ep_path.lower().endswith('.srt') else "ASS"
-        
-        if QMessageBox.question(
-            self,
-            "Подтверждение",
-            f"Это перезапишет исходный файл .{file_ext.lower()} на диске.\nПродолжить?",
-            QMessageBox.Yes | QMessageBox.No
-        ) == QMessageBox.Yes:
-            if self.main_app.save_episode_to_ass(self.ep_num):
-                self._has_text_changes = False
-                QMessageBox.information(
-                    self, "Успех", "Файл успешно сохранен!"
-                )
-    
-    def save_ass_copy(self) -> None:
-        """Сохранение копии субтитров"""
-        # Определяем расширение исходного файла
-        ep_path = self.main_app.data["episodes"].get(self.ep_num, "")
-        default_ext = ".ass"
-        if ep_path.lower().endswith('.srt'):
-            default_ext = '.srt'
-        
-        fn, _ = QFileDialog.getSaveFileName(
-            self,
-            "Сохранить копию",
-            f"Episode_{self.ep_num}_edit{default_ext}",
-            "Subtitle Files (*.ass *.srt)"
-        )
-        if fn:
-            if self.main_app.save_episode_to_ass(self.ep_num, fn):
-                QMessageBox.information(
-                    self, "Успех", f"Копия сохранена:\n{fn}"
-                )
-    
     def keyPressEvent(self, event) -> None:
         """Обработка клавиш"""
         # Навигация по репликам удалена - используйте телесуфлёр
@@ -325,27 +270,4 @@ class HtmlLivePreview(QDialog):
     
     def closeEvent(self, event) -> None:
         """Закрытие окна"""
-        if self._has_text_changes:
-            # Определяем тип файла
-            ep_path = self.main_app.data["episodes"].get(self.ep_num, "")
-            file_ext = "SRT" if ep_path.lower().endswith('.srt') else "ASS"
-            
-            reply = QMessageBox.question(
-                self,
-                "Несохраненные изменения",
-                f"У вас есть несохраненные изменения в тексте.\n"
-                f"Хотите сохранить их в .{file_ext.upper()} перед выходом?",
-                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel
-            )
-            if reply == QMessageBox.Yes:
-                if self.main_app.save_episode_to_ass(self.ep_num):
-                    self._has_text_changes = False
-                    event.accept()
-                else:
-                    event.ignore()
-            elif reply == QMessageBox.No:
-                event.accept()
-            else:
-                event.ignore()
-        else:
-            event.accept()
+        event.accept()

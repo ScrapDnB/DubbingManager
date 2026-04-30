@@ -130,6 +130,50 @@ class TestEpisodeController:
         assert success == True
         episode_service.save_episode_to_ass.assert_called()
 
+    def test_save_episode_working_text_does_not_write_ass(
+        self,
+        controller,
+        episode_service,
+        data_ref
+    ):
+        """Тест: рабочий текст не записывается обратно в ASS"""
+        data_ref["loaded_episodes"] = {
+            "1": [
+                {
+                    "id": 0,
+                    "char": "Test",
+                    "text": "Edited merged line",
+                    "s": 0,
+                    "e": 1,
+                    "_working_text": True
+                }
+            ]
+        }
+        data_ref["episodes"] = {"1": "/path/to/ep1.ass"}
+
+        success, message = controller.save_episode("1")
+
+        assert success == True
+        assert "Рабочий текст" in message
+        episode_service.save_episode_to_ass.assert_not_called()
+
+    def test_save_episode_working_text_copy_is_rejected(
+        self,
+        controller,
+        episode_service,
+        data_ref
+    ):
+        """Тест: рабочий текст нельзя сохранить копией ASS/SRT"""
+        data_ref["loaded_episodes"] = {
+            "1": [{"id": 0, "char": "Test", "text": "Edited", "_working_text": True}]
+        }
+
+        success, message = controller.save_episode("1", "/tmp/copy.ass")
+
+        assert success == False
+        assert "нельзя сохранить" in message
+        episode_service.save_episode_to_ass.assert_not_called()
+
     def test_save_episode_srt(self, controller, episode_service, data_ref):
         """Тест сохранения SRT эпизода"""
         data_ref["loaded_episodes"] = {"1": [{"id": 1, "char": "Test", "text": "Hello", "s": 0, "e": 1}]}
@@ -218,18 +262,61 @@ class TestExportController:
     """Тесты для ExportController"""
 
     @pytest.fixture
-    def data_ref(self) -> Dict[str, Any]:
+    def data_ref(self, tmp_path) -> Dict[str, Any]:
         """Данные проекта для тестов"""
+        text_path = tmp_path / "episode_1.json"
+        text_path.write_text(
+            """{
+                "format_version": "1.0",
+                "episode": "1",
+                "source": {"type": "ass", "path": "/path/to/ep1.ass"},
+                "merge_config": {"merge": false},
+                "characters": {
+                    "Char1": {"display_name": "Char1"},
+                    "Char2": {"display_name": "Char2"}
+                },
+                "lines": [
+                    {
+                        "id": "1_0001",
+                        "source_ids": [1],
+                        "start": 0.0,
+                        "end": 2.0,
+                        "character": "Char1",
+                        "display_character": "Char1",
+                        "text": "Hello",
+                        "source_texts": ["Hello"]
+                    },
+                    {
+                        "id": "1_0002",
+                        "source_ids": [2],
+                        "start": 3.0,
+                        "end": 4.0,
+                        "character": "Char2",
+                        "display_character": "Char2",
+                        "text": "Hi",
+                        "source_texts": ["Hi"]
+                    }
+                ]
+            }""",
+            encoding="utf-8"
+        )
         return {
             "project_name": "Test Project",
-            "actors": {"actor1": {"name": "Actor", "color": "#FF0000"}},
-            "global_map": {"Char1": "actor1"},
+            "actors": {
+                "actor1": {"name": "Actor One", "color": "#FF0000"},
+                "actor2": {"name": "Actor Two", "color": "#00FF00"},
+            },
+            "global_map": {"Char1": "actor1", "Char2": "actor2"},
             "export_config": {"layout_type": "Таблица", "use_color": True},
             "replica_merge_config": {"merge": False},
             "loaded_episodes": {
-                "1": [{"id": 1, "s": 0.0, "e": 2.0, "char": "Char1", "text": "Hello", "s_raw": "0:00:00.00"}]
+                "1": [
+                    {"id": 1, "s": 0.0, "e": 2.0, "char": "Char1", "text": "Hello", "s_raw": "0:00:00.00"},
+                    {"id": 2, "s": 3.0, "e": 4.0, "char": "Char2", "text": "Hi", "s_raw": "0:00:03.00"},
+                ]
             },
             "episodes": {"1": "/path/to/ep1.ass"},
+            "episode_texts": {"1": str(text_path)},
         }
 
     @pytest.fixture
@@ -264,6 +351,72 @@ class TestExportController:
             if os.path.exists(path):
                 os.unlink(path)
 
+    def test_export_to_html_uses_saved_highlight_filter(self, controller, data_ref):
+        """Тест экспорта HTML с выбранными актёрами из настроек"""
+        data_ref["export_config"]["highlight_ids_export"] = ["actor1"]
+
+        with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as f:
+            path = f.name
+
+        try:
+            success, message = controller.export_to_html("1", path)
+
+            assert success == True
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            assert "rgba(255, 0, 0, 0.22)" in content
+            assert "rgba(0, 255, 0, 0.22)" not in content
+            assert "Char2" in content
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
+    def test_export_to_html_prefers_working_text(self, controller, data_ref, tmp_path):
+        """Тест экспорта HTML из рабочего текста эпизода"""
+        text_path = tmp_path / "episode_1.json"
+        text_path.write_text(
+            """{
+                "format_version": "1.0",
+                "episode": "1",
+                "source": {"type": "ass", "path": "/source.ass"},
+                "merge_config": {"merge": false},
+                "characters": {"Char1": {"display_name": "Renamed"}},
+                "lines": [{
+                    "id": "1_0001",
+                    "source_ids": [0],
+                    "start": 1.0,
+                    "end": 2.0,
+                    "character": "Char1",
+                    "display_character": "Renamed",
+                    "text": "Text from working json",
+                    "source_texts": ["Old text"]
+                }]
+            }""",
+            encoding="utf-8"
+        )
+        data_ref["episode_texts"] = {"1": str(text_path)}
+        data_ref["loaded_episodes"]["1"] = [
+            {"id": 0, "s": 1.0, "e": 2.0, "char": "Char1", "text": "Old text", "s_raw": ""}
+        ]
+
+        with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as f:
+            path = f.name
+
+        try:
+            success, message = controller.export_to_html("1", path)
+
+            assert success == True
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            assert "Text from working json" in content
+            assert "Renamed" in content
+            assert "Old text" not in content
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
     def test_export_to_html_no_data(self, controller):
         """Тест экспорта HTML без данных"""
         with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as f:
@@ -273,6 +426,25 @@ class TestExportController:
             success, message = controller.export_to_html("99", path)
             
             assert success == False
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
+    def test_export_to_html_requires_working_text(self, controller, data_ref):
+        """Тест: экспорт не берёт текст напрямую из ASS/SRT кэша."""
+        data_ref["episode_texts"] = {}
+        data_ref["loaded_episodes"]["1"] = [
+            {"id": 1, "s": 0.0, "e": 2.0, "char": "Char1", "text": "ASS text"}
+        ]
+
+        with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as f:
+            path = f.name
+
+        try:
+            success, message = controller.export_to_html("1", path)
+
+            assert success is False
+            assert "рабочий текст" in message
         finally:
             if os.path.exists(path):
                 os.unlink(path)

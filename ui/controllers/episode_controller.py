@@ -216,6 +216,15 @@ class EpisodeController:
 
         memory_lines = loaded_episodes[ep_num]
 
+        if any(line.get("_working_text") for line in memory_lines):
+            if target_path:
+                return (
+                    False,
+                    "Рабочий текст нельзя сохранить как ASS/SRT напрямую. "
+                    "Пересоздайте рабочий текст из субтитров или экспортируйте монтажный лист."
+                )
+            return True, "Рабочий текст сохранён"
+
         # Определяем тип файла
         source_path = episodes.get(ep_num, "")
         if source_path.lower().endswith('.srt'):

@@ -7,6 +7,23 @@ from .export_service import ExportService
 from .global_settings_service import GlobalSettingsService
 from .project_folder_service import ProjectFolderService
 from .docx_import_service import DocxImportService
+from .script_text_service import ScriptTextService
+from .assignment_service import (
+    ASSIGNMENT_SCOPE_GLOBAL,
+    ASSIGNMENT_SCOPE_EPISODE,
+    LOCAL_UNASSIGNED_ACTOR_ID,
+    clear_episode_assignment,
+    delete_episode_assignments,
+    ensure_episode_actor_map,
+    get_actor_for_character,
+    get_actor_roles,
+    get_assignment_map,
+    get_assignment_scope,
+    get_episode_assignments,
+    move_episode_assignments,
+    remove_actor_assignments,
+    rename_character_assignments,
+)
 
 __all__ = [
     'ProjectService',
@@ -15,5 +32,20 @@ __all__ = [
     'ExportService',
     'GlobalSettingsService',
     'ProjectFolderService',
-    'DocxImportService'
+    'DocxImportService',
+    'ScriptTextService',
+    'ASSIGNMENT_SCOPE_GLOBAL',
+    'ASSIGNMENT_SCOPE_EPISODE',
+    'LOCAL_UNASSIGNED_ACTOR_ID',
+    'clear_episode_assignment',
+    'delete_episode_assignments',
+    'ensure_episode_actor_map',
+    'get_actor_for_character',
+    'get_actor_roles',
+    'get_assignment_map',
+    'get_assignment_scope',
+    'get_episode_assignments',
+    'move_episode_assignments',
+    'remove_actor_assignments',
+    'rename_character_assignments',
 ]

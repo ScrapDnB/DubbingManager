@@ -77,13 +77,16 @@ class DeleteActorCommand(Command):
         self,
         actors: Dict[str, dict],
         global_map: Dict[str, str],
-        actor_id: str
+        actor_id: str,
+        extra_maps: Optional[List[Dict[str, str]]] = None
     ):
         self.actors = actors
         self.global_map = global_map
+        self.extra_maps = extra_maps or []
         self.actor_id = actor_id
         self._deleted_data: Optional[dict] = None
         self._removed_mappings: List[tuple] = []
+        self._removed_extra_mappings: List[tuple] = []
 
     def execute(self) -> None:
         self._deleted_data = self.actors.get(self.actor_id)
@@ -97,6 +100,18 @@ class DeleteActorCommand(Command):
         chars_to_remove = [char for char, aid in self.global_map.items() if aid == self.actor_id]
         for char in chars_to_remove:
             del self.global_map[char]
+
+        self._removed_extra_mappings = []
+        for map_index, assignment_map in enumerate(self.extra_maps):
+            chars_to_remove = [
+                char for char, aid in assignment_map.items()
+                if aid == self.actor_id
+            ]
+            for char in chars_to_remove:
+                self._removed_extra_mappings.append(
+                    (map_index, char, assignment_map[char])
+                )
+                del assignment_map[char]
 
         # Удаляем актёра
         if self.actor_id in self.actors:
@@ -112,6 +127,10 @@ class DeleteActorCommand(Command):
         # Восстанавливаем маппинги
         for char, aid in self._removed_mappings:
             self.global_map[char] = aid
+
+        for map_index, char, aid in self._removed_extra_mappings:
+            if map_index < len(self.extra_maps):
+                self.extra_maps[map_index][char] = aid
         
         logger.debug(f"DeleteActorCommand undone: {self.actor_id}")
 
@@ -221,7 +240,8 @@ class RenameCharacterCommand(Command):
         current_ep_stats: List[Dict[str, Any]],
         episode: str,
         old_name: str,
-        new_name: str
+        new_name: str,
+        rename_callback: Optional[Callable[[str, str], None]] = None
     ):
         self.global_map = global_map
         self.loaded_episodes = loaded_episodes
@@ -229,6 +249,7 @@ class RenameCharacterCommand(Command):
         self.episode = episode
         self.old_name = old_name
         self.new_name = new_name
+        self.rename_callback = rename_callback
 
     def execute(self) -> None:
         self._update_names(self.old_name, self.new_name)
@@ -256,6 +277,9 @@ class RenameCharacterCommand(Command):
             if stat.get("name") == from_name:
                 stat["name"] = to_name
                 break
+
+        if self.rename_callback:
+            self.rename_callback(from_name, to_name)
 
     def get_description(self) -> str:
         return f"Переименован персонаж: {self.old_name} -> {self.new_name}"
@@ -298,11 +322,13 @@ class RenameEpisodeCommand(Command):
         self,
         episodes: Dict[str, str],
         old_name: str,
-        new_name: str
+        new_name: str,
+        episode_actor_map: Optional[Dict[str, Dict[str, str]]] = None
     ):
         self.episodes = episodes
         self.old_name = old_name
         self.new_name = new_name
+        self.episode_actor_map = episode_actor_map
         self._old_data: Optional[str] = None
 
     def execute(self) -> None:
@@ -310,12 +336,16 @@ class RenameEpisodeCommand(Command):
         if self._old_data:
             del self.episodes[self.old_name]
             self.episodes[self.new_name] = self._old_data
+        if self.episode_actor_map and self.old_name in self.episode_actor_map:
+            self.episode_actor_map[self.new_name] = self.episode_actor_map.pop(self.old_name)
         logger.debug(f"RenameEpisodeCommand executed: {self.old_name} -> {self.new_name}")
 
     def undo(self) -> None:
         if self._old_data:
             del self.episodes[self.new_name]
             self.episodes[self.old_name] = self._old_data
+        if self.episode_actor_map and self.new_name in self.episode_actor_map:
+            self.episode_actor_map[self.old_name] = self.episode_actor_map.pop(self.new_name)
         logger.debug(f"RenameEpisodeCommand undone: {self.new_name} -> {self.old_name}")
 
     def get_description(self) -> str:
@@ -330,24 +360,34 @@ class DeleteEpisodeCommand(Command):
         episodes: Dict[str, str],
         video_paths: Dict[str, str],
         loaded_episodes: Dict[str, List[Dict[str, Any]]],
-        episode_num: str
+        episode_num: str,
+        episode_actor_map: Optional[Dict[str, Dict[str, str]]] = None
     ):
         self.episodes = episodes
         self.video_paths = video_paths
         self.loaded_episodes = loaded_episodes
+        self.episode_actor_map = episode_actor_map
         self.episode_num = episode_num
         self._deleted_episode: Optional[str] = None
         self._deleted_video: Optional[str] = None
         self._deleted_loaded_data: Optional[List[Dict[str, Any]]] = None
+        self._deleted_actor_map: Optional[Dict[str, str]] = None
 
     def execute(self) -> None:
         self._deleted_episode = self.episodes.get(self.episode_num)
         self._deleted_video = self.video_paths.get(self.episode_num)
         self._deleted_loaded_data = self.loaded_episodes.get(self.episode_num)
+        self._deleted_actor_map = (
+            self.episode_actor_map.get(self.episode_num)
+            if self.episode_actor_map
+            else None
+        )
 
         self.episodes.pop(self.episode_num, None)
         self.video_paths.pop(self.episode_num, None)
         self.loaded_episodes.pop(self.episode_num, None)
+        if self.episode_actor_map:
+            self.episode_actor_map.pop(self.episode_num, None)
 
         logger.debug(f"DeleteEpisodeCommand executed: {self.episode_num}")
 
@@ -358,6 +398,8 @@ class DeleteEpisodeCommand(Command):
             self.video_paths[self.episode_num] = self._deleted_video
         if self._deleted_loaded_data:
             self.loaded_episodes[self.episode_num] = self._deleted_loaded_data
+        if self._deleted_actor_map and self.episode_actor_map is not None:
+            self.episode_actor_map[self.episode_num] = self._deleted_actor_map
 
         logger.debug(f"DeleteEpisodeCommand undone: {self.episode_num}")
 

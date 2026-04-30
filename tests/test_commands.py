@@ -267,6 +267,20 @@ class TestDeleteActorCommand:
         assert "Персонаж 1" in global_map
         assert global_map["Персонаж 1"] == "actor1"
 
+    def test_execute_removes_extra_mappings(self, actors, global_map):
+        """Тест удаления маппингов из дополнительных карт"""
+        episode_map = {"Персонаж 3": "actor1", "Персонаж 4": "actor2"}
+        cmd = DeleteActorCommand(actors, global_map, "actor1", [episode_map])
+
+        cmd.execute()
+
+        assert "Персонаж 3" not in episode_map
+        assert episode_map["Персонаж 4"] == "actor2"
+
+        cmd.undo()
+
+        assert episode_map["Персонаж 3"] == "actor1"
+
     def test_get_description(self, actors):
         """Тест описания команды"""
         cmd = DeleteActorCommand(actors, {}, "actor1")
@@ -426,6 +440,25 @@ class TestRenameCharacterCommand:
             "1", "Персонаж 1", "Новый Персонаж"
         )
         assert cmd.get_description() == "Переименован персонаж: Персонаж 1 -> Новый Персонаж"
+
+    def test_callback_called_on_execute_and_undo(self, global_map, episodes):
+        """Тест callback для внешних хранилищ имён"""
+        calls = []
+        loaded_episodes = {"1": [{"char": "Персонаж 1", "text": "test"}]}
+        current_ep_stats = [{"name": "Персонаж 1", "lines": 5}]
+        cmd = RenameCharacterCommand(
+            global_map, loaded_episodes, current_ep_stats,
+            "1", "Персонаж 1", "Новый Персонаж",
+            lambda old, new: calls.append((old, new))
+        )
+
+        cmd.execute()
+        cmd.undo()
+
+        assert calls == [
+            ("Персонаж 1", "Новый Персонаж"),
+            ("Новый Персонаж", "Персонаж 1")
+        ]
 
 
 # =============================================================================

@@ -24,6 +24,7 @@ class ProjectFolderService:
     # Расширения файлов
     ASS_EXTENSIONS = {'.ass', '.srt'}
     VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv'}
+    TEXT_EXTENSIONS = {'.json'}
 
     def __init__(self):
         self._found_files_cache: Dict[str, Dict[str, str]] = {}
@@ -80,18 +81,19 @@ class ProjectFolderService:
             Словарь с найденными файлами:
             {
                 "ass": {episode_num: path},
-                "video": {episode_num: path}
+                "video": {episode_num: path},
+                "text": {episode_num: path}
             }
         """
         if not os.path.isdir(folder_path):
-            return {"ass": {}, "video": {}}
+            return {"ass": {}, "video": {}, "text": {}}
 
         # Проверяем кэш
         cache_key = folder_path
         if cache_key in self._found_files_cache:
             return self._found_files_cache[cache_key]
 
-        result = {"ass": {}, "video": {}}
+        result = {"ass": {}, "video": {}, "text": {}}
 
         # Рекурсивный обход папки
         for root, dirs, files in os.walk(folder_path):
@@ -113,16 +115,29 @@ class ProjectFolderService:
                         result["ass"][episode_num] = file_path
                     elif ext in self.VIDEO_EXTENSIONS:
                         result["video"][episode_num] = file_path
+                    elif ext in self.TEXT_EXTENSIONS and self._is_episode_text_file(file):
+                        result["text"][episode_num] = file_path
 
         # Кэшируем результат
         self._found_files_cache[cache_key] = result
 
         logger.info(
             f"Found {len(result['ass'])} ASS files "
-            f"and {len(result['video'])} video files"
+            f"{len(result['video'])} video files "
+            f"and {len(result['text'])} text files"
         )
 
         return result
+
+    def _is_episode_text_file(self, filename: str) -> bool:
+        """
+        Проверка, похож ли JSON на рабочий текст эпизода.
+
+        Сканер намеренно не считает любой JSON рабочим текстом, чтобы не
+        подхватывать файл проекта или настройки.
+        """
+        name = os.path.splitext(filename)[0].lower()
+        return bool(re.search(r'^(episode|ep|text|script)[_\-\s]*\d+$', name))
 
     def _extract_episode_number(self, filename: str) -> Optional[str]:
         """
@@ -180,58 +195,80 @@ class ProjectFolderService:
         self,
         data: Dict,
         folder_path: Optional[str] = None
-    ) -> Tuple[int, int]:
+    ) -> Tuple[int, int, int]:
         """
-        Сканирование папки и автоматическое связывание файлов с эпизодами.
+        Сканирование папки и перепривязка отсутствующих файлов проекта.
+
+        Метод не создаёт новые эпизоды. Он только обновляет пути для уже
+        известных файлов, если прежний путь больше не существует.
         
         Args:
             data: Данные проекта
             folder_path: Путь к папке (если None, используется project_folder)
             
         Returns:
-            Tuple(количество ASS файлов, количество видео файлов)
+            Tuple(
+                количество обновлённых ASS/SRT путей,
+                количество обновлённых видео путей,
+                количество обновлённых рабочих текстов
+            )
         """
         if not folder_path:
             folder_path = self.get_project_folder(data)
 
         if not folder_path:
-            return 0, 0
+            return 0, 0, 0
 
         found = self.find_all_media_files(folder_path)
         
         ass_count = 0
         video_count = 0
 
-        # Связываем ASS файлы
-        for ep_num, path in found["ass"].items():
-            if ep_num not in data.get("episodes", {}):
+        # Обновляем пути субтитров только для существующих эпизодов
+        for ep_num, old_path in data.get("episodes", {}).items():
+            if os.path.exists(old_path):
+                continue
+
+            path = found["ass"].get(ep_num)
+            if path:
                 data["episodes"][ep_num] = path
                 ass_count += 1
-            else:
-                # Обновляем путь если файл перемещён
-                old_path = data["episodes"][ep_num]
-                if not os.path.exists(old_path):
-                    data["episodes"][ep_num] = path
-                    logger.info(f"Updated path for episode {ep_num}")
+                logger.info(f"Updated subtitle path for episode {ep_num}")
 
-        # Связываем видео файлы
+        # Обновляем пути видео только для существующих записей
         if "video_paths" not in data:
             data["video_paths"] = {}
 
-        for ep_num, path in found["video"].items():
-            if ep_num not in data.get("video_paths", {}):
+        for ep_num, old_path in data.get("video_paths", {}).items():
+            if os.path.exists(old_path):
+                continue
+
+            path = found["video"].get(ep_num)
+            if path:
                 data["video_paths"][ep_num] = path
                 video_count += 1
-            else:
-                old_path = data["video_paths"][ep_num]
-                if not os.path.exists(old_path):
-                    data["video_paths"][ep_num] = path
+                logger.info(f"Updated video path for episode {ep_num}")
+
+        if "episode_texts" not in data:
+            data["episode_texts"] = {}
+
+        text_count = 0
+        for ep_num, old_path in data.get("episode_texts", {}).items():
+            if os.path.exists(old_path):
+                continue
+
+            path = found["text"].get(ep_num)
+            if path:
+                data["episode_texts"][ep_num] = path
+                text_count += 1
+                logger.info(f"Updated text path for episode {ep_num}")
 
         logger.info(
-            f"Linked {ass_count} ASS files and {video_count} video files"
+            f"Relinked {ass_count} subtitle files, "
+            f"{video_count} video files and {text_count} text files"
         )
 
-        return ass_count, video_count
+        return ass_count, video_count, text_count
 
     def find_missing_files(
         self,
@@ -255,7 +292,7 @@ class ProjectFolderService:
         if not folder_path:
             folder_path = self.get_project_folder(data)
 
-        result = {"ass": [], "video": []}
+        result = {"ass": [], "video": [], "text": []}
 
         if not folder_path:
             return result
@@ -271,6 +308,11 @@ class ProjectFolderService:
         for ep_num in data.get("video_paths", {}).keys():
             if ep_num not in found["video"]:
                 result["video"].append(ep_num)
+
+        # Проверяем рабочие тексты
+        for ep_num in data.get("episode_texts", {}).keys():
+            if ep_num not in found["text"]:
+                result["text"].append(ep_num)
 
         return result
 
@@ -289,8 +331,11 @@ class ProjectFolderService:
         return {
             "ass_count": len(found["ass"]),
             "video_count": len(found["video"]),
+            "text_count": len(found["text"]),
             "episodes": sorted(
-                set(found["ass"].keys()) | set(found["video"].keys()),
+                set(found["ass"].keys()) |
+                set(found["video"].keys()) |
+                set(found["text"].keys()),
                 key=lambda x: int(x) if x.isdigit() else 0
             )
         }

@@ -7,6 +7,7 @@ import tempfile
 import shutil
 from datetime import datetime
 from services import ProjectService
+from config.constants import DEFAULT_PROMPTER_CONFIG, PROJECT_VERSION
 
 
 class TestProjectFileStructure:
@@ -32,6 +33,8 @@ class TestProjectFileStructure:
         assert "global_map" in data
         assert "episodes" in data
         assert "video_paths" in data
+        assert "episode_texts" in data
+        assert "episode_actor_map" in data
         assert "export_config" in data
         assert "prompter_config" in data
         assert "replica_merge_config" in data
@@ -48,6 +51,18 @@ class TestProjectFileStructure:
         assert isinstance(data["global_map"], dict)
         assert isinstance(data["episodes"], dict)
         assert isinstance(data["video_paths"], dict)
+        assert isinstance(data["episode_texts"], dict)
+        assert isinstance(data["episode_actor_map"], dict)
+
+    def test_create_new_project_deep_copies_default_configs(self):
+        """Проверка, что вложенные настройки не разделяют default dict."""
+        first = self.project_service.create_new_project("First")
+        second = self.project_service.create_new_project("Second")
+
+        first["prompter_config"]["colors"]["bg"] = "#ABCDEF"
+
+        assert second["prompter_config"]["colors"]["bg"] == "#000000"
+        assert DEFAULT_PROMPTER_CONFIG["colors"]["bg"] == "#000000"
 
     def test_save_and_load_project(self):
         """Проверка сохранения и загрузки проекта"""
@@ -63,6 +78,7 @@ class TestProjectFileStructure:
         data["global_map"]["Character1"] = "actor1"
         data["episodes"]["1"] = "/path/to/episode1.ass"
         data["video_paths"]["1"] = "/path/to/video1.mp4"
+        data["episode_texts"]["1"] = "/path/to/episode_1.json"
         data["project_folder"] = self.test_dir
         
         # Сохраняем
@@ -80,6 +96,7 @@ class TestProjectFileStructure:
         assert loaded_data["global_map"]["Character1"] == "actor1"
         assert loaded_data["episodes"]["1"] == "/path/to/episode1.ass"
         assert loaded_data["video_paths"]["1"] == "/path/to/video1.mp4"
+        assert loaded_data["episode_texts"]["1"] == "/path/to/episode_1.json"
         assert loaded_data["project_folder"] == self.test_dir
 
     def test_json_valid_format(self):
@@ -198,7 +215,7 @@ class TestProjectFileStructure:
         
         # modified_at должен обновиться
         assert loaded_data["metadata"]["modified_at"] >= original_modified
-        assert loaded_data["metadata"]["format_version"] == "1.0"
+        assert loaded_data["metadata"]["format_version"] == PROJECT_VERSION
 
     def test_project_folder_in_file(self):
         """Проверка сохранения project_folder"""
@@ -305,6 +322,7 @@ class TestBackwardCompatibility:
         assert "prompter_config" in loaded_data
         assert "replica_merge_config" in loaded_data
         assert "video_paths" in loaded_data
+        assert "episode_texts" in loaded_data
         assert "global_map" in loaded_data
 
     def test_load_old_project_with_export_merge_config(self):

@@ -1,318 +1,342 @@
 # Структура проекта Dubbing Manager
 
-## Обзор архитектуры
+## Обзор
 
-Проект следует архитектуре **Service Layer + MVC** с разделением бизнес-логики, UI и контроллеров.
+Dubbing Manager — PySide6-приложение для проектов дубляжа. Архитектура постепенно движется к схеме:
 
+```text
+UI -> Controllers -> Services -> Project data / Working text files
 ```
-dubbing_manager/
-├── main.py                      # Точка входа приложения (логирование с ротацией)
-├── requirements.txt             # Зависимости Python
-├── README.md                    # Документация пользователя
-├── STRUCTURE.md                 # Этот файл
+
+Главная архитектурная договорённость: ASS/SRT/DOCX являются источниками импорта, а редактируемым источником текста после импорта становится рабочий JSON серии в папке `texts_dm`.
+
+## Дерево проекта
+
+```text
+DubbingManager/
+├── main.py
+├── README.md
+├── STRUCTURE.md
+├── CODEX_CONTEXT.md
+├── requirements.txt
 │
-├── config/                      # Конфигурация и константы
+├── config/
 │   ├── __init__.py
-│   └── constants.py             # Константы UI и настройки по умолчанию
+│   └── constants.py
 │
-├── core/                        # Модели данных (dataclass с валидацией)
+├── core/
 │   ├── __init__.py
-│   ├── models.py                # Actor, DialogueLine, ExportConfig, PrompterConfig, ReplicaMergeConfig
-│   └── commands.py              # Команды для Undo/Redo (Command pattern)
+│   ├── commands.py
+│   └── models.py
 │
-├── services/                    # Бизнес-логика (Service Layer)
+├── services/
 │   ├── __init__.py
-│   ├── project_service.py       # Управление проектами (атомарное сохранение, file lock)
-│   ├── episode_service.py       # Управление эпизодами (парсинг ASS/SRT, кэш с timestamp)
-│   ├── actor_service.py         # Управление актёрами (CRUD операции)
-│   ├── export_service.py        # Экспорт (HTML, Excel, пакетный экспорт)
-│   ├── global_settings_service.py # Глобальные настройки приложения
-│   ├── docx_import_service.py   # Импорт DOCX с гибкой настройкой колонок
-│   └── osc_worker.py            # OSC сервер для синхронизации с Reaper (QThread)
+│   ├── actor_service.py
+│   ├── assignment_service.py
+│   ├── docx_import_service.py
+│   ├── episode_service.py
+│   ├── export_service.py
+│   ├── global_settings_service.py
+│   ├── osc_worker.py
+│   ├── project_folder_service.py
+│   ├── project_service.py
+│   └── script_text_service.py
 │
-├── ui/                          # Пользовательский интерфейс
+├── ui/
 │   ├── __init__.py
-│   ├── main_window.py           # Главное окно приложения
-│   ├── teleprompter.py          # Окно телесуфлёра (OSC синхронизация)
-│   ├── preview.py               # Предпросмотр HTML (Live Preview)
-│   ├── video.py                 # Окно предпросмотра видео
+│   ├── main_window.py
+│   ├── preview.py
+│   ├── teleprompter.py
+│   ├── video.py
 │   │
-│   ├── controllers/             # UI контроллеры (MVC)
+│   ├── controllers/
 │   │   ├── __init__.py
-│   │   ├── actor_controller.py  # Контроллер панели актёров
-│   │   ├── episode_controller.py # Контроллер управления эпизодами
-│   │   ├── export_controller.py # Контроллер экспорта
-│   │   └── project_controller.py # Контроллер проектов
+│   │   ├── actor_controller.py
+│   │   ├── episode_controller.py
+│   │   ├── export_controller.py
+│   │   └── project_controller.py
 │   │
-│   └── dialogs/                 # Диалоговые окна
+│   └── dialogs/
 │       ├── __init__.py
-│       ├── actor_filter.py      # Выбор актёров для подсветки
-│       ├── colors.py            # Настройка цветовой схемы
-│       ├── docx_import.py       # Импорт DOCX с настройкой колонок
-│       ├── edit_text_dialog.py  # Редактирование текста реплики
-│       ├── export.py            # Настройки экспорта
-│       ├── reaper.py            # Настройки экспорта в Reaper
-│       ├── replica_merge.py     # Настройки объединения реплик
-│       ├── roles.py             # Редактирование ролей актёра
-│       ├── search.py            # Глобальный поиск
-│       └── summary.py           # Сводный отчёт проекта
+│       ├── actor_filter.py
+│       ├── colors.py
+│       ├── docx_import.py
+│       ├── edit_text_dialog.py
+│       ├── export.py
+│       ├── project_files.py
+│       ├── reaper.py
+│       ├── replica_merge.py
+│       ├── roles.py
+│       ├── search.py
+│       └── summary.py
 │
-├── utils/                       # Утилиты
+├── utils/
 │   ├── __init__.py
-│   ├── helpers.py               # Вспомогательные функции (валидация путей)
-│   └── web_bridge.py            # Мост между JS и Python (для WebEngine)
+│   ├── helpers.py
+│   └── web_bridge.py
 │
-├── docs/                        # Документация
-│   ├── DOCX_IMPORT.md           # Документация по импорту DOCX
-│   └── DOCX_IMPORT_IMPLEMENTATION.md  # Техническая документация
+├── docs/
+│   ├── DOCX_IMPORT.md
+│   └── DOCX_IMPORT_IMPLEMENTATION.md
 │
-├── tests/                       # Тесты (pytest, 65% покрытие)
-│   ├── __init__.py
-│   ├── README.md
-│   ├── test_services.py         # Тесты сервисов
-│   ├── test_additional.py       # Дополнительные тесты
-│   ├── test_controllers.py      # Тесты контроллеров
-│   ├── test_export_service.py   # Тесты экспорта
-│   ├── test_global_settings_service.py # Тесты глобальных настроек
-│   ├── test_web_bridge.py       # Тесты web_bridge
-│   ├── test_actor_service.py    # Тесты actor_service
-│   ├── test_models.py           # Тесты моделей
-│   ├── test_osc_worker.py       # Тесты OSC worker
-│   ├── test_main.py             # Тесты main.py
-│   ├── test_helpers.py          # Тесты helpers
-│   ├── test_helpers_additional.py # Дополнительные тесты helpers
-│   ├── test_docx_import.py      # Тесты импорта DOCX
-│   ├── test_docx_import_service.py # Тесты сервиса импорта DOCX
-│   ├── test_docx_save.py        # Тесты сохранения DOCX
-│   ├── test_commands.py         # Тесты команд Undo/Redo
-│   ├── test_project_file_integrity.py # Тесты целостности файлов
-│   ├── test_project_files_dialog.py # Тесты диалогов проектов
-│   ├── test_project_folder_service.py # Тесты сервиса папок
-│   ├── test_srt_import.py       # Тесты импорта SRT
-│   └── test_undo_stack.py       # Тесты UndoStack
-│
-└── dist/                        # Скомпилированные приложения (git-ignored)
+└── tests/
+    ├── test_assignment_service.py
+    ├── test_script_text_service.py
+    ├── test_working_text_migration.py
+    ├── test_docx_working_text_import.py
+    ├── test_project_folder_service.py
+    ├── test_project_files_dialog.py
+    ├── test_teleprompter_episode_switch.py
+    └── ...
 ```
 
-## Детальное описание модулей
+## Формат проекта
 
-### config/
+Текущая версия формата задаётся в `config/constants.py`:
+
+```python
+PROJECT_VERSION = "1.3"
+```
+
+Ключевые поля проекта:
+
+| Поле | Назначение |
+|------|------------|
+| `metadata` | Версия формата, даты создания/изменения |
+| `project_name` | Имя проекта |
+| `actors` | База актёров |
+| `episodes` | Исходные файлы серий |
+| `episode_texts` | Рабочие JSON-тексты серий |
+| `global_map` | Глобальные назначения персонаж -> актёр |
+| `episode_actor_map` | Локальные назначения персонаж -> актёр внутри серии |
+| `video_paths` | Видео по сериям |
+| `project_folder` | Рабочая папка проекта для сканирования файлов |
+| `export_config` | Настройки экспорта |
+| `prompter_config` | Настройки телесуфлёра |
+| `replica_merge_config` | Настройки объединения реплик |
+
+Обратная совместимость старых проектов обеспечивается в `ProjectService._ensure_compatibility`.
+
+## Рабочие тексты
+
+После импорта ASS/SRT/DOCX создаётся рабочий текст серии. Он хранится как JSON-файл в папке:
+
+```text
+texts_dm/
+```
+
+Название папки задаётся константой `SCRIPT_TEXT_DIR_NAME`.
+
+Рабочий текст используется для:
+
+- монтажных листов;
+- телесуфлёра;
+- глобального поиска;
+- статистики серии и проекта;
+- статистики выбранного персонажа;
+- экспорта.
+
+ASS/SRT/DOCX остаются источниками импорта. Запись изменений обратно в ASS/SRT отключена.
+
+Ключевые места:
+
+| Файл | Роль |
+|------|------|
+| `services/script_text_service.py` | Создание, загрузка, сохранение и переименование рабочих текстов |
+| `ui/main_window.py` | `get_episode_lines`, импорт, миграция старых проектов |
+| `ui/teleprompter.py` | Редактирование реплик рабочего текста |
+| `ui/dialogs/project_files.py` | Перепривязка и регенерация рабочих текстов |
+| `services/project_folder_service.py` | Сканирование папки проекта |
+
+## Назначения актёров
+
+Назначения бывают двух уровней:
+
+| Уровень | Хранилище | Поведение |
+|---------|-----------|-----------|
+| Глобально | `global_map` | Роль получает одного актёра во всех сериях |
+| Серия | `episode_actor_map[ep]` | Назначение действует только в выбранной серии |
+
+Для чтения эффективного актёра используйте `services/assignment_service.py`, особенно:
+
+- `get_actor_for_character(project_data, char_name, ep_num)`
+- `get_assignment_scope(project_data, char_name, ep_num)`
+- `get_assignment_map(project_data, scope, ep_num)`
+- `get_actor_roles(project_data, actor_id)`
+- `rename_character_assignments(project_data, old_name, new_name)`
+
+`LOCAL_UNASSIGNED_ACTOR_ID` означает локальное “не назначено”, которое перекрывает глобальное назначение.
+
+Места, где важен эффективный актёр:
+
+- главный список персонажей;
+- телесуфлёр;
+- HTML/Excel экспорт;
+- Reaper RPP;
+- отчёты;
+- роли актёра;
+- статистика персонажа.
+
+## Основные модули
+
+### `config/`
+
 | Файл | Описание |
 |------|----------|
-| `constants.py` | Константы приложения: цветовые палитры, настройки по умолчанию, размеры UI, отступы |
+| `constants.py` | UI-размеры, версии проекта, имена папок, настройки по умолчанию |
 
-### core/
-| Файл | Описание | Покрытие |
-|------|----------|----------|
-| `models.py` | Модели данных с `@dataclass` и валидацией `__post_init__` | 99% |
-| `commands.py` | Команды для Undo/Redo (AddActorCommand, DeleteActorCommand, etc.) | 96% |
+### `core/`
 
-### services/
-| Файл | Описание | Покрытие |
-|------|----------|----------|
-| `project_service.py` | Загрузка/сохранение проектов, автосохранение, ротация бэкапов, file lock | 70% |
-| `episode_service.py` | Парсинг ASS/SRT, кэш с timestamp invalidation, сохранение | 83% |
-| `actor_service.py` | CRUD операции с актёрами, назначение ролей, статистика | 100% |
-| `export_service.py` | Экспорт в HTML, Excel, Reaper RPP, объединение реплик | 88% |
-| `global_settings_service.py` | Глобальные настройки (экспорт, телесуфлёр, объединение) | 99% |
-| `docx_import_service.py` | Импорт DOCX: таблицы, маппинг колонок, парсинг таймингов | 94% |
-| `osc_worker.py` | OSC сервер для синхронизации с Reaper (QThread) | 75% |
-
-### ui/controllers/
-| Файл | Описание | Покрытие |
-|------|----------|----------|
-| `actor_controller.py` | Контроллер панели актёров: отображение, редактирование, назначение | 19%* |
-| `episode_controller.py` | Контроллер эпизодов: импорт, сохранение, переименование | 86% |
-| `export_controller.py` | Контроллер экспорта: HTML, Excel, Reaper, пакетный экспорт | 83% |
-| `project_controller.py` | Контроллер проектов: сохранение, загрузка, автосохранение | 94% |
-
-*\*Требуется pytest-qt для полного покрытия*
-
-### ui/dialogs/
 | Файл | Описание |
 |------|----------|
-| `actor_filter.py` | Диалог выбора актёров для фильтрации/подсветки |
-| `colors.py` | Диалоги настройки цветовой схемы (PrompterColorDialog, CustomColorDialog) |
-| `docx_import.py` | Диалог импорта DOCX: маппинг колонок, предпросмотр, несколько таблиц |
-| `edit_text_dialog.py` | Диалог редактирования текста реплики |
-| `export.py` | Диалог настроек экспорта (ExportSettingsDialog) |
-| `reaper.py` | Диалог настроек экспорта в Reaper (ReaperExportDialog) |
-| `replica_merge.py` | Диалог настроек объединения реплик (ReplicaMergeSettingsDialog) |
-| `roles.py` | Диалог редактирования ролей актёра (ActorRolesDialog) |
-| `search.py` | Диалог глобального поиска (GlobalSearchDialog) |
-| `summary.py` | Диалог сводного отчёта (SummaryDialog) |
-| `project_files.py` | Диалог просмотра структуры файлов проекта |
+| `commands.py` | Command pattern для Undo/Redo |
+| `models.py` | Dataclass-модели с валидацией |
 
-### utils/
-| Файл | Описание | Покрытие |
-|------|----------|----------|
-| `helpers.py` | Вспомогательные функции: `ass_time_to_seconds()`, `format_seconds_to_tc()`, `get_video_fps()` (с валидацией путей) | 72% |
-| `web_bridge.py` | Мост между JavaScript и Python для редактирования в WebEngine | 95% |
+### `services/`
 
-### tests/
-| Файл | Описание | Покрытие |
-|------|----------|----------|
-| `test_services.py` | Тесты для сервисов (actor, episode, export) | 99% |
-| `test_additional.py` | Дополнительные тесты | 99% |
-| `test_controllers.py` | Тесты UI контроллеров (Episode, Export, Project) | 87% |
-| `test_export_service.py` | Тесты сервиса экспорта | 96% |
-| `test_global_settings_service.py` | Тесты глобальных настроек | 100% |
-| `test_web_bridge.py` | Тесты web_bridge | 100% |
-| `test_actor_service.py` | Тесты actor_service | 100% |
-| `test_models.py` | Тесты моделей данных | 100% |
-| `test_osc_worker.py` | Тесты OSC worker | 96% |
-| `test_main.py` | Тесты main.py (логирование, пути) | 100% |
-| `test_helpers.py` + `test_helpers_additional.py` | Тесты вспомогательных функций | 100% |
-| `test_docx_import_service.py` | Тесты сервиса импорта DOCX | 99% |
-| `test_commands.py` | Тесты команд Undo/Redo | 99% |
-| `test_undo_stack.py` | Тесты UndoStack | 100% |
+| Файл | Описание |
+|------|----------|
+| `project_service.py` | Загрузка/сохранение проекта, атомарная запись, совместимость |
+| `script_text_service.py` | Рабочие тексты серий |
+| `assignment_service.py` | Глобальные и локальные назначения актёров |
+| `episode_service.py` | Парсинг ASS/SRT и кэш эпизодов |
+| `docx_import_service.py` | Импорт DOCX и парсинг таблиц |
+| `export_service.py` | Объединение реплик, HTML/XLSX экспорт |
+| `actor_service.py` | Операции с актёрами и ролями |
+| `global_settings_service.py` | Глобальные настройки приложения |
+| `project_folder_service.py` | Сканирование и перепривязка файлов проекта |
+| `osc_worker.py` | OSC-синхронизация с Reaper |
+
+### `ui/`
+
+| Файл | Описание |
+|------|----------|
+| `main_window.py` | Главное окно, импорт, таблица ролей, статистика персонажа, интеграция сервисов |
+| `teleprompter.py` | Телесуфлёр, редактирование текста, переключение серий |
+| `preview.py` | HTML Live Preview |
+| `video.py` | Видео-предпросмотр |
+
+### `ui/controllers/`
+
+| Файл | Описание |
+|------|----------|
+| `actor_controller.py` | Таблица актёров и кнопка ролей |
+| `episode_controller.py` | Операции с эпизодами |
+| `export_controller.py` | Экспорт через контроллер |
+| `project_controller.py` | Сохранение, загрузка и автосохранение проекта |
+
+### `ui/dialogs/`
+
+| Файл | Описание |
+|------|----------|
+| `actor_filter.py` | Фильтр/подсветка актёров |
+| `colors.py` | Цветовые диалоги |
+| `docx_import.py` | Настройки импорта DOCX |
+| `edit_text_dialog.py` | Редактирование реплики |
+| `export.py` | Настройки экспорта |
+| `project_files.py` | Состояние, перепривязка и регенерация файлов проекта |
+| `reaper.py` | Настройки Reaper RPP |
+| `replica_merge.py` | Настройки объединения реплик |
+| `roles.py` | Просмотр ролей актёра со статистикой |
+| `search.py` | Глобальный поиск |
+| `summary.py` | Отчёты по серии/проекту |
+
+## Главный UI
+
+Главная таблица персонажей:
+
+| Колонка | Значение |
+|---------|----------|
+| `Персонаж` | Имя персонажа, редактируемое |
+| `Строчек` | Количество исходных строк в текущей серии |
+| `Колец` | Количество объединённых реплик |
+| `Слов` | Количество слов |
+| `Область` | `Глобально` или `Серия` |
+| `Актер` | Назначенный актёр |
+| `📺` | Предпросмотр реплик персонажа |
+
+Правая панель:
+
+- сверху инструменты: предпросмотр серии, телесуфлёр, Reaper RPP;
+- снизу статистика выбранного персонажа по всем сериям.
+
+## DOCX импорт
+
+DOCX поддерживает:
+
+- выбор таблицы;
+- гибкое назначение колонок;
+- тайминг в одной или разных колонках;
+- предпросмотр;
+- сохранение последней конфигурации колонок в глобальные настройки.
+
+После импорта DOCX должен вести себя как ASS/SRT: создаётся рабочий текст, работают поиск, статистика, экспорт и телесуфлёр.
+
+## Проектная папка и файлы
+
+Окно `Файлы` показывает состояние:
+
+- исходников серий;
+- рабочих текстов;
+- видео.
+
+Сканер должен искать и перепривязывать существующие файлы. Он не должен сам создавать новые серии или импортировать новые исходники без явного отдельного решения.
 
 ## Архитектурные принципы
 
-### 1. Service Layer + MVC
-Бизнес-логика вынесена в сервисы, UI-логика в контроллеры:
-```
-MainWindow → Controllers → Services → Data
-```
+1. **Service Layer + MVC**  
+   UI вызывает контроллеры и сервисы, бизнес-логика не должна жить в виджетах, если её легко вынести.
 
-### 2. Command Pattern (Undo/Redo)
-Все основные операции поддерживают отмену/повтор:
-```python
-command = AddActorCommand(actors, actor_id, name, color)
-undo_stack.push(command)  # Выполняет и сохраняет
-undo_stack.undo()         # Отменяет
-undo_stack.redo()         # Повторяет
-```
+2. **Рабочий текст как источник правок**  
+   После импорта редактируется рабочий JSON, не ASS/SRT.
 
-### 3. Type Hints
-Все файлы используют аннотации типов (PEP 484):
-```python
-def refresh_actor_list(self) -> None:
-    if self.actor_controller:
-        self.actor_controller.refresh()
-```
+3. **Эффективное назначение актёра**  
+   Любой код с контекстом серии должен учитывать `episode_actor_map` поверх `global_map`.
 
-### 4. Логирование с ротацией
-Используется `RotatingFileHandler` (10MB, 5 файлов):
-```python
-from logging.handlers import RotatingFileHandler
+4. **Command Pattern**  
+   Основные операции должны проходить через команды Undo/Redo, когда это ожидаемо для пользователя.
 
-file_handler = RotatingFileHandler(
-    log_path,
-    maxBytes=10*1024*1024,
-    backupCount=5
-)
+5. **Совместимость проектов**  
+   Новые поля добавляются через `ProjectService._ensure_compatibility`.
+
+6. **Константы вместо магических значений**  
+   UI-размеры, имена папок и настройки по умолчанию держать в `config/constants.py`.
+
+## Тесты
+
+Полный прогон:
+
+```bash
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/ -q
 ```
 
-### 5. Валидация данных
-Модели используют `__post_init__` для валидации:
-```python
-@dataclass
-class PrompterConfig:
-    f_tc: int = 20
-    
-    def __post_init__(self):
-        if not 10 <= self.f_tc <= 150:
-            raise ValueError(f"f_tc must be 10-150, got {self.f_tc}")
+Актуальный ориентир:
+
+```text
+540 passed, 11 skipped
 ```
 
-### 6. Безопасность
-- Валидация путей (защита от path traversal)
-- File lock для предотвращения race conditions
-- Атомарное сохранение через временный файл
+Полезные точечные прогоны:
+
+```bash
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_assignment_service.py -q
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_script_text_service.py -q
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_export_service.py -q
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_project_folder_service.py -q
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_project_files_dialog.py -q
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_teleprompter_episode_switch.py -q
+```
 
 ## Зависимости
 
-| Пакет | Версия | Назначение |
-|-------|--------|------------|
-| `pyside6` | 6.10.2 | GUI фреймворк |
-| `pyside6-addons` | 6.10.2 | Дополнительные компоненты Qt |
-| `python-osc` | 1.9.3 | OSC протокол для Reaper |
-| `openpyxl` | >=3.0.0 | Excel экспорт |
-| `python-docx` | >=1.0.0 | Импорт DOCX файлов |
-| `requests` | 2.32.5 | HTTP запросы |
-| `pytest` | >=7.0.0 | Тестирование |
-| `pytest-cov` | >=4.0.0 | Покрытие кода |
+| Пакет | Назначение |
+|-------|------------|
+| `PySide6` | GUI |
+| `python-osc` | OSC-синхронизация с Reaper |
+| `openpyxl` | Excel экспорт |
+| `python-docx` | DOCX импорт |
+| `pytest`, `pytest-cov` | Тесты |
 
-## Запуск тестов
+## Документация для продолжения работы
 
-```bash
-# Все тесты
-python -m pytest tests/ -v
-
-# С покрытием
-python -m pytest tests/ --cov=. --cov-report=html
-
-# Конкретный модуль
-python -m pytest tests/test_controllers.py -v
-
-# Только быстрые тесты (без integration)
-python -m pytest tests/ -v -m "not slow"
-```
-
-## Покрытие кода
-
-| Категория | Покрытие | Статус |
-|-----------|----------|--------|
-| **Общее** | 65% | ✅ Отлично |
-| **Бизнес-логика** | 80-100% | ✅ Отлично |
-| **Контроллеры** | 83-94% | ✅ Отлично |
-| **Модели** | 99% | ✅ Отлично |
-| **UI диалоги** | 6-73% | ⚠️ Требуют pytest-qt |
-| **UI окна** | 9-16% | ⚠️ Требуют интеграционных тестов |
-
-## Примечания
-
-### Улучшения (Code Review 2024)
-
-1. **Безопасность:**
-   - ✅ RotatingFileHandler для логов
-   - ✅ Валидация путей (path traversal protection)
-   - ✅ File lock для concurrent access
-
-2. **Производительность:**
-   - ✅ Оптимизация ActorController.refresh()
-   - ✅ Кэш эпизодов с timestamp invalidation
-   - ✅ Memory leak fix в UndoStack
-
-3. **Код-стиль:**
-   - ✅ Удалён закомментированный код
-   - ✅ Magic numbers вынесены в constants
-   - ✅ Рефакторинг main_window.py → контроллеры
-
-4. **Тесты:**
-   - ✅ +251 тест (245 → 496)
-   - ✅ +8 тест-файлов
-   - ✅ Покрытие 50% → 65%
-
-### Ключевые компоненты
-
-- **ActorController** — контроллер панели актёров (оптимизирован)
-- **EpisodeController** — контроллер эпизодов (новый)
-- **ExportController** — контроллер экспорта (новый)
-- **ProjectController** — контроллер проектов (новый)
-- **DocxImportService** — сервис импорта DOCX
-- **GlobalSettingsService** — глобальные настройки (~/.dubbing_manager/)
-- **UndoStack** — система отмены/повтора действий (Command pattern)
-
-## Новые возможности
-
-### DOCX импорт
-- **Импорт DOCX** — кнопка "+ .DOCX" в панели управления сериями
-- **Гибкий маппинг** — настройка соответствия колонок
-- **Автоопределение** — распознавание колонок по заголовкам
-- **Тайминг в одной колонке** — формат `00:00:01,000 - 00:00:03,000`
-- **Настраиваемые разделители** — `-`, `–`, `—`, `|`, `/`
-- **Предпросмотр** — визуальная проверка перед импортом
-- **Несколько таблиц** — поддержка документов с несколькими таблицами
-
-### Undo/Redo
-- **Ctrl+Z** — отмена действия
-- **Ctrl+Shift+Z** — повтор действия
-- Поддерживает: добавление/удаление актёров, переименование, назначение ролей, операции с эпизодами
-
-### Глобальные настройки
-- Настройки экспорта сохраняются между проектами
-- Настройки телесуфлёра сохраняются между проектами
-- Настройки объединения реплик сохраняются между проектами
-- Файл: `~/.dubbing_manager/global_settings.json` (macOS/Linux) или `%APPDATA%/dubbing_manager/global_settings.json` (Windows)
+Для Codex/разработческих заметок см. `CODEX_CONTEXT.md`. Там перечислены последние архитектурные решения, пользовательски подтверждённое поведение и частые ловушки.

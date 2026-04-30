@@ -92,6 +92,22 @@ class TestProjectFolderService:
         assert "1" in found["video"]
         assert found["video"]["1"] == video_path
 
+    def test_find_episode_text_files(self):
+        """Поиск рабочих текстов эпизодов"""
+        text_path = os.path.join(self.test_dir, "episode_01.json")
+        with open(text_path, "w") as f:
+            f.write("{}")
+
+        project_path = os.path.join(self.test_dir, "project_01.json")
+        with open(project_path, "w") as f:
+            f.write("{}")
+
+        found = self.service.find_all_media_files(self.test_dir)
+
+        assert "1" in found["text"]
+        assert found["text"]["1"] == text_path
+        assert found["text"]["1"] != project_path
+
     def test_find_files_in_subfolders(self):
         """Поиск файлов в подпапках"""
         # Создаём подпапку
@@ -108,20 +124,20 @@ class TestProjectFolderService:
         assert "2" in found["ass"]
         assert found["ass"]["2"] == ass_path
 
-    def test_scan_and_link_files(self):
-        """Сканирование и связывание файлов"""
+    def test_scan_and_link_files_does_not_create_episodes(self):
+        """Сканирование не создаёт новые эпизоды"""
         # Создаём тестовые файлы
         ass_path = os.path.join(self.test_dir, "Episode_01.ass")
         with open(ass_path, "w") as f:
             f.write("test")
 
         data = {"episodes": {}, "video_paths": {}}
-        ass_count, video_count = self.service.scan_and_link_files(data, self.test_dir)
+        ass_count, video_count, text_count = self.service.scan_and_link_files(data, self.test_dir)
         
-        assert ass_count == 1
+        assert ass_count == 0
         assert video_count == 0
-        assert "1" in data["episodes"]
-        assert data["episodes"]["1"] == ass_path
+        assert text_count == 0
+        assert data["episodes"] == {}
 
     def test_skip_hidden_files(self):
         """Пропуск скрытых файлов"""
@@ -266,6 +282,45 @@ class TestProjectFolderService:
         # Путь должен обновиться
         assert data["episodes"]["1"] == ass_path
 
+    def test_update_video_path_if_file_moved(self):
+        """Обновление пути видео при перемещении файла"""
+        video_path = os.path.join(self.test_dir, "Episode_01.mp4")
+        with open(video_path, "w") as f:
+            f.write("test")
+
+        data = {
+            "project_folder": self.test_dir,
+            "episodes": {},
+            "video_paths": {"1": "/wrong/video.mp4"}
+        }
+
+        ass_count, video_count, text_count = self.service.scan_and_link_files(data)
+
+        assert ass_count == 0
+        assert video_count == 1
+        assert text_count == 0
+        assert data["video_paths"]["1"] == video_path
+
+    def test_update_episode_text_path_if_file_moved(self):
+        """Обновление пути рабочего текста при перемещении файла"""
+        text_path = os.path.join(self.test_dir, "episode_01.json")
+        with open(text_path, "w") as f:
+            f.write("{}")
+
+        data = {
+            "project_folder": self.test_dir,
+            "episodes": {},
+            "video_paths": {},
+            "episode_texts": {"1": "/wrong/episode_01.json"}
+        }
+
+        ass_count, video_count, text_count = self.service.scan_and_link_files(data)
+
+        assert ass_count == 0
+        assert video_count == 0
+        assert text_count == 1
+        assert data["episode_texts"]["1"] == text_path
+
 
 class TestProjectFolderServiceWithRealStructure:
     """Тесты с реальной структурой папок"""
@@ -307,12 +362,13 @@ class TestProjectFolderServiceWithRealStructure:
             assert str(i) in found["ass"]
             assert str(i) in found["video"]
 
-    def test_scan_and_link_with_different_subfolders(self):
-        """Сканирование и связывание с разными подпапками"""
+    def test_scan_and_link_with_different_subfolders_does_not_create_episodes(self):
+        """Сканирование с разными подпапками не создаёт эпизоды"""
         data = {"episodes": {}, "video_paths": {}}
-        ass_count, video_count = self.service.scan_and_link_files(data, self.test_dir)
+        ass_count, video_count, text_count = self.service.scan_and_link_files(data, self.test_dir)
         
-        assert ass_count == 3
-        assert video_count == 3
-        assert len(data["episodes"]) == 3
-        assert len(data["video_paths"]) == 3
+        assert ass_count == 0
+        assert video_count == 0
+        assert text_count == 0
+        assert len(data["episodes"]) == 0
+        assert len(data["video_paths"]) == 0

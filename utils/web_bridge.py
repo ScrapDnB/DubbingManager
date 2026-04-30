@@ -4,6 +4,8 @@ from PySide6.QtCore import QObject, Slot
 from typing import Any
 import logging
 
+from services import ScriptTextService
+
 logger = logging.getLogger(__name__)
 
 
@@ -13,6 +15,7 @@ class WebBridge(QObject):
     def __init__(self, main_app: Any, parent=None):
         super().__init__(parent)
         self.main_app = main_app
+        self.script_text_service = ScriptTextService()
 
     @Slot(str, str)
     def update_text(self, line_id: str, new_text: str) -> None:
@@ -38,6 +41,14 @@ class WebBridge(QObject):
                 if target and target.get('text') != new_text:
                     target['text'] = new_text
                     updated = True
+
+            working_saved = self.script_text_service.update_line_text(
+                self.main_app.data,
+                str(ep),
+                lid,
+                new_text
+            )
+            updated = updated or working_saved
 
             if not updated:
                 try:

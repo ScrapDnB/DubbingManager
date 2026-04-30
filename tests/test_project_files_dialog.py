@@ -4,7 +4,7 @@ import pytest
 import os
 import tempfile
 import shutil
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 from ui.dialogs.project_files import ProjectFilesDialog
 
 
@@ -24,10 +24,13 @@ def test_data():
     
     # Создаём тестовые файлы
     ass_path = os.path.join(test_dir, "Episode_01.ass")
+    text_path = os.path.join(test_dir, "episode_01.json")
     video_path = os.path.join(test_dir, "Episode_01.mp4")
     
     with open(ass_path, "w") as f:
         f.write("test")
+    with open(text_path, "w") as f:
+        f.write("{}")
     with open(video_path, "w") as f:
         f.write("test")
     
@@ -39,6 +42,10 @@ def test_data():
         "video_paths": {
             "1": video_path,
             "2": "/nonexistent/video.mp4"
+        },
+        "episode_texts": {
+            "1": text_path,
+            "2": "/nonexistent/episode_02.json"
         },
         "project_folder": test_dir
     }
@@ -107,6 +114,67 @@ class TestProjectFilesDialog:
         assert "Найдено:" in stats_text
         assert "Не найдено:" in stats_text
 
+    def test_episode_text_displayed(self, app, test_data):
+        """Отображение рабочего текста эпизода"""
+        data, _ = test_data
+        dialog = ProjectFilesDialog(data)
+
+        root_item = dialog.file_tree.topLevelItem(0)
+        file_names = [
+            root_item.child(i).text(1)
+            for i in range(root_item.childCount())
+        ]
+
+        assert any("Рабочий текст" in name for name in file_names)
+
+    def test_episode_shows_working_text_source_status(self, app, test_data):
+        """Серия показывает, что текст берётся из рабочего JSON"""
+        data, _ = test_data
+        dialog = ProjectFilesDialog(data)
+
+        root_item = dialog.file_tree.topLevelItem(0)
+
+        assert root_item.text(2) == "Текст: рабочий JSON"
+
+    def test_missing_working_text_status(self, app, test_data):
+        """Потерянный рабочий текст получает отдельный статус"""
+        data, _ = test_data
+        dialog = ProjectFilesDialog(data)
+
+        root_item = dialog.file_tree.topLevelItem(1)
+        text_item = None
+        for i in range(root_item.childCount()):
+            child = root_item.child(i)
+            if "Рабочий текст" in child.text(1):
+                text_item = child
+                break
+
+        assert text_item is not None
+        assert text_item.text(2) == "✗ Рабочий текст потерян"
+        assert root_item.text(2) == "Текст: рабочий JSON потерян"
+
+    def test_not_created_working_text_status(self, app, test_data):
+        """Серия без рабочего текста показывает, что он ещё не создан"""
+        data, test_dir = test_data
+        ass_path = os.path.join(test_dir, "Episode_03.ass")
+        with open(ass_path, "w") as f:
+            f.write("test")
+        data["episodes"]["3"] = ass_path
+        data["episode_texts"].pop("3", None)
+
+        dialog = ProjectFilesDialog(data)
+        root_item = dialog.file_tree.topLevelItem(2)
+        text_item = None
+        for i in range(root_item.childCount()):
+            child = root_item.child(i)
+            if "Рабочий текст" in child.text(1):
+                text_item = child
+                break
+
+        assert text_item is not None
+        assert text_item.text(2) == "○ Рабочий текст не создан"
+        assert root_item.text(2) == "Текст: субтитры"
+
     def test_refresh_button(self, app, test_data):
         """Кнопка обновления"""
         data, _ = test_data
@@ -142,6 +210,64 @@ class TestProjectFilesDialog:
         
         # Кнопка должна быть отключена без выбора
         assert not dialog.btn_relink.isEnabled()
+        assert not dialog.btn_regenerate_text.isEnabled()
+
+    def test_regenerate_button_enabled_for_text_item(self, app, test_data):
+        """Кнопка пересоздания активна для рабочего текста"""
+        data, _ = test_data
+        dialog = ProjectFilesDialog(data)
+
+        root_item = dialog.file_tree.topLevelItem(0)
+        text_item = None
+        for i in range(root_item.childCount()):
+            child = root_item.child(i)
+            if "Рабочий текст" in child.text(1):
+                text_item = child
+                break
+
+        dialog.file_tree.setCurrentItem(text_item)
+
+        assert dialog.btn_regenerate_text.isEnabled()
+
+    def test_regenerate_text_asks_for_missing_subtitles(self, app, test_data, monkeypatch):
+        """Пересоздание предлагает выбрать субтитры, если источник потерян"""
+        data, test_dir = test_data
+        new_ass_path = os.path.join(test_dir, "Episode_02.ass")
+        with open(new_ass_path, "w") as f:
+            f.write("test")
+
+        class Parent(QWidget):
+            def __init__(self):
+                super().__init__()
+                self.calls = []
+
+            def regenerate_episode_text(self, ep_num, source_path):
+                self.calls.append((ep_num, source_path))
+                return True
+
+            def _on_files_changed(self):
+                pass
+
+        parent = Parent()
+        dialog = ProjectFilesDialog(data, parent)
+        monkeypatch.setattr(
+            "ui.dialogs.project_files.QFileDialog.getOpenFileName",
+            lambda *args, **kwargs: (new_ass_path, "")
+        )
+
+        root_item = dialog.file_tree.topLevelItem(1)
+        text_item = None
+        for i in range(root_item.childCount()):
+            child = root_item.child(i)
+            if "Рабочий текст" in child.text(1):
+                text_item = child
+                break
+
+        dialog.file_tree.setCurrentItem(text_item)
+        dialog._regenerate_selected_text()
+
+        assert parent.calls == [("2", new_ass_path)]
+        assert data["episodes"]["2"] == new_ass_path
 
     def test_tree_expanded(self, app, test_data):
         """Дерево развёрнуто"""
@@ -162,6 +288,7 @@ class TestProjectFilesDialogEmpty:
         data = {
             "episodes": {},
             "video_paths": {},
+            "episode_texts": {},
             "project_folder": None
         }
         

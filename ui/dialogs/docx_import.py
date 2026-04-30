@@ -11,9 +11,14 @@ from PySide6.QtGui import QFont
 from typing import Dict, List, Any, Optional
 import logging
 
+from config.constants import (
+    DOCX_IMPORT_DIALOG_HEIGHT,
+    DOCX_IMPORT_DIALOG_WIDTH,
+)
 from services.docx_import_service import (
     DocxImportService, COLUMN_TYPES, DEFAULT_COLUMN_MAPPING, DEFAULT_TIME_SEPARATORS
 )
+from services.global_settings_service import GlobalSettingsService
 from utils.helpers import customize_table
 
 logger = logging.getLogger(__name__)
@@ -25,15 +30,21 @@ class DocxImportDialog(QDialog):
     def __init__(self, parent=None, file_path: Optional[str] = None):
         super().__init__(parent)
         self.setWindowTitle("Импорт DOCX - Настройка колонок")
-        self.setMinimumSize(900, 700)
+        self.setMinimumSize(DOCX_IMPORT_DIALOG_WIDTH, DOCX_IMPORT_DIALOG_HEIGHT)
 
         self.docx_service = DocxImportService()
+        self.global_settings_service = GlobalSettingsService()
+        self.global_settings = self._load_global_settings(parent)
+        self.saved_config = self.global_settings.get("docx_import_config", {})
         self.current_tables: List[List[List[str]]] = []  # Все таблицы
         self.current_table_idx: int = 0  # Индекс текущей таблицы
         self.current_rows: List[List[str]] = []  # Текущая таблица
         self.current_mapping: Dict[str, Optional[int]] = DEFAULT_COLUMN_MAPPING.copy()
         self.available_columns: List[int] = []
-        self.time_separators: List[str] = DEFAULT_TIME_SEPARATORS.copy()
+        self.time_separators: List[str] = self.saved_config.get(
+            "time_separators",
+            DEFAULT_TIME_SEPARATORS.copy()
+        )
         self.file_path: Optional[str] = file_path
 
         self._init_ui()
@@ -41,6 +52,12 @@ class DocxImportDialog(QDialog):
         # Если передан файл, загружаем его
         if file_path:
             self._load_file(file_path)
+
+    def _load_global_settings(self, parent) -> Dict[str, Any]:
+        """Получить глобальные настройки из родителя или файла."""
+        if parent is not None and hasattr(parent, "global_settings"):
+            return parent.global_settings
+        return self.global_settings_service.load_settings()
 
     def _init_ui(self) -> None:
         """Инициализация UI"""
@@ -108,16 +125,13 @@ class DocxImportDialog(QDialog):
         title.setFont(QFont("Arial", 12, QFont.Bold))
         layout.addWidget(title)
 
-        info_label = QLabel(
-            "Укажите, в каких колонках таблицы находится каждая информация:\n"
-            "• Имя персонажа - кто говорит\n"
-            "• Тайминг (начало/конец) - раздельные колонки\n"
-            "• Тайминг (вместе) - одна колонка с разделителем\n"
-            "• Текст - содержимое реплики"
+        self.mapping_hint = QLabel(
+            "Используются последние сохранённые настройки. "
+            "Если структура таблицы другая, нажмите «Автоопределение» или поправьте колонки вручную."
         )
-        info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #666; font-size: 11px;")
-        layout.addWidget(info_label)
+        self.mapping_hint.setWordWrap(True)
+        self.mapping_hint.setStyleSheet("color: #666; font-size: 11px;")
+        layout.addWidget(self.mapping_hint)
 
         # Настройка разделителей
         separator_widget = self._create_separator_widget()
@@ -163,7 +177,7 @@ class DocxImportDialog(QDialog):
         # Поле ввода разделителей
         self.separator_edit = QLineEdit()
         self.separator_edit.setPlaceholderText("- | – — / \\t")
-        self.separator_edit.setText("-")
+        self.separator_edit.setText(" ".join(self.time_separators))
         self.separator_edit.setFixedWidth(200)
         self.separator_edit.textChanged.connect(self._on_separators_changed)
         layout.addWidget(self.separator_edit)
@@ -274,11 +288,7 @@ class DocxImportDialog(QDialog):
             # Заполняем комбобоксы
             self._update_mapping_combos()
 
-            # Автоопределение колонок
-            self._auto_detect_columns()
-
-            # Обновляем предпросмотр
-            self._update_preview()
+            self._apply_saved_mapping_or_auto_detect()
 
             # Если таблиц больше одной, показываем переключатель
             if len(self.current_tables) > 1:
@@ -326,11 +336,7 @@ class DocxImportDialog(QDialog):
             # Заполняем комбобоксы
             self._update_mapping_combos()
             
-            # Автоопределение колонок
-            self._auto_detect_columns()
-            
-            # Обновляем предпросмотр
-            self._update_preview()
+            self._apply_saved_mapping_or_auto_detect()
 
     def _update_mapping_combos(self) -> None:
         """Обновление комбобоксов маппинга"""
@@ -352,6 +358,51 @@ class DocxImportDialog(QDialog):
 
             combo.blockSignals(False)
 
+    def _apply_saved_mapping_or_auto_detect(self) -> None:
+        """Применить сохранённый маппинг, если он подходит к таблице."""
+        saved_mapping = self.saved_config.get("mapping", {})
+        if self._mapping_is_usable(saved_mapping):
+            self.current_mapping = DEFAULT_COLUMN_MAPPING.copy()
+            self.current_mapping.update(saved_mapping)
+            self._apply_mapping_to_combos(self.current_mapping)
+            self.mapping_hint.setText(
+                "Применены последние сохранённые настройки колонок."
+            )
+            self._update_preview()
+            return
+
+        self._auto_detect_columns()
+
+    def _mapping_is_usable(self, mapping: Dict[str, Optional[int]]) -> bool:
+        """Проверить, можно ли применить маппинг к текущей таблице."""
+        if not mapping or mapping.get("text") is None:
+            return False
+
+        available = set(self.available_columns)
+        for col_idx in mapping.values():
+            if col_idx is not None and col_idx not in available:
+                return False
+        return True
+
+    def _apply_mapping_to_combos(
+        self,
+        mapping: Dict[str, Optional[int]]
+    ) -> None:
+        """Показать маппинг в комбобоксах."""
+        for col_type, combo in self.mapping_combos.items():
+            combo.blockSignals(True)
+            col_idx = mapping.get(col_type)
+            if col_idx is not None:
+                for i in range(combo.count()):
+                    if combo.itemData(i) == col_idx:
+                        combo.setCurrentIndex(i)
+                        break
+                else:
+                    combo.setCurrentIndex(0)
+            else:
+                combo.setCurrentIndex(0)
+            combo.blockSignals(False)
+
     @Slot()
     def _auto_detect_columns(self) -> None:
         """Автоопределение колонок"""
@@ -361,19 +412,8 @@ class DocxImportDialog(QDialog):
         detected = self.docx_service.detect_columns(self.current_rows)
         self.current_mapping = detected
 
-        # Обновляем комбобоксы
-        for col_type, combo in self.mapping_combos.items():
-            combo.blockSignals(True)
-            col_idx = detected.get(col_type)
-            if col_idx is not None:
-                # Находим индекс в комбобоксе
-                for i in range(combo.count()):
-                    if combo.itemData(i) == col_idx:
-                        combo.setCurrentIndex(i)
-                        break
-            else:
-                combo.setCurrentIndex(0)  # "Не использовать"
-            combo.blockSignals(False)
+        self._apply_mapping_to_combos(detected)
+        self.mapping_hint.setText("Колонки определены автоматически.")
 
         # Обновляем предпросмотр
         self._update_preview()
@@ -514,10 +554,13 @@ class DocxImportDialog(QDialog):
                 )
                 return
 
+            self._save_current_import_settings()
+
             # Возвращаем результат для одной таблицы
             self.result_data = {
                 'stats': stats,
                 'lines': lines,
+                'source_path': self.file_path,
                 'mapping': self.current_mapping,
                 'tables_count': 1
             }
@@ -564,10 +607,13 @@ class DocxImportDialog(QDialog):
                 )
                 return
 
+            self._save_current_import_settings()
+
             # Возвращаем результат для всех таблиц
             self.result_data = {
                 'stats': all_stats,
                 'lines': all_lines,
+                'source_path': self.file_path,
                 'mapping': self.current_mapping,
                 'tables_count': len(self.current_tables)
             }
@@ -583,3 +629,21 @@ class DocxImportDialog(QDialog):
     def get_result(self) -> Optional[Dict[str, Any]]:
         """Получение результата импорта"""
         return getattr(self, 'result_data', None)
+
+    def _save_current_import_settings(self) -> None:
+        """Сохранить маппинг DOCX для следующих импортов."""
+        config = {
+            "mapping": self.current_mapping.copy(),
+            "time_separators": self.time_separators.copy(),
+        }
+
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "global_settings_service"):
+            parent.global_settings.setdefault("docx_import_config", {}).update(config)
+            parent.global_settings_service.update_docx_import_config(config)
+            parent.global_settings_service.save_settings(parent.global_settings)
+            return
+
+        self.global_settings.setdefault("docx_import_config", {}).update(config)
+        self.global_settings_service.update_docx_import_config(config)
+        self.global_settings_service.save_settings(self.global_settings)
