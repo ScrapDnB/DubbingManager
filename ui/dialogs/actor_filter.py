@@ -1,4 +1,4 @@
-"""Диалог выбора актёров для подсветки"""
+"""Actor filter dialog."""
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -9,7 +9,7 @@ from typing import Dict, List, Set, Optional
 
 
 class ActorFilterDialog(QDialog):
-    """Диалог выбора актёров для фильтрации/подсветки"""
+    """Actor Filter Dialog dialog."""
 
     def __init__(
         self,
@@ -31,7 +31,7 @@ class ActorFilterDialog(QDialog):
     def _init_ui(self) -> None:
         layout: QVBoxLayout = QVBoxLayout(self)
 
-        # Кнопки "Все" / "Сбросить"
+        # Internal implementation detail
         btn_layout: QHBoxLayout = QHBoxLayout()
         btn_all = QPushButton("Все")
         btn_none = QPushButton("Сбросить")
@@ -41,7 +41,7 @@ class ActorFilterDialog(QDialog):
         btn_layout.addWidget(btn_none)
         layout.addLayout(btn_layout)
 
-        # Список чекбоксов с прокруткой
+        # Internal implementation detail
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         content = QWidget()
@@ -61,7 +61,7 @@ class ActorFilterDialog(QDialog):
         scroll.setWidget(content)
         layout.addWidget(scroll)
 
-        # Кнопка применения
+        # Internal implementation detail
         btn_ok = QPushButton("Применить")
         btn_ok.clicked.connect(self.accept)
         layout.addWidget(btn_ok)
@@ -77,5 +77,5 @@ class ActorFilterDialog(QDialog):
             chk.setChecked(False)
 
     def get_selected(self) -> List[str]:
-        """Возвращает список выбранных ID актёров"""
+        """Return selected."""
         return [aid for aid, chk in self._checkboxes.items() if chk.isChecked()]

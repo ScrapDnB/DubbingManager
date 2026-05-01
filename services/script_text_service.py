@@ -1,4 +1,4 @@
-"""Сервис рабочих текстов эпизодов"""
+"""Service for episode working-text files."""
 
 import json
 import os
@@ -14,7 +14,7 @@ SCRIPT_TEXT_FORMAT_VERSION = "1.0"
 
 
 class ScriptTextService:
-    """Создание и сохранение внутренних рабочих текстов эпизодов."""
+    """Script Text Service implementation."""
 
     def get_texts_dir(
         self,
@@ -22,7 +22,7 @@ class ScriptTextService:
         source_path: str,
         project_path: Optional[str] = None
     ) -> Path:
-        """Получить папку для рабочих текстов."""
+        """Return texts dir."""
         project_folder = project_data.get("project_folder")
         if project_folder:
             return Path(project_folder) / SCRIPT_TEXT_DIR_NAME
@@ -42,7 +42,7 @@ class ScriptTextService:
         merge_config: Dict[str, Any],
         project_path: Optional[str] = None
     ) -> str:
-        """Создать рабочий JSON эпизода из импортированных реплик."""
+        """Create episode text."""
         normalized_lines = self._ensure_source_ids(lines)
         export_service = ExportService(project_data)
         merged_lines = export_service.process_merge_logic(
@@ -68,7 +68,7 @@ class ScriptTextService:
         return str(text_path)
 
     def load_episode_text(self, path: str) -> Dict[str, Any]:
-        """Загрузить рабочий JSON эпизода."""
+        """Load episode text."""
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
@@ -77,7 +77,7 @@ class ScriptTextService:
         project_data: Dict[str, Any],
         ep_num: str
     ) -> List[Dict[str, Any]]:
-        """Загрузить рабочие реплики эпизода в формате приложения."""
+        """Load episode lines."""
         text_path = project_data.get("episode_texts", {}).get(ep_num)
         if not text_path or not os.path.exists(text_path):
             return []
@@ -115,7 +115,7 @@ class ScriptTextService:
         line_id: Any,
         new_text: str
     ) -> bool:
-        """Обновить текст рабочей реплики и сохранить JSON."""
+        """Update line text."""
         text_path = project_data.get("episode_texts", {}).get(str(ep_num))
         if not text_path or not os.path.exists(text_path):
             return False
@@ -144,12 +144,7 @@ class ScriptTextService:
         new_name: str,
         ep_num: Optional[str] = None
     ) -> int:
-        """
-        Переименовать отображаемое имя персонажа в рабочих текстах.
-
-        Исходное поле ``character`` не меняется: оно остаётся стабильной
-        связью с импортированным ASS/SRT.
-        """
+        """Rename character."""
         episode_texts = project_data.get("episode_texts", {})
         if ep_num is not None:
             items = [(str(ep_num), episode_texts.get(str(ep_num)))]
@@ -190,7 +185,7 @@ class ScriptTextService:
         self,
         lines: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Гарантировать стабильные id исходных реплик."""
+        """Ensure source ids."""
         normalized = []
         for idx, line in enumerate(lines):
             item = line.copy()
@@ -203,7 +198,7 @@ class ScriptTextService:
         lines: List[Dict[str, Any]],
         line_id: Any
     ) -> Optional[Dict[str, Any]]:
-        """Найти строку рабочего JSON по индексу или строковому id."""
+        """Find payload line."""
         line_id_str = str(line_id)
         for idx, line in enumerate(lines):
             if str(line.get("id")) == line_id_str:
@@ -222,7 +217,7 @@ class ScriptTextService:
         merged_lines: List[Dict[str, Any]],
         merge_config: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Собрать JSON-представление рабочего эпизода."""
+        """Build episode payload."""
         source = Path(source_path)
         characters = sorted({
             line.get('char', '')
@@ -266,6 +261,6 @@ class ScriptTextService:
         }
 
     def _safe_episode_num(self, ep_num: str) -> str:
-        """Сделать номер эпизода безопасным для имени файла."""
+        """Safe episode num."""
         safe = ''.join(ch if ch.isalnum() else '_' for ch in ep_num.strip())
         return safe or "episode"

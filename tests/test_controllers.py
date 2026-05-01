@@ -496,8 +496,10 @@ class TestExportController:
             
             assert success == True
             assert os.path.exists(path)
+            with open(path, 'rb') as f:
+                assert f.read(3) == b'\xef\xbb\xbf'
             
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, 'r', encoding='utf-8-sig') as f:
                 content = f.read()
                 assert "<REAPER_PROJECT" in content
         finally:

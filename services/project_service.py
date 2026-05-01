@@ -1,4 +1,4 @@
-"""Сервис для управления проектами"""
+"""Service for project file loading and saving."""
 
 import json
 import os
@@ -10,8 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-# fcntl доступен только на Unix-системах
-# Используем try/except для надёжности при сборке PyInstaller
+# Internal implementation detail
+# Internal implementation detail
 try:
     import fcntl
     HAS_FCNTL = True
@@ -30,29 +30,20 @@ from config.constants import (
 
 logger = logging.getLogger(__name__)
 
-# Версия формата проекта
+# Internal implementation detail
 PROJECT_FORMAT_VERSION = PROJECT_VERSION
 
-# Максимальное количество бэкапов
+# Internal implementation detail
 MAX_BACKUPS = 10
 
 
 class ProjectValidationError(Exception):
-    """Исключение валидации проекта"""
+    """Project Validation Error class."""
     pass
 
 
 class ProjectService:
-    """
-    Сервис для работы с проектами: загрузка, сохранение, автосохранение.
-    
-    Особенности:
-    - Атомарное сохранение через временный файл
-    - Валидация структуры данных при загрузке
-    - Мета-информация (версии, даты)
-    - Ротация бэкапов
-    - Обратная совместимость форматов
-    """
+    """Project Service implementation."""
 
     def __init__(self):
         self.current_project_path: Optional[str] = None
@@ -60,15 +51,7 @@ class ProjectService:
         self._project_metadata: Dict[str, Any] = {}
 
     def create_new_project(self, name: str) -> Dict[str, Any]:
-        """
-        Создание нового проекта.
-        
-        Args:
-            name: Название проекта
-            
-        Returns:
-            Словарь с данными проекта
-        """
+        """Create new project."""
         now = datetime.now().isoformat()
 
         return {
@@ -91,34 +74,22 @@ class ProjectService:
             "prompter_config": deepcopy(DEFAULT_PROMPTER_CONFIG),
             "replica_merge_config": deepcopy(DEFAULT_REPLICA_MERGE_CONFIG),
             "docx_import_config": deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
-            "project_folder": None,  # Путь к папке проекта
+            "project_folder": None,  # Internal implementation detail
         }
 
     def load_project(self, path: str) -> Optional[Dict[str, Any]]:
-        """
-        Загрузка проекта из файла.
-        
-        Args:
-            path: Путь к файлу проекта
-            
-        Returns:
-            Данные проекта
-            
-        Raises:
-            ProjectValidationError: Если данные не прошли валидацию
-            json.JSONDecodeError: Если файл не является валидным JSON
-        """
+        """Load project."""
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            # Валидация структуры
+            # Internal implementation detail
             self._validate_project_structure(data)
             
-            # Обратная совместимость
+            # Internal implementation detail
             self._ensure_compatibility(data)
             
-            # Обновление metadata
+            # Internal implementation detail
             self._update_metadata_on_load(data, path)
 
             self.current_project_path = path
@@ -142,16 +113,7 @@ class ProjectService:
         data: Dict[str, Any],
         path: Optional[str] = None
     ) -> bool:
-        """
-        Сохранение проекта.
-        
-        Args:
-            data: Данные проекта
-            path: Путь для сохранения (если None, используется текущий)
-            
-        Returns:
-            True если сохранение успешно
-        """
+        """Save project."""
         save_path = path or self.current_project_path
 
         if not save_path:
@@ -165,63 +127,42 @@ class ProjectService:
         data: Dict[str, Any],
         path: str
     ) -> bool:
-        """
-        Сохранение проекта как...
-        
-        Args:
-            data: Данные проекта
-            path: Путь для сохранения
-            
-        Returns:
-            True если сохранение успешно
-        """
+        """Save project as."""
         self.current_project_path = path
         return self._do_save(data, path)
 
     def _do_save(self, data: Dict[str, Any], path: str) -> bool:
-        """
-        Внутренний метод сохранения с атомарностью и блокировкой файла.
-
-        Использует временный файл, атомарную замену и файловую блокировку
-        для предотвращения повреждения данных при одновременной записи.
-
-        Args:
-            data: Данные проекта
-            path: Путь для сохранения
-
-        Returns:
-            True если сохранение успешно
-        """
-        # Обновление metadata перед сохранением
+        """Do save."""
+        # Internal implementation detail
         self._update_metadata_on_save(data)
 
-        # Временный файл для атомарного сохранения
+        # Internal implementation detail
         temp_path = path + ".tmp"
 
         try:
-            # Запись во временный файл с эксклюзивной блокировкой
+            # Internal implementation detail
             with open(temp_path, 'w', encoding='utf-8') as f:
-                # Устанавливаем эксклюзивную блокировку (неблокирующую)
-                # fcntl доступен только на Unix-системах
+                # Internal implementation detail
+                # Internal implementation detail
                 if HAS_FCNTL:
                     try:
                         fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                     except (IOError, OSError) as lock_err:
                         logger.warning(f"Could not acquire lock on {temp_path}: {lock_err}")
-                        # Продолжаем без блокировки - лучше сохранить, чем потерять данные
+                        # Internal implementation detail
 
                 json.dump(data, f, ensure_ascii=False, indent=4)
                 f.flush()
-                os.fsync(f.fileno())  # Гарантируем запись на диск
+                os.fsync(f.fileno())  # Internal implementation detail
 
-                # Освобождаем блокировку
+                # Internal implementation detail
                 if HAS_FCNTL:
                     try:
                         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
                     except (IOError, OSError):
                         pass
 
-            # Атомарная замена основного файла
+            # Internal implementation detail
             os.replace(temp_path, path)
 
             self.is_dirty = False
@@ -230,7 +171,7 @@ class ProjectService:
 
         except Exception as e:
             logger.error(f"Save failed: {e}")
-            # Очистка временного файла при ошибке
+            # Internal implementation detail
             if os.path.exists(temp_path):
                 try:
                     os.unlink(temp_path)
@@ -238,7 +179,7 @@ class ProjectService:
                     pass
             return False
         finally:
-            # Дополнительная очистка на случай если os.replace не сработал
+            # Internal implementation detail
             if os.path.exists(temp_path):
                 try:
                     os.unlink(temp_path)
@@ -246,36 +187,28 @@ class ProjectService:
                     pass
 
     def auto_save(self, data: Dict[str, Any]) -> bool:
-        """
-        Автосохранение проекта с ротацией бэкапов.
-        
-        Args:
-            data: Данные проекта
-            
-        Returns:
-            True если автосохранение успешно
-        """
+        """Auto save."""
         if not self.is_dirty:
             return True
 
         if self.current_project_path:
-            # Директория для бэкапов
+            # Internal implementation detail
             backup_dir = Path(self.current_project_path).parent / ".backups"
             backup_dir.mkdir(exist_ok=True)
             
-            # Имя файла с timestamp
+            # Internal implementation detail
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             base_name = Path(self.current_project_path).stem
             backup_path = backup_dir / f"{base_name}_{timestamp}.json"
             
             try:
-                # Сохранение бэкапа
+                # Internal implementation detail
                 with open(backup_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, ensure_ascii=False, indent=4)
                 
                 logger.debug(f"Auto-saved to {backup_path}")
                 
-                # Ротация старых бэкапов
+                # Internal implementation detail
                 self._rotate_backups(backup_dir)
                 
                 return True
@@ -284,7 +217,7 @@ class ProjectService:
                 logger.error(f"Auto-save failed: {e}")
                 return False
         else:
-            # Если проект ещё не сохранён, используем временный файл
+            # Internal implementation detail
             path = "temp_autosave.json.bak"
             try:
                 with open(path, 'w', encoding='utf-8') as f:
@@ -296,21 +229,16 @@ class ProjectService:
                 return False
 
     def _rotate_backups(self, backup_dir: Path) -> None:
-        """
-        Ротация бэкапов - хранит только последние MAX_BACKUPS.
-        
-        Args:
-            backup_dir: Директория с бэкапами
-        """
+        """Rotate backups."""
         try:
-            # Получаем список всех бэкапов, сортируем по времени
+            # Internal implementation detail
             backups = sorted(
                 backup_dir.glob("*.json"),
                 key=lambda p: p.stat().st_mtime,
                 reverse=True
             )
             
-            # Удаляем старые, если их больше MAX_BACKUPS
+            # Internal implementation detail
             for old_backup in backups[MAX_BACKUPS:]:
                 try:
                     old_backup.unlink()
@@ -322,16 +250,8 @@ class ProjectService:
             logger.error(f"Backup rotation failed: {e}")
 
     def _validate_project_structure(self, data: Dict[str, Any]) -> None:
-        """
-        Валидация структуры данных проекта.
-        
-        Args:
-            data: Данные проекта
-            
-        Raises:
-            ProjectValidationError: Если структура невалидна
-        """
-        # Проверка обязательных полей
+        """Validate project structure."""
+        # Internal implementation detail
         required_fields = [
             "project_name",
             "actors",
@@ -344,7 +264,7 @@ class ProjectService:
                     f"Missing required field: {field}"
                 )
         
-        # Проверка типов данных
+        # Internal implementation detail
         if not isinstance(data["project_name"], str):
             raise ProjectValidationError(
                 "Field 'project_name' must be a string"
@@ -360,13 +280,13 @@ class ProjectService:
                 "Field 'episodes' must be a dictionary"
             )
         
-        # Проверка global_map (если есть)
+        # Internal implementation detail
         if "global_map" in data and not isinstance(data["global_map"], dict):
             raise ProjectValidationError(
                 "Field 'global_map' must be a dictionary"
             )
 
-        # Проверка episode_actor_map (если есть)
+        # Internal implementation detail
         if (
             "episode_actor_map" in data and
             not isinstance(data["episode_actor_map"], dict)
@@ -375,27 +295,20 @@ class ProjectService:
                 "Field 'episode_actor_map' must be a dictionary"
             )
         
-        # Проверка video_paths (если есть)
+        # Video handling
         if "video_paths" in data and not isinstance(data["video_paths"], dict):
             raise ProjectValidationError(
                 "Field 'video_paths' must be a dictionary"
             )
 
-        # Проверка episode_texts (если есть)
+        # Internal implementation detail
         if "episode_texts" in data and not isinstance(data["episode_texts"], dict):
             raise ProjectValidationError(
                 "Field 'episode_texts' must be a dictionary"
             )
 
     def _ensure_compatibility(self, data: Dict[str, Any]) -> None:
-        """
-        Обеспечение обратной совместимости формата проекта.
-
-        Добавляет缺失ствующие поля со значениями по умолчанию.
-
-        Args:
-            data: Данные проекта
-        """
+        """Ensure compatibility."""
         if "video_paths" not in data:
             data["video_paths"] = {}
         if "episode_texts" not in data:
@@ -411,7 +324,7 @@ class ProjectService:
         if "loaded_episodes" not in data:
             data["loaded_episodes"] = {}
         if "replica_merge_config" not in data:
-            # Миграция: если настройки объединения в export_config, переносим их
+            # Internal implementation detail
             if "export_config" in data:
                 export_cfg = data["export_config"]
                 data["replica_merge_config"] = {
@@ -427,67 +340,43 @@ class ProjectService:
         if "docx_import_config" not in data:
             data["docx_import_config"] = deepcopy(DEFAULT_DOCX_IMPORT_CONFIG)
         
-        # Добавляем project_folder для старых проектов
+        # Internal implementation detail
         if "project_folder" not in data:
             data["project_folder"] = None
 
-        # Проверка metadata для старых проектов
+        # Internal implementation detail
         if "metadata" not in data:
             now = datetime.now().isoformat()
             data["metadata"] = {
-                "format_version": "0.9",  # Старый формат
+                "format_version": "0.9",  # Internal implementation detail
                 "app_version": "pre-1.0",
                 "created_at": now,
                 "modified_at": now,
             }
 
     def _update_metadata_on_save(self, data: Dict[str, Any]) -> None:
-        """
-        Обновление metadata при сохранении.
-        
-        Args:
-            data: Данные проекта
-        """
+        """Update metadata on save."""
         if "metadata" not in data:
             data["metadata"] = {}
         
-        # Обновление времени изменения
+        # Internal implementation detail
         data["metadata"]["modified_at"] = datetime.now().isoformat()
         data["metadata"]["format_version"] = PROJECT_FORMAT_VERSION
         data["metadata"]["app_version"] = "1.0+"
 
     def _update_metadata_on_load(self, data: Dict[str, Any], path: str) -> None:
-        """
-        Обновление metadata при загрузке.
-        
-        Args:
-            data: Данные проекта
-            path: Путь к файлу
-        """
+        """Update metadata on load."""
         if "metadata" in data:
             self._project_metadata = data["metadata"]
         else:
             self._project_metadata = {}
 
     def set_dirty(self, dirty: bool = True) -> None:
-        """
-        Установка флага изменений.
-        
-        Args:
-            dirty: True если проект изменён
-        """
+        """Set dirty."""
         self.is_dirty = dirty
 
     def get_project_name(self, data: Dict[str, Any]) -> str:
-        """
-        Получение имени проекта.
-        
-        Args:
-            data: Данные проекта
-            
-        Returns:
-            Название проекта
-        """
+        """Return project name."""
         return data.get("project_name", "Новый проект")
 
     def set_project_name(
@@ -495,26 +384,12 @@ class ProjectService:
         data: Dict[str, Any],
         name: str
     ) -> None:
-        """
-        Установка имени проекта.
-        
-        Args:
-            data: Данные проекта
-            name: Новое название
-        """
+        """Set project name."""
         data["project_name"] = name
         self.set_dirty()
 
     def get_window_title(self, data: Dict[str, Any]) -> str:
-        """
-        Формирование заголовка окна.
-        
-        Args:
-            data: Данные проекта
-            
-        Returns:
-            Заголовок окна
-        """
+        """Return window title."""
         title = "Dubbing Manager"
 
         if self.current_project_path:
@@ -528,32 +403,17 @@ class ProjectService:
         return title
 
     def get_project_metadata(self) -> Dict[str, Any]:
-        """
-        Получение мета-информации проекта.
-        
-        Returns:
-            Мета-информация
-        """
+        """Return project metadata."""
         return self._project_metadata.copy()
 
     def get_backup_directory(self) -> Optional[Path]:
-        """
-        Получение директории бэкапов для текущего проекта.
-        
-        Returns:
-            Путь к директории бэкапов или None
-        """
+        """Return backup directory."""
         if self.current_project_path:
             return Path(self.current_project_path).parent / ".backups"
         return None
 
     def list_backups(self) -> List[Path]:
-        """
-        Получение списка бэкапов.
-        
-        Returns:
-            Отсортированный список путей к бэкапам
-        """
+        """List backups."""
         backup_dir = self.get_backup_directory()
         if backup_dir and backup_dir.exists():
             return sorted(
@@ -564,25 +424,16 @@ class ProjectService:
         return []
 
     def restore_from_backup(self, backup_path: str, target_path: str) -> bool:
-        """
-        Восстановление из бэкапа.
-        
-        Args:
-            backup_path: Путь к файлу бэкапа
-            target_path: Путь для восстановления
-            
-        Returns:
-            True если восстановление успешно
-        """
+        """Restore from backup."""
         try:
-            # Чтение бэкапа
+            # Internal implementation detail
             with open(backup_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            # Валидация
+            # Internal implementation detail
             self._validate_project_structure(data)
             
-            # Сохранение в целевой файл
+            # Internal implementation detail
             return self._do_save(data, target_path)
             
         except Exception as e:

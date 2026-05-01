@@ -1,4 +1,4 @@
-"""Сервисы для бизнес-логики приложения"""
+"""Business-logic services for the application."""
 
 from .project_service import ProjectService
 from .episode_service import EpisodeService

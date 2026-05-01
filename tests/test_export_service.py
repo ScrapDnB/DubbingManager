@@ -472,6 +472,22 @@ class TestExportService:
         assert 'NAME "VIDEO"' in rpp
         assert 'FILE "/tmp/video file.mov"' in rpp
 
+    def test_save_reaper_rpp_writes_utf8_bom_for_cyrillic(
+        self,
+        sample_project_data: Dict[str, Any],
+        tmp_path
+    ) -> None:
+        """Тест: RPP сохраняется с UTF-8 BOM для корректной кириллицы в Reaper."""
+        service = ExportService(sample_project_data)
+        save_path = tmp_path / "regions.rpp"
+        content = '<REAPER_PROJECT 0.1 "7.0"\n  MARKER 1 0.0000 "Герой: Привет" 1 0\n>'
+
+        service.save_reaper_rpp(str(save_path), content)
+
+        raw = save_path.read_bytes()
+        assert raw.startswith(b'\xef\xbb\xbf')
+        assert save_path.read_text(encoding='utf-8-sig') == content
+
     def test_count_words(self) -> None:
         """Тест: подсчёт количества слов"""
         service = ExportService({})

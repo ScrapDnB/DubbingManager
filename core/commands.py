@@ -1,4 +1,4 @@
-"""Система отмены/повтора действий (Undo/Redo)"""
+"""Undoable command objects."""
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Callable
@@ -9,33 +9,26 @@ logger = logging.getLogger(__name__)
 
 
 class Command(ABC):
-    """
-    Базовый класс команды для системы Undo/Redo.
-    
-    Все команды должны наследовать этот класс и реализовать:
-    - execute(): выполнение действия
-    - undo(): отмена действия
-    - get_description(): текстовое описание для UI
-    """
+    """Undoable command for ."""
 
     @abstractmethod
     def execute(self) -> None:
-        """Выполнение команды"""
+        """Execute."""
         pass
 
     @abstractmethod
     def undo(self) -> None:
-        """Отмена команды"""
+        """Undo."""
         pass
 
     @abstractmethod
     def get_description(self) -> str:
-        """Текстовое описание команды для отображения в UI"""
+        """Return description."""
         pass
 
 
 class AddActorCommand(Command):
-    """Команда добавления актёра"""
+    """Undoable command for add actor."""
 
     def __init__(
         self,
@@ -71,7 +64,7 @@ class AddActorCommand(Command):
 
 
 class DeleteActorCommand(Command):
-    """Команда удаления актёра"""
+    """Undoable command for delete actor."""
 
     def __init__(
         self,
@@ -91,12 +84,12 @@ class DeleteActorCommand(Command):
     def execute(self) -> None:
         self._deleted_data = self.actors.get(self.actor_id)
 
-        # Сохраняем и удаляем маппинги
+        # Internal implementation detail
         self._removed_mappings = [
             (char, aid) for char, aid in self.global_map.items()
             if aid == self.actor_id
         ]
-        # Явно создаём копию списка ключей для безопасного удаления
+        # Internal implementation detail
         chars_to_remove = [char for char, aid in self.global_map.items() if aid == self.actor_id]
         for char in chars_to_remove:
             del self.global_map[char]
@@ -113,18 +106,18 @@ class DeleteActorCommand(Command):
                 )
                 del assignment_map[char]
 
-        # Удаляем актёра
+        # Remove actor
         if self.actor_id in self.actors:
             del self.actors[self.actor_id]
 
         logger.debug(f"DeleteActorCommand executed: {self.actor_id}")
 
     def undo(self) -> None:
-        # Восстанавливаем актёра
+        # Internal implementation detail
         if self._deleted_data:
             self.actors[self.actor_id] = self._deleted_data
         
-        # Восстанавливаем маппинги
+        # Internal implementation detail
         for char, aid in self._removed_mappings:
             self.global_map[char] = aid
 
@@ -140,7 +133,7 @@ class DeleteActorCommand(Command):
 
 
 class RenameActorCommand(Command):
-    """Команда переименования актёра"""
+    """Undoable command for rename actor."""
 
     def __init__(
         self,
@@ -169,7 +162,7 @@ class RenameActorCommand(Command):
 
 
 class UpdateActorColorCommand(Command):
-    """Команда обновления цвета актёра"""
+    """Undoable command for update actor color."""
 
     def __init__(
         self,
@@ -198,7 +191,7 @@ class UpdateActorColorCommand(Command):
 
 
 class AssignActorToCharacterCommand(Command):
-    """Команда назначения актёра на персонажа"""
+    """Undoable command for assign actor to character."""
 
     def __init__(
         self,
@@ -231,7 +224,7 @@ class AssignActorToCharacterCommand(Command):
 
 
 class RenameCharacterCommand(Command):
-    """Команда переименования персонажа"""
+    """Undoable command for rename character."""
 
     def __init__(
         self,
@@ -260,19 +253,19 @@ class RenameCharacterCommand(Command):
         logger.debug(f"RenameCharacterCommand undone: {self.new_name} -> {self.old_name}")
 
     def _update_names(self, from_name: str, to_name: str) -> None:
-        # Обновляем global_map
+        # Update global_map
         if from_name in self.global_map:
             actor_id = self.global_map[from_name]
             del self.global_map[from_name]
             self.global_map[to_name] = actor_id
 
-        # Обновляем загруженные эпизоды
+        # Internal implementation detail
         if self.episode in self.loaded_episodes:
             for line in self.loaded_episodes[self.episode]:
                 if line.get('char') == from_name:
                     line['char'] = to_name
 
-        # Обновляем статистику эпизода
+        # Internal implementation detail
         for stat in self.current_ep_stats:
             if stat.get("name") == from_name:
                 stat["name"] = to_name
@@ -286,7 +279,7 @@ class RenameCharacterCommand(Command):
 
 
 class AddEpisodeCommand(Command):
-    """Команда добавления эпизода"""
+    """Undoable command for add episode."""
 
     def __init__(
         self,
@@ -316,7 +309,7 @@ class AddEpisodeCommand(Command):
 
 
 class RenameEpisodeCommand(Command):
-    """Команда переименования эпизода"""
+    """Undoable command for rename episode."""
 
     def __init__(
         self,
@@ -353,7 +346,7 @@ class RenameEpisodeCommand(Command):
 
 
 class DeleteEpisodeCommand(Command):
-    """Команда удаления эпизода"""
+    """Undoable command for delete episode."""
 
     def __init__(
         self,
@@ -408,7 +401,7 @@ class DeleteEpisodeCommand(Command):
 
 
 class UpdateProjectNameCommand(Command):
-    """Команда переименования проекта"""
+    """Undoable command for update project name."""
 
     def __init__(
         self,
@@ -434,7 +427,7 @@ class UpdateProjectNameCommand(Command):
 
 
 class SetProjectFolderCommand(Command):
-    """Команда установки папки проекта"""
+    """Undoable command for set project folder."""
 
     def __init__(
         self,
@@ -468,17 +461,7 @@ class SetProjectFolderCommand(Command):
 
 
 class UndoStack:
-    """
-    Стек отмены/повтора действий.
-
-    Хранит историю выполненных команд и позволяет:
-    - Отменять последние действия (undo)
-    - Повторять отменённые действия (redo)
-    - Очищать историю
-    
-    Примечание: для предотвращения утечки памяти при достижении
-    max_size старые команды удаляются без вызова undo().
-    """
+    """Undo Stack class."""
 
     def __init__(self, max_size: int = 100):
         self._undo_stack: List[Command] = []
@@ -487,48 +470,33 @@ class UndoStack:
         self._on_change_callbacks: List[Callable] = []
 
     def push(self, command: Command) -> None:
-        """
-        Выполнение и сохранение команды.
-
-        Args:
-            command: Команда для выполнения
-        """
+        """Push."""
         command.execute()
         self._undo_stack.append(command)
 
-        # Ограничиваем размер стека - удаляем старые команды
-        # (без вызова undo, т.к. они уже применены)
+        # Internal implementation detail
+        # Internal implementation detail
         while len(self._undo_stack) > self._max_size:
             old_command = self._undo_stack.pop(0)
-            # Очищаем ссылки на данные для предотвращения утечек памяти
+            # Internal implementation detail
             self._cleanup_command(old_command)
 
-        # Очищаем redo стек при новом действии
+        # Internal implementation detail
         self._redo_stack.clear()
 
         self._notify_change()
         logger.debug(f"Command pushed: {command.get_description()}")
 
     def _cleanup_command(self, command: Command) -> None:
-        """
-        Очистка ссылок на данные в команде для предотвращения утечек памяти.
-        
-        Args:
-            command: Команда для очистки
-        """
-        # Очищаем атрибуты команды, которые могут держать большие объекты
+        """Cleanup command."""
+        # Internal implementation detail
         for attr_name in ['_old_data', '_deleted_data', '_removed_mappings', 
                           '_old_name', '_old_color', '_old_folder', '_old_actor_id']:
             if hasattr(command, attr_name):
                 setattr(command, attr_name, None)
 
     def undo(self) -> bool:
-        """
-        Отмена последнего действия.
-        
-        Returns:
-            True если отмена успешна
-        """
+        """Undo."""
         if not self._undo_stack:
             logger.debug("Undo failed: stack is empty")
             return False
@@ -542,12 +510,7 @@ class UndoStack:
         return True
 
     def redo(self) -> bool:
-        """
-        Повтор отменённого действия.
-        
-        Returns:
-            True если повтор успешен
-        """
+        """Redo."""
         if not self._redo_stack:
             logger.debug("Redo failed: stack is empty")
             return False
@@ -561,16 +524,16 @@ class UndoStack:
         return True
 
     def can_undo(self) -> bool:
-        """Проверка возможности отмены"""
+        """Can undo."""
         return len(self._undo_stack) > 0
 
     def can_redo(self) -> bool:
-        """Проверка возможности повтора"""
+        """Can redo."""
         return len(self._redo_stack) > 0
 
     def clear(self) -> None:
-        """Очистка всех стеков с освобождением памяти"""
-        # Очищаем все команды для освобождения памяти
+        """Clear."""
+        # Internal implementation detail
         for command in self._undo_stack:
             self._cleanup_command(command)
         for command in self._redo_stack:
@@ -582,16 +545,11 @@ class UndoStack:
         logger.debug("UndoStack cleared")
 
     def on_change(self, callback: Callable) -> None:
-        """
-        Регистрация обработчика изменений стека.
-        
-        Args:
-            callback: Функция обратного вызова
-        """
+        """Handle change."""
         self._on_change_callbacks.append(callback)
 
     def _notify_change(self) -> None:
-        """Уведомление подписчиков об изменении"""
+        """Notify change."""
         for callback in self._on_change_callbacks:
             try:
                 callback()

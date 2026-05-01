@@ -1,4 +1,4 @@
-"""Контроллер управления эпизодами"""
+"""Controller for episode management."""
 
 import os
 import re
@@ -17,15 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class EpisodeController:
-    """
-    Контроллер для управления эпизодами.
-
-    Отвечает за:
-    - Загрузку и смену эпизодов
-    - Импорт файлов (ASS, SRT, DOCX)
-    - Сохранение эпизодов
-    - Переименование и удаление эпизодов
-    """
+    """Episode Controller controller."""
 
     def __init__(
         self,
@@ -38,37 +30,29 @@ class EpisodeController:
         self.on_dirty_callback = on_dirty_callback
 
     def _mark_dirty(self) -> None:
-        """Пометка проекта как изменённого"""
+        """Mark dirty."""
         if self.on_dirty_callback:
             self.on_dirty_callback()
 
     def change_episode(self, ep_num: str) -> List[Dict[str, Any]]:
-        """
-        Смена текущего эпизода
-
-        Args:
-            ep_num: номер эпизода
-
-        Returns:
-            Список реплик эпизода
-        """
+        """Change episode."""
         episodes = self.data_ref.get("episodes", {})
         path = episodes.get(ep_num)
 
         if not path:
             return []
 
-        # Проверяем существование файла
+        # Internal implementation detail
         if not os.path.exists(path):
             return []
 
-        # Определяем тип файла и загружаем
+        # Internal implementation detail
         if path.lower().endswith('.srt'):
             lines = self.episode_service.load_srt_episode(ep_num, episodes)
         else:
             lines = self.episode_service.load_episode(ep_num, episodes)
 
-        # Сохраняем в кэш проекта
+        # Internal implementation detail
         self.data_ref["loaded_episodes"][ep_num] = lines
 
         return lines
@@ -78,16 +62,7 @@ class EpisodeController:
         paths: Optional[List[str]] = None,
         parent_widget=None
     ) -> Tuple[bool, str]:
-        """
-        Импорт ASS файлов
-
-        Args:
-            paths: пути к файлам (если None - показать диалог)
-            parent_widget: родительский виджет для диалога
-
-        Returns:
-            Tuple[success, message]
-        """
+        """Import ass."""
         if not paths:
             paths, _ = QFileDialog.getOpenFileNames(
                 parent_widget,
@@ -106,7 +81,7 @@ class EpisodeController:
             if not os.path.exists(path):
                 continue
 
-            # Извлекаем номер серии из имени файла
+            # Extract the episode number from the filename
             ep_num = self._extract_episode_number(path)
             if not ep_num:
                 continue
@@ -124,16 +99,7 @@ class EpisodeController:
         paths: Optional[List[str]] = None,
         parent_widget=None
     ) -> Tuple[bool, str]:
-        """
-        Импорт SRT файлов
-
-        Args:
-            paths: пути к файлам (если None - показать диалог)
-            parent_widget: родительский виджет для диалога
-
-        Returns:
-            Tuple[success, message]
-        """
+        """Import srt."""
         if not paths:
             paths, _ = QFileDialog.getOpenFileNames(
                 parent_widget,
@@ -169,16 +135,7 @@ class EpisodeController:
         paths: Optional[List[str]] = None,
         parent_widget=None
     ) -> Tuple[bool, str]:
-        """
-        Импорт DOCX файлов
-
-        Args:
-            paths: пути к файлам (если None - показать диалог)
-            parent_widget: родительский виджет для диалога
-
-        Returns:
-            Tuple[success, message]
-        """
+        """Import docx."""
         if not paths:
             paths, _ = QFileDialog.getOpenFileNames(
                 parent_widget,
@@ -190,7 +147,7 @@ class EpisodeController:
         if not paths:
             return False, "Файлы не выбраны"
 
-        # Импорт DOCX требует диалога настройки - возвращаем пути
+        # DOCX-specific handling
         return True, paths[0] if len(paths) == 1 else str(paths)
 
     def save_episode(
@@ -198,16 +155,7 @@ class EpisodeController:
         ep_num: str,
         target_path: Optional[str] = None
     ) -> Tuple[bool, str]:
-        """
-        Сохранение эпизода
-
-        Args:
-            ep_num: номер эпизода
-            target_path: путь для сохранения (если None - в оригинал)
-
-        Returns:
-            Tuple[success, message]
-        """
+        """Save an episode to an ASS file."""
         episodes = self.data_ref.get("episodes", {})
         loaded_episodes = self.data_ref.get("loaded_episodes", {})
 
@@ -225,7 +173,7 @@ class EpisodeController:
                 )
             return True, "Рабочий текст сохранён"
 
-        # Определяем тип файла
+        # Detect the file type
         source_path = episodes.get(ep_num, "")
         if source_path.lower().endswith('.srt'):
             return self.episode_service.save_episode_to_srt(
@@ -242,17 +190,7 @@ class EpisodeController:
         new_name: str,
         parent_widget=None
     ) -> bool:
-        """
-        Переименование эпизода
-
-        Args:
-            old_name: старое имя
-            new_name: новое имя
-            parent_widget: родительский виджет
-
-        Returns:
-            True если успешно
-        """
+        """Rename episode."""
         if not new_name or new_name == old_name:
             return False
 
@@ -261,16 +199,16 @@ class EpisodeController:
         if old_name not in episodes:
             return False
 
-        # Перемещаем данные
+        # Internal implementation detail
         path = episodes.pop(old_name)
         episodes[new_name] = path
 
-        # Обновляем video_paths
+        # Update video_paths
         video_paths = self.data_ref.get("video_paths", {})
         if old_name in video_paths:
             video_paths[new_name] = video_paths.pop(old_name)
 
-        # Обновляем loaded_episodes
+        # Update loaded_episodes
         loaded_episodes = self.data_ref.get("loaded_episodes", {})
         if old_name in loaded_episodes:
             loaded_episodes[new_name] = loaded_episodes.pop(old_name)
@@ -279,15 +217,7 @@ class EpisodeController:
         return True
 
     def delete_episode(self, ep_num: str) -> bool:
-        """
-        Удаление эпизода
-
-        Args:
-            ep_num: номер эпизода
-
-        Returns:
-            True если успешно
-        """
+        """Delete episode."""
         episodes = self.data_ref.get("episodes", {})
         video_paths = self.data_ref.get("video_paths", {})
         loaded_episodes = self.data_ref.get("loaded_episodes", {})
@@ -303,19 +233,11 @@ class EpisodeController:
         return True
 
     def _extract_episode_number(self, path: str) -> str:
-        """
-        Извлечение номера эпизода из пути к файлу
-
-        Args:
-            path: путь к файлу
-
-        Returns:
-            Номер эпизода или пустая строка
-        """
+        """Extract an episode number from a filename."""
         import re
         filename = os.path.basename(path)
 
-        # Пробуем найти номер в имени файла
+        # Internal implementation detail
         match = re.search(r'[Ss](\d+)[Ee](\d+)|(\d+)[xX](\d+)|[Ee]p\.?\s*(\d+)', filename)
         if match:
             groups = match.groups()
@@ -326,27 +248,27 @@ class EpisodeController:
             elif groups[4]:  # Ep. 1
                 return f"{int(groups[4])}"
 
-        # Если не нашли паттерн, используем первое число
+        # Internal implementation detail
         numbers = re.findall(r'\d+', filename)
         if numbers:
-            return numbers[-1]  # Берём последнее число
+            return numbers[-1]  # Internal implementation detail
 
-        # Если нет чисел, используем имя файла без расширения
+        # Internal implementation detail
         name = os.path.splitext(filename)[0]
         return name if name else "1"
 
     def get_episode_list(self) -> List[str]:
-        """Получение списка номеров эпизодов"""
+        """Return episode list."""
         return sorted(
             self.data_ref.get("episodes", {}).keys(),
             key=lambda x: int(x) if x.isdigit() else 0
         )
 
     def get_current_episode_path(self, ep_num: str) -> Optional[str]:
-        """Получение пути к текущему эпизоду"""
+        """Return current episode path."""
         return self.data_ref.get("episodes", {}).get(ep_num)
 
     def invalidate_episode_cache(self, ep_num: str) -> None:
-        """Инвалидация кэша эпизода"""
+        """Invalidate episode cache."""
         self.episode_service.invalidate_episode(ep_num)
         self.data_ref.get("loaded_episodes", {}).pop(ep_num, None)

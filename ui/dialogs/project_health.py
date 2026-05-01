@@ -1,4 +1,4 @@
-"""Диалог диагностики проекта."""
+"""Project health dialog."""
 
 from typing import Any, Dict, List
 
@@ -19,7 +19,7 @@ from services import ProjectHealthIssue, ProjectHealthService
 
 
 class ProjectHealthDialog(QDialog):
-    """Отображает результаты проверки проекта."""
+    """Project Health Dialog dialog."""
 
     SEVERITY_LABELS = {
         ProjectHealthService.SEVERITY_ERROR: "Ошибка",

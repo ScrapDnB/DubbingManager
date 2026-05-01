@@ -1,4 +1,4 @@
-"""Окно предпросмотра видео"""
+"""Video preview dialog."""
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class VideoPreviewWindow(QDialog):
-    """Окно предпросмотра видео с субтитрами"""
+    """Video Preview Window class."""
     
     def __init__(
         self, 
@@ -47,18 +47,18 @@ class VideoPreviewWindow(QDialog):
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
 
-        # Виджет видео
+        # Internal implementation detail
         self.video_widget = QVideoWidget()
         self.video_widget.setMinimumHeight(VIDEO_WIDGET_MIN_HEIGHT)
         layout.addWidget(self.video_widget)
         
-        # Плеер
+        # Internal implementation detail
         self.media_player = QMediaPlayer()
         self.audio_output = QAudioOutput()
         self.media_player.setVideoOutput(self.video_widget)
         self.media_player.setAudioOutput(self.audio_output)
         
-        # Контролы
+        # Internal implementation detail
         ctrl_layout = QHBoxLayout()
         btn_play = QPushButton("Play/Pause")
         btn_play.clicked.connect(self.toggle_play)
@@ -74,7 +74,7 @@ class VideoPreviewWindow(QDialog):
         ctrl_layout.addWidget(self.slider)
         layout.addLayout(ctrl_layout)
         
-        # Таблица реплик
+        # Internal implementation detail
         self.line_table = QTableWidget(0, 3)
         self.line_table.setHorizontalHeaderLabels([
             "Время", "Персонаж", "Текст"
@@ -86,7 +86,7 @@ class VideoPreviewWindow(QDialog):
         self.line_table.cellClicked.connect(self.seek_to_line)
         layout.addWidget(self.line_table)
         
-        # Заполнение таблицы
+        # Internal implementation detail
         for line in self.lines:
             row = self.line_table.rowCount()
             self.line_table.insertRow(row)
@@ -98,19 +98,19 @@ class VideoPreviewWindow(QDialog):
             self.line_table.item(row, 0).setData(Qt.UserRole, line['s'])
     
     def toggle_play(self) -> None:
-        """Переключение воспроизведения"""
+        """Toggle play."""
         if self.media_player.playbackState() == QMediaPlayer.PlayingState:
             self.media_player.pause()
         else:
             self.media_player.play()
     
     def seek_to_line(self, row: int, col: int) -> None:
-        """Переход к позиции реплики"""
+        """Seek to line."""
         pos = self.line_table.item(row, 0).data(Qt.UserRole)
         self.media_player.setPosition(int(pos * 1000))
         self.media_player.play()
     
     def closeEvent(self, event) -> None:
-        """Остановка плеера при закрытии"""
+        """Closeevent."""
         self.media_player.stop()
         event.accept()

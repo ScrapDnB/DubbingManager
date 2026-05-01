@@ -1,4 +1,4 @@
-"""Сервис для управления актёрами"""
+"""Service for managing actors."""
 
 import logging
 from typing import Dict, List, Optional, Set, Any
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class ActorService:
-    """Сервис для работы с актёрами: добавление, редактирование, назначение ролей"""
+    """Actor Service implementation."""
 
     def __init__(self):
         self._color_index = 0
@@ -21,17 +21,7 @@ class ActorService:
         name: str,
         color: Optional[str] = None
     ) -> str:
-        """
-        Добавление нового актёра
-
-        Args:
-            actors: словарь актёров проекта
-            name: имя актёра
-            color: цвет актёра (если None - выбирается автоматически)
-
-        Returns:
-            ID нового актёра
-        """
+        """Add actor."""
         actor_id = str(datetime.now().timestamp())
 
         if not color:
@@ -52,17 +42,7 @@ class ActorService:
         actor_id: str,
         color: str
     ) -> bool:
-        """
-        Обновление цвета актёра
-
-        Args:
-            actors: словарь актёров
-            actor_id: ID актёра
-            color: новый цвет
-
-        Returns:
-            True если успешно
-        """
+        """Update actor color."""
         if actor_id not in actors:
             return False
 
@@ -76,17 +56,7 @@ class ActorService:
         actor_id: str,
         new_name: str
     ) -> bool:
-        """
-        Переименование актёра
-
-        Args:
-            actors: словарь актёров
-            actor_id: ID актёра
-            new_name: новое имя
-
-        Returns:
-            True если успешно
-        """
+        """Rename actor."""
         if actor_id not in actors:
             return False
 
@@ -99,16 +69,7 @@ class ActorService:
         actors: Dict[str, dict],
         actor_id: str
     ) -> bool:
-        """
-        Удаление актёра
-
-        Args:
-            actors: словарь актёров
-            actor_id: ID актёра
-
-        Returns:
-            True если успешно
-        """
+        """Delete actor."""
         if actor_id not in actors:
             return False
 
@@ -122,14 +83,7 @@ class ActorService:
         character_name: str,
         actor_id: Optional[str]
     ) -> None:
-        """
-        Назначение актёра на персонажа
-
-        Args:
-            global_map: глобальная карта маппинга
-            character_name: имя персонажа
-            actor_id: ID актёра (None для удаления назначения)
-        """
+        """Assign actor to character."""
         if actor_id:
             global_map[character_name] = actor_id
         else:
@@ -141,17 +95,7 @@ class ActorService:
         characters: List[str],
         actor_id: Optional[str]
     ) -> int:
-        """
-        Массовое назначение актёра на персонажей
-
-        Args:
-            global_map: глобальная карта маппинга
-            characters: список имён персонажей
-            actor_id: ID актёра (None для удаления назначения)
-
-        Returns:
-            Количество назначенных персонажей
-        """
+        """Bulk assign actors."""
         count = 0
         for char in characters:
             if actor_id:
@@ -166,16 +110,7 @@ class ActorService:
         global_map: Dict[str, str],
         actor_id: str
     ) -> List[str]:
-        """
-        Получение списка ролей актёра
-
-        Args:
-            global_map: глобальная карта маппинга
-            actor_id: ID актёра
-
-        Returns:
-            Список имён персонажей
-        """
+        """Return actor roles."""
         return [
             char for char, aid in global_map.items()
             if aid == actor_id
@@ -187,15 +122,8 @@ class ActorService:
         actor_id: str,
         new_roles: List[str]
     ) -> None:
-        """
-        Обновление ролей актёра
-
-        Args:
-            global_map: глобальная карта маппинга
-            actor_id: ID актёра
-            new_roles: новый список ролей
-        """
-        # Удаляем старые маппинги
+        """Update actor roles."""
+        # Remove old mappings
         keys_to_remove = [
             k for k, v in global_map.items()
             if v == actor_id
@@ -203,7 +131,7 @@ class ActorService:
         for key in keys_to_remove:
             del global_map[key]
 
-        # Добавляем новые
+        # Add new mappings
         for role_name in new_roles:
             global_map[role_name] = actor_id
 
@@ -213,17 +141,7 @@ class ActorService:
         global_map: Dict[str, str],
         episode_stats: List[Dict[str, Any]]
     ) -> Dict[str, Dict[str, Any]]:
-        """
-        Получение статистики по актёрам
-
-        Args:
-            actors: словарь актёров
-            global_map: глобальная карта маппинга
-            episode_stats: статистика эпизода
-
-        Returns:
-            Словарь со статистикой по каждому актёру
-        """
+        """Return actor statistics."""
         stats = {}
 
         for actor_id, actor in actors.items():
@@ -248,7 +166,7 @@ class ActorService:
         return stats
 
     def _get_next_color(self, actors: Dict[str, dict]) -> str:
-        """Получение следующего свободного цвета из палитры"""
+        """Return the next available palette color."""
         used_colors = {
             actor.get("color", "").upper()
             for actor in actors.values()
@@ -261,7 +179,7 @@ class ActorService:
             if color.upper() not in used_colors:
                 return color
 
-        # Если все цвета заняты - возвращаем случайный
+        # Return a random color when the palette is exhausted
         import random
         return random.choice(MY_PALETTE)
 
@@ -270,16 +188,7 @@ class ActorService:
         global_map: Dict[str, str],
         episode_stats: List[Dict[str, Any]]
     ) -> List[str]:
-        """
-        Получение списка неназначенных персонажей
-
-        Args:
-            global_map: глобальная карта маппинга
-            episode_stats: статистика эпизода
-
-        Returns:
-            Список имён неназначенных персонажей
-        """
+        """Return unassigned characters."""
         return [
             stat["name"] for stat in episode_stats
             if stat["name"] not in global_map

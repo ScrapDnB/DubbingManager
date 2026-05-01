@@ -1,4 +1,4 @@
-"""Сервис для импорта DOCX файлов с гибкой настройкой колонок"""
+"""Service for importing DOCX files with flexible column mapping."""
 
 import os
 import re
@@ -21,7 +21,7 @@ from utils.helpers import srt_time_to_seconds
 logger = logging.getLogger(__name__)
 
 
-# Типы колонок
+# Column types
 COLUMN_TYPES = {
     'character': 'Имя персонажа',
     'time_start': 'Тайминг (начало)',
@@ -30,7 +30,7 @@ COLUMN_TYPES = {
     'text': 'Текст фразы'
 }
 
-# Значения по умолчанию для маппинга колонок
+# Default values for column mapping
 DEFAULT_COLUMN_MAPPING = {
     'character': 0,
     'time_start': None,
@@ -39,12 +39,12 @@ DEFAULT_COLUMN_MAPPING = {
     'text': 2
 }
 
-# Разделители для тайминга в одной колонке по умолчанию
+# Default separators for combined timing columns
 DEFAULT_TIME_SEPARATORS = ['-']
 
 
 class DocxImportService:
-    """Сервис для импорта DOCX файлов с гибкой настройкой колонок"""
+    """Docx Import Service implementation."""
 
     def __init__(self, merge_gap: int = 5, fps: float = 25.0, time_separators: Optional[List[str]] = None):
         self.merge_gap = merge_gap
@@ -52,57 +52,48 @@ class DocxImportService:
         self.time_separators = time_separators or DEFAULT_TIME_SEPARATORS
 
     def set_merge_gap(self, gap: int) -> None:
-        """Установка зазора для слияния реплик"""
+        """Set the replica merge gap."""
         self.merge_gap = gap
 
     def set_fps(self, fps: float) -> None:
-        """Установка частоты кадров"""
+        """Set the frame rate."""
         self.fps = fps
 
     def set_time_separators(self, separators: List[str]) -> None:
-        """Установка разделителей для тайминга в одной колонке"""
+        """Set time separators."""
         self.time_separators = separators
 
     def extract_tables_from_docx(self, path: str) -> List[List[List[str]]]:
-        """
-        Извлечение всех таблиц из DOCX файла
-
-        Args:
-            path: путь к DOCX файлу
-
-        Returns:
-            Список таблиц, где каждая таблица - список строк,
-            где каждая строка - список ячеек
-        """
+        """Extract tables from docx."""
         if not DOCX_AVAILABLE:
             logger.error("python-docx not installed")
             return []
 
-        # Сбрасываем флаг заголовка
+        # Reset the header flag
         self._has_header = False
 
         try:
             doc = Document(path)
             all_tables = []
 
-            # Извлекаем все таблицы
+            # Extract all tables
             if doc.tables:
                 for table in doc.tables:
                     rows = []
                     for row in table.rows:
                         cells = [cell.text.strip() for cell in row.cells]
-                        if any(cells):  # Пропускаем пустые строки
+                        if any(cells):  # Skip empty rows
                             rows.append(cells)
-                    if rows:  # Добавляем только непустые таблицы
+                    if rows:  # Add only non-empty tables
                         all_tables.append(rows)
             else:
-                # Если таблиц нет, пробуем распарсить текст как таблицу
-                # (разделители - табы или несколько пробелов)
+                # If there are no tables, try parsing text as a table
+                # (separators are tabs or repeated spaces)
                 rows = []
                 for para in doc.paragraphs:
                     text = para.text.strip()
                     if text:
-                        # Пробуем разделить по табуляции
+                        # Try splitting by tabs
                         if '\t' in text:
                             cells = [c.strip() for c in text.split('\t')]
                         else:
@@ -118,40 +109,24 @@ class DocxImportService:
             return []
 
     def extract_first_table(self, path: str) -> List[List[str]]:
-        """
-        Извлечение первой таблицы из DOCX файла (для обратной совместимости)
-
-        Args:
-            path: путь к DOCX файлу
-
-        Returns:
-            Список строк первой таблицы
-        """
+        """Extract first table."""
         all_tables = self.extract_tables_from_docx(path)
         if all_tables:
-            self._has_header = False  # Сброс для первой таблицы
+            self._has_header = False  # Reset for the first table
             return all_tables[0]
         return []
 
     def detect_columns(self, rows: List[List[str]]) -> Dict[str, int]:
-        """
-        Автоматическое определение колонок в таблице
-
-        Args:
-            rows: строки таблицы
-
-        Returns:
-            Словарь маппинга колонок (тип -> индекс)
-        """
+        """Detect columns."""
         if not rows:
             return DEFAULT_COLUMN_MAPPING.copy()
 
-        # Проверяем первую строку на заголовки
+        # Check the first row for headers
         header_row = rows[0] if rows else []
         mapping = {}
         has_header = False
 
-        # Паттерны для автоматического распознавания
+        # Patterns for automatic detection
         patterns = {
             'character': [r'персонаж', r'имя', r'actor', r'character', r'char', r'voice'],
             'time_start': [r'начало', r'start', r'time.*start', r'in', r'from'],
@@ -160,24 +135,24 @@ class DocxImportService:
             'text': [r'текст', r'text', r'replica', r'фраз', r'dialog', r'speech', r'реплика']
         }
 
-        # Сопоставляем заголовки с типами колонок
+        # Map headers to column types
         for col_idx, header in enumerate(header_row):
             header_lower = header.lower()
             for col_type, pattern_list in patterns.items():
                 for pattern in pattern_list:
                     if re.search(pattern, header_lower):
-                        if col_type not in mapping:  # Берём первое совпадение
+                        if col_type not in mapping:  # Use the first match
                             mapping[col_type] = col_idx
                             has_header = True
                         break
 
-        # Если не нашли все колонки, используем значения по умолчанию
+        # Use defaults if not all columns were detected
         default_mapping = DEFAULT_COLUMN_MAPPING.copy()
         for col_type, default_idx in default_mapping.items():
             if col_type not in mapping:
-                # Если это текстовая колонка и есть неподписанные колонки
+                # If this is a text column and unnamed columns exist
                 if col_type == 'text':
-                    # Ищем последнюю колонку
+                    # Look for the last column
                     if rows:
                         max_cols = max(len(row) for row in rows)
                         if max_cols > 0:
@@ -185,21 +160,13 @@ class DocxImportService:
                 else:
                     mapping[col_type] = default_idx
 
-        # Сохраняем флаг наличия заголовка
+        # Store the header presence flag
         self._has_header = has_header
 
         return mapping
 
     def get_available_columns(self, rows: List[List[str]]) -> List[int]:
-        """
-        Получение списка доступных индексов колонок
-
-        Args:
-            rows: строки таблицы
-
-        Returns:
-            Список индексов колонок
-        """
+        """Return available columns."""
         if not rows:
             return []
 
@@ -211,18 +178,7 @@ class DocxImportService:
         rows: List[List[str]],
         column_mapping: Dict[str, Optional[int]]
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """
-        Парсинг строк с использованием заданного маппинга колонок
-
-        Args:
-            rows: строки таблицы
-            column_mapping: словарь маппинга (тип -> индекс колонки)
-
-        Returns:
-            Tuple containing:
-            - char_data: статистика по персонажам (name, lines, rings, words)
-            - lines_list: список всех реплик
-        """
+        """Parse with mapping."""
         from collections import defaultdict
 
         char_data: Dict[str, Dict[str, Any]] = defaultdict(
@@ -230,39 +186,39 @@ class DocxImportService:
         )
         lines_list = []
 
-        # Определяем, есть ли заголовок (пропускаем первую строку только если есть заголовок)
+        # Detect whether a header is present and skip the first row only then
         has_header = getattr(self, '_has_header', True)
         start_idx = 1 if has_header and len(rows) > 1 else 0
         data_rows = rows[start_idx:] if rows else []
 
         for row_idx, row in enumerate(data_rows):
             try:
-                # Извлекаем данные из строки
+                # Extract row data
                 char_name = self._get_cell_value(row, column_mapping.get('character'))
                 time_start = self._get_cell_value(row, column_mapping.get('time_start'))
                 time_end = self._get_cell_value(row, column_mapping.get('time_end'))
                 time_split = self._get_cell_value(row, column_mapping.get('time_split'))
                 text = self._get_cell_value(row, column_mapping.get('text'))
 
-                # Пропускаем пустые строки
+                # Skip empty rows
                 if not text and not char_name:
                     continue
 
-                # Парсим тайминги
+                # Parse timings
                 start_seconds = None
                 end_seconds = None
 
-                # Сначала пробуем тайминг в одной колонке
+                # Try a combined timing column first
                 if time_split:
                     start_seconds, end_seconds = self._parse_split_time(time_split)
 
-                # Если не получилось или нет split, пробуем раздельные тайминги
+                # If that fails or split timing is absent, try separate timing columns
                 if start_seconds is None:
                     start_seconds = self._parse_time(time_start)
                 if end_seconds is None:
                     end_seconds = self._parse_time(time_end)
 
-                # Если всё ещё нет таймингов, используем 0
+                # Use zero when no timings are available
                 if start_seconds is None:
                     start_seconds = 0.0
                 if end_seconds is None:
@@ -278,7 +234,7 @@ class DocxImportService:
                 }
                 lines_list.append(line_data)
 
-                # Обновляем статистику
+                # Update statistics
                 if char_name:
                     char_data[char_name]["lines"] += 1
                     char_data[char_name]["raw"].append(line_data)
@@ -287,14 +243,14 @@ class DocxImportService:
                 logger.warning(f"Error parsing row {row_idx}: {e}")
                 continue
 
-        # Вычисление статистики
-        # Для DOCX не применяем объединение - каждая строка это отдельный ринг
-        # (в документе уже всё объединено, это не субтитры)
+        # Calculate statistics
+        # Do not merge DOCX rows; each row is a separate take
+        # (the document is already merged; it is not subtitle timing)
         stats = []
         for char, info in char_data.items():
             char_lines = info["raw"]
             
-            # Для DOCX: rings = lines (каждая реплика уже объединена)
+            # For DOCX, rings equal lines because each replica is already merged
             rings = info["lines"]
             words = 0
 
@@ -312,36 +268,19 @@ class DocxImportService:
         return stats, lines_list
 
     def _get_cell_value(self, row: List[str], col_idx: Optional[int]) -> Optional[str]:
-        """
-        Получение значения ячейки по индексу
-
-        Args:
-            row: строка таблицы
-            col_idx: индекс колонки
-
-        Returns:
-            Значение ячейки или None
-        """
+        """Return cell value."""
         if col_idx is None or col_idx < 0 or col_idx >= len(row):
             return None
         return row[col_idx] if row[col_idx] else None
 
     def _parse_time(self, time_str: Optional[str]) -> Optional[float]:
-        """
-        Парсинг строки времени в секунды
-
-        Args:
-            time_str: строка времени
-
-        Returns:
-            Время в секундах или None
-        """
+        """Parse time."""
         if not time_str:
             return None
 
         time_str = time_str.strip()
 
-        # Пробуем разные форматы
+        # Try several formats
         formats = [
             r'(\d{1,2}):(\d{2}):(\d{2})[,.](\d+)',  # HH:MM:SS,mmm
             r'(\d{1,2}):(\d{2})[,.](\d+)',  # MM:SS,mmm
@@ -358,7 +297,7 @@ class DocxImportService:
                         h, m, s, ms = groups
                         seconds = int(h) * 3600 + int(m) * 60 + float(f"{s}.{ms}")
                         return seconds
-                    elif len(groups) == 3:  # HH:MM:SS или MM:SS,mmm
+                    elif len(groups) == 3:  # Internal implementation detail
                         if ':' in time_str and time_str.count(':') == 2:
                             h, m, s = groups
                             seconds = int(h) * 3600 + int(m) * 60 + float(s)
@@ -374,35 +313,27 @@ class DocxImportService:
                 except (ValueError, IndexError):
                     continue
 
-        # Если не подошёл ни один формат, пробуем стандартный парсер
+        # If no format matches, try the standard parser
         try:
             return srt_time_to_seconds(time_str.replace(',', '.'))
         except Exception:
             return None
 
     def _parse_split_time(self, time_str: Optional[str]) -> Tuple[Optional[float], Optional[float]]:
-        """
-        Парсинг строки с таймингом в формате "начало - конец"
-
-        Args:
-            time_str: строка времени (например, "00:00:01,000 - 00:00:03,000")
-
-        Returns:
-            Tuple (start_seconds, end_seconds) или (None, None)
-        """
+        """Parse split time."""
         if not time_str:
             return None, None
 
         time_str = time_str.strip()
 
-        # Пробуем найти разделитель
+        # Try to find a separator
         for separator in self.time_separators:
-            # Экранируем специальные символы для regex
+            # Escape special regex characters
             if separator == '\\t':
                 separator = '\t'
             escaped_sep = re.escape(separator)
 
-            # Ищем разделитель с возможными пробелами вокруг
+            # Find a separator with optional surrounding spaces
             pattern = rf'^(.+?)\s*{escaped_sep}\s*(.+)$'
             match = re.match(pattern, time_str)
 
@@ -424,19 +355,9 @@ class DocxImportService:
         column_mapping: Dict[str, Optional[int]],
         limit: int = 10
     ) -> List[Dict[str, Any]]:
-        """
-        Получение данных для предпросмотра
-
-        Args:
-            rows: строки таблицы
-            column_mapping: словарь маппинга
-            limit: количество строк для предпросмотра
-
-        Returns:
-            Список словарей с данными для предпросмотра
-        """
+        """Return preview data."""
         preview = []
-        # Учитываем флаг заголовка
+        # Honor the header flag
         has_header = getattr(self, '_has_header', True)
         start_idx = 1 if has_header and len(rows) > 1 else 0
         data_rows = rows[start_idx:start_idx + limit] if rows else []
@@ -451,7 +372,7 @@ class DocxImportService:
                 value = self._get_cell_value(row, col_idx)
                 preview_row['mapped'][col_type] = value
 
-                # Если это время, добавляем распарсенное значение
+                # Add the parsed value for timing fields
                 if col_type in ['time_start', 'time_end']:
                     parsed = self._parse_time(value)
                     preview_row[f'{col_type}_parsed'] = parsed

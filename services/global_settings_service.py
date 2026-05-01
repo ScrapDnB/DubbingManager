@@ -1,4 +1,4 @@
-"""Сервис для работы с глобальными настройками приложения"""
+"""Service for global application settings."""
 
 import json
 import os
@@ -19,47 +19,32 @@ logger = logging.getLogger(__name__)
 
 
 def _get_settings_file_path() -> Path:
-    """
-    Получение пути к файлу глобальных настроек.
-    
-    На Windows используется AppData/Roaming для кроссплатформенной совместимости.
-    На macOS/Linux используется домашняя директория.
-    """
+    """Return settings file path."""
     if sys.platform == 'win32':
         # Windows: C:\Users\username\AppData\Roaming\dubbing_manager\global_settings.json
         appdata = os.environ.get('APPDATA')
         if appdata:
             return Path(appdata) / "dubbing_manager" / "global_settings.json"
-        # Fallback к домашней директории
+        # Fall back to the home directory
         return Path.home() / ".dubbing_manager" / "global_settings.json"
     else:
         # macOS/Linux: ~/.dubbing_manager/global_settings.json
         return Path.home() / ".dubbing_manager" / "global_settings.json"
 
 
-# Путь к файлу глобальных настроек
+# Path to the global settings file
 SETTINGS_FILE = _get_settings_file_path()
 
 
 class GlobalSettingsService:
-    """
-    Сервис для загрузки и сохранения глобальных настроек приложения.
-    
-    Глобальные настройки хранятся отдельно от проектов и применяются
-    ко всем проектам по умолчанию.
-    """
+    """Global Settings Service implementation."""
 
     def __init__(self):
         self.settings: Dict[str, Any] = {}
         self._settings_file: Path = SETTINGS_FILE
 
     def load_settings(self) -> Dict[str, Any]:
-        """
-        Загрузка глобальных настроек из файла.
-        
-        Returns:
-            Словарь с глобальными настройками
-        """
+        """Load global settings from disk."""
         if not self._settings_file.exists():
             logger.info("Global settings file not found, using defaults")
             return self._get_defaults()
@@ -68,16 +53,16 @@ class GlobalSettingsService:
             with open(self._settings_file, 'r', encoding='utf-8') as f:
                 loaded = json.load(f)
 
-            # Применяем загруженные настройки к дефолтным
+            # Apply loaded settings over defaults
             settings = self._get_defaults()
             
-            # Merge загруженных настроек с дефолтными
+            # Merge loaded settings with defaults
             if 'export_config' in loaded and loaded['export_config']:
                 settings['export_config'].update(loaded['export_config'])
             
             if 'prompter_config' in loaded and loaded['prompter_config']:
                 settings['prompter_config'].update(loaded['prompter_config'])
-                # Особая обработка для вложенного colors
+                # Special handling for nested colors
                 if 'colors' in loaded['prompter_config']:
                     settings['prompter_config']['colors'].update(
                         loaded['prompter_config']['colors']
@@ -102,20 +87,12 @@ class GlobalSettingsService:
             return self._get_defaults()
 
     def save_settings(self, settings: Dict[str, Any]) -> bool:
-        """
-        Сохранение глобальных настроек в файл.
-        
-        Args:
-            settings: Словарь с настройками для сохранения
-            
-        Returns:
-            True если сохранение успешно
-        """
+        """Save global settings to disk."""
         try:
-            # Создаём директорию если не существует
+            # Create the directory if it does not exist
             self._settings_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Сохраняем только нужные разделы
+            # Save only the required sections
             data_to_save = {
                 'export_config': settings.get('export_config'),
                 'prompter_config': settings.get('prompter_config'),
@@ -135,7 +112,7 @@ class GlobalSettingsService:
             return False
 
     def _get_defaults(self) -> Dict[str, Any]:
-        """Получение настроек по умолчанию"""
+        """Return defaults."""
         return {
             'export_config': deepcopy(DEFAULT_EXPORT_CONFIG),
             'prompter_config': deepcopy(DEFAULT_PROMPTER_CONFIG),
@@ -144,56 +121,56 @@ class GlobalSettingsService:
         }
 
     def get_settings(self) -> Dict[str, Any]:
-        """Получение текущих загруженных настроек"""
+        """Return settings."""
         if not self.settings:
             return self._get_defaults()
         return self.settings
 
     def get_export_config(self) -> Dict[str, Any]:
-        """Получение настроек экспорта"""
+        """Return export settings."""
         return self.settings.get('export_config', deepcopy(DEFAULT_EXPORT_CONFIG))
 
     def get_prompter_config(self) -> Dict[str, Any]:
-        """Получение настроек телесуфлёра"""
+        """Return teleprompter settings."""
         return self.settings.get(
             'prompter_config',
             deepcopy(DEFAULT_PROMPTER_CONFIG)
         )
 
     def get_replica_merge_config(self) -> Dict[str, Any]:
-        """Получение настроек объединения реплик"""
+        """Return replica merge settings."""
         return self.settings.get(
             'replica_merge_config',
             deepcopy(DEFAULT_REPLICA_MERGE_CONFIG)
         )
 
     def get_docx_import_config(self) -> Dict[str, Any]:
-        """Получение настроек импорта DOCX"""
+        """Return DOCX import settings."""
         return self.settings.get(
             'docx_import_config',
             deepcopy(DEFAULT_DOCX_IMPORT_CONFIG)
         )
 
     def update_export_config(self, config: Dict[str, Any]) -> None:
-        """Обновление настроек экспорта"""
+        """Update export settings."""
         if 'export_config' not in self.settings:
             self.settings['export_config'] = {}
         self.settings['export_config'].update(config)
 
     def update_prompter_config(self, config: Dict[str, Any]) -> None:
-        """Обновление настроек телесуфлёра"""
+        """Update teleprompter settings."""
         if 'prompter_config' not in self.settings:
             self.settings['prompter_config'] = {}
         self.settings['prompter_config'].update(config)
 
     def update_replica_merge_config(self, config: Dict[str, Any]) -> None:
-        """Обновление настроек объединения реплик"""
+        """Update replica merge settings."""
         if 'replica_merge_config' not in self.settings:
             self.settings['replica_merge_config'] = {}
         self.settings['replica_merge_config'].update(config)
 
     def update_docx_import_config(self, config: Dict[str, Any]) -> None:
-        """Обновление настроек импорта DOCX"""
+        """Update DOCX import settings."""
         if 'docx_import_config' not in self.settings:
             self.settings['docx_import_config'] = {}
         self.settings['docx_import_config'].update(config)

@@ -1,4 +1,4 @@
-"""OSC Worker для синхронизации с Reaper"""
+"""OSC worker for Reaper synchronization."""
 
 from PySide6.QtCore import QThread, Signal, Slot
 from typing import Optional
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class OscWorker(QThread):
-    """Worker поток для OSC сервера"""
+    """Osc Worker class."""
     
     time_changed = Signal(float)
     navigation_requested = Signal(str)
@@ -41,18 +41,18 @@ class OscWorker(QThread):
     def _setup_dispatcher(self) -> Dispatcher:
         dispatcher = Dispatcher()
         
-        # Принимаем время (стандартные адреса Reaper)
+        # Receive time from standard Reaper addresses
         dispatcher.map("/time/seconds", self._handle_time)
         dispatcher.map("/time", self._handle_time)
         
-        # Принимаем навигацию через адрес имени трека
+        # Receive navigation through the track-name address
         dispatcher.map("/track/1/name", self._handle_nav_via_name)
         
-        # Резервные прямые адреса
+        # Fallback direct addresses
         dispatcher.map("/prompter/next", lambda addr, *args: self.navigation_requested.emit("next"))
         dispatcher.map("/prompter/prev", lambda addr, *args: self.navigation_requested.emit("prev"))
         
-        # Логгер для отладки
+        # Debug logger
         dispatcher.set_default_handler(self._debug_handler)
         
         return dispatcher
@@ -68,7 +68,7 @@ class OscWorker(QThread):
             self.server.server_close()
     
     def _debug_handler(self, address: str, *args) -> None:
-        # Скрываем сообщения индикаторов громкости
+        # Hide volume-meter messages
         if "/vu" in address:
             return
         logger.debug(f"OSC Message: {address} {args}")
@@ -92,11 +92,11 @@ class OscWorker(QThread):
     
     @Slot()
     def stop(self) -> None:
-        """Остановка OSC сервера"""
+        """Stop the OSC server."""
         self.running = False
         if self.server:
             try:
                 self.server.server_close()
             except Exception as e:
                 logger.warning(f"Error closing OSC server: {e}")
-        self.wait(1000)  # Ждём завершения потока
+        self.wait(1000)  # Wait for the thread to finish

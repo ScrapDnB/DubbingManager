@@ -1,4 +1,4 @@
-"""Окно живого предпросмотра HTML"""
+"""Episode preview window."""
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 class HtmlLivePreview(QDialog):
-    """Окно живого предпросмотра монтажного листа"""
+    """Html Live Preview class."""
 
     # Class attributes
     main_app: Any
@@ -75,10 +75,10 @@ class HtmlLivePreview(QDialog):
         self.update_preview()
 
     def _init_ui(self) -> None:
-        """Инициализация интерфейса"""
+        """Init ui."""
         self.root_layout: QVBoxLayout = QVBoxLayout(self)
 
-        # Панель навигации
+        # Internal implementation detail
         self.nav_panel: QHBoxLayout = QHBoxLayout()
 
         self.btn_toggle_sidebar = QPushButton("⬅ Скрыть настройки")
@@ -90,11 +90,11 @@ class HtmlLivePreview(QDialog):
 
         self.root_layout.addLayout(self.nav_panel)
 
-        # Контент
+        # Internal implementation detail
         self.content_layout: QHBoxLayout = QHBoxLayout()
         self.root_layout.addLayout(self.content_layout)
 
-        # Панель настроек
+        # Internal implementation detail
         self.settings_panel = QFrame()
         self.settings_panel.setFixedWidth(PREVIEW_SETTINGS_PANEL_WIDTH)
         self.settings_panel.setFrameShape(QFrame.StyledPanel)
@@ -113,7 +113,7 @@ class HtmlLivePreview(QDialog):
         sp_layout.addWidget(self.combo_layout)
         sp_layout.addSpacing(10)
         
-        # Шрифты
+        # Internal implementation detail
         font_group = QGroupBox("Размеры шрифтов")
         fg_layout = QFormLayout(font_group)
         
@@ -151,7 +151,7 @@ class HtmlLivePreview(QDialog):
         fg_layout.addRow("Текст:", self.s_text)
         sp_layout.addWidget(font_group)
         
-        # Подсветка
+        # Internal implementation detail
         filter_group = QGroupBox("Подсветка")
         f_lay = QVBoxLayout(filter_group)
         btn_filter = QPushButton("Выбрать актеров...")
@@ -166,18 +166,18 @@ class HtmlLivePreview(QDialog):
         
         self.content_layout.addWidget(self.settings_panel)
         
-        # Браузер
+        # Internal implementation detail
         self.browser = QWebEngineView()
         if not WEB_ENGINE_AVAILABLE:
             self.browser.setOpenExternalLinks(False)
         self.content_layout.addWidget(self.browser)
     
     def on_page_loaded(self, ok: bool) -> None:
-        """Обработка загрузки страницы"""
+        """Handle page loaded."""
         pass
 
     def update_preview(self) -> None:
-        """Обновление предпросмотра"""
+        """Update preview."""
         try:
             logger.info(f"update_preview: ep={self.ep_num}")
             
@@ -222,7 +222,7 @@ class HtmlLivePreview(QDialog):
             self.browser.setHtml(f"<h3>Ошибка: {e}</h3>")
     
     def toggle_sidebar(self) -> None:
-        """Показать/скрыть панель настроек"""
+        """Toggle sidebar."""
         is_hidden = self.settings_panel.isVisible()
         self.settings_panel.setVisible(not is_hidden)
         
@@ -232,7 +232,7 @@ class HtmlLivePreview(QDialog):
             self.btn_toggle_sidebar.setText("⬅ Скрыть настройки")
     
     def on_setting_change(self) -> None:
-        """Изменение настроек шрифтов"""
+        """Handle setting change."""
         cfg = self.main_app.data["export_config"]
         cfg["f_time"] = self.s_time.value()
         cfg["f_char"] = self.s_char.value()
@@ -241,7 +241,7 @@ class HtmlLivePreview(QDialog):
         self.update_preview()
     
     def open_actor_filter(self) -> None:
-        """Открытие фильтра актёров"""
+        """Open actor filter."""
         all_aids = list(self.main_app.data["actors"].keys())
         current_selection = (
             self.highlight_ids 
@@ -264,10 +264,10 @@ class HtmlLivePreview(QDialog):
             self.update_preview()
     
     def keyPressEvent(self, event) -> None:
-        """Обработка клавиш"""
-        # Навигация по репликам удалена - используйте телесуфлёр
+        """Keypressevent."""
+        # Internal implementation detail
         super().keyPressEvent(event)
     
     def closeEvent(self, event) -> None:
-        """Закрытие окна"""
+        """Closeevent."""
         event.accept()

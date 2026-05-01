@@ -1,22 +1,19 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-"""
-Hook для services.project_service
-Обрабатывает условный импорт fcntl для разных платформ
-"""
+"""PyInstaller hook for project service dependencies."""
 
-# fcntl и termios доступны на Unix (macOS, Linux)
-# Добавляем их в скрытые импорты для PyInstaller
+# macOS-specific handling
+# Internal implementation detail
 hiddenimports = []
 
-# Пробуем добавить fcntl если доступен
+# Internal implementation detail
 try:
     import fcntl
     hiddenimports.append('fcntl')
 except ImportError:
     pass
 
-# Пробуем добавить termios если доступен
+# Internal implementation detail
 try:
     import termios
     hiddenimports.append('termios')

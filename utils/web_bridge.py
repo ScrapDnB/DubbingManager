@@ -1,4 +1,4 @@
-"""Мост между JS и Python для веб-компонентов"""
+"""Bridge between WebEngine preview and Python."""
 
 from PySide6.QtCore import QObject, Slot
 from typing import Any
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class WebBridge(QObject):
-    """Мост между JavaScript и Python для редактирования текста"""
+    """Web Bridge class."""
 
     def __init__(self, main_app: Any, parent=None):
         super().__init__(parent)
@@ -19,7 +19,7 @@ class WebBridge(QObject):
 
     @Slot(str, str)
     def update_text(self, line_id: str, new_text: str) -> None:
-        """Принимает ID строки и новый текст из HTML"""
+        """Update text."""
         try:
             lid = int(line_id)
             ep = self.main_app.ep_combo.currentData()
@@ -84,7 +84,7 @@ class WebBridge(QObject):
 
                     logger.debug(f"Updated line {lid}: {new_text}")
                 
-                # Обновляем флаг изменений текста
+                # Internal implementation detail
                 ep = self.main_app.ep_combo.currentData()
                 if ep:
                     if not hasattr(self.main_app, 'text_changes'):

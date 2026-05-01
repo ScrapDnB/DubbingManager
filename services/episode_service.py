@@ -1,4 +1,4 @@
-"""Сервис для управления эпизодами и парсинга ASS/SRT файлов"""
+"""Service for managing episodes and parsing ASS/SRT files."""
 
 import os
 import re
@@ -13,36 +13,26 @@ logger = logging.getLogger(__name__)
 
 
 class EpisodeService:
-    """Сервис для работы с эпизодами: парсинг ASS, загрузка, сохранение"""
+    """Episode Service implementation."""
 
     def __init__(self, merge_gap: int = 5, fps: float = 25.0):
         self.merge_gap = merge_gap
         self.fps = fps
         self._loaded_episodes: Dict[str, List[Dict[str, Any]]] = {}
-        self._cache_timestamps: Dict[str, float] = {}  # Временные метки кэша
+        self._cache_timestamps: Dict[str, float] = {}  # Cache timestamps
 
     def set_merge_gap_from_config(self, replica_merge_config: Dict[str, Any]) -> None:
-        """Установка зазора для слияния реплик из конфига"""
+        """Set merge gap from config."""
         self.merge_gap = replica_merge_config.get('merge_gap', 5)
-        # Защита от None и 0 значения
+        # Guard against None and zero values
         self.fps = replica_merge_config.get('fps', 25.0) or 25.0
 
     def set_fps(self, fps: float) -> None:
-        """Установка частоты кадров"""
+        """Set the frame rate."""
         self.fps = fps
 
     def parse_ass_file(self, path: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """
-        Парсинг ASS файла
-
-        Args:
-            path: путь к ASS файлу
-
-        Returns:
-            Tuple containing:
-            - char_data: статистика по персонажам (name, lines, rings, words)
-            - lines_list: список всех реплик
-        """
+        """Parse ass file."""
         char_data: Dict[str, Dict[str, Any]] = defaultdict(
             lambda: {"lines": 0, "raw": []}
         )
@@ -73,8 +63,8 @@ class EpisodeService:
                             char_data[char]["lines"] += 1
                             char_data[char]["raw"].append(line_data)
 
-                # Вычисление статистики
-                # Конвертируем merge_gap из кадров в секунды
+                # Calculate statistics
+                # Convert merge_gap from frames to seconds
                 merge_gap_seconds = self.merge_gap / self.fps
 
                 stats = []
@@ -109,23 +99,12 @@ class EpisodeService:
         content: str,
         add_id: bool = False
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """
-        Общий метод парсинга SRT контента
-
-        Args:
-            content: содержимое SRT файла
-            add_id: добавлять ли id к репликам
-
-        Returns:
-            Tuple containing:
-            - char_data: статистика по персонажам (name, lines, rings, words)
-            - lines_list: список всех реплик
-        """
+        """Parse SRT content."""
         char_data: Dict[str, Dict[str, Any]] = defaultdict(
             lambda: {"lines": 0, "raw": []}
         )
 
-        # Разделяем на блоки (каждый блок - отдельная реплика)
+        # Split into blocks, one block per replica
         blocks = re.split(r'\n\s*\n', content.strip())
         lines_list = []
         idx = 0
@@ -144,15 +123,15 @@ class EpisodeService:
                 start_time = time_parts[0].strip()
                 end_time = time_parts[1].strip()
 
-                # Текст реплики (может быть несколько строк)
+                # Replica text, possibly spanning several lines
                 text_lines = block_lines[2:]
                 full_text = '\n'.join(text_lines).strip()
 
-                # Извлекаем имя персонажа из текста (формат: "Имя: реплика")
+                # Extract the character name from text formatted as "Name: replica"
                 char_name = ""
                 replica_text = full_text
 
-                # Ищем первое двоеточие для извлечения имени
+                # Use the first colon to extract the name
                 colon_match = re.match(r'^([^:]+):\s*(.*)', full_text, re.DOTALL)
                 if colon_match:
                     char_name = colon_match.group(1).strip()
@@ -178,8 +157,8 @@ class EpisodeService:
                 logger.warning(f"Skipping invalid SRT block: {e}")
                 continue
 
-        # Вычисление статистики
-        # Конвертируем merge_gap из кадров в секунды
+        # Calculate statistics
+        # Convert merge_gap from frames to seconds
         merge_gap_seconds = self.merge_gap / self.fps
 
         stats = []
@@ -192,7 +171,7 @@ class EpisodeService:
                 words = len(char_lines[0]['text'].split())
 
                 for i in range(1, len(char_lines)):
-                    # При слиянии реплик игнорируем префикс "Имя_персонажа:"
+                    # Ignore the "Character:" prefix when merging replicas
                     if char_lines[i]['s'] - char_lines[i-1]['e'] >= merge_gap_seconds:
                         rings += 1
                     words += len(char_lines[i]['text'].split())
@@ -207,17 +186,7 @@ class EpisodeService:
         return stats, lines_list
 
     def parse_srt_file(self, path: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """
-        Парсинг SRT файла
-
-        Формат реплики:
-        Имя_персонажа: реплика
-
-        Returns:
-            Tuple containing:
-            - char_data: статистика по персонажам (name, lines, rings, words)
-            - lines_list: список всех реплик
-        """
+        """Parse srt file."""
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -233,32 +202,23 @@ class EpisodeService:
         ep_num: str,
         episodes: Dict[str, str]
     ) -> List[Dict[str, Any]]:
-        """
-        Загрузка эпизода в память с проверкой актуальности кэша
-
-        Args:
-            ep_num: номер эпизода
-            episodes: словарь эпизодов {ep_num: path}
-
-        Returns:
-            Список реплик эпизода
-        """
+        """Load an episode into memory and refresh stale cache entries."""
         path = episodes.get(ep_num)
         
-        # Проверяем кэш только если файл существует и не изменился
+        # Check the cache only when the file exists and has not changed
         if ep_num in self._loaded_episodes and path:
-            # Проверяем timestamp файла
+            # Check the file timestamp
             try:
                 file_mtime = Path(path).stat().st_mtime
                 cache_mtime = self._cache_timestamps.get(ep_num, 0)
                 
                 if file_mtime <= cache_mtime:
-                    # Кэш актуален
+                    # The cache is current
                     return self._loaded_episodes[ep_num]
             except (OSError, FileNotFoundError):
-                pass  # Если ошибка - перезагружаем
+                pass  # Reload on errors
         
-        # Файл не найден или кэш устарел
+        # The file is missing or the cache is stale
         if not path or not os.path.exists(path):
             return []
 
@@ -282,7 +242,7 @@ class EpisodeService:
                             idx += 1
 
                 self._loaded_episodes[ep_num] = lines
-                # Сохраняем timestamp кэша
+                # Store the cache timestamp
                 self._cache_timestamps[ep_num] = Path(path).stat().st_mtime
                 return lines
 
@@ -295,19 +255,10 @@ class EpisodeService:
         ep_num: str,
         episodes: Dict[str, str]
     ) -> List[Dict[str, Any]]:
-        """
-        Загрузка SRT эпизода в память с проверкой актуальности кэша
-
-        Args:
-            ep_num: номер эпизода
-            episodes: словарь эпизодов {ep_num: path}
-
-        Returns:
-            Список реплик эпизода
-        """
+        """Load an SRT episode into memory and refresh stale cache entries."""
         path = episodes.get(ep_num)
         
-        # Проверяем кэш только если файл существует и не изменился
+        # Check the cache only when the file exists and has not changed
         if ep_num in self._loaded_episodes and path:
             try:
                 file_mtime = Path(path).stat().st_mtime
@@ -325,10 +276,10 @@ class EpisodeService:
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            # Используем общий метод парсинга, но без статистики
+            # Use the shared parser without statistics
             _, lines = self._parse_srt_content(content, add_id=True)
             self._loaded_episodes[ep_num] = lines
-            # Сохраняем timestamp кэша
+            # Store the cache timestamp
             self._cache_timestamps[ep_num] = Path(path).stat().st_mtime
             return lines
 
@@ -341,7 +292,7 @@ class EpisodeService:
         ep_num: str,
         episodes: Dict[str, str]
     ) -> List[Dict[str, Any]]:
-        """Получение реплик эпизода (с загрузкой если нужно)"""
+        """Return episode lines, loading them when needed."""
         return self.load_episode(ep_num, episodes)
 
     def save_episode_to_ass(
@@ -351,18 +302,7 @@ class EpisodeService:
         memory_lines: List[Dict[str, Any]],
         target_path: Optional[str] = None
     ) -> Tuple[bool, str]:
-        """
-        Сохранение эпизода в ASS файл
-
-        Args:
-            ep_num: номер эпизода
-            episodes: словарь эпизодов
-            memory_lines: реплики из памяти
-            target_path: путь для сохранения (если None - сохраняется в оригинал)
-
-        Returns:
-            Tuple[success, message]
-        """
+        """Save episode to ass."""
         if not memory_lines:
             return False, "Нет данных для сохранения"
 
@@ -370,16 +310,16 @@ class EpisodeService:
         if not source_path:
             return False, "Файл не найден"
 
-        # Для DOCX файлов (которые не существуют на диске) сохраняем в новый ASS файл
+        # Save DOCX imports to a new ASS file because they do not exist on disk
         if not os.path.exists(source_path) or source_path.lower().endswith('.docx'):
-            # Сохраняем как новый ASS файл
+            # Save as a new ASS file
             if target_path is None:
                 target_path = source_path.replace('.docx', '.ass') if source_path.lower().endswith('.docx') else f"{ep_num}.ass"
             return self.save_episode_to_ass_new(ep_num, memory_lines, target_path)
 
         save_path = target_path or source_path
 
-        # Определяем тип файла
+        # Detect the file type
         if source_path.lower().endswith('.srt'):
             return self.save_episode_to_srt(ep_num, episodes, memory_lines, target_path)
 
@@ -427,21 +367,11 @@ class EpisodeService:
         memory_lines: List[Dict[str, Any]],
         save_path: str
     ) -> Tuple[bool, str]:
-        """
-        Сохранение эпизода в новый ASS файл (для DOCX импорта)
-
-        Args:
-            ep_num: номер эпизода
-            memory_lines: реплики из памяти
-            save_path: путь для сохранения
-
-        Returns:
-            Tuple[success, message]
-        """
+        """Save episode to ass new."""
         if not memory_lines:
             return False, "Нет данных для сохранения"
 
-        # Стандартный заголовок ASS файла
+        # Standard ASS file header
         ass_header = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1920
@@ -461,14 +391,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 f.write(ass_header)
 
                 for line in memory_lines:
-                    # Конвертируем секунды обратно в ASS формат времени
+                    # Convert seconds back to ASS time format
                     start_time = self._seconds_to_ass_time(line.get('s', 0))
                     end_time = self._seconds_to_ass_time(line.get('e', 0))
                     char = line.get('char', '')
                     text = line.get('text', '')
 
-                    # Формат ASS: Dialogue: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-                    # Name (Actor) - это имя персонажа
+                    # ASS format: Dialogue: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+                    # Name (Actor) stores the character name
                     dialogue_line = f"Dialogue: 0,{start_time},{end_time},,{char},0,0,0,,{text}\n"
                     f.write(dialogue_line)
 
@@ -480,15 +410,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             return False, f"Ошибка записи: {e}"
 
     def _seconds_to_ass_time(self, seconds: float) -> str:
-        """
-        Конвертация секунд в формат времени ASS (H:MM:SS.mm)
-
-        Args:
-            seconds: время в секундах
-
-        Returns:
-            Строка времени в формате ASS
-        """
+        """Convert seconds to ASS time format."""
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
@@ -502,18 +424,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         memory_lines: List[Dict[str, Any]],
         target_path: Optional[str] = None
     ) -> Tuple[bool, str]:
-        """
-        Сохранение эпизода в SRT файл
-
-        Args:
-            ep_num: номер эпизода
-            episodes: словарь эпизодов
-            memory_lines: реплики из памяти
-            target_path: путь для сохранения (если None - сохраняется в оригинал)
-
-        Returns:
-            Tuple[success, message]
-        """
+        """Save episode to srt."""
         if not memory_lines:
             return False, "Нет данных для сохранения"
 
@@ -524,11 +435,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         save_path = target_path or source_path
 
         try:
-            # Читаем оригинальный SRT для сохранения таймингов
+            # Read the original SRT to preserve timings
             with open(source_path, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            # Разделяем на блоки
+            # Internal implementation detail
             blocks = re.split(r'\n\s*\n', content.strip())
             new_file_content = []
             line_idx = 0
@@ -539,16 +450,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     continue
 
                 try:
-                    # Первая строка - номер
+                    # The first line is the number
                     block_num = block_lines[0].strip()
                     
-                    # Вторая строка - время
+                    # The second line is timing
                     time_line = block_lines[1].strip()
                     
-                    # Если есть данные для этой реплики
+                    # If this replica has data
                     if line_idx < len(memory_lines):
                         current_data = memory_lines[line_idx]
-                        # Формируем текст: "Имя: реплика" или просто "реплика"
+                        # Build text as "Name: replica" or just "replica"
                         if current_data.get('char'):
                             full_text = f"{current_data['char']}: {current_data['text']}"
                         else:
@@ -558,14 +469,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         new_file_content.append(new_block)
                         line_idx += 1
                     else:
-                        # Сохраняем оригинальный блок
+                        # Keep the original block
                         new_file_content.append(block.strip())
                         
                 except Exception:
-                    # Сохраняем оригинальный блок при ошибке
+                    # Keep the original block on errors
                     new_file_content.append(block.strip())
 
-            # Записываем файл
+            # Write the file
             with open(save_path, 'w', encoding='utf-8') as f:
                 f.write('\n\n'.join(new_file_content) + '\n')
 
@@ -577,12 +488,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             return False, f"Ошибка записи: {e}"
 
     def clear_cache(self, ep_num: Optional[str] = None) -> None:
-        """
-        Очистка кэша загруженных эпизодов
-
-        Args:
-            ep_num: номер эпизода для очистки (если None - очистка всего кэша)
-        """
+        """Clear the loaded episode cache."""
         if ep_num:
             self._loaded_episodes.pop(ep_num, None)
             self._cache_timestamps.pop(ep_num, None)
@@ -591,12 +497,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             self._cache_timestamps.clear()
 
     def invalidate_episode(self, ep_num: str) -> None:
-        """Инвалидация кэша эпизода после изменений"""
+        """Invalidate the episode cache after changes."""
         if ep_num in self._loaded_episodes:
             del self._loaded_episodes[ep_num]
         if ep_num in self._cache_timestamps:
             del self._cache_timestamps[ep_num]
 
     def set_merge_gap(self, gap: int) -> None:
-        """Установка зазора для слияния реплик"""
+        """Set the replica merge gap."""
         self.merge_gap = gap

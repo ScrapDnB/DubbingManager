@@ -1,4 +1,4 @@
-"""Сервис для управления папкой проекта и поиска файлов"""
+"""Service for project folder management and file discovery."""
 
 import os
 import re
@@ -11,17 +11,9 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectFolderService:
-    """
-    Сервис для управления папкой проекта.
-    
-    Возможности:
-    - Установка и сохранение папки проекта
-    - Рекурсивный поиск ASS и видео файлов
-    - Умное сопоставление файлов с эпизодами
-    - Поиск файлов даже при изменении структуры подпапок
-    """
+    """Project Folder Service implementation."""
 
-    # Расширения файлов
+    # File extensions
     ASS_EXTENSIONS = {'.ass', '.srt'}
     VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv'}
     TEXT_EXTENSIONS = {'.json'}
@@ -34,70 +26,48 @@ class ProjectFolderService:
         data: Dict,
         folder_path: str
     ) -> bool:
-        """
-        Установка папки проекта.
-        
-        Args:
-            data: Данные проекта
-            folder_path: Путь к папке
-            
-        Returns:
-            True если папка установлена успешно
-        """
+        """Set the project folder."""
         if not os.path.isdir(folder_path):
             logger.error(f"Folder does not exist: {folder_path}")
             return False
 
-        # Нормализуем путь
+        # Normalize the path
         folder_path = os.path.abspath(folder_path)
         
-        # Сохраняем в данные проекта
+        # Save into project data
         data["project_folder"] = folder_path
         
         logger.info(f"Project folder set: {folder_path}")
         return True
 
     def clear_project_folder(self, data: Dict) -> None:
-        """Очистка папки проекта"""
+        """Clear the project folder."""
         data.pop("project_folder", None)
         self._found_files_cache.clear()
         logger.info("Project folder cleared")
 
     def get_project_folder(self, data: Dict) -> Optional[str]:
-        """Получение пути к папке проекта"""
+        """Return the project folder path."""
         return data.get("project_folder")
 
     def find_all_media_files(
         self,
         folder_path: str
     ) -> Dict[str, Dict[str, str]]:
-        """
-        Рекурсивный поиск всех медиа файлов в папке.
-        
-        Args:
-            folder_path: Путь к папке для поиска
-            
-        Returns:
-            Словарь с найденными файлами:
-            {
-                "ass": {episode_num: path},
-                "video": {episode_num: path},
-                "text": {episode_num: path}
-            }
-        """
+        """Find all media files."""
         if not os.path.isdir(folder_path):
             return {"ass": {}, "video": {}, "text": {}}
 
-        # Проверяем кэш
+        # Check the cache
         cache_key = folder_path
         if cache_key in self._found_files_cache:
             return self._found_files_cache[cache_key]
 
         result = {"ass": {}, "video": {}, "text": {}}
 
-        # Рекурсивный обход папки
+        # Recursively walk the folder
         for root, dirs, files in os.walk(folder_path):
-            # Пропускаем скрытые папки и кэш
+            # Skip hidden folders and cache folders
             dirs[:] = [d for d in dirs if not d.startswith('.')]
 
             for file in files:
@@ -107,7 +77,7 @@ class ProjectFolderService:
                 file_path = os.path.join(root, file)
                 ext = os.path.splitext(file)[1].lower()
 
-                # Извлекаем номер серии из имени файла
+                # Extract the episode number from the filename
                 episode_num = self._extract_episode_number(file)
 
                 if episode_num:
@@ -118,7 +88,7 @@ class ProjectFolderService:
                     elif ext in self.TEXT_EXTENSIONS and self._is_episode_text_file(file):
                         result["text"][episode_num] = file_path
 
-        # Кэшируем результат
+        # Cache the result
         self._found_files_cache[cache_key] = result
 
         logger.info(
@@ -130,37 +100,16 @@ class ProjectFolderService:
         return result
 
     def _is_episode_text_file(self, filename: str) -> bool:
-        """
-        Проверка, похож ли JSON на рабочий текст эпизода.
-
-        Сканер намеренно не считает любой JSON рабочим текстом, чтобы не
-        подхватывать файл проекта или настройки.
-        """
+        """Is episode text file."""
         name = os.path.splitext(filename)[0].lower()
         return bool(re.search(r'^(episode|ep|text|script)[_\-\s]*\d+$', name))
 
     def _extract_episode_number(self, filename: str) -> Optional[str]:
-        """
-        Извлечение номера серии из имени файла.
-        
-        Поддерживаемые форматы:
-        - Series_01.ass, Series_01.mkv
-        - EP01.ass, Ep01.mkv
-        - Episode 01.ass
-        - S01E01.ass
-        - [Subs] Series - 01.ass
-        - Просто цифры: 01.ass, 1.ass
-        
-        Args:
-            filename: Имя файла
-            
-        Returns:
-            Номер серии (строка) или None
-        """
-        # Убираем расширение
+        """Extract an episode number from a filename."""
+        # Remove the extension
         name = os.path.splitext(filename)[0]
 
-        # Паттерны для поиска номера серии
+        # Patterns for finding episode numbers
         patterns = [
             # S01E01, S1E1
             r'[Ss](\d+)[Ee](\d+)',
@@ -168,11 +117,11 @@ class ProjectFolderService:
             r'[Ee][Pp]?(\d+)',
             # Episode 01
             r'[Ee]pisode\s*(\d+)',
-            # - 01 (после дефиса)
+            # Internal implementation detail
             r'-\s*(\d+)',
             # [01]
             r'\[(\d+)\]',
-            # Просто цифры в конце или начале
+            # Internal implementation detail
             r'^(\d+)',
             r'(\d+)$',
         ]
@@ -182,10 +131,10 @@ class ProjectFolderService:
             if match:
                 groups = match.groups()
                 if len(groups) == 2:
-                    # Для S01E01 комбинируем
+                    # Combine parts for S01E01
                     return f"{int(groups[0])} {int(groups[1])}"
                 else:
-                    # Нормализуем номер (убираем ведущие нули)
+                    # Normalize the number by removing leading zeroes
                     num = str(int(groups[0]))
                     return num
 
@@ -196,23 +145,7 @@ class ProjectFolderService:
         data: Dict,
         folder_path: Optional[str] = None
     ) -> Tuple[int, int, int]:
-        """
-        Сканирование папки и перепривязка отсутствующих файлов проекта.
-
-        Метод не создаёт новые эпизоды. Он только обновляет пути для уже
-        известных файлов, если прежний путь больше не существует.
-        
-        Args:
-            data: Данные проекта
-            folder_path: Путь к папке (если None, используется project_folder)
-            
-        Returns:
-            Tuple(
-                количество обновлённых ASS/SRT путей,
-                количество обновлённых видео путей,
-                количество обновлённых рабочих текстов
-            )
-        """
+        """Scan and link files."""
         if not folder_path:
             folder_path = self.get_project_folder(data)
 
@@ -224,7 +157,7 @@ class ProjectFolderService:
         ass_count = 0
         video_count = 0
 
-        # Обновляем пути субтитров только для существующих эпизодов
+        # Update subtitle paths only for existing episodes
         for ep_num, old_path in data.get("episodes", {}).items():
             if os.path.exists(old_path):
                 continue
@@ -235,7 +168,7 @@ class ProjectFolderService:
                 ass_count += 1
                 logger.info(f"Updated subtitle path for episode {ep_num}")
 
-        # Обновляем пути видео только для существующих записей
+        # Update video paths only for existing entries
         if "video_paths" not in data:
             data["video_paths"] = {}
 
@@ -275,20 +208,7 @@ class ProjectFolderService:
         data: Dict,
         folder_path: Optional[str] = None
     ) -> Dict[str, List[str]]:
-        """
-        Поиск отсутствующих файлов для эпизодов.
-        
-        Args:
-            data: Данные проекта
-            folder_path: Путь к папке
-            
-        Returns:
-            Словарь с отсутствующими файлами:
-            {
-                "ass": [ep_num1, ep_num2, ...],
-                "video": [ep_num1, ep_num2, ...]
-            }
-        """
+        """Find missing files."""
         if not folder_path:
             folder_path = self.get_project_folder(data)
 
@@ -299,17 +219,17 @@ class ProjectFolderService:
 
         found = self.find_all_media_files(folder_path)
 
-        # Проверяем ASS файлы
+        # Check ASS files
         for ep_num in data.get("episodes", {}).keys():
             if ep_num not in found["ass"]:
                 result["ass"].append(ep_num)
 
-        # Проверяем видео файлы
+        # Check video files
         for ep_num in data.get("video_paths", {}).keys():
             if ep_num not in found["video"]:
                 result["video"].append(ep_num)
 
-        # Проверяем рабочие тексты
+        # Check working-text files
         for ep_num in data.get("episode_texts", {}).keys():
             if ep_num not in found["text"]:
                 result["text"].append(ep_num)
@@ -317,15 +237,7 @@ class ProjectFolderService:
         return result
 
     def get_folder_stats(self, folder_path: str) -> Dict:
-        """
-        Получение статистики по папке.
-        
-        Args:
-            folder_path: Путь к папке
-            
-        Returns:
-            Словарь со статистикой
-        """
+        """Return folder stats."""
         found = self.find_all_media_files(folder_path)
 
         return {
@@ -341,12 +253,7 @@ class ProjectFolderService:
         }
 
     def invalidate_cache(self, folder_path: Optional[str] = None) -> None:
-        """
-        Инвалидация кэша файлов.
-        
-        Args:
-            folder_path: Путь к папке (если None, очистка всего кэша)
-        """
+        """Invalidate cache."""
         if folder_path:
             self._found_files_cache.pop(folder_path, None)
         else:
@@ -357,16 +264,7 @@ class ProjectFolderService:
         data: Dict,
         episode_num: str
     ) -> Optional[str]:
-        """
-        Поиск подходящего видео файла для серии.
-        
-        Args:
-            data: Данные проекта
-            episode_num: Номер серии
-            
-        Returns:
-            Путь к видео файлу или None
-        """
+        """Suggest video for episode."""
         folder_path = self.get_project_folder(data)
         if not folder_path:
             return None
@@ -379,16 +277,7 @@ class ProjectFolderService:
         data: Dict,
         folder_path: Optional[str] = None
     ) -> Tuple[int, int]:
-        """
-        Массовый импорт файлов из папки проекта.
-        
-        Args:
-            data: Данные проекта
-            folder_path: Путь к папке
-            
-        Returns:
-            Tuple(добавлено ASS, добавлено видео)
-        """
+        """Batch import from folder."""
         if not folder_path:
             folder_path = self.get_project_folder(data)
 
@@ -400,13 +289,13 @@ class ProjectFolderService:
         added_ass = 0
         added_video = 0
 
-        # Добавляем ASS файлы
+        # Add ASS files
         for ep_num, path in found["ass"].items():
             if ep_num not in data.get("episodes", {}):
                 data["episodes"][ep_num] = path
                 added_ass += 1
 
-        # Добавляем видео файлы
+        # Add video files
         if "video_paths" not in data:
             data["video_paths"] = {}
 

@@ -1,4 +1,4 @@
-"""Контроллер управления проектами"""
+"""Controller for project actions."""
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 from typing import Dict, Any, Optional, List
@@ -16,16 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectController:
-    """
-    Контроллер для управления проектами.
-
-    Отвечает за:
-    - Создание нового проекта
-    - Сохранение и загрузку проектов
-    - Переименование проекта
-    - Установка папки проекта
-    - Автосохранение
-    """
+    """Project Controller controller."""
 
     def __init__(
         self,
@@ -40,63 +31,31 @@ class ProjectController:
         self.on_dirty_callback = on_dirty_callback
 
     def _mark_dirty(self) -> None:
-        """Пометка проекта как изменённого"""
+        """Mark dirty."""
         if self.on_dirty_callback:
             self.on_dirty_callback()
 
     def create_new_project(self, name: str) -> Dict[str, Any]:
-        """
-        Создание нового проекта
-
-        Args:
-            name: название проекта
-
-        Returns:
-            Данные нового проекта
-        """
+        """Create new project."""
         self.data_ref = self.project_service.create_new_project(name)
         return self.data_ref
 
     def save_project(self, path: Optional[str] = None) -> bool:
-        """
-        Сохранение проекта
-
-        Args:
-            path: путь сохранения (если None - используется текущий)
-
-        Returns:
-            True если успешно
-        """
+        """Save project."""
         result = self.project_service.save_project(self.data_ref, path)
         if result:
             logger.info(f"Project saved: {path or self.project_service.current_project_path}")
         return result
 
     def save_project_as(self, path: str) -> bool:
-        """
-        Сохранение проекта как...
-
-        Args:
-            path: путь сохранения
-
-        Returns:
-            True если успешно
-        """
+        """Save project as."""
         result = self.project_service.save_project_as(self.data_ref, path)
         if result:
             logger.info(f"Project saved as: {path}")
         return result
 
     def load_project(self, path: str) -> Optional[Dict[str, Any]]:
-        """
-        Загрузка проекта
-
-        Args:
-            path: путь к файлу проекта
-
-        Returns:
-            Данные проекта или None
-        """
+        """Load project."""
         try:
             data = self.project_service.load_project(path)
             self.data_ref.clear()
@@ -108,15 +67,7 @@ class ProjectController:
             return None
 
     def maybe_save(self, parent_widget=None) -> bool:
-        """
-        Проверка необходимости сохранения
-
-        Args:
-            parent_widget: родительский виджет для диалога
-
-        Returns:
-            True если можно продолжать
-        """
+        """Check whether to save."""
         if not self.project_service.is_dirty:
             return True
 
@@ -139,13 +90,7 @@ class ProjectController:
         new_name: str,
         old_name: Optional[str] = None
     ) -> None:
-        """
-        Обновление названия проекта
-
-        Args:
-            new_name: новое название
-            old_name: старое название (для отмены)
-        """
+        """Update project name."""
         command = UpdateProjectNameCommand(self.data_ref, new_name)
         self.undo_stack.push(command)
         self._mark_dirty()
@@ -154,53 +99,38 @@ class ProjectController:
         self,
         folder_path: Optional[str]
     ) -> None:
-        """
-        Установка папки проекта
-
-        Args:
-            folder_path: путь к папке (None для очистки)
-        """
+        """Set the project folder."""
         command = SetProjectFolderCommand(self.data_ref, folder_path)
         self.undo_stack.push(command)
         self._mark_dirty()
 
     def auto_save(self) -> bool:
-        """
-        Автосохранение проекта
-
-        Returns:
-            True если успешно
-        """
+        """Auto save."""
         return self.project_service.auto_save(self.data_ref)
 
     def get_window_title(self) -> str:
-        """
-        Получение заголовка окна
-
-        Returns:
-            Заголовок окна
-        """
+        """Return window title."""
         return self.project_service.get_window_title(self.data_ref)
 
     def get_project_name(self) -> str:
-        """Получение названия проекта"""
+        """Return project name."""
         return self.project_service.get_project_name(self.data_ref)
 
     def is_dirty(self) -> bool:
-        """Проверка флага изменений"""
+        """Is dirty."""
         return self.project_service.is_dirty
 
     def set_dirty(self, dirty: bool = True) -> None:
-        """Установка флага изменений"""
+        """Set dirty."""
         self.project_service.set_dirty(dirty)
 
     def get_backup_directory(self) -> Optional[str]:
-        """Получение директории бэкапов"""
+        """Return backup directory."""
         backup_dir = self.project_service.get_backup_directory()
         return str(backup_dir) if backup_dir else None
 
     def list_backups(self) -> List[str]:
-        """Получение списка бэкапов"""
+        """List backups."""
         backups = self.project_service.list_backups()
         return [str(p) for p in backups]
 
@@ -209,22 +139,13 @@ class ProjectController:
         backup_path: str,
         target_path: str
     ) -> bool:
-        """
-        Восстановление из бэкапа
-
-        Args:
-            backup_path: путь к бэкапу
-            target_path: путь для восстановления
-
-        Returns:
-            True если успешно
-        """
+        """Restore from backup."""
         return self.project_service.restore_from_backup(backup_path, target_path)
 
     def get_current_project_path(self) -> Optional[str]:
-        """Получение пути к текущему проекту"""
+        """Return current project path."""
         return self.project_service.current_project_path
 
     def set_current_project_path(self, path: str) -> None:
-        """Установка пути к текущему проекту"""
+        """Set current project path."""
         self.project_service.current_project_path = path

@@ -1,4 +1,4 @@
-"""Модели данных с использованием dataclass"""
+"""Core data models."""
 
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Any
@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 
 
 def _validate_hex_color(color: str, field_name: str) -> None:
-    """Валидация HEX цвета"""
+    """Validate hex color."""
     if not re.match(r'^#[0-9A-Fa-f]{6}$', color):
         raise ValueError(f"Invalid hex color for {field_name}: {color}")
 
 
 @dataclass
 class PrompterColors:
-    """Цветовая схема телесуфлёра"""
+    """Prompter Colors class."""
     bg: str = "#000000"
     active_text: str = "#FFFFFF"
     inactive_text: str = "#444444"
@@ -26,7 +26,7 @@ class PrompterColors:
     header_text: str = "#00FF00"
 
     def __post_init__(self) -> None:
-        """Валидация цветов после инициализации"""
+        """Post init."""
         _validate_hex_color(self.bg, "bg")
         _validate_hex_color(self.active_text, "active_text")
         _validate_hex_color(self.inactive_text, "inactive_text")
@@ -37,7 +37,7 @@ class PrompterColors:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PrompterColors':
-        """Создание из словаря с обратной совместимостью"""
+        """From dict."""
         valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
         filtered = {k: v for k, v in data.items() if k in valid_keys}
         return cls(**filtered)
@@ -48,7 +48,7 @@ class PrompterColors:
 
 @dataclass
 class PrompterConfig:
-    """Конфигурация телесуфлёра"""
+    """Prompter Config class."""
     f_tc: int = 20
     f_char: int = 24
     f_actor: int = 18
@@ -68,7 +68,7 @@ class PrompterConfig:
     colors: PrompterColors = field(default_factory=PrompterColors)
 
     def __post_init__(self) -> None:
-        """Валидация диапазонов значений после инициализации"""
+        """Post init."""
         if not 10 <= self.f_tc <= 150:
             raise ValueError(f"f_tc must be 10-150, got {self.f_tc}")
         if not 10 <= self.f_char <= 150:
@@ -88,11 +88,11 @@ class PrompterConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PrompterConfig':
-        """Создание из словаря с обратной совместимостью"""
+        """From dict."""
         if not data:
             return cls()
 
-        # Обрабатываем вложенные цвета
+        # Internal implementation detail
         colors_data = data.get('colors', {})
         if isinstance(colors_data, dict):
             colors = PrompterColors.from_dict(colors_data)
@@ -100,7 +100,7 @@ class PrompterConfig:
             colors = PrompterColors()
 
         valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
-        valid_keys.discard('colors')  # Обрабатываем отдельно
+        valid_keys.discard('colors')  # Internal implementation detail
 
         filtered = {k: v for k, v in data.items() if k in valid_keys}
         filtered['colors'] = colors
@@ -113,7 +113,7 @@ class PrompterConfig:
         return result
 
     def ensure_defaults(self) -> None:
-        """Гарантирует наличие всех ключей для обратной совместимости"""
+        """Ensure defaults."""
         defaults = PrompterConfig()
         for field_name in defaults.__dataclass_fields__:
             if not hasattr(self, field_name):
@@ -122,7 +122,7 @@ class PrompterConfig:
 
 @dataclass
 class ReplicaMergeConfig:
-    """Конфигурация объединения реплик"""
+    """Replica Merge Config class."""
     merge: bool = True
     merge_gap: int = 5
     p_short: float = 0.5
@@ -130,7 +130,7 @@ class ReplicaMergeConfig:
     fps: float = 25.0
 
     def __post_init__(self) -> None:
-        """Валидация диапазонов значений после инициализации"""
+        """Post init."""
         if not 1 <= self.merge_gap <= 1000:
             raise ValueError(f"merge_gap must be 1-1000, got {self.merge_gap}")
         if not 0.0 <= self.p_short <= 10.0:
@@ -142,7 +142,7 @@ class ReplicaMergeConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ReplicaMergeConfig':
-        """Создание из словаря с обратной совместимостью"""
+        """From dict."""
         if not data:
             return cls()
 
@@ -156,7 +156,7 @@ class ReplicaMergeConfig:
 
 @dataclass
 class ExportConfig:
-    """Конфигурация экспорта"""
+    """Export Config class."""
     layout_type: str = 'Таблица'
     col_tc: bool = True
     col_char: bool = True
@@ -173,7 +173,7 @@ class ExportConfig:
     highlight_ids_export: Optional[List[str]] = None
 
     def __post_init__(self) -> None:
-        """Валидация диапазонов значений после инициализации"""
+        """Post init."""
         if self.layout_type not in ['Таблица', 'Сценарий']:
             raise ValueError(f"layout_type must be 'Таблица' or 'Сценарий', got {self.layout_type}")
         if not 10 <= self.f_time <= 150:
@@ -187,7 +187,7 @@ class ExportConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ExportConfig':
-        """Создание из словаря с обратной совместимостью"""
+        """From dict."""
         if not data:
             return cls()
 
@@ -201,7 +201,7 @@ class ExportConfig:
 
 @dataclass
 class Actor:
-    """Данные актёра"""
+    """Actor class."""
     name: str
     color: str = "#FFFFFF"
     roles: List[str] = field(default_factory=list)
@@ -209,7 +209,7 @@ class Actor:
 
 @dataclass
 class DialogueLine:
-    """Строка диалога из ASS файла"""
+    """Dialogue Line class."""
     id: int
     s: float  # start time in seconds
     e: float  # end time in seconds

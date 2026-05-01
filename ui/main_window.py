@@ -1,4 +1,4 @@
-"""Главное окно приложения"""
+"""Main application window."""
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -126,7 +126,7 @@ ACTOR_ID_ROLE = Qt.UserRole + 2
 
 
 class ScopeComboDelegate(QStyledItemDelegate):
-    """Редактор области назначения без постоянного QComboBox в таблице."""
+    """Scope Combo Delegate class."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -168,7 +168,7 @@ class ScopeComboDelegate(QStyledItemDelegate):
 
 
 class ActorComboDelegate(QStyledItemDelegate):
-    """Редактор актёра без постоянного QComboBox в таблице."""
+    """Actor Combo Delegate class."""
 
     def __init__(self, main_window: "MainWindow") -> None:
         super().__init__(main_window)
@@ -212,7 +212,7 @@ class ActorComboDelegate(QStyledItemDelegate):
 
 
 class MainTableModel(QAbstractTableModel):
-    """Модель главной таблицы персонажей текущей серии."""
+    """Main Table Model class."""
 
     HEADERS = ["Персонаж", "Строчек", "Колец", "Слов", "Область", "Актер", "📺"]
 
@@ -400,7 +400,7 @@ class MainTableModel(QAbstractTableModel):
 
 
 class MainWindow(QMainWindow):
-    """Главное окно приложения Dubbing Manager"""
+    """Main Window class."""
 
     # Class attributes with type hints
     current_project_path: Optional[str]
@@ -418,7 +418,7 @@ class MainWindow(QMainWindow):
         self.resize(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
         self.setAcceptDrops(True)
 
-        # Сервисы
+        # Internal implementation detail
         self.project_service = ProjectService()
         self.actor_service = ActorService()
         self.global_settings_service = GlobalSettingsService()
@@ -426,17 +426,17 @@ class MainWindow(QMainWindow):
         self.script_text_service = ScriptTextService()
         self.episode_service = EpisodeService()
 
-        # Контроллеры
+        # Internal implementation detail
         self.actor_controller: Optional[ActorController] = None
         self.episode_controller: Optional[EpisodeController] = None
         self.export_controller: Optional[ExportController] = None
         self.project_controller: Optional[ProjectController] = None
 
-        # Стек отмены/повтора действий
+        # Internal implementation detail
         self.undo_stack = UndoStack()
         self.undo_stack.on_change(self._on_undo_stack_change)
 
-        # Состояние
+        # Internal implementation detail
         self.current_project_path = None
         self.is_dirty = False
         self.sort_col = 1
@@ -444,32 +444,32 @@ class MainWindow(QMainWindow):
         self.preview_window = None
         self.teleprompter_window = None
 
-        # Загрузка глобальных настроек
+        # Internal implementation detail
         self.global_settings = self.global_settings_service.load_settings()
 
-        # Данные проекта
+        # Internal implementation detail
         self.data = self.project_service.create_new_project("Новый проект")
 
-        # Инициализация контроллеров
+        # Internal implementation detail
         self._init_controllers()
 
-        # Применение глобальных настроек к проекту
+        # Internal implementation detail
         self._apply_global_settings_to_project()
 
         self.current_ep_stats = []
         self.character_names_changed = {}
-        self.text_changes = {}  # Флаг изменений текста для каждого эпизода
+        self.text_changes = {}  # Internal implementation detail
 
         self._init_ui()
         self.update_window_title()
 
-        # Автосохранение
+        # Internal implementation detail
         self.autosave_timer = QTimer(self)
         self.autosave_timer.timeout.connect(self._on_autosave_timer)
         self.autosave_timer.start(AUTOSAVE_INTERVAL_MS)
 
     def _init_controllers(self) -> None:
-        """Инициализация контроллеров"""
+        """Init controllers."""
         self.episode_controller = EpisodeController(
             episode_service=self.episode_service,
             data_ref=self.data,
@@ -488,35 +488,35 @@ class MainWindow(QMainWindow):
         )
 
     def _on_autosave_timer(self) -> None:
-        """Обработчик таймера автосохранения"""
+        """Handle autosave timer."""
         if self.project_controller:
             self.project_controller.auto_save()
 
     def _init_ui(self) -> None:
-        """Инициализация интерфейса"""
+        """Init ui."""
         central: QWidget = QWidget()
         self.setCentralWidget(central)
         main_layout: QHBoxLayout = QHBoxLayout(central)
 
-        # Левая панель - актёры
+        # Internal implementation detail
         self._init_actor_panel(main_layout)
 
-        # Правая панель - основной контент
+        # Internal implementation detail
         self._init_main_panel(main_layout)
 
-        # Горячие клавиши для Undo/Redo
+        # Internal implementation detail
         self._setup_undo_redo_shortcuts()
 
     def _setup_undo_redo_shortcuts(self) -> None:
-        """Настройка горячих клавиш для Undo/Redo"""
-        # Ctrl+Z для Undo
+        """Setup undo redo shortcuts."""
+        # Internal implementation detail
         undo_shortcut = QKeySequence("Ctrl+Z")
         undo_action = QAction("Undo", self)
         undo_action.setShortcut(undo_shortcut)
         undo_action.triggered.connect(self.undo)
         self.addAction(undo_action)
 
-        # Ctrl+Shift+Z для Redo
+        # Internal implementation detail
         redo_shortcut = QKeySequence("Ctrl+Shift+Z")
         redo_action = QAction("Redo", self)
         redo_action.setShortcut(redo_shortcut)
@@ -524,7 +524,7 @@ class MainWindow(QMainWindow):
         self.addAction(redo_action)
 
     def _init_actor_panel(self, main_layout: QHBoxLayout) -> None:
-        """Инициализация панели актёров"""
+        """Init actor panel."""
         left_panel: QVBoxLayout = QVBoxLayout()
         left_widget = QFrame()
         left_widget.setFixedWidth(ACTOR_PANEL_WIDTH)
@@ -536,7 +536,7 @@ class MainWindow(QMainWindow):
         self.actor_table = QTableWidget(0, 3)
         customize_table(self.actor_table)
 
-        # Создаём контроллер актёров
+        # Internal implementation detail
         self.actor_controller = ActorController(
             actor_table=self.actor_table,
             actor_service=self.actor_service,
@@ -549,7 +549,7 @@ class MainWindow(QMainWindow):
 
         left_panel.addWidget(self.actor_table)
 
-        # Кнопки управления актёрами
+        # Internal implementation detail
         btn_layout = QHBoxLayout()
         
         btn_add = QPushButton("+ Актер")
@@ -570,25 +570,25 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(left_widget)
 
     def _init_main_panel(self, main_layout: QHBoxLayout) -> None:
-        """Инициализация основной панели"""
+        """Init main panel."""
         right_panel: QVBoxLayout = QVBoxLayout()
 
-        # Верхняя строка - проект
+        # Internal implementation detail
         self._init_project_bar(right_panel)
 
-        # Управление сериями
+        # Internal implementation detail
         self._init_episode_controls(right_panel)
 
-        # Центральная область - таблица + инструменты
+        # Internal implementation detail
         self._init_center_area(right_panel)
 
-        # Нижняя панель - экспорт
+        # Internal implementation detail
         self._init_bottom_panel(right_panel)
 
         main_layout.addLayout(right_panel)
 
     def _init_project_bar(self, layout: QHBoxLayout) -> None:
-        """Инициализация панели проекта"""
+        """Init project bar."""
         top: QHBoxLayout = QHBoxLayout()
 
         self.proj_edit = QLineEdit()
@@ -608,7 +608,7 @@ class MainWindow(QMainWindow):
         btn_copy.clicked.connect(self.save_project_as)
         top.addWidget(btn_copy)
 
-        # Кнопки Undo/Redo
+        # Buttons Undo/Redo
         self.btn_undo = QPushButton("↶")
         self.btn_undo.setToolTip("Отменить последнее действие (Ctrl+Z)")
         self.btn_undo.setFixedWidth(PROJECT_FOLDER_BTN_WIDTH)
@@ -625,7 +625,7 @@ class MainWindow(QMainWindow):
 
         top.addSpacing(PROJECT_BAR_SPACING)
 
-        # Папка проекта
+        # Internal implementation detail
         self.btn_folder = QPushButton("📁 Папка")
         self.btn_folder.setToolTip("Установить папку проекта")
         self.btn_folder.clicked.connect(self.set_project_folder_dialog)
@@ -639,7 +639,7 @@ class MainWindow(QMainWindow):
 
         top.addStretch()
 
-        # Кнопка файлов проекта
+        # Internal implementation detail
         btn_files = QPushButton("📋 Файлы")
         btn_files.setToolTip("Просмотр структуры файлов проекта")
         btn_files.clicked.connect(self.open_project_files_dialog)
@@ -658,7 +658,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(top)
 
     def _init_episode_controls(self, layout: QHBoxLayout) -> None:
-        """Инициализация управления сериями"""
+        """Init episode controls."""
         ep_ctrl = QHBoxLayout()
 
         self.ep_combo = QComboBox()
@@ -667,7 +667,7 @@ class MainWindow(QMainWindow):
         ep_ctrl.addWidget(QLabel("Серия:"))
         ep_ctrl.addWidget(self.ep_combo)
 
-        # Кнопка "Импорт" с автоопределением типа файла
+        # Internal implementation detail
         btn_import = QPushButton("📥 Импорт")
         btn_import.clicked.connect(self.import_files)
         ep_ctrl.addWidget(btn_import)
@@ -709,10 +709,10 @@ class MainWindow(QMainWindow):
         layout.addLayout(ep_ctrl)
     
     def _init_center_area(self, layout: QHBoxLayout) -> None:
-        """Инициализация центральной области"""
+        """Init center area."""
         middle_layout: QHBoxLayout = QHBoxLayout()
 
-        # Стек таблиц
+        # Internal implementation detail
         self.table_stack = QStackedWidget()
 
         self.main_table = QTableView()
@@ -765,13 +765,13 @@ class MainWindow(QMainWindow):
 
         middle_layout.addWidget(self.table_stack, stretch=1)
 
-        # Панель инструментов
+        # Internal implementation detail
         self._init_tools_sidebar(middle_layout)
 
         layout.addLayout(middle_layout)
 
     def _init_tools_sidebar(self, layout: QHBoxLayout) -> None:
-        """Инициализация панели инструментов"""
+        """Init tools sidebar."""
         tools_sidebar_widget = QWidget()
         tools_sidebar_widget.setFixedWidth(TOOLS_SIDEBAR_WIDTH)
         tools_sidebar_layout = QVBoxLayout(tools_sidebar_widget)
@@ -813,10 +813,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(tools_sidebar_widget)
     
     def _init_bottom_panel(self, layout) -> None:
-        """Инициализация нижней панели"""
+        """Init bottom panel."""
         bottom_panel = QHBoxLayout()
 
-        # Левая часть: общие настройки
+        # Internal implementation detail
         btn_settings = QPushButton("⚙ Настройки")
         btn_settings.setToolTip("Общие настройки экспорта, объединения, телесуфлёра и DOCX")
         btn_settings.clicked.connect(self.open_settings)
@@ -824,7 +824,7 @@ class MainWindow(QMainWindow):
 
         bottom_panel.addStretch()
 
-        # Правая часть: экспорт монтажных листов
+        # Internal implementation detail
         exp_group = QGroupBox("Экспорт монтажных листов")
         exp_lay = QHBoxLayout(exp_group)
         exp_lay.setContentsMargins(5, 5, 5, 5)
@@ -866,10 +866,10 @@ class MainWindow(QMainWindow):
         bottom_panel.addWidget(exp_group)
         layout.addLayout(bottom_panel)
     
-    # === Методы работы с данными ===
+    # Internal implementation detail
 
     def set_dirty(self, dirty: bool = True) -> None:
-        """Установка флага изменений"""
+        """Set dirty."""
         if self.project_controller:
             self.project_controller.set_dirty(dirty)
         else:
@@ -878,14 +878,14 @@ class MainWindow(QMainWindow):
         self.update_save_ass_button()
 
     def update_window_title(self) -> None:
-        """Обновление заголовка окна"""
+        """Update window title."""
         if self.project_controller:
             self.setWindowTitle(self.project_controller.get_window_title())
         else:
             self.setWindowTitle(self.project_service.get_window_title(self.data))
     
     def maybe_save(self) -> bool:
-        """Проверка необходимости сохранения"""
+        """Check whether to save."""
         if self.project_controller:
             return self.project_controller.maybe_save(self)
         if not self.project_service.is_dirty:
@@ -903,18 +903,18 @@ class MainWindow(QMainWindow):
         return reply == QMessageBox.Discard
 
     def on_project_name_changed(self, text: str) -> None:
-        """Изменение имени проекта"""
+        """Handle project name change."""
         old_name = self.data.get("project_name", "")
         if text != old_name:
-            # Используем команду для отмены действия
+            # Internal implementation detail
             command = UpdateProjectNameCommand(self.data, text)
             self.undo_stack.push(command)
             self.set_dirty()
 
-    # === Методы работы с персонажами ===
+    # Internal implementation detail
 
     def on_main_table_cell_clicked(self, index: QModelIndex) -> None:
-        """Открыть предпросмотр персонажа по клику в колонке видео."""
+        """Handle main table cell click."""
         if not index.isValid() or index.column() != 6:
             return
         row = self.main_table_model.row_data(index.row())
@@ -923,7 +923,7 @@ class MainWindow(QMainWindow):
             self.open_preview(char_name)
     
     def rename_character_from_table(self, old_name: str, new_name: str) -> bool:
-        """Переименовать персонажа из модели главной таблицы."""
+        """Rename character from table."""
         ep = self.ep_combo.currentData()
         if not ep or new_name == old_name or not new_name:
             return False
@@ -955,21 +955,21 @@ class MainWindow(QMainWindow):
         return True
 
     def _refresh_open_windows(self, ep: str) -> None:
-        """Обновление открытых окон после изменений"""
-        # Обновляем превью, если открыто
+        """Refresh open windows."""
+        # Internal implementation detail
         if hasattr(self, 'preview_window') and self.preview_window:
             self.preview_window.update_preview()
 
-        # Обновляем телесуфлёр, если открыт
+        # Internal implementation detail
         if hasattr(self, 'teleprompter_window') and self.teleprompter_window:
             self.teleprompter_window.refresh_episode_data()
     
     def update_save_ass_button(self) -> None:
-        """Совместимость со старым UI сохранения ASS/SRT."""
+        """Update save ass button."""
         pass
 
     def _reset_character_stats_panel(self) -> None:
-        """Сброс панели статистики персонажа."""
+        """Reset character stats panel."""
         if not hasattr(self, "lbl_character_stats_name"):
             return
         self.lbl_character_stats_name.setText("Выберите персонажа")
@@ -977,7 +977,7 @@ class MainWindow(QMainWindow):
         self.txt_character_stats_episodes.setPlainText("")
 
     def update_selected_character_stats(self) -> None:
-        """Обновить статистику выбранного персонажа в правой панели."""
+        """Update selected character stats."""
         selected_rows = self.main_table.selectionModel().selectedRows()
         if not selected_rows:
             self._reset_character_stats_panel()
@@ -991,7 +991,7 @@ class MainWindow(QMainWindow):
         self.update_character_stats_panel(row_data["name"])
 
     def update_character_stats_panel(self, char_name: str) -> None:
-        """Показать серии, кольца и слова для персонажа."""
+        """Update character stats panel."""
         stats = self._calculate_character_project_stats(char_name)
         self.lbl_character_stats_name.setText(char_name)
         self.lbl_character_stats_totals.setText(
@@ -1012,7 +1012,7 @@ class MainWindow(QMainWindow):
         self,
         char_name: str
     ) -> Dict[str, Any]:
-        """Посчитать статистику персонажа по всем сериям."""
+        """Calculate character project stats."""
         result: Dict[str, Any] = {
             "rings": 0,
             "words": 0,
@@ -1052,10 +1052,10 @@ class MainWindow(QMainWindow):
 
         return result
 
-    # === Методы работы с проектом ===
+    # Internal implementation detail
 
     def save_project(self) -> bool:
-        """Сохранение проекта"""
+        """Save project."""
         if not self.project_controller:
             return False
         
@@ -1068,7 +1068,7 @@ class MainWindow(QMainWindow):
         return self.save_project_as()
 
     def save_project_as(self) -> bool:
-        """Сохранение проекта как..."""
+        """Save project as."""
         if not self.project_controller:
             return False
         
@@ -1083,7 +1083,7 @@ class MainWindow(QMainWindow):
         return False
 
     def load_project_dialog(self) -> None:
-        """Диалог загрузки проекта"""
+        """Load project dialog."""
         if not self.project_controller:
             return
         
@@ -1095,7 +1095,7 @@ class MainWindow(QMainWindow):
                 self._load_from_path(path)
 
     def _load_from_path(self, path: str) -> None:
-        """Загрузка из файла"""
+        """Load from path."""
         if not self.project_controller:
             return
         
@@ -1106,11 +1106,11 @@ class MainWindow(QMainWindow):
             
             self.current_project_path = self.project_controller.get_current_project_path()
 
-            # Обновляем ссылку на данные в контроллере актёров
+            # Internal implementation detail
             if self.actor_controller:
                 self.actor_controller.data_ref = self.data
 
-            # Временно отключаем сигнал, чтобы не устанавливать dirty флаг
+            # Internal implementation detail
             self.proj_edit.blockSignals(True)
             self.proj_edit.setText(self.project_service.get_project_name(self.data))
             self.proj_edit.blockSignals(False)
@@ -1119,7 +1119,7 @@ class MainWindow(QMainWindow):
             logger.info(f"Actors count: {len(self.data.get('actors', {}))}")
             logger.info(f"Global map count: {len(self.data.get('global_map', {}))}")
 
-            # Очищаем кэш загруженных эпизодов и статистику
+            # Internal implementation detail
             self.data["loaded_episodes"] = {}
             self.current_ep_stats = []
             self.episode_service.clear_cache()
@@ -1134,18 +1134,18 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # Очищаем стек отмены при загрузке нового проекта
+        # Internal implementation detail
         self.undo_stack.clear()
 
-        # Обновляем отображение папки проекта
+        # Internal implementation detail
         self._update_project_folder_button()
 
-        # Сканируем папку проекта если она есть
+        # Internal implementation detail
         self._scan_project_folder()
         self._prompt_working_text_migration()
 
     def _update_project_folder_button(self) -> None:
-        """Обновление состояния кнопки папки проекта"""
+        """Update project folder button."""
         folder = self.project_folder_service.get_project_folder(self.data)
         if folder:
             folder_name = os.path.basename(folder)
@@ -1156,7 +1156,7 @@ class MainWindow(QMainWindow):
             self.btn_folder.setToolTip("Установить папку проекта")
 
     def _scan_project_folder(self) -> None:
-        """Сканирование папки проекта и связывание файлов"""
+        """Scan project folder."""
         folder = self.project_folder_service.get_project_folder(self.data)
         if folder:
             ass_count, video_count, text_count = (
@@ -1174,12 +1174,12 @@ class MainWindow(QMainWindow):
                 )
 
     def _episode_text_exists(self, ep: str) -> bool:
-        """Проверить, есть ли рабочий текст серии на диске."""
+        """Episode text exists."""
         text_path = self.data.get("episode_texts", {}).get(str(ep))
         return bool(text_path and os.path.exists(text_path))
 
     def _episodes_needing_working_texts(self) -> List[str]:
-        """Список серий, для которых рабочий текст ещё не создан."""
+        """Episodes needing working texts."""
         episodes = self.data.get("episodes", {})
         return [
             str(ep)
@@ -1191,11 +1191,11 @@ class MainWindow(QMainWindow):
         ]
 
     def _is_subtitle_source_path(self, path: str) -> bool:
-        """Проверить, похож ли путь на исходный файл субтитров."""
+        """Is subtitle source path."""
         return os.path.splitext(path or "")[1].lower() in {'.ass', '.srt'}
 
     def _prompt_working_text_migration(self) -> None:
-        """Предложить создать рабочие тексты для проекта старого формата."""
+        """Prompt working text migration."""
         missing_episodes = self._episodes_needing_working_texts()
         if not missing_episodes:
             return
@@ -1222,7 +1222,7 @@ class MainWindow(QMainWindow):
         self,
         episodes: Optional[List[str]] = None
     ) -> Tuple[int, int]:
-        """Создать рабочие тексты для серий, где найдены исходные субтитры."""
+        """Create missing working texts."""
         target_episodes = episodes or self._episodes_needing_working_texts()
         created_count = 0
         skipped_count = 0
@@ -1255,7 +1255,7 @@ class MainWindow(QMainWindow):
         return created_count, skipped_count
 
     def set_project_folder_dialog(self) -> None:
-        """Диалог установки папки проекта"""
+        """Set project folder dialog."""
         current_folder = self.project_folder_service.get_project_folder(self.data)
         
         folder = QFileDialog.getExistingDirectory(
@@ -1265,20 +1265,20 @@ class MainWindow(QMainWindow):
         )
         
         if folder:
-            # Используем команду для отмены действия
+            # Internal implementation detail
             command = SetProjectFolderCommand(self.data, folder)
             self.undo_stack.push(command)
             
-            # Устанавливаем папку
+            # Internal implementation detail
             self.project_folder_service.set_project_folder(self.data, folder)
             
-            # Обновляем UI
+            # Update UI
             self._update_project_folder_button()
             self._scan_project_folder()
             self.set_dirty()
 
     def clear_project_folder(self) -> None:
-        """Очистка папки проекта"""
+        """Clear the project folder."""
         current_folder = self.project_folder_service.get_project_folder(self.data)
         
         if not current_folder:
@@ -1293,40 +1293,40 @@ class MainWindow(QMainWindow):
         )
 
         if reply == QMessageBox.Yes:
-            # Используем команду для отмены действия
+            # Internal implementation detail
             command = SetProjectFolderCommand(self.data, None)
             self.undo_stack.push(command)
             
-            # Очищаем папку
+            # Internal implementation detail
             self.project_folder_service.clear_project_folder(self.data)
             
-            # Обновляем UI
+            # Update UI
             self._update_project_folder_button()
             self.set_dirty()
 
     def _on_undo_stack_change(self) -> None:
-        """Обработчик изменений стека отмены"""
+        """Handle undo stack change."""
         self.btn_undo.setEnabled(self.undo_stack.can_undo())
         self.btn_redo.setEnabled(self.undo_stack.can_redo())
 
     def undo(self) -> None:
-        """Отмена последнего действия"""
+        """Undo."""
         if self.undo_stack.undo():
             self.refresh_actor_list()
             self.refresh_main_table()
             self.set_dirty()
 
     def redo(self) -> None:
-        """Повтор отменённого действия"""
+        """Redo."""
         if self.undo_stack.redo():
             self.refresh_actor_list()
             self.refresh_main_table()
             self.set_dirty()
 
-    # === Методы работы с сериями ===
+    # Internal implementation detail
     
     def on_header_clicked(self, index: int) -> None:
-        """Клик по заголовку таблицы"""
+        """Handle header click."""
         if index > 3:
             return
         if self.sort_col == index:
@@ -1337,7 +1337,7 @@ class MainWindow(QMainWindow):
         self.refresh_main_table()
     
     def add_actor_dialog(self) -> None:
-        """Диалог добавления актёра"""
+        """Add actor dialog."""
         if self.actor_controller:
             name: str
             ok: bool
@@ -1345,7 +1345,7 @@ class MainWindow(QMainWindow):
             if ok and name:
                 dialog = CustomColorDialog(self)
                 if dialog.exec():
-                    # Используем команду для отмены действия
+                    # Internal implementation detail
                     actor_id = str(datetime.now().timestamp())
                     command = AddActorCommand(
                         self.data["actors"],
@@ -1359,7 +1359,7 @@ class MainWindow(QMainWindow):
                     self.set_dirty()
 
     def on_actor_renamed(self, item: QTableWidgetItem) -> None:
-        """Переименование актёра"""
+        """Handle actor renamed."""
         if item.column() != 0:
             return
 
@@ -1377,7 +1377,7 @@ class MainWindow(QMainWindow):
                 if new_name == old_name:
                     return
 
-                # Используем команду для отмены действия
+                # Internal implementation detail
                 command = RenameActorCommand(
                     self.data["actors"],
                     aid,
@@ -1390,11 +1390,11 @@ class MainWindow(QMainWindow):
                 self.set_dirty()
 
     def on_actor_color_clicked(self, aid: str) -> None:
-        """Клик по цвету актёра"""
+        """Handle actor color click."""
         if self.actor_controller:
             dialog = CustomColorDialog(self)
             if dialog.exec() and dialog.selected_color:
-                # Используем команду для отмены действия
+                # Internal implementation detail
                 command = UpdateActorColorCommand(
                     self.data["actors"],
                     aid,
@@ -1406,11 +1406,11 @@ class MainWindow(QMainWindow):
                 self.set_dirty()
 
     def delete_actor_dialog(self) -> None:
-        """Диалог удаления актёра"""
+        """Delete actor dialog."""
         if not self.actor_controller:
             return
 
-        # Получаем выбранную строку
+        # Internal implementation detail
         selected_rows = self.actor_table.selectionModel().selectedRows()
         if not selected_rows:
             QMessageBox.information(
@@ -1426,7 +1426,7 @@ class MainWindow(QMainWindow):
         actor_id = item.data(Qt.UserRole)
         actor_name = item.text()
 
-        # Проверяем, есть ли у актёра роли
+        # Internal implementation detail
         roles = self.actor_controller.get_actor_roles(actor_id)
         
         warning_message = f"Вы уверены, что хотите удалить актёра \"{actor_name}\"?"
@@ -1447,7 +1447,7 @@ class MainWindow(QMainWindow):
         )
 
         if reply == QMessageBox.Yes:
-            # Используем команду для отмены действия
+            # Internal implementation detail
             command = DeleteActorCommand(
                 self.data["actors"],
                 self.data["global_map"],
@@ -1464,7 +1464,7 @@ class MainWindow(QMainWindow):
             self.set_dirty()
 
     def set_episode_video(self) -> None:
-        """Установка видео для серии"""
+        """Set episode video."""
         ep: Optional[str] = self.ep_combo.currentData()
         if ep:
             path: str
@@ -1479,7 +1479,7 @@ class MainWindow(QMainWindow):
                     self.data["video_paths"] = {}
                 self.data["video_paths"][ep] = path
                 
-                # Извлекаем FPS из видео и обновляем настройки
+                # Internal implementation detail
                 fps = get_video_fps(path)
                 self.data["replica_merge_config"]["fps"] = fps
                 self.episode_service.set_fps(fps)
@@ -1487,7 +1487,7 @@ class MainWindow(QMainWindow):
                 self.set_dirty()
     
     def change_episode(self) -> None:
-        """Смена серии"""
+        """Change episode."""
         ep: Optional[str] = self.ep_combo.currentData()
         if not ep:
             return
@@ -1503,35 +1503,30 @@ class MainWindow(QMainWindow):
 
         self.table_stack.setCurrentIndex(1)
 
-        # При смене эпизода не сбрасываем флаг text_changes,
-        # т.к. он нужен для отображения состояния кнопки
+        # Internal implementation detail
+        # Internal implementation detail
 
     def _display_episode_lines(self, lines: List[Dict[str, Any]]) -> None:
-        """Отображение загруженных строк эпизода в таблице"""
-        # Этот метод используется для DOCX импорта, когда данные уже в кэше
-        pass  # Данные уже в main_table через refresh_main_table
+        """Display episode lines."""
+        # DOCX-specific handling
+        pass  # Internal implementation detail
 
     def _recalculate_episode_stats(self, lines: List[Dict[str, Any]]) -> None:
-        """
-        Пересчёт статистики эпизода из загруженных реплик.
-
-        Args:
-            lines: Список реплик эпизода
-        """
+        """Recalculate episode stats."""
         from collections import defaultdict
 
         char_data: Dict[str, Dict[str, Any]] = defaultdict(
             lambda: {"lines": 0, "raw": []}
         )
 
-        # Собираем данные по персонажам
+        # Internal implementation detail
         for line in lines:
             char = line.get('char', '')
             if char:
                 char_data[char]["lines"] += 1
                 char_data[char]["raw"].append(line)
 
-        # Вычисляем статистику
+        # Internal implementation detail
         merge_gap_seconds = self.episode_service.merge_gap / self.episode_service.fps
 
         stats = []
@@ -1558,7 +1553,7 @@ class MainWindow(QMainWindow):
         self.current_ep_stats = stats
 
     def _parse_episode(self, ep: str, path: str) -> List[Dict[str, Any]]:
-        """Парсинг эпизода и получение статистики"""
+        """Parse episode."""
         stats: List[Dict[str, Any]]
         lines: List[Dict[str, Any]]
         stats, lines = self.episode_service.parse_ass_file(path)
@@ -1571,7 +1566,7 @@ class MainWindow(QMainWindow):
         path: str,
         lines: List[Dict[str, Any]]
     ) -> None:
-        """Создание рабочего текста эпизода после импорта."""
+        """Create working text for episode."""
         if not lines:
             return
 
@@ -1588,7 +1583,7 @@ class MainWindow(QMainWindow):
         self,
         lines: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Нормализовать импортированные реплики для кэша приложения."""
+        """Convert imported lines for cache."""
         episode_lines = []
         for idx, line_data in enumerate(lines):
             episode_lines.append({
@@ -1603,7 +1598,7 @@ class MainWindow(QMainWindow):
         return episode_lines
 
     def import_ass(self, paths: Optional[List[str]] = None) -> None:
-        """Импорт ASS файлов"""
+        """Import ass."""
         if not paths:
             paths, _ = QFileDialog.getOpenFileNames(
                 self, "ASS", "", "*.ass"
@@ -1616,7 +1611,7 @@ class MainWindow(QMainWindow):
             self.update_ep_list()
 
     def import_srt(self, paths: Optional[List[str]] = None) -> None:
-        """Импорт SRT файлов"""
+        """Import srt."""
         if not paths:
             paths, _ = QFileDialog.getOpenFileNames(
                 self, "SRT", "", "*.srt"
@@ -1629,12 +1624,7 @@ class MainWindow(QMainWindow):
             self.update_ep_list()
 
     def _import_single_file(self, path: str) -> None:
-        """
-        Импорт отдельного файла с автоопределением типа.
-
-        Args:
-            path: Путь к файлу
-        """
+        """Import single file."""
         numbers: List[str] = re.findall(r'\d+', os.path.basename(path))
         num: str = " ".join(numbers) or "1"
 
@@ -1648,7 +1638,7 @@ class MainWindow(QMainWindow):
         )
 
         if ok and name:
-            # Используем команду для отмены действия
+            # Internal implementation detail
             command = AddEpisodeCommand(
                 self.data["episodes"],
                 name,
@@ -1656,7 +1646,7 @@ class MainWindow(QMainWindow):
             )
             self.undo_stack.push(command)
 
-            # Парсим файл в зависимости от расширения
+            # Internal implementation detail
             ext = os.path.splitext(path)[1].lower()
             if ext == '.srt':
                 lines = self._parse_srt_episode(name, path)
@@ -1668,12 +1658,7 @@ class MainWindow(QMainWindow):
             self.set_dirty()
 
     def import_files(self, paths: Optional[List[str]] = None) -> None:
-        """
-        Импорт файлов с автоопределением типа (ASS/SRT/DOCX).
-
-        Args:
-            paths: Список путей к файлам (если None, открывается диалог)
-        """
+        """Import files."""
         if not paths:
             paths, _ = QFileDialog.getOpenFileNames(
                 self,
@@ -1691,34 +1676,29 @@ class MainWindow(QMainWindow):
             if ext in {'.ass', '.srt'}:
                 self._import_single_file(path)
             elif ext == '.docx':
-                # Для DOCX открываем диалог с настройками, передавая путь к файлу
+                # DOCX-specific handling
                 self.import_docx_with_dialog(path)
 
         self.update_ep_list()
 
     def import_docx_with_dialog(self, file_path: str) -> None:
-        """
-        Импорт DOCX файла с показом диалога настройки колонок.
-
-        Args:
-            file_path: Путь к DOCX файлу
-        """
+        """Import docx with dialog."""
         from ui.dialogs import DocxImportDialog
         from core.commands import AddEpisodeCommand
         import re
         import os
 
-        # Показываем диалог импорта с переданным файлом
+        # Internal implementation detail
         dialog = DocxImportDialog(self, file_path)
         if dialog.exec() != QDialog.Accepted:
             return
 
-        # Получаем результат
+        # Internal implementation detail
         result = dialog.get_result()
         if not result:
             return
 
-        # Генерируем номер эпизода
+        # Internal implementation detail
         numbers: List[str] = re.findall(r'\d+', os.path.basename(file_path))
         num: str = " ".join(numbers) or "1"
 
@@ -1734,11 +1714,11 @@ class MainWindow(QMainWindow):
         if not ok or not name:
             return
 
-        # Сохраняем данные в эпизод
+        # Internal implementation detail
         lines = result['lines']
         episode_lines = self._convert_imported_lines_for_cache(lines)
 
-        # Добавляем эпизод в данные
+        # Internal implementation detail
         command = AddEpisodeCommand(
             self.data["episodes"],
             name,
@@ -1746,12 +1726,12 @@ class MainWindow(QMainWindow):
         )
         self.undo_stack.push(command)
 
-        # Сохраняем распарсенные данные в кэш loaded_episodes
+        # Internal implementation detail
         if "loaded_episodes" not in self.data:
             self.data["loaded_episodes"] = {}
         self.data["loaded_episodes"][name] = episode_lines
 
-        # Также сохраняем в кэш episode_service для совместимости
+        # Internal implementation detail
         self.episode_service._loaded_episodes[name] = episode_lines
 
         self._create_working_text_for_episode(name, file_path, episode_lines)
@@ -1762,10 +1742,10 @@ class MainWindow(QMainWindow):
         if working_lines:
             self.data["loaded_episodes"][name] = working_lines
 
-        # Устанавливаем статистику
+        # Internal implementation detail
         self.current_ep_stats = result['stats']
 
-        # Обновляем UI
+        # Update UI
         self.update_ep_list()
         self.set_dirty()
 
@@ -1776,7 +1756,7 @@ class MainWindow(QMainWindow):
         )
 
     def _parse_srt_episode(self, ep: str, path: str) -> List[Dict[str, Any]]:
-        """Парсинг SRT эпизода и получение статистики"""
+        """Parse srt episode."""
         stats: List[Dict[str, Any]]
         lines: List[Dict[str, Any]]
         stats, lines = self.episode_service.parse_srt_file(path)
@@ -1784,28 +1764,23 @@ class MainWindow(QMainWindow):
         return lines
 
     def import_docx(self, paths: Optional[List[str]] = None) -> None:
-        """
-        Импорт DOCX файлов с гибкой настройкой колонок.
-
-        Args:
-            paths: Список путей к файлам (если None, открывается диалог)
-        """
+        """Import docx."""
         from ui.dialogs import DocxImportDialog
         from core.commands import AddEpisodeCommand
         import re
         import os
 
-        # Для DOCX всегда показываем полный диалог с настройками
+        # DOCX-specific handling
         dialog = DocxImportDialog(self)
         if dialog.exec() != QDialog.Accepted:
             return
 
-        # Получаем результат
+        # Internal implementation detail
         result = dialog.get_result()
         if not result:
             return
 
-        # Генерируем номер эпизода
+        # Internal implementation detail
         numbers: List[str] = re.findall(r'\d+', dialog.file_label.text())
         num: str = " ".join(numbers) or "1"
 
@@ -1821,7 +1796,7 @@ class MainWindow(QMainWindow):
         if not ok or not name:
             return
 
-        # Сохраняем данные в эпизод
+        # Internal implementation detail
         lines = result['lines']
         episode_lines = self._convert_imported_lines_for_cache(lines)
         docx_path = (
@@ -1833,7 +1808,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        # Добавляем эпизод в данные
+        # Internal implementation detail
         command = AddEpisodeCommand(
             self.data["episodes"],
             name,
@@ -1841,12 +1816,12 @@ class MainWindow(QMainWindow):
         )
         self.undo_stack.push(command)
 
-        # Сохраняем распарсенные данные в кэш loaded_episodes
+        # Internal implementation detail
         if "loaded_episodes" not in self.data:
             self.data["loaded_episodes"] = {}
         self.data["loaded_episodes"][name] = episode_lines
 
-        # Также сохраняем в кэш episode_service для совместимости
+        # Internal implementation detail
         self.episode_service._loaded_episodes[name] = episode_lines
 
         self._create_working_text_for_episode(name, docx_path, episode_lines)
@@ -1857,10 +1832,10 @@ class MainWindow(QMainWindow):
         if working_lines:
             self.data["loaded_episodes"][name] = working_lines
 
-        # Устанавливаем статистику
+        # Internal implementation detail
         self.current_ep_stats = result['stats']
 
-        # Обновляем UI
+        # Update UI
         self.update_ep_list()
         self.set_dirty()
 
@@ -1871,7 +1846,7 @@ class MainWindow(QMainWindow):
         )
 
     def relink_file(self) -> None:
-        """Перепривязка файла"""
+        """Relink file."""
         ep: Optional[str] = self.ep_combo.currentData()
         path: str
         path, _ = QFileDialog.getOpenFileName(
@@ -1888,7 +1863,7 @@ class MainWindow(QMainWindow):
         actor_id: Optional[str],
         scope: str
     ) -> None:
-        """Обновление назначения персонажа из лёгкой табличной ячейки."""
+        """Update map value."""
         ep = self.ep_combo.currentData()
         target_map = get_assignment_map(self.data, scope, ep)
         stored_aid = (
@@ -1896,7 +1871,7 @@ class MainWindow(QMainWindow):
             if scope == ASSIGNMENT_SCOPE_EPISODE and actor_id is None
             else actor_id
         )
-        # Используем команду для отмены действия
+        # Internal implementation detail
         command = AssignActorToCharacterCommand(
             target_map,
             char_name,
@@ -1912,7 +1887,7 @@ class MainWindow(QMainWindow):
         scope: str,
         actor_id: Optional[str]
     ) -> None:
-        """Переключение области назначения из лёгкой табличной ячейки."""
+        """Update assignment scope value."""
         ep = self.ep_combo.currentData()
         if not ep:
             return
@@ -1935,11 +1910,11 @@ class MainWindow(QMainWindow):
         self.set_dirty(True)
 
     def _update_main_table_assignment_display(self, char_name: str) -> None:
-        """Обновить отображение актёра после смены области назначения."""
+        """Update main table assignment display."""
         self.main_table_model.update_actor_for_character(char_name)
     
     def refresh_main_table(self) -> None:
-        """Обновление главной таблицы"""
+        """Refresh main table."""
         query = self.search_edit.text().lower()
         only_unassigned = self.filter_unassigned.isChecked()
         
@@ -1974,13 +1949,13 @@ class MainWindow(QMainWindow):
         self.main_table_model.set_rows(rows)
 
     def refresh_actor_list(self) -> None:
-        """Обновление списка актёров"""
+        """Refresh actor list."""
         logger.info(f"refresh_actor_list: actor_controller={self.actor_controller is not None}, actors={len(self.data.get('actors', {}))}")
         
         if self.actor_controller:
             self.actor_controller.refresh()
         else:
-            # Fallback: если контроллер ещё не создан, используем старую логику
+            # Internal implementation detail
             logger.warning("refresh_actor_list: actor_controller is None, using fallback")
             self.actor_table.blockSignals(True)
             self.actor_table.setRowCount(0)
@@ -1998,16 +1973,16 @@ class MainWindow(QMainWindow):
                 row: int = self.actor_table.rowCount()
                 self.actor_table.insertRow(row)
 
-                # Колонка 0: Актер
+                # Internal implementation detail
                 item: QTableWidgetItem = QTableWidgetItem(info["name"])
                 item.setData(Qt.UserRole, aid)
                 self.actor_table.setItem(row, 0, item)
 
-                # Колонка 1: Роли (кнопка)
+                # Internal implementation detail
                 btn: QPushButton = QPushButton(f"Роли ({len(actor_roles[aid])})")
                 self.actor_table.setCellWidget(row, 1, wrap_widget(btn))
 
-                # Колонка 2: Цвет
+                # Internal implementation detail
                 color_item: QTableWidgetItem = QTableWidgetItem()
                 color_item.setBackground(QColor(info["color"]))
                 self.actor_table.setItem(row, 2, color_item)
@@ -2016,7 +1991,7 @@ class MainWindow(QMainWindow):
             logger.info(f"refresh_actor_list: fallback loaded {self.actor_table.rowCount()} actors")
 
     def rename_episode(self) -> None:
-        """Переименование серии"""
+        """Rename episode."""
         old: Optional[str] = self.ep_combo.currentData()
         new_name: str
         ok: bool
@@ -2024,7 +1999,7 @@ class MainWindow(QMainWindow):
             self, "Rename", "New name:", text=str(old)
         )
         if ok and new_name and new_name != old:
-            # Используем команду для отмены действия
+            # Internal implementation detail
             command = RenameEpisodeCommand(
                 self.data["episodes"],
                 old,
@@ -2036,7 +2011,7 @@ class MainWindow(QMainWindow):
             self.set_dirty()
 
     def delete_episode_dialog(self) -> None:
-        """Диалог удаления серии"""
+        """Delete episode dialog."""
         ep: Optional[str] = self.ep_combo.currentData()
         if not ep:
             QMessageBox.information(self, "Инфо", "Нет серий для удаления.")
@@ -2055,8 +2030,8 @@ class MainWindow(QMainWindow):
             self.delete_episode(ep)
 
     def delete_episode(self, ep: str) -> None:
-        """Удаление серии из проекта"""
-        # Используем команду для отмены действия
+        """Delete episode."""
+        # Internal implementation detail
         command = DeleteEpisodeCommand(
             self.data["episodes"],
             self.data.get("video_paths", {}),
@@ -2066,13 +2041,13 @@ class MainWindow(QMainWindow):
         )
         self.undo_stack.push(command)
 
-        # Очищаем кэш в episode service
+        # Internal implementation detail
         self.episode_service.invalidate_episode(ep)
 
-        # Обновляем список серий
+        # Internal implementation detail
         self.update_ep_list()
 
-        # Сохраняем изменения
+        # Internal implementation detail
         self.set_dirty()
 
         QMessageBox.information(
@@ -2080,7 +2055,7 @@ class MainWindow(QMainWindow):
         )
     
     def update_ep_list(self, select: Optional[str] = None) -> None:
-        """Обновление списка серий"""
+        """Update ep list."""
         self.ep_combo.blockSignals(True)
         self.ep_combo.clear()
 
@@ -2101,10 +2076,10 @@ class MainWindow(QMainWindow):
         self.ep_combo.blockSignals(False)
         self.change_episode()
 
-    # === Экспорт ===
+    # Internal implementation detail
 
     def run_unified_export(self) -> None:
-        """Запуск экспорта"""
+        """Run unified export."""
         do_html: bool = self.chk_exp_html.isChecked()
         do_xls: bool = self.chk_exp_xls.isChecked()
 
@@ -2145,20 +2120,20 @@ class MainWindow(QMainWindow):
         do_xls: bool,
         folder: str
     ) -> None:
-        """Пакетный экспорт через ExportService с прогрессбаром"""
+        """Execute batch export."""
         export_service = ExportService(self.data)
         
-        # Создаём прогрессбар
+        # Internal implementation detail
         progress = QProgressDialog(self)
         progress.setWindowTitle("Экспорт")
         progress.setLabelText("Экспорт серий...")
         progress.setRange(0, len(episodes))
         progress.setValue(0)
-        progress.setCancelButton(None)  # Без кнопки отмены
+        progress.setCancelButton(None)  # Internal implementation detail
         progress.setWindowModality(Qt.WindowModal)
         progress.show()
         
-        # Callback для обновления прогресса
+        # Internal implementation detail
         def progress_callback(current: int, total: int, message: str):
             progress.setValue(current)
             progress.setLabelText(message)
@@ -2188,12 +2163,12 @@ class MainWindow(QMainWindow):
         processed: List[Dict[str, Any]],
         cfg: Optional[Dict[str, Any]] = None
     ) -> Any:
-        """Создание Excel книги (ус��арело, использовать ExportService)"""
+        """Create an Excel workbook with multiple sheets."""
         export_service = ExportService(self.data)
         return export_service.create_excel_book(ep, processed, cfg)
 
     def export_to_excel(self, ep: str) -> None:
-        """Экспорт в Excel"""
+        """Export data to an Excel file."""
         if not self.export_controller:
             return
         
@@ -2212,7 +2187,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Ошибка", message)
 
     def export_to_html(self, ep: str) -> None:
-        """Экспорт в HTML"""
+        """Export to html."""
         if not self.export_controller:
             return
         
@@ -2235,7 +2210,7 @@ class MainWindow(QMainWindow):
         ep_num: str,
         target_path: Optional[str] = None
     ) -> bool:
-        """Сохранение серии в ASS/SRT отключено в UI."""
+        """Save episode to ass."""
         QMessageBox.warning(
             self,
             "Сохранение отключено",
@@ -2246,10 +2221,10 @@ class MainWindow(QMainWindow):
 
 
 
-    # === Диалоги и окна ===
+    # Internal implementation detail
     
     def open_preview(self, char: Optional[str]) -> None:
-        """Открытие предпросмотра видео"""
+        """Open preview."""
         ep = self.ep_combo.currentData()
         lines = self.get_episode_lines(ep)
         
@@ -2268,7 +2243,7 @@ class MainWindow(QMainWindow):
             VideoPreviewWindow(vp, lines, ep, self).exec()
     
     def get_episode_lines(self, ep: str) -> List[Dict[str, Any]]:
-        """Получение строк серии из рабочего текста проекта."""
+        """Return episode lines, loading them when needed."""
         if "loaded_episodes" not in self.data:
             self.data["loaded_episodes"] = {}
 
@@ -2285,7 +2260,7 @@ class MainWindow(QMainWindow):
         return self.data["loaded_episodes"].get(ep, [])
 
     def get_srt_episode_lines(self, ep: str) -> List[Dict[str, Any]]:
-        """Получение строк SRT серии"""
+        """Return srt episode lines."""
         if "loaded_episodes" not in self.data:
             self.data["loaded_episodes"] = {}
 
@@ -2304,7 +2279,7 @@ class MainWindow(QMainWindow):
         ep: str,
         source_path: Optional[str] = None
     ) -> bool:
-        """Пересоздать рабочий текст эпизода из ASS/SRT."""
+        """Regenerate episode text."""
         path = source_path or self.data.get("episodes", {}).get(ep, "")
 
         if not path or not os.path.exists(path):
@@ -2334,7 +2309,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _build_working_text_from_source(self, ep: str, path: str) -> bool:
-        """Создать рабочий текст серии из исходного ASS/SRT без UI-сообщений."""
+        """Build working text from source."""
         try:
             ext = os.path.splitext(path)[1].lower()
             if ext == '.srt':
@@ -2364,11 +2339,11 @@ class MainWindow(QMainWindow):
         return True
     
     def show_project_summary(self) -> None:
-        """Показать сводку проекта"""
+        """Show project summary."""
         SummaryDialog(self.data, None, self).exec()
 
     def show_episode_summary(self) -> None:
-        """Показать сводку серии"""
+        """Show episode summary."""
         ep: Optional[str] = self.ep_combo.currentData()
         if ep:
             SummaryDialog(self.data, ep, self).exec()
@@ -2379,7 +2354,7 @@ class MainWindow(QMainWindow):
         name: str,
         roles: List[str]
     ) -> None:
-        """Просмотр ролей актёра"""
+        """Edit roles."""
         role_stats = self._get_actor_role_stats(aid, roles)
         ActorRolesDialog(name, roles, self, role_stats).exec()
 
@@ -2388,7 +2363,7 @@ class MainWindow(QMainWindow):
         actor_id: str,
         roles: List[str]
     ) -> List[Dict[str, Any]]:
-        """Посчитать кольца и слова по персонажам актёра."""
+        """Return actor role stats."""
         stats = {
             role: {"name": role, "rings": 0, "words": 0}
             for role in roles
@@ -2425,11 +2400,11 @@ class MainWindow(QMainWindow):
         return sorted(stats.values(), key=lambda item: item["name"].lower())
 
     def open_export_settings(self) -> None:
-        """Открытие единого окна настроек на вкладке экспорта."""
+        """Open export settings."""
         self.open_settings(initial_tab="export")
 
     def open_settings(self, initial_tab: str = "export") -> None:
-        """Открытие единого окна настроек"""
+        """Open settings."""
         dialog = SettingsDialog(self.data, self, initial_tab=initial_tab)
         if dialog.exec():
             settings = dialog.get_settings()
@@ -2457,11 +2432,11 @@ class MainWindow(QMainWindow):
             self.set_dirty()
 
     def open_global_search(self) -> None:
-        """Открытие глобального поиска"""
+        """Open global search."""
         GlobalSearchDialog(self.data, self).exec()
 
     def open_live_preview(self) -> None:
-        """Открытие живого предпросмотра"""
+        """Open live preview."""
         ep: Optional[str] = self.ep_combo.currentData()
         if not ep:
             QMessageBox.information(self, "Инфо", "Выберите серию.")
@@ -2476,7 +2451,7 @@ class MainWindow(QMainWindow):
         self.preview_window.show()
 
     def open_teleprompter(self) -> None:
-        """Открытие телесуфлёра"""
+        """Open teleprompter."""
         ep: Optional[str] = self.ep_combo.currentData()
         if not ep:
             QMessageBox.information(self, "Инфо", "Выберите серию.")
@@ -2498,25 +2473,25 @@ class MainWindow(QMainWindow):
         self.teleprompter_window.show()
 
     def _apply_global_settings_to_project(self) -> None:
-        """Применение глобальных настроек к текущему проекту"""
-        # Применяем глобальные настройки экспорта
+        """Apply global settings to project."""
+        # Internal implementation detail
         if self.global_settings.get('export_config'):
             self.data["export_config"].update(
                 self.global_settings['export_config']
             )
         
-        # Применяем глобальные настройки телесуфлёра
+        # Internal implementation detail
         if self.global_settings.get('prompter_config'):
             self.data["prompter_config"].update(
                 self.global_settings['prompter_config']
             )
         
-        # Применяем глобальные настройки объединения
+        # Internal implementation detail
         if self.global_settings.get('replica_merge_config'):
             self.data["replica_merge_config"].update(
                 self.global_settings['replica_merge_config']
             )
-            # Обновляем episode_service
+            # Update episode_service
             self.episode_service.set_merge_gap_from_config(
                 self.data["replica_merge_config"]
             )
@@ -2531,12 +2506,12 @@ class MainWindow(QMainWindow):
             )
 
     def save_global_prompter_settings(self, config: Dict[str, Any]) -> None:
-        """Сохранение настроек телесуфлёра в глобальные"""
+        """Save global prompter settings."""
         self.global_settings_service.update_prompter_config(config)
         self.global_settings_service.save_settings(self.global_settings)
 
     def export_to_reaper_rpp(self) -> None:
-        """Экспорт в Reaper RPP"""
+        """Export to reaper rpp."""
         ep_num: Optional[str] = self.ep_combo.currentData()
         if not ep_num:
             QMessageBox.warning(self, "Ошибка", "Выберите серию.")
@@ -2558,7 +2533,7 @@ class MainWindow(QMainWindow):
             f"Ep{ep_num}.rpp"
         )
         save_path, _ = QFileDialog.getSaveFileName(
-            self, "Сохран��ть RPP", default_name, "Reaper Project (*.rpp)"
+            self, "Сохранить RPP", default_name, "Reaper Project (*.rpp)"
         )
         if not save_path:
             return
@@ -2584,8 +2559,7 @@ class MainWindow(QMainWindow):
         )
         
         try:
-            with open(save_path, 'w', encoding='utf-8') as f:
-                f.write(rpp_content)
+            export_service.save_reaper_rpp(save_path, rpp_content)
             
             reply = QMessageBox.question(
                 self,
@@ -2608,7 +2582,7 @@ class MainWindow(QMainWindow):
             )
     
     def switch_to_episode(self, ep_num: str) -> None:
-        """Переключение на серию"""
+        """Switch to episode."""
         index = self.ep_combo.findData(ep_num)
         if index >= 0:
             self.ep_combo.setCurrentIndex(index)
@@ -2616,14 +2590,14 @@ class MainWindow(QMainWindow):
     # === Drag & Drop ===
     
     def dragEnterEvent(self, event) -> None:
-        """Обработка входа перетаскивания"""
+        """Dragenterevent."""
         if event.mimeData().hasUrls():
             event.accept()
         else:
             event.ignore()
     
     def dropEvent(self, event) -> None:
-        """Обработка сброса файлов"""
+        """Dropevent."""
         files = [
             url.toLocalFile() 
             for url in event.mimeData().urls()
@@ -2638,14 +2612,14 @@ class MainWindow(QMainWindow):
             self.import_ass(ass_files)
     
     def closeEvent(self, event) -> None:
-        """Закрытие приложения"""
+        """Closeevent."""
         if self.maybe_save():
             event.accept()
         else:
             event.ignore()
 
     def show_about(self) -> None:
-        """Показ диалога About"""
+        """Show about."""
         QMessageBox.about(
             self,
             "О программе",
@@ -2665,22 +2639,22 @@ class MainWindow(QMainWindow):
         )
 
     def open_project_files_dialog(self) -> None:
-        """Открытие диалога файлов проекта"""
+        """Open project files dialog."""
         dialog = ProjectFilesDialog(self.data, self)
         dialog.exec()
 
     def open_project_health_dialog(self) -> None:
-        """Открытие диалога проверки проекта"""
+        """Open project health dialog."""
         dialog = ProjectHealthDialog(self.data, self)
         dialog.exec()
 
     def _on_files_changed(self) -> None:
-        """Обработчик изменений в файлах проекта"""
-        # Обновляем список эпизодов
+        """Handle files change."""
+        # Internal implementation detail
         self.update_ep_list()
         
-        # Обновляем таблицу
+        # Internal implementation detail
         self.change_episode()
         
-        # Помечаем проект как изменённый
+        # Internal implementation detail
         self.set_dirty()

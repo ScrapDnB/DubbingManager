@@ -1,4 +1,4 @@
-"""Диалоги настройки цветов"""
+"""Prompter color settings dialog."""
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
@@ -10,7 +10,7 @@ from config.constants import MY_PALETTE
 
 
 class PrompterColorDialog(QDialog):
-    """Диалог настройки цветовой схемы телесуфлёра"""
+    """Prompter Color Dialog dialog."""
 
     def __init__(
         self,
@@ -58,7 +58,7 @@ class PrompterColorDialog(QDialog):
 
         main_layout.addLayout(form_layout)
 
-        # Нижние кнопки
+        # Internal implementation detail
         dialog_buttons: QHBoxLayout = QHBoxLayout()
         btn_save = QPushButton("Сохранить цветовую схему")
         btn_save.clicked.connect(self.accept)
@@ -85,7 +85,7 @@ class PrompterColorDialog(QDialog):
 
 
 class CustomColorDialog(QDialog):
-    """Диалог выбора цвета для актёра"""
+    """Custom Color Dialog dialog."""
 
     def __init__(self, parent: Optional[QDialog] = None) -> None:
         super().__init__(parent)

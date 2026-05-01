@@ -1,4 +1,4 @@
-"""Диалог сводного отчёта"""
+"""Actor summary dialog."""
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem,
@@ -11,7 +11,7 @@ from services.assignment_service import get_actor_for_character
 
 
 class SummaryDialog(QDialog):
-    """Диалог отображения сводной статистики"""
+    """Summary Dialog dialog."""
 
     def __init__(
         self,
@@ -54,7 +54,7 @@ class SummaryDialog(QDialog):
         layout.addWidget(btn_close)
 
     def _customize_table(self) -> None:
-        """Настройка вида таблицы"""
+        """Customize table."""
         self._table.setShowGrid(False)
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(
@@ -68,7 +68,7 @@ class SummaryDialog(QDialog):
         )
 
     def _calculate_stats(self) -> None:
-        """Расчёт статистики по актёрам"""
+        """Calculate stats."""
         stats: Dict[str, Dict[str, Any]] = {
             aid: {"rings": 0, "words": 0, "roles": set()}
             for aid in self.data["actors"]
@@ -93,7 +93,7 @@ class SummaryDialog(QDialog):
                 self.data.get("replica_merge_config", {})
             )
 
-            # Подсчёт статистики
+            # Internal implementation detail
             line: Dict[str, Any]
             for line in merged:
                 aid: Optional[str] = get_actor_for_character(
@@ -108,7 +108,7 @@ class SummaryDialog(QDialog):
                 target["words"] += len(line['text'].split())
                 target["roles"].add(line['char'])
 
-        # Заполнение таблицы
+        # Internal implementation detail
         aid: str
         stat: Dict[str, Any]
         for aid, stat in stats.items():
@@ -139,7 +139,7 @@ class SummaryDialog(QDialog):
             ])
             self._table.setItem(row, 4, QTableWidgetItem(roles_text))
 
-        # Нераспределённые персонажи
+        # Internal implementation detail
         if unassigned["roles"]:
             row: int = self._table.rowCount()
             self._table.insertRow(row)
@@ -159,7 +159,7 @@ class SummaryDialog(QDialog):
             )
 
     def _get_episode_lines(self, ep_num: str) -> List[Dict[str, Any]]:
-        """Получить реплики серии через приложение или кэш проекта."""
+        """Return episode lines, loading them when needed."""
         if self.main_app and hasattr(self.main_app, "get_episode_lines"):
             return self.main_app.get_episode_lines(ep_num)
 

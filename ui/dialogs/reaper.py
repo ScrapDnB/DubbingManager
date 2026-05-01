@@ -1,4 +1,4 @@
-"""Диалог экспорта в Reaper"""
+"""Reaper export dialog."""
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QCheckBox,
@@ -9,7 +9,7 @@ from typing import Tuple, Optional
 
 
 class ReaperExportDialog(QDialog):
-    """Диалог настройки экспорта проекта Reaper"""
+    """Reaper Export Dialog dialog."""
 
     def __init__(self, video_path: Optional[str], parent: Optional[QDialog] = None) -> None:
         super().__init__(parent)
@@ -29,7 +29,7 @@ class ReaperExportDialog(QDialog):
         self._chk_video = QCheckBox("Добавить дорожку с видео")
         self._chk_regions = QCheckBox("Создать регионы (реплики с текстом)")
 
-        # Настройка состояния чекбокса видео
+        # Internal implementation detail
         has_video: bool = bool(video_path and os.path.exists(video_path))
         if has_video:
             self._chk_video.setChecked(True)
@@ -46,7 +46,7 @@ class ReaperExportDialog(QDialog):
         layout.addWidget(self._chk_video)
         layout.addWidget(self._chk_regions)
 
-        # Кнопки ОК / Отмена
+        # Internal implementation detail
         self._button_box = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
         )
@@ -55,5 +55,5 @@ class ReaperExportDialog(QDialog):
         layout.addWidget(self._button_box)
 
     def get_options(self) -> Tuple[bool, bool]:
-        """Возвращает выбранные опции (video, regions)"""
+        """Return options."""
         return self._chk_video.isChecked(), self._chk_regions.isChecked()

@@ -1,4 +1,4 @@
-"""Диалог отображения структуры файлов проекта"""
+"""Project file structure dialog."""
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
@@ -14,15 +14,7 @@ from services import ProjectFolderService
 
 
 class ProjectFilesDialog(QDialog):
-    """
-    Диалог для просмотра структуры файлов проекта.
-    
-    Отображает:
-    - Эпизоды и связанные с ними файлы (ASS, рабочий текст, видео)
-    - Статус файлов (найден/не найден)
-    - Пути к файлам
-    - Возможность перепривязки файлов
-    """
+    """Project Files Dialog dialog."""
 
     def __init__(
         self,
@@ -40,15 +32,15 @@ class ProjectFilesDialog(QDialog):
         self._populate_tree()
 
     def _init_ui(self) -> None:
-        """Инициализация интерфейса"""
+        """Init ui."""
         layout = QVBoxLayout(self)
         
-        # Заголовок
+        # Internal implementation detail
         header_label = QLabel("Структура файлов проекта")
         header_label.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout.addWidget(header_label)
         
-        # Дерево файлов
+        # Internal implementation detail
         self.file_tree = QTreeWidget()
         self.file_tree.setHeaderLabels([
             "Эпизод", "Файл", "Статус", "Путь"
@@ -68,12 +60,12 @@ class ProjectFilesDialog(QDialog):
         self.file_tree.setAlternatingRowColors(True)
         layout.addWidget(self.file_tree)
         
-        # Статистика
+        # Internal implementation detail
         self.lbl_stats = QLabel("")
         self.lbl_stats.setStyleSheet("color: #666;")
         layout.addWidget(self.lbl_stats)
         
-        # Кнопки действий
+        # Internal implementation detail
         btn_layout = QHBoxLayout()
         
         self.btn_relink = QPushButton("📁 Перепривязать...")
@@ -94,14 +86,14 @@ class ProjectFilesDialog(QDialog):
         
         btn_layout.addStretch()
         
-        # Кнопка закрытия
+        # Internal implementation detail
         self.btn_close = QPushButton("Закрыть")
         self.btn_close.clicked.connect(self.accept)
         btn_layout.addWidget(self.btn_close)
         
         layout.addLayout(btn_layout)
         
-        # Подключение сигнала выбора элемента
+        # Internal implementation detail
         self.file_tree.itemSelectionChanged.connect(
             self._on_selection_changed
         )
@@ -110,12 +102,7 @@ class ProjectFilesDialog(QDialog):
         self,
         path: str
     ) -> Tuple[str, QColor]:
-        """
-        Получение статуса файла.
-        
-        Returns:
-            Tuple(текст статуса, цвет)
-        """
+        """Return file status information."""
         if not path:
             return "Не указан", QColor("#999999")
         
@@ -125,7 +112,7 @@ class ProjectFilesDialog(QDialog):
             return "✗ Не найден", QColor("#dc3545")
 
     def _is_subtitle_source_path(self, path: Optional[str]) -> bool:
-        """Проверить, похож ли путь на исходный файл субтитров."""
+        """Is subtitle source path."""
         return os.path.splitext(path or "")[1].lower() in {'.ass', '.srt'}
 
     def _get_working_text_status(
@@ -134,7 +121,7 @@ class ProjectFilesDialog(QDialog):
         text_path: Optional[str],
         source_path: Optional[str]
     ) -> Tuple[str, QColor]:
-        """Получить статус рабочего текста серии."""
+        """Return working text status."""
         if text_path and os.path.exists(text_path):
             return "✓ Используется рабочий текст", QColor("#28a745")
 
@@ -155,7 +142,7 @@ class ProjectFilesDialog(QDialog):
         text_path: Optional[str],
         source_path: Optional[str]
     ) -> Tuple[str, QColor]:
-        """Получить сводный статус источника текста серии."""
+        """Return episode text source status."""
         if text_path and os.path.exists(text_path):
             return "Текст: рабочий JSON", QColor("#28a745")
 
@@ -171,7 +158,7 @@ class ProjectFilesDialog(QDialog):
         return "Текст: не найден", QColor("#999999")
 
     def _populate_tree(self) -> None:
-        """Заполнение дерева файлов"""
+        """Populate tree."""
         self.file_tree.clear()
         
         episodes = self.data.get("episodes", {})
@@ -179,7 +166,7 @@ class ProjectFilesDialog(QDialog):
         video_paths = self.data.get("video_paths", {})
         project_folder = self.data.get("project_folder")
         
-        # Получаем все номера эпизодов
+        # Internal implementation detail
         all_ep_nums = sorted(
             set(episodes.keys()) |
             set(episode_texts.keys()) |
@@ -191,7 +178,7 @@ class ProjectFilesDialog(QDialog):
         total_count = 0
         
         for ep_num in all_ep_nums:
-            # Создаём элемент эпизода
+            # Internal implementation detail
             ep_item = QTreeWidgetItem([
                 f"Серия {ep_num}",
                 "",
@@ -209,7 +196,7 @@ class ProjectFilesDialog(QDialog):
             ep_item.setText(2, ep_status_text)
             ep_item.setForeground(2, ep_status_color)
             
-            # ASS файл
+            # ASS file
             if ass_path:
                 total_count += 1
                 status_text, status_color = self._get_file_status(ass_path)
@@ -217,7 +204,7 @@ class ProjectFilesDialog(QDialog):
                 if status_text.startswith("✓"):
                     found_count += 1
 
-                # Определяем тип файла по расширению
+                # Internal implementation detail
                 file_ext = ".srt" if ass_path.lower().endswith('.srt') else ".ass"
                 file_icon = "📄"
                 
@@ -231,7 +218,7 @@ class ProjectFilesDialog(QDialog):
                 ass_item.setData(3, Qt.UserRole, ("ass", ep_num))
                 ep_item.addChild(ass_item)
 
-            # Рабочий текст
+            # Working text
             if text_path or ass_path:
                 total_count += 1
                 status_text, status_color = self._get_working_text_status(
@@ -253,7 +240,7 @@ class ProjectFilesDialog(QDialog):
                 text_item.setData(3, Qt.UserRole, ("text", ep_num))
                 ep_item.addChild(text_item)
             
-            # Видео файл
+            # Internal implementation detail
             video_path = video_paths.get(ep_num)
             if video_path:
                 total_count += 1
@@ -275,7 +262,7 @@ class ProjectFilesDialog(QDialog):
             self.file_tree.addTopLevelItem(ep_item)
             ep_item.setExpanded(True)
         
-        # Обновляем статистику
+        # Update statistics
         missing_count = total_count - found_count
         self.lbl_stats.setText(
             f"Всего файлов: {total_count} | "
@@ -283,14 +270,14 @@ class ProjectFilesDialog(QDialog):
             f"✗ Не найдено: {missing_count}"
         )
         
-        # Разворачиваем все элементы
+        # Internal implementation detail
         self.file_tree.expandAll()
 
     def _on_selection_changed(self) -> None:
-        """Обработчик изменения выбора"""
+        """Handle selection change."""
         selected_items = self.file_tree.selectedItems()
         
-        # Кнопка перепривязки активна только для файлов
+        # Internal implementation detail
         if selected_items:
             item = selected_items[0]
             file_data = item.data(3, Qt.UserRole)
@@ -304,7 +291,7 @@ class ProjectFilesDialog(QDialog):
             self.btn_regenerate_text.setEnabled(False)
 
     def _relink_selected(self) -> None:
-        """Перепривязка выбранного файла"""
+        """Relink selected."""
         selected_items = self.file_tree.selectedItems()
         if not selected_items:
             return
@@ -317,10 +304,10 @@ class ProjectFilesDialog(QDialog):
         
         file_type, ep_num = file_data
         
-        # Определяем текущий путь и фильтр файлов
+        # Internal implementation detail
         if file_type == "ass":
             current_path = self.data.get("episodes", {}).get(ep_num)
-            # Определяем расширение текущего файла
+            # Internal implementation detail
             if current_path and current_path.lower().endswith('.srt'):
                 file_filter = "Subtitle Files (*.srt *.ass)"
                 title = "Выберите файл субтитров"
@@ -336,7 +323,7 @@ class ProjectFilesDialog(QDialog):
             file_filter = "Video Files (*.mp4 *.mkv *.avi *.mov *.m4v *.wmv)"
             title = "Выберите видео файл"
         
-        # Открываем диалог
+        # Open dialog
         path, _ = QFileDialog.getOpenFileName(
             self,
             title,
@@ -345,7 +332,7 @@ class ProjectFilesDialog(QDialog):
         )
         
         if path:
-            # Обновляем путь в данных проекта
+            # Internal implementation detail
             if file_type == "ass":
                 self.data["episodes"][ep_num] = path
             elif file_type == "text":
@@ -357,14 +344,14 @@ class ProjectFilesDialog(QDialog):
                     self.data["video_paths"] = {}
                 self.data["video_paths"][ep_num] = path
             
-            # Обновляем дерево
+            # Internal implementation detail
             self._populate_tree()
             
-            # Сигнал об изменении
+            # Internal implementation detail
             self.parent()._on_files_changed() if hasattr(self.parent(), '_on_files_changed') else None
 
     def _regenerate_selected_text(self) -> None:
-        """Пересоздание рабочего текста из файла субтитров."""
+        """Regenerate selected text."""
         selected_items = self.file_tree.selectedItems()
         if not selected_items:
             return
@@ -403,5 +390,5 @@ class ProjectFilesDialog(QDialog):
                 parent._on_files_changed()
 
     def _refresh(self) -> None:
-        """Обновление дерева файлов"""
+        """Refresh."""
         self._populate_tree()

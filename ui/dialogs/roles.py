@@ -1,4 +1,4 @@
-"""Диалог просмотра ролей актёра"""
+"""Actor roles dialog."""
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QPushButton, QTableWidget,
@@ -14,7 +14,7 @@ from config.constants import (
 
 
 class ActorRolesDialog(QDialog):
-    """Диалог просмотра ролей актёра."""
+    """Actor Roles Dialog dialog."""
 
     def __init__(
         self,
@@ -91,5 +91,5 @@ class ActorRolesDialog(QDialog):
         ]
 
     def get_roles(self) -> List[str]:
-        """Возвращает список ролей для обратной совместимости."""
+        """Return roles."""
         return self._roles.copy()

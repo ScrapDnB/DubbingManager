@@ -1,4 +1,4 @@
-"""Контроллер управления актёрами"""
+"""Controller for actor management."""
 
 from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView,
@@ -14,15 +14,7 @@ from utils.helpers import wrap_widget
 
 
 class ActorController:
-    """
-    Контроллер для управления панелью актёров.
-    
-    Отвечает за:
-    - Отображение списка актёров в таблице
-    - Добавление/удаление/редактирование актёров
-    - Назначение ролей актёрам
-    - Цветовое кодирование актёров
-    """
+    """Actor Controller controller."""
 
     def __init__(
         self,
@@ -35,7 +27,7 @@ class ActorController:
     ) -> None:
         self.actor_table: QTableWidget = actor_table
         self.actor_service: ActorService = actor_service
-        self.data_ref: Dict[str, Any] = data_ref  # Ссылка на данные
+        self.data_ref: Dict[str, Any] = data_ref  # Internal implementation detail
         self.on_dirty_callback = on_dirty_callback
         self.on_edit_roles_callback = on_edit_roles_callback
         self.on_color_click_callback = on_color_click_callback
@@ -43,7 +35,7 @@ class ActorController:
         self._setup_table()
 
     def _setup_table(self) -> None:
-        """Настройка таблицы актёров"""
+        """Setup table."""
         self.actor_table.setHorizontalHeaderLabels(
             ["Актер", "Роли", "Цвет"]
         )
@@ -58,12 +50,12 @@ class ActorController:
         self.actor_table.setColumnWidth(1, 100)
         self.actor_table.setColumnWidth(2, 60)
         
-        # Подключаем обработчик клика по ячейке (для цвета)
+        # Internal implementation detail
         self.actor_table.cellClicked.connect(self._on_cell_clicked)
 
     def _on_cell_clicked(self, row: int, col: int) -> None:
-        """Обработчик клика по ячейке"""
-        if col == 2 and self.on_color_click_callback:  # Колонка "Цвет"
+        """Handle cell click."""
+        if col == 2 and self.on_color_click_callback:  # Internal implementation detail
             item: Optional[QTableWidgetItem] = self.actor_table.item(row, 0)
             if item:
                 aid: Optional[str] = item.data(Qt.UserRole)
@@ -71,7 +63,7 @@ class ActorController:
                     self.on_color_click_callback(aid)
 
     def _find_actor_row(self, actor_id: str) -> Optional[int]:
-        """Поиск строки актёра по ID"""
+        """Find actor row."""
         for row in range(self.actor_table.rowCount()):
             item = self.actor_table.item(row, 0)
             if item and item.data(Qt.UserRole) == actor_id:
@@ -79,7 +71,7 @@ class ActorController:
         return None
 
     def _get_actor_roles(self) -> Dict[str, List[str]]:
-        """Получение списка ролей для всех актёров"""
+        """Return actor roles."""
         actor_roles: Dict[str, List[str]] = {
             aid: [] for aid in self.data_ref["actors"]
         }
@@ -88,7 +80,7 @@ class ActorController:
         return actor_roles
 
     def refresh(self) -> None:
-        """Обновление списка актёров в таблице"""
+        """Refresh."""
         import logging
         logger = logging.getLogger(__name__)
 
@@ -105,13 +97,13 @@ class ActorController:
             row: int = self.actor_table.rowCount()
             self.actor_table.insertRow(row)
 
-            # Колонка 0: Актер
+            # Internal implementation detail
             item: QTableWidgetItem = QTableWidgetItem(info["name"])
             item.setData(Qt.UserRole, aid)
             self.actor_table.setItem(row, 0, item)
             item.setFlags(item.flags() | Qt.ItemIsEditable)
 
-            # Колонка 1: Роли (кнопка)
+            # Internal implementation detail
             btn: QPushButton = QPushButton(f"Роли ({len(actor_roles[aid])})")
             if self.on_edit_roles_callback:
                 btn.clicked.connect(
@@ -120,7 +112,7 @@ class ActorController:
                 )
             self.actor_table.setCellWidget(row, 1, wrap_widget(btn))
 
-            # Колонка 2: Цвет
+            # Internal implementation detail
             color_item: QTableWidgetItem = QTableWidgetItem()
             color_item.setBackground(QColor(info["color"]))
             self.actor_table.setItem(row, 2, color_item)
@@ -129,19 +121,19 @@ class ActorController:
         logger.info(f"ActorController.refresh: loaded {self.actor_table.rowCount()} actors")
 
     def update_actor_color(self, actor_id: str, color: str) -> None:
-        """Обновление цвета актёра (оптимизировано - обновляет только ячейку цвета)"""
+        """Update actor color."""
         self.actor_service.update_actor_color(
             self.data_ref["actors"], actor_id, color
         )
         
-        # Обновляем только ячейку цвета вместо полной перерисовки
+        # Internal implementation detail
         row = self._find_actor_row(actor_id)
         if row is not None:
             color_item = self.actor_table.item(row, 2)
             if color_item:
                 color_item.setBackground(QColor(color))
             else:
-                # Если ячейки нет, создаём её
+                # Internal implementation detail
                 color_item = QTableWidgetItem()
                 color_item.setBackground(QColor(color))
                 self.actor_table.setItem(row, 2, color_item)
@@ -149,12 +141,12 @@ class ActorController:
         self._mark_dirty()
 
     def rename_actor(self, actor_id: str, new_name: str) -> None:
-        """Переименование актёра (оптимизировано - обновляет только ячейку имени)"""
+        """Rename actor."""
         self.actor_service.rename_actor(
             self.data_ref["actors"], actor_id, new_name
         )
         
-        # Обновляем только ячейку имени вместо полной перерисовки
+        # Internal implementation detail
         row = self._find_actor_row(actor_id)
         if row is not None:
             item = self.actor_table.item(row, 0)
@@ -168,12 +160,12 @@ class ActorController:
         actor_id: str,
         new_roles: List[str]
     ) -> None:
-        """Обновление ролей актёра (оптимизировано - обновляет только кнопку ролей)"""
+        """Update actor roles."""
         self.actor_service.update_actor_roles(
             self.data_ref["global_map"], actor_id, new_roles
         )
         
-        # Обновляем только кнопку ролей вместо полной перерисовки
+        # Internal implementation detail
         row = self._find_actor_row(actor_id)
         if row is not None:
             btn_widget = self.actor_table.cellWidget(row, 1)
@@ -189,7 +181,7 @@ class ActorController:
         characters: List[str],
         actor_id: Optional[str]
     ) -> None:
-        """Массовое назначение актёра на персонажей"""
+        """Bulk assign actors."""
         self.actor_service.bulk_assign_actors(
             self.data_ref["global_map"], characters, actor_id
         )
@@ -197,16 +189,16 @@ class ActorController:
         self._mark_dirty()
 
     def get_actor_roles(self, actor_id: str) -> List[str]:
-        """Получение списка ролей актёра"""
+        """Return actor roles."""
         return get_actor_roles(self.data_ref, actor_id)
 
     def get_unassigned_characters(self) -> List[str]:
-        """Получение списка неназначенных персонажей"""
+        """Return unassigned characters."""
         return self.actor_service.get_unassigned_characters(
             self.data_ref["global_map"], []
         )
 
     def _mark_dirty(self) -> None:
-        """Пометка проекта как изменённого"""
+        """Mark dirty."""
         if self.on_dirty_callback:
             self.on_dirty_callback()

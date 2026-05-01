@@ -40,6 +40,10 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: python -m pytest -q
 
+      - name: Prepare icons
+        shell: pwsh
+        run: python scripts/prepare_icons.py
+
       - name: Build Windows app
         shell: pwsh
         run: python -m PyInstaller dubbing_manager.spec --clean
@@ -93,6 +97,9 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: python -m pytest -q
+
+      - name: Prepare icons
+        run: python scripts/prepare_icons.py
 
       - name: Build macOS app
         run: python -m PyInstaller dubbing_manager.spec --clean

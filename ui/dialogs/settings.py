@@ -1,4 +1,4 @@
-"""Единое окно настроек приложения."""
+"""Unified application settings dialog."""
 
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
@@ -33,7 +33,7 @@ from .colors import PrompterColorDialog
 
 
 class SettingsDialog(QDialog):
-    """Объединённые настройки проекта и глобальных значений по умолчанию."""
+    """Settings Dialog dialog."""
 
     def __init__(
         self,
@@ -498,7 +498,7 @@ class SettingsDialog(QDialog):
             self.prompter_colors = dialog.get_final_colors()
 
     def get_settings(self) -> Dict[str, Dict[str, Any]]:
-        """Вернуть обновлённые настройки по разделам."""
+        """Return settings."""
         export_config = deepcopy(self.export_config)
         export_config.update({
             "layout_type": self.export_layout_type.currentText(),

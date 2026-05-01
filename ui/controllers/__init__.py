@@ -1,4 +1,4 @@
-"""Контроллеры UI"""
+"""UI controllers."""
 
 from .actor_controller import ActorController
 from .episode_controller import EpisodeController

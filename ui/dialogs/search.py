@@ -1,4 +1,4 @@
-"""Диалог глобального поиска"""
+"""Global search dialog."""
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLineEdit,
@@ -11,7 +11,7 @@ from utils.helpers import format_seconds_to_tc
 
 
 class GlobalSearchDialog(QDialog):
-    """Диалог глобального поиска по проекту"""
+    """Global Search Dialog dialog."""
 
     def __init__(
         self,
@@ -31,7 +31,7 @@ class GlobalSearchDialog(QDialog):
     def _init_ui(self) -> None:
         layout: QVBoxLayout = QVBoxLayout(self)
 
-        # Панель поиска
+        # Internal implementation detail
         search_layout: QHBoxLayout = QHBoxLayout()
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText(
@@ -47,7 +47,7 @@ class GlobalSearchDialog(QDialog):
         search_layout.addWidget(btn_search)
         layout.addLayout(search_layout)
 
-        # Таблица результатов
+        # Internal implementation detail
         self._table = QTableWidget(0, 4)
         self._table.setHorizontalHeaderLabels([
             "Серия", "Таймкод", "Персонаж", "Текст"
@@ -60,7 +60,7 @@ class GlobalSearchDialog(QDialog):
         layout.addWidget(self._table)
 
     def _customize_table(self) -> None:
-        """Настройка вида таблицы"""
+        """Customize table."""
         self._table.setShowGrid(False)
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(
@@ -78,7 +78,7 @@ class GlobalSearchDialog(QDialog):
         )
 
     def _perform_search(self) -> None:
-        """Выполнение поиска"""
+        """Perform search."""
         query: str = self._search_input.text().lower().strip()
         if not query:
             return
@@ -117,7 +117,7 @@ class GlobalSearchDialog(QDialog):
         char: str,
         text: str
     ) -> None:
-        """Добавление строки результата"""
+        """Add result row."""
         row: int = self._table.rowCount()
         self._table.insertRow(row)
 
@@ -129,13 +129,13 @@ class GlobalSearchDialog(QDialog):
         self._table.setItem(row, 3, QTableWidgetItem(text))
 
     def _go_to_result(self, row: int, col: int) -> None:
-        """Переход к результату"""
+        """Go to result."""
         ep_num: str = self._table.item(row, 0).data(Qt.UserRole)
         if self.main_app:
             self.main_app.switch_to_episode(ep_num)
 
     def _get_episode_lines(self, ep_num: str) -> list:
-        """Получить реплики серии через приложение или кэш проекта."""
+        """Return episode lines, loading them when needed."""
         if self.main_app and hasattr(self.main_app, "get_episode_lines"):
             return self.main_app.get_episode_lines(ep_num)
 

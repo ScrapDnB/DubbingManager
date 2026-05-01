@@ -1,4 +1,4 @@
-"""Диагностика состояния проекта."""
+"""Project health diagnostics."""
 
 import json
 import os
@@ -10,7 +10,7 @@ from services.assignment_service import get_actor_for_character
 
 @dataclass(frozen=True)
 class ProjectHealthIssue:
-    """Одна найденная проблема или заметка по проекту."""
+    """Project Health Issue class."""
 
     severity: str
     category: str
@@ -20,14 +20,14 @@ class ProjectHealthIssue:
 
 
 class ProjectHealthService:
-    """Проверка проекта на типичные проблемы с файлами и репликами."""
+    """Project Health Service implementation."""
 
     SEVERITY_ERROR = "error"
     SEVERITY_WARNING = "warning"
     SEVERITY_INFO = "info"
 
     def check_project(self, project_data: Dict[str, Any]) -> List[ProjectHealthIssue]:
-        """Вернуть список найденных проблем проекта."""
+        """Return project health issues."""
         issues: List[ProjectHealthIssue] = []
 
         episodes = project_data.get("episodes", {})
@@ -62,7 +62,7 @@ class ProjectHealthService:
         return issues
 
     def get_summary(self, issues: List[ProjectHealthIssue]) -> Dict[str, int]:
-        """Посчитать проблемы по уровням важности."""
+        """Count issues by severity."""
         return {
             "errors": sum(1 for item in issues if item.severity == self.SEVERITY_ERROR),
             "warnings": sum(1 for item in issues if item.severity == self.SEVERITY_WARNING),

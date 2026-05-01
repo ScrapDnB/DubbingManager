@@ -1,4 +1,4 @@
-"""Вспомогательные функции"""
+"""Helper functions."""
 
 import re
 import subprocess
@@ -20,20 +20,13 @@ except ImportError:
 
 
 def log_exception(logger_obj: logging.Logger, message: str, exc: Exception) -> None:
-    """
-    Логирование исключения с полным traceback
-
-    Args:
-        logger_obj: логгер для записи
-        message: сообщение перед traceback
-        exc: исключение
-    """
+    """Log exception."""
     tb = traceback.format_exc()
     logger_obj.error(f"{message}: {exc}\n{tb}")
 
 
 def ass_time_to_seconds(time_str: str) -> float:
-    """Конвертация ASS времени в секунды"""
+    """Ass time to seconds."""
     try:
         h, m, s = time_str.split(':')
         return int(h) * 3600 + int(m) * 60 + float(s)
@@ -43,7 +36,7 @@ def ass_time_to_seconds(time_str: str) -> float:
 
 
 def srt_time_to_seconds(time_str: str) -> float:
-    """Конвертация SRT времени в секунды (формат: HH:MM:SS,mmm)"""
+    """Srt time to seconds."""
     try:
         # SRT format: 00:00:01,000
         main_part = time_str.replace(',', '.')
@@ -55,7 +48,7 @@ def srt_time_to_seconds(time_str: str) -> float:
 
 
 def format_seconds_to_tc(seconds: float, round_flag: bool = False) -> str:
-    """Форматирование секунд в таймкод"""
+    """Format seconds to tc."""
     s = int(round(seconds)) if round_flag else int(seconds)
     hours = s // 3600
     minutes = (s % 3600) // 60
@@ -64,7 +57,7 @@ def format_seconds_to_tc(seconds: float, round_flag: bool = False) -> str:
 
 
 def format_seconds_to_full_tc(seconds: float) -> str:
-    """Форматирование секунд в полный таймкод HH:MM:SS,mmm"""
+    """Format seconds to full tc."""
     total_ms = int(round(seconds * 1000))
     hours = total_ms // 3600000
     minutes = (total_ms % 3600000) // 60000
@@ -74,14 +67,14 @@ def format_seconds_to_full_tc(seconds: float) -> str:
 
 
 def format_timing_range(start_seconds: float, end_seconds: float) -> str:
-    """Форматирование диапазона таймингов HH:MM:SS,mmm-HH:MM:SS,mmm"""
+    """Format timing range."""
     start_tc = format_seconds_to_full_tc(start_seconds)
     end_tc = format_seconds_to_full_tc(end_seconds)
     return f"{start_tc}-{end_tc}"
 
 
 def hex_to_rgba_string(hex_code: str, alpha: float) -> str:
-    """Преобразует HEX цвет в строку rgba(r, g, b, a)"""
+    """Hex to rgba string."""
     color = QColor(hex_code)
     if not color.isValid():
         return f"rgba(255, 255, 255, {alpha})"
@@ -89,7 +82,7 @@ def hex_to_rgba_string(hex_code: str, alpha: float) -> str:
 
 
 def customize_table(table) -> None:
-    """Настройка нативного вида таблиц"""
+    """Customize table."""
     from PySide6.QtWidgets import QAbstractItemView, QFrame, QHeaderView
 
     table.setShowGrid(False)
@@ -104,7 +97,7 @@ def customize_table(table) -> None:
 
 
 def wrap_widget(widget) -> 'QWidget':
-    """Обертка для центрирования кнопок в таблице"""
+    """Wrap widget."""
     from PySide6.QtWidgets import QWidget, QHBoxLayout
     from PySide6.QtCore import Qt
     
@@ -118,22 +111,20 @@ def wrap_widget(widget) -> 'QWidget':
 
 
 def split_merged_text(text: str, ids: list) -> list:
-    """
-    Разделяет объединённый текст по семантическим разделителям
-    """
+    """Split merged text."""
     if not text or len(ids) < 2:
         return []
 
     parts = []
 
-    # Сначала пробуем ' // '
+    # Internal implementation detail
     if ' // ' in text:
         parts = [p.strip() for p in text.split(' // ') if p.strip()]
-    # Затем пробуем ' / '
+    # Internal implementation detail
     elif ' / ' in text:
         parts = [p.strip() for p in text.split(' / ') if p.strip()]
 
-    # Возвращаем только если получили нужное количество частей
+    # Internal implementation detail
     if len(parts) == len(ids):
         return parts
 
@@ -141,16 +132,8 @@ def split_merged_text(text: str, ids: list) -> list:
 
 
 def get_video_fps(video_path: str) -> float:
-    """
-    Извлечение FPS из видеофайла через ffprobe
-
-    Args:
-        video_path: путь к видеофайлу
-
-    Returns:
-        FPS видео или 25.0 по умолчанию при ошибке
-    """
-    # Валидация пути: запрещаем path traversal
+    """Return video fps."""
+    # Internal implementation detail
     if '..' in video_path:
         logger.warning(f"Invalid video path (path traversal detected): {video_path}")
         return FPS
@@ -158,7 +141,7 @@ def get_video_fps(video_path: str) -> float:
     try:
         path = Path(video_path).resolve()
         
-        # Проверка существования файла
+        # Internal implementation detail
         if not path.exists() or not path.is_file():
             logger.warning(f"Video file not found: {video_path}")
             return FPS
@@ -178,24 +161,24 @@ def get_video_fps(video_path: str) -> float:
 
         data = json.loads(result.stdout)
 
-        # Ищем видеопоток
+        # Internal implementation detail
         for stream in data.get('streams', []):
             if stream.get('codec_type') == 'video':
-                # Пробуем получить avg_frame_rate
+                # Internal implementation detail
                 avg_frame_rate = stream.get('avg_frame_rate')
                 if avg_frame_rate:
                     num, den = avg_frame_rate.split('/')
                     if den and int(den) != 0:
                         return float(num) / float(den)
 
-                # Если нет, пробуем r_frame_rate
+                # Internal implementation detail
                 r_frame_rate = stream.get('r_frame_rate')
                 if r_frame_rate:
                     num, den = r_frame_rate.split('/')
                     if den and int(den) != 0:
                         return float(num) / float(den)
 
-                # Если нет, пробуем nb_frames и duration
+                # Internal implementation detail
                 avg_fps = stream.get('avg_frame_rate')
                 if avg_fps:
                     return float(avg_fps)

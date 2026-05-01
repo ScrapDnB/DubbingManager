@@ -1,4 +1,4 @@
-"""Сервис для экспорта данных"""
+"""Service for exporting project data."""
 
 import os
 import sys
@@ -23,7 +23,7 @@ except ImportError:
 
 
 class ExportService:
-    """Сервис для экспорта в различные форматы: HTML, Excel, Reaper"""
+    """Export Service implementation."""
 
     def __init__(self, project_data: Dict[str, Any]):
         self.project_data = project_data
@@ -32,7 +32,7 @@ class ExportService:
         self,
         cfg: Dict[str, Any]
     ) -> Optional[Set[str]]:
-        """Получить фильтр подсветки из настроек экспорта."""
+        """Return effective highlight filter."""
         highlight_ids = cfg.get('highlight_ids_export')
         if highlight_ids is None:
             return None
@@ -49,14 +49,14 @@ class ExportService:
         lines: List[Dict[str, Any]],
         cfg: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Логика слияния реплик"""
+        """Apply replica merge rules."""
         if lines and all(line.get("_working_text") for line in lines):
             return [line.copy() for line in lines]
 
         p_short = cfg.get('p_short', 0.5)
         p_long = cfg.get('p_long', 2.0)
         fps = cfg.get('fps', 25.0)
-        # Конвертируем merge_gap из кадров в секунды
+        # Convert merge_gap from frames to seconds
         gap_seconds = cfg.get('merge_gap', 5) / fps
 
         res = []
@@ -104,7 +104,7 @@ class ExportService:
 
             res.append(curr)
 
-        # Добавляем source_ids и source_texts
+        # Add source_ids and source_texts
         for item in res:
             if 'parts' in item:
                 item['source_ids'] = [p['id'] for p in item['parts']]
@@ -124,7 +124,7 @@ class ExportService:
         layout_type: str = "Таблица",
         is_editable: bool = True
     ) -> str:
-        """Генерация HTML"""
+        """Generate HTML export content."""
         js = self._get_js_for_mode(is_editable)
         html = self._get_html_header(js, cfg)
 
@@ -146,7 +146,7 @@ class ExportService:
         use_color = cfg.get('use_color', True)
 
         for idx, line in enumerate(processed):
-            # Валидация данных реплики
+            # Validate replica data
             if 'char' not in line:
                 logger.warning(f"Skipping line without 'char' field: {line}")
                 continue
@@ -182,13 +182,13 @@ class ExportService:
         return html + "</body></html>"
 
     def _get_js_for_mode(self, is_editable: bool) -> str:
-        """Получение JavaScript для режима редактирования"""
+        """Return js for mode."""
         if is_editable:
             return self._get_editable_js()
         return self._get_static_css()
 
     def _get_html_header(self, js: str, cfg: Dict[str, Any]) -> str:
-        """Получение заголовка HTML"""
+        """Return the HTML document header."""
         return f"""<html><head><meta charset='utf-8'>{js}<style>
         body {{
             font-family: 'Segoe UI', sans-serif;
@@ -237,7 +237,7 @@ class ExportService:
         """
 
     def _get_editable_js(self) -> str:
-        """JavaScript для редактируемого HTML"""
+        """Return editable js."""
         return """
         <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
         <script>
@@ -281,7 +281,7 @@ class ExportService:
         """
 
     def _get_static_css(self) -> str:
-        """CSS для статичного HTML"""
+        """Return CSS for static HTML export."""
         return """
         <style>
             .highlighted-block {
@@ -296,7 +296,7 @@ class ExportService:
         is_highlighted: bool,
         actor: Dict[str, Any]
     ) -> tuple:
-        """Получение цветов для строки"""
+        """Return colors for an export row."""
         if use_color and is_highlighted:
             bg_color = hex_to_rgba_string(actor['color'], 0.22)
             border_col = actor['color']
@@ -310,7 +310,7 @@ class ExportService:
         line: Dict[str, Any],
         is_editable: bool
     ) -> str:
-        """Форматирование текста реплики"""
+        """Format text html."""
         text_html = ""
 
         if 'parts' in line:
@@ -346,7 +346,7 @@ class ExportService:
         is_first: bool,
         is_last: bool
     ) -> str:
-        """Построение строки таблицы"""
+        """Build one table export row."""
         s_raw = escape(str(line.get('s_raw', '')))
         char = escape(str(line.get('char', '')))
         actor_name = escape(str(actor.get('name', '-')))
@@ -382,7 +382,7 @@ class ExportService:
         border_col: str,
         h_class: str
     ) -> str:
-        """Построение строки сценария"""
+        """Build scenario row."""
         char = escape(str(line.get('char', '')))
         s_raw = escape(str(line.get('s_raw', '')))
         actor_name = escape(str(actor.get('name', '-')))
@@ -399,7 +399,7 @@ class ExportService:
         )
 
     def _episode_sort_key(self, ep_num: Any) -> Tuple[Any, ...]:
-        """Естественная сортировка серий без требования числового id."""
+        """Return a natural sort key for episode identifiers."""
         parts = re.split(r'(\d+)', str(ep_num))
         return tuple(
             (0, int(part)) if part.isdigit() else (1, part.lower())
@@ -408,23 +408,23 @@ class ExportService:
         )
 
     # ==========================================================================
-    # Excel экспорт
+    # Excel export
     # ==========================================================================
 
     def _get_times_font(self, size: float = 14.0, bold: bool = False, italic: bool = False) -> Font:
-        """Создание шрифта Times New Roman"""
+        """Return times font."""
         return Font(name='Times New Roman', size=size, bold=bold, italic=italic, charset=204)
 
     def _get_thin_border(self) -> Border:
-        """Создание тонких границ ячеек"""
+        """Return thin border."""
         side = Side(style='thin', color='00000000')
         return Border(left=side, right=side, top=side, bottom=side)
 
     def _count_words(self, text: str) -> int:
-        """Подсчёт количества слов в тексте"""
+        """Count words in text."""
         if not text:
             return 0
-        # Разбиваем по пробельным символам и считаем непустые токены
+        # Split on whitespace and count non-empty tokens
         words = re.findall(r'\S+', text.strip())
         return len(words)
 
@@ -436,7 +436,7 @@ class ExportService:
         fill_color: Optional[str] = None,
         border: Optional[Border] = None
     ):
-        """Применение стилей к ячейке"""
+        """Apply cell styling."""
         cell.font = self._get_times_font(size=font_size)
         cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=wrap_text)
         if border:
@@ -455,8 +455,8 @@ class ExportService:
         episodes_data: Dict[str, List[Dict[str, Any]]],
         cfg: Dict[str, Any]
     ):
-        """Создание листа со сводкой по актёрам"""
-        # Удаляем стандартный лист если он есть
+        """Create actors summary sheet."""
+        # Remove the default sheet if it exists
         if 'Sheet' in wb.sheetnames:
             del wb['Sheet']
 
@@ -465,10 +465,10 @@ class ExportService:
         actors = self.project_data.get('actors', {})
         effective_filter = self._get_effective_highlight_filter(cfg)
 
-        # Сортируем номера серий для правильного порядка колонок
+        # Sort episode numbers for the correct column order
         sorted_ep_keys = sorted(episodes_data.keys(), key=self._episode_sort_key)
 
-        # Собираем статистику по актёрам
+        # Collect actor statistics
         actor_stats: Dict[str, Dict[str, Any]] = {}
         for actor_id, actor_data in actors.items():
             actor_stats[actor_id] = {
@@ -478,7 +478,7 @@ class ExportService:
                 'episode_words': {}
             }
 
-        # Подсчёт слов по сериям с использованием реальных номеров эпизодов
+        # Count words by episode using the real episode numbers
         for ep_key in sorted_ep_keys:
             lines = episodes_data[ep_key]
             for line in lines:
@@ -493,14 +493,14 @@ class ExportService:
                         actor_stats[actor_id]['episode_words'][ep_key] = 0
                     actor_stats[actor_id]['episode_words'][ep_key] += self._count_words(line.get('text', ''))
 
-        # Динамические заголовки с реальными номерами серий
+        # Dynamic headers with real episode numbers
         headers = ['Актёр', 'Персонаж']
         for ep_key in sorted_ep_keys:
             headers.append(f'{ep_key} серия')
         headers.append('Всего слов')
         ws.append(headers)
 
-        # Стили заголовков
+        # Header styles
         header_font = self._get_times_font(size=14.0)
         header_alignment = Alignment(horizontal='left', vertical='top')
         for col, header in enumerate(headers, 1):
@@ -508,29 +508,29 @@ class ExportService:
             cell.font = header_font
             cell.alignment = header_alignment
 
-        # Ширина колонок
+        # Column widths
         ws.column_dimensions['A'].width = 21.5
         ws.column_dimensions['B'].width = 55.33
-        # Динамическая ширина для колонок серий
+        # Dynamic width for episode columns
         for i in range(1, len(sorted_ep_keys) + 2):
             col_letter = openpyxl.utils.get_column_letter(2 + i)
             ws.column_dimensions[col_letter].width = 11.83
 
-        # Высота первой строки
+        # First-row height
         ws.row_dimensions[1].height = 20.0
 
-        # Заполнение данными
+        # Fill data
         row_num = 2
         thin_border = self._get_thin_border()
         for actor_id, stats in actor_stats.items():
-            if not stats['roles']:  # Пропускаем актёров без ролей
+            if not stats['roles']:  # Skip actors without roles
                 continue
 
             actor_name = stats['name']
             roles_str = ', '.join(stats['roles'])
             episode_words = stats['episode_words']
 
-            # Цвет актёра
+            # Actor color
             is_highlighted = (
                 effective_filter is None or
                 actor_id in effective_filter
@@ -541,15 +541,15 @@ class ExportService:
             else:
                 fill_color = 'FFFFFF'
 
-            # Ячейка с именем актёра
+            # Actor-name cell
             name_cell = ws.cell(row=row_num, column=1, value=actor_name)
             self._apply_cell_styling(name_cell, font_size=14.0, fill_color=fill_color, border=thin_border)
 
-            # Ячейка с персонажами
+            # Character cell
             roles_cell = ws.cell(row=row_num, column=2, value=roles_str)
             self._apply_cell_styling(roles_cell, font_size=9.0, border=thin_border)
 
-            # Ячейки с количеством слов по сериям (в порядке отсортированных ключей)
+            # Word-count cells by episode in sorted-key order
             total_words = 0
             for ep_idx, ep_key in enumerate(sorted_ep_keys):
                 word_count = episode_words.get(ep_key, 0)
@@ -557,13 +557,13 @@ class ExportService:
                 cell = ws.cell(row=row_num, column=3 + ep_idx, value=word_count)
                 self._apply_cell_styling(cell, font_size=14.0, border=thin_border)
 
-            # Ячейка с итоговым количеством слов
+            # Total word-count cell
             total_cell = ws.cell(row=row_num, column=3 + len(sorted_ep_keys), value=total_words)
             self._apply_cell_styling(total_cell, font_size=14.0, border=thin_border)
 
             row_num += 1
 
-        # Фильтр НЕ добавляем - сортировка на странице актёров не нужна
+        # Do not add a filter; sorting is not needed on the actor page
 
     def _create_episode_sheet(
         self,
@@ -572,7 +572,7 @@ class ExportService:
         processed: List[Dict[str, Any]],
         cfg: Dict[str, Any]
     ):
-        """Создание листа с эпизодом"""
+        """Create one episode sheet."""
         sheet_name = f'серия ({ep_num})'
         ws = wb.create_sheet(title=sheet_name)
 
@@ -581,13 +581,13 @@ class ExportService:
         round_time = cfg.get('round_time', False)
         effective_filter = self._get_effective_highlight_filter(cfg)
 
-        # Определяем колонки на основе настроек
+        # Choose columns from settings
         col_tc = cfg.get('col_tc', True)
         col_char = cfg.get('col_char', True)
         col_actor = cfg.get('col_actor', True)
         col_text = cfg.get('col_text', True)
 
-        # Заголовки только для выбранных колонок
+        # Headers only for selected columns
         headers = ['Номер']
         if col_tc:
             headers.append('Таймкод')
@@ -599,7 +599,7 @@ class ExportService:
             headers.append('Реплика')
         ws.append(headers)
 
-        # Стили заголовков
+        # Header styles
         header_fonts = {
             'номер': self._get_times_font(size=14.0),
             'тайм': self._get_times_font(size=13.0),
@@ -614,10 +614,10 @@ class ExportService:
             cell.font = header_fonts.get(header, self._get_times_font(size=14.0))
             cell.alignment = header_alignment
 
-        # Ширина колонок
+        # Column widths
         col_widths = {
             'Номер': 8.66,
-            'Таймкод': 13.0,  # Уменьшено для переноса тайминга на 2 строки
+            'Таймкод': 13.0,  # Reduced so timing wraps to two lines
             'Персонаж': 28.83,
             'Актёр': 29.5,
             'Реплика': 92.33
@@ -626,10 +626,10 @@ class ExportService:
             col_letter = openpyxl.utils.get_column_letter(col_idx)
             ws.column_dimensions[col_letter].width = col_widths.get(header, 13.0)
 
-        # Тонкие границы для всех ячеек
+        # Thin borders for all cells
         thin_border = self._get_thin_border()
 
-        # Заполнение данными
+        # Fill data
         for row_idx, line in enumerate(processed, 2):
             char_name = line.get('char', '')
             actor_id = get_actor_for_character(
@@ -638,7 +638,7 @@ class ExportService:
             actor = actors.get(actor_id, {}) if actor_id else {}
             actor_name = actor.get('name', '-') if actor else '-'
 
-            # Определяем цвет
+            # Determine the color
             is_highlighted = (
                 effective_filter is None or
                 actor_id in effective_filter
@@ -648,16 +648,16 @@ class ExportService:
             else:
                 color_hex = 'FFFFFF'
 
-            # Форматируем тайминг
+            # Format timing
             if round_time:
-                # Округлённый формат без миллисекунд: HH:MM:SS-HH:MM:SS
+                # Rounded format without milliseconds: HH:MM:SS-HH:MM:SS
                 timing = f"{format_seconds_to_tc(line.get('s', 0))}-{format_seconds_to_tc(line.get('e', 0))}"
             else:
-                # Полный формат с миллисекундами: HH:MM:SS,mmm-HH:MM:SS,mmm
+                # Full format with milliseconds: HH:MM:SS,mmm-HH:MM:SS,mmm
                 timing = format_timing_range(line.get('s', 0), line.get('e', 0))
 
-            # Данные строки только для выбранных колонок
-            row_data = [row_idx - 1]  # номер строки всегда
+            # Row data only for selected columns
+            row_data = [row_idx - 1]  # Always include the row number
             if col_tc:
                 row_data.append(timing)
             if col_char:
@@ -670,10 +670,10 @@ class ExportService:
             for col, value in enumerate(row_data, 1):
                 cell = ws.cell(row=row_idx, column=col, value=value)
 
-                # Применяем стили
+                # Apply styles
                 font_size = 14.0
-                # wrap_text для тайминга и для реплики
-                timing_col = 2 if col_tc else None  # Колонка с таймингом (вторая после номера)
+                # Use wrap_text for timing and replica text
+                timing_col = 2 if col_tc else None  # Timing column, second after the number
                 wrap_text = (timing_col and col == timing_col) or (col_text and col == len(row_data))
 
                 self._apply_cell_styling(
@@ -684,14 +684,14 @@ class ExportService:
                     border=thin_border
                 )
 
-                # Для колонки с репликой устанавливаем высоту строки
+                # Set row height for the replica column
                 if col_text and col == len(row_data):
-                    # Примерная высота строки на основе количества текста
+                    # Approximate row height based on text length
                     text = value if isinstance(value, str) else ''
                     lines_count = max(1, text.count('\n') + 1 + len(text) // 80)
                     ws.row_dimensions[row_idx].height = min(120, 20 + lines_count * 15)
 
-        # Добавляем фильтр
+        # Add a filter
         last_col_letter = openpyxl.utils.get_column_letter(len(headers))
         ws.auto_filter.ref = f'A1:{last_col_letter}{len(processed) + 1}'
 
@@ -700,16 +700,7 @@ class ExportService:
         episodes_data: Dict[str, List[Dict[str, Any]]],
         cfg: Optional[Dict[str, Any]] = None
     ) -> Any:
-        """
-        Создание Excel книги с несколькими листами
-
-        Args:
-            episodes_data: словарь {номер_серии: список_реплик}
-            cfg: конфигурация экспорта
-
-        Returns:
-            openpyxl.Workbook
-        """
+        """Create an Excel workbook with multiple sheets."""
         if not EXCEL_AVAILABLE:
             raise ImportError("openpyxl not available")
 
@@ -718,10 +709,10 @@ class ExportService:
 
         wb = openpyxl.Workbook()
 
-        # Создаём лист со сводкой по актёрам
+        # Create the actor summary sheet
         self._create_actors_summary_sheet(wb, episodes_data, cfg)
 
-        # Создаём листы для каждой серии (отсортированы по порядку)
+        # Create episode sheets in sorted order
         for ep_num in sorted(episodes_data.keys(), key=self._episode_sort_key):
             lines = episodes_data[ep_num]
             self._create_episode_sheet(wb, ep_num, lines, cfg)
@@ -737,31 +728,18 @@ class ExportService:
         all_episodes: Optional[Dict[str, List[Dict[str, Any]]]] = None,
         merge_cfg: Optional[Dict[str, Any]] = None
     ) -> Tuple[bool, str]:
-        """
-        Экспорт в Excel файл
-
-        Args:
-            ep: номер текущего эпизода
-            lines: реплики текущего эпизода
-            cfg: конфигурация экспорта (export_config)
-            save_path: путь сохранения файла
-            all_episodes: все эпизоды для сводки (если None, используется только текущий)
-            merge_cfg: конфигурация объединения реплик (replica_merge_config)
-
-        Returns:
-            Tuple[success, message]
-        """
+        """Export data to an Excel file."""
         if not EXCEL_AVAILABLE:
             return False, "openpyxl не установлен"
 
         try:
-            # Если переданы все эпизоды, используем их для сводки
+            # Use all episodes for the summary when provided
             if all_episodes:
                 episodes_data = all_episodes
             else:
                 episodes_data = {ep: lines}
 
-            # Используем merge_cfg для обработки реплик, cfg для форматирования
+            # Use merge_cfg for replica processing and cfg for formatting
             if merge_cfg is None:
                 merge_cfg = self.project_data.get("replica_merge_config", {})
 
@@ -777,11 +755,11 @@ class ExportService:
             return False, f"Ошибка экспорта: {e}"
 
     # ==========================================================================
-    # Reaper RPP экспорт
+    # Reaper RPP export
     # ==========================================================================
 
     def _hex_to_reaper_color(self, hex_color: str) -> int:
-        """Конвертация HEX в BGR Int для Reaper."""
+        """Hex to reaper color."""
         if not hex_color or not isinstance(hex_color, str):
             return 0
 
@@ -799,7 +777,7 @@ class ExportService:
         return 0x01000000 | (blue << 16) | (green << 8) | red
 
     def _escape_rpp_text(self, text: Any) -> str:
-        """Подготовить строку для безопасной вставки в RPP кавычки."""
+        """Escape rpp text."""
         return (
             str(text)
             .replace('"', "' ")
@@ -807,6 +785,11 @@ class ExportService:
             .replace('\n', ' ')
             .strip()
         )
+
+    def save_reaper_rpp(self, save_path: str, rpp_content: str) -> None:
+        """Save an RPP file with an encoding Reaper reads reliably."""
+        with open(save_path, 'w', encoding='utf-8-sig') as f:
+            f.write(rpp_content)
 
     def generate_reaper_rpp(
         self,
@@ -817,7 +800,7 @@ class ExportService:
         use_video: bool = False,
         use_regions: bool = True
     ) -> str:
-        """Сгенерировать RPP-файл для Reaper из реплик эпизода."""
+        """Generate a Reaper RPP project from episode lines."""
         if merge_cfg is None:
             merge_cfg = self.project_data.get("replica_merge_config", {})
 
@@ -898,7 +881,7 @@ class ExportService:
         return '\n'.join(rpp)
 
     # ==========================================================================
-    # Пакетный экспорт
+    # Batch export
     # ==========================================================================
 
     def export_batch(
@@ -910,20 +893,7 @@ class ExportService:
         folder: str = None,
         progress_callback: Optional[Callable[[int, int, str], None]] = None
     ) -> Tuple[bool, str]:
-        """
-        Пакетный экспорт нескольких эпизодов
-
-        Args:
-            episodes: словарь {ep_num: path}
-            get_lines_callback: функция для получения реплик эпизода
-            do_html: экспортировать в HTML
-            do_xls: экспортировать в Excel
-            folder: папка для сохранения
-            progress_callback: callback(current, total, message) для обновления прогресса
-
-        Returns:
-            Tuple[success, message]
-        """
+        """Export several episodes in one batch."""
         if not folder:
             return False, "Папка для экспорта не указана"
 
@@ -934,7 +904,7 @@ class ExportService:
         total_episodes = len(episodes)
 
         try:
-            # Собираем все эпизоды для сводки в Excel
+            # Collect all episodes for the Excel summary
             all_episodes_data = {}
             if do_xls:
                 for ep, path in episodes.items():
@@ -979,11 +949,11 @@ class ExportService:
                 if success:
                     exported_count += 1
 
-            # Обновляем прогресс до конца
+            # Advance progress to completion
             if progress_callback:
                 progress_callback(total_episodes, total_episodes, "Готово!")
 
-            # Открыть папку
+            # Open the folder
             if exported_count > 0:
                 if sys.platform == 'darwin':
                     os.system(f'open "{folder}"')
