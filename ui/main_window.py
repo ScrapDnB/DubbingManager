@@ -8,10 +8,13 @@ from PySide6.QtWidgets import (
     QCheckBox, QGroupBox, QFormLayout, QMessageBox, QSlider,
     QAbstractItemView, QStackedWidget, QDoubleSpinBox, QRadioButton,
     QGridLayout, QScrollArea, QSplitter, QSizePolicy, QToolBar,
-    QDialogButtonBox, QTextEdit, QDialog, QProgressDialog, QApplication
+    QDialogButtonBox, QTextEdit, QDialog, QProgressDialog, QApplication,
+    QStyledItemDelegate, QStyle
 )
 from PySide6.QtGui import QColor, QFont, QAction, QKeySequence, QPen, QBrush
-from PySide6.QtCore import Qt, QUrl, QTimer, Signal, QRectF, QEvent, Slot
+from PySide6.QtCore import (
+    Qt, QUrl, QTimer, Signal, QRectF, QEvent, Slot, QPersistentModelIndex
+)
 from typing import Dict, List, Any, Optional, Set, Tuple, Callable
 import json
 import re
@@ -44,7 +47,6 @@ from config.constants import (
     EPISODE_COMBO_MIN_WIDTH,
     BTN_RENAME_WIDTH,
     TABLE_ROW_HEIGHT,
-    VIDEO_BTN_WIDTH,
     MAIN_TABLE_COUNT_COL_WIDTH,
     MAIN_TABLE_SCOPE_COL_WIDTH,
     MAIN_TABLE_VIDEO_COL_WIDTH,
@@ -58,7 +60,6 @@ from config.constants import (
 from utils.helpers import (
     ass_time_to_seconds,
     format_seconds_to_tc,
-    hex_to_rgba_string,
     customize_table,
     wrap_widget,
     log_exception,
@@ -116,6 +117,99 @@ from core.commands import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+CHAR_NAME_ROLE = Qt.UserRole
+SCOPE_ROLE = Qt.UserRole + 1
+ACTOR_ID_ROLE = Qt.UserRole + 2
+PREVIOUS_SCOPE_ROLE = Qt.UserRole + 3
+PREVIOUS_ACTOR_ID_ROLE = Qt.UserRole + 4
+
+
+class ScopeComboDelegate(QStyledItemDelegate):
+    """Редактор области назначения без постоянного QComboBox в таблице."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._editing_index = QPersistentModelIndex()
+
+    def createEditor(self, parent, option, index):
+        self._editing_index = QPersistentModelIndex(index)
+        combo = QComboBox(parent)
+        combo.addItem("Глобально", ASSIGNMENT_SCOPE_GLOBAL)
+        combo.addItem("Серия", ASSIGNMENT_SCOPE_EPISODE)
+        return combo
+
+    def setEditorData(self, editor, index) -> None:
+        scope = index.data(SCOPE_ROLE) or ASSIGNMENT_SCOPE_GLOBAL
+        found = editor.findData(scope)
+        editor.setCurrentIndex(found if found >= 0 else 0)
+
+    def setModelData(self, editor, model, index) -> None:
+        model.setData(index, editor.currentData(), SCOPE_ROLE)
+        model.setData(index, editor.currentText(), Qt.DisplayRole)
+
+    def updateEditorGeometry(self, editor, option, index) -> None:
+        editor.setGeometry(option.rect)
+
+    def destroyEditor(self, editor, index) -> None:
+        self._editing_index = QPersistentModelIndex()
+        super().destroyEditor(editor, index)
+
+    def paint(self, painter, option, index) -> None:
+        if QPersistentModelIndex(index) == self._editing_index:
+            brush = (
+                option.palette.highlight()
+                if option.state & QStyle.State_Selected
+                else option.palette.base()
+            )
+            painter.fillRect(option.rect, brush)
+            return
+        super().paint(painter, option, index)
+
+
+class ActorComboDelegate(QStyledItemDelegate):
+    """Редактор актёра без постоянного QComboBox в таблице."""
+
+    def __init__(self, main_window: "MainWindow") -> None:
+        super().__init__(main_window)
+        self.main_window = main_window
+        self._editing_index = QPersistentModelIndex()
+
+    def createEditor(self, parent, option, index):
+        self._editing_index = QPersistentModelIndex(index)
+        combo = QComboBox(parent)
+        combo.addItem("-", None)
+        for aid, info in self.main_window.data.get("actors", {}).items():
+            combo.addItem(info.get("name", aid), aid)
+        return combo
+
+    def setEditorData(self, editor, index) -> None:
+        actor_id = index.data(ACTOR_ID_ROLE)
+        found = editor.findData(actor_id)
+        editor.setCurrentIndex(found if found >= 0 else 0)
+
+    def setModelData(self, editor, model, index) -> None:
+        model.setData(index, editor.currentData(), ACTOR_ID_ROLE)
+        model.setData(index, editor.currentText(), Qt.DisplayRole)
+
+    def updateEditorGeometry(self, editor, option, index) -> None:
+        editor.setGeometry(option.rect)
+
+    def destroyEditor(self, editor, index) -> None:
+        self._editing_index = QPersistentModelIndex()
+        super().destroyEditor(editor, index)
+
+    def paint(self, painter, option, index) -> None:
+        if QPersistentModelIndex(index) == self._editing_index:
+            brush = (
+                option.palette.highlight()
+                if option.state & QStyle.State_Selected
+                else option.palette.base()
+            )
+            painter.fillRect(option.rect, brush)
+            return
+        super().paint(painter, option, index)
 
 
 class MainWindow(QMainWindow):
@@ -453,13 +547,16 @@ class MainWindow(QMainWindow):
         self.main_table.setColumnWidth(3, MAIN_TABLE_COUNT_COL_WIDTH)
         self.main_table.setColumnWidth(4, MAIN_TABLE_SCOPE_COL_WIDTH)
         self.main_table.setColumnWidth(6, MAIN_TABLE_VIDEO_COL_WIDTH)
+        self.main_table.setItemDelegateForColumn(4, ScopeComboDelegate(self))
+        self.main_table.setItemDelegateForColumn(5, ActorComboDelegate(self))
         self.main_table.horizontalHeader().setSectionsClickable(True)
         self.main_table.horizontalHeader().sectionClicked.connect(
             self.on_header_clicked
         )
         self.main_table.itemChanged.connect(
-            self.on_character_name_changed
+            self.on_main_table_item_changed
         )
+        self.main_table.cellClicked.connect(self.on_main_table_cell_clicked)
         self.main_table.itemSelectionChanged.connect(
             self.update_selected_character_stats
         )
@@ -633,6 +730,49 @@ class MainWindow(QMainWindow):
             self.set_dirty()
 
     # === Методы работы с персонажами ===
+
+    def on_main_table_item_changed(self, item: QTableWidgetItem) -> None:
+        """Обработчик редактирования главной таблицы."""
+        column = item.column()
+        if column == 0:
+            self.on_character_name_changed(item)
+            return
+
+        if column == 4:
+            char_name = item.data(CHAR_NAME_ROLE)
+            scope = item.data(SCOPE_ROLE) or ASSIGNMENT_SCOPE_GLOBAL
+            if scope == item.data(PREVIOUS_SCOPE_ROLE):
+                return
+            item.setData(PREVIOUS_SCOPE_ROLE, scope)
+            actor_item = self.main_table.item(item.row(), 5)
+            actor_id = actor_item.data(ACTOR_ID_ROLE) if actor_item else None
+            if char_name:
+                self.update_assignment_scope_value(char_name, scope, actor_id)
+            return
+
+        if column == 5:
+            char_name = item.data(CHAR_NAME_ROLE)
+            actor_id = item.data(ACTOR_ID_ROLE)
+            if actor_id == item.data(PREVIOUS_ACTOR_ID_ROLE):
+                return
+            item.setData(PREVIOUS_ACTOR_ID_ROLE, actor_id)
+            scope_item = self.main_table.item(item.row(), 4)
+            scope = (
+                scope_item.data(SCOPE_ROLE)
+                if scope_item
+                else ASSIGNMENT_SCOPE_GLOBAL
+            )
+            if char_name:
+                self.update_map_value(char_name, actor_id, scope)
+
+    def on_main_table_cell_clicked(self, row: int, column: int) -> None:
+        """Открыть предпросмотр персонажа по клику в колонке видео."""
+        if column != 6:
+            return
+        item = self.main_table.item(row, column)
+        char_name = item.data(CHAR_NAME_ROLE) if item else None
+        if char_name:
+            self.open_preview(char_name)
     
     def on_character_name_changed(self, item: QTableWidgetItem) -> None:
         """Обработчик изменения имени персонажа"""
@@ -1620,17 +1760,26 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Обновление маппинга персонаж-актёр"""
         aid = actor_combo.currentData()
-        ep = self.ep_combo.currentData()
         scope = (
             scope_combo.currentData()
             if scope_combo is not None
             else ASSIGNMENT_SCOPE_GLOBAL
         )
+        self.update_map_value(char_name, aid, scope)
+
+    def update_map_value(
+        self,
+        char_name: str,
+        actor_id: Optional[str],
+        scope: str
+    ) -> None:
+        """Обновление назначения персонажа из лёгкой табличной ячейки."""
+        ep = self.ep_combo.currentData()
         target_map = get_assignment_map(self.data, scope, ep)
         stored_aid = (
             LOCAL_UNASSIGNED_ACTOR_ID
-            if scope == ASSIGNMENT_SCOPE_EPISODE and aid is None
-            else aid
+            if scope == ASSIGNMENT_SCOPE_EPISODE and actor_id is None
+            else actor_id
         )
         # Используем команду для отмены действия
         command = AssignActorToCharacterCommand(
@@ -1649,29 +1798,92 @@ class MainWindow(QMainWindow):
         actor_combo: QComboBox
     ) -> None:
         """Переключение назначения персонажа между проектом и серией."""
+        self.update_assignment_scope_value(
+            char_name,
+            scope_combo.currentData(),
+            actor_combo.currentData()
+        )
+
+    def update_assignment_scope_value(
+        self,
+        char_name: str,
+        scope: str,
+        actor_id: Optional[str]
+    ) -> None:
+        """Переключение области назначения из лёгкой табличной ячейки."""
         ep = self.ep_combo.currentData()
         if not ep:
             return
 
-        scope = scope_combo.currentData()
         local_map = get_assignment_map(self.data, ASSIGNMENT_SCOPE_EPISODE, ep)
 
         if scope == ASSIGNMENT_SCOPE_EPISODE:
-            aid = actor_combo.currentData() or LOCAL_UNASSIGNED_ACTOR_ID
-            command = AssignActorToCharacterCommand(local_map, char_name, aid)
+            stored_aid = actor_id or LOCAL_UNASSIGNED_ACTOR_ID
+            command = AssignActorToCharacterCommand(
+                local_map, char_name, stored_aid
+            )
         else:
             command = AssignActorToCharacterCommand(local_map, char_name, None)
 
         self.undo_stack.push(command)
 
-        actor_id = get_actor_for_character(self.data, char_name, ep)
-        actor_combo.blockSignals(True)
-        actor_index = actor_combo.findData(actor_id)
-        actor_combo.setCurrentIndex(actor_index if actor_index >= 0 else 0)
-        actor_combo.blockSignals(False)
+        self._update_main_table_assignment_display(char_name)
 
         self.refresh_actor_list()
         self.set_dirty(True)
+
+    def _update_main_table_assignment_display(self, char_name: str) -> None:
+        """Обновить отображение актёра после смены области назначения."""
+        ep = self.ep_combo.currentData()
+        actor_id = get_actor_for_character(self.data, char_name, ep)
+        actor_name = (
+            self.data.get("actors", {}).get(actor_id, {}).get("name", "-")
+            if actor_id
+            else "-"
+        )
+
+        self.main_table.blockSignals(True)
+        try:
+            for row in range(self.main_table.rowCount()):
+                name_item = self.main_table.item(row, 0)
+                if not name_item:
+                    continue
+                if (name_item.data(CHAR_NAME_ROLE) or name_item.text()) != char_name:
+                    continue
+
+                actor_item = self.main_table.item(row, 5)
+                if actor_item:
+                    actor_item.setData(ACTOR_ID_ROLE, actor_id)
+                    actor_item.setData(PREVIOUS_ACTOR_ID_ROLE, actor_id)
+                    actor_item.setText(actor_name)
+                    self._apply_actor_color_to_item(actor_item, actor_id)
+                break
+        finally:
+            self.main_table.blockSignals(False)
+
+    def _apply_actor_color_to_item(
+        self,
+        item: QTableWidgetItem,
+        actor_id: Optional[str]
+    ) -> None:
+        """Подкрасить ячейку актёра мягким цветом из базы актёров."""
+        if not actor_id:
+            item.setBackground(QBrush())
+            item.setToolTip("Актёр не назначен")
+            return
+
+        actor = self.data.get("actors", {}).get(actor_id, {})
+        color = QColor(actor.get("color", ""))
+        if not color.isValid():
+            item.setBackground(QBrush())
+            item.setToolTip(actor.get("name", actor_id))
+            return
+
+        color.setAlpha(72)
+        item.setBackground(QBrush(color))
+        item.setToolTip(
+            f"{actor.get('name', actor_id)}\nЦвет актёра: {color.name()}"
+        )
     
     def refresh_main_table(self) -> None:
         """Обновление главной таблицы"""
@@ -1717,41 +1929,38 @@ class MainWindow(QMainWindow):
             self.main_table.setItem(
                 row, 3, QTableWidgetItem(str(stat["words"]))
             )
-            
-            scope_combo = QComboBox()
-            scope_combo.addItem("Глобально", ASSIGNMENT_SCOPE_GLOBAL)
-            scope_combo.addItem("Серия", ASSIGNMENT_SCOPE_EPISODE)
-            scope_combo.setCurrentIndex(
-                scope_combo.findData(
-                    get_assignment_scope(self.data, stat["name"], ep)
-                )
-            )
-            self.main_table.setCellWidget(row, 4, scope_combo)
 
-            combo = QComboBox()
-            combo.addItem("-", None)
-            for aid, info in self.data["actors"].items():
-                combo.addItem(info["name"], aid)
-            
-            if is_assigned:
-                combo.setCurrentIndex(combo.findData(actor_id))
-            
-            combo.currentIndexChanged.connect(
-                lambda _, c=stat["name"], b=combo, s=scope_combo:
-                self.update_map(c, b, s)
+            scope = get_assignment_scope(self.data, stat["name"], ep)
+            scope_item = QTableWidgetItem(
+                "Серия"
+                if scope == ASSIGNMENT_SCOPE_EPISODE
+                else "Глобально"
             )
-            scope_combo.currentIndexChanged.connect(
-                lambda _, c=stat["name"], s=scope_combo, b=combo:
-                self.update_assignment_scope(c, s, b)
-            )
-            self.main_table.setCellWidget(row, 5, combo)
+            scope_item.setData(CHAR_NAME_ROLE, stat["name"])
+            scope_item.setData(SCOPE_ROLE, scope)
+            scope_item.setData(PREVIOUS_SCOPE_ROLE, scope)
+            self.main_table.setItem(row, 4, scope_item)
 
-            btn = QPushButton("📺")
-            btn.setFixedWidth(VIDEO_BTN_WIDTH)
-            btn.clicked.connect(
-                lambda ch=False, c=stat["name"]: self.open_preview(c)
+            actor_name = (
+                self.data["actors"].get(actor_id, {}).get("name", "-")
+                if actor_id
+                else "-"
             )
-            self.main_table.setCellWidget(row, 6, wrap_widget(btn))
+            actor_item = QTableWidgetItem(actor_name)
+            actor_item.setData(CHAR_NAME_ROLE, stat["name"])
+            actor_item.setData(ACTOR_ID_ROLE, actor_id)
+            actor_item.setData(PREVIOUS_ACTOR_ID_ROLE, actor_id)
+            self._apply_actor_color_to_item(actor_item, actor_id)
+            self.main_table.setItem(row, 5, actor_item)
+
+            video_item = QTableWidgetItem("📺")
+            video_item.setTextAlignment(Qt.AlignCenter)
+            video_item.setToolTip("Открыть предпросмотр персонажа")
+            video_item.setData(CHAR_NAME_ROLE, stat["name"])
+            video_item.setFlags(
+                video_item.flags() & ~Qt.ItemIsEditable
+            )
+            self.main_table.setItem(row, 6, video_item)
         
         self.main_table.blockSignals(False)
 
