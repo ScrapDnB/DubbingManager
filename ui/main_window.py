@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QFileDialog, QTableWidget, QTableWidgetItem,
+    QPushButton, QFileDialog, QTableWidget, QTableWidgetItem, QTableView,
     QColorDialog, QComboBox, QLabel, QHeaderView, QInputDialog,
     QFrame, QSpinBox, QLineEdit, QListWidget, QListWidgetItem,
     QCheckBox, QGroupBox, QFormLayout, QMessageBox, QSlider,
@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QColor, QFont, QAction, QKeySequence, QPen, QBrush
 from PySide6.QtCore import (
-    Qt, QUrl, QTimer, Signal, QRectF, QEvent, Slot, QPersistentModelIndex
+    Qt, QUrl, QTimer, Signal, QRectF, QEvent, Slot, QPersistentModelIndex,
+    QAbstractTableModel, QModelIndex
 )
 from typing import Dict, List, Any, Optional, Set, Tuple, Callable
 import json
@@ -122,8 +123,6 @@ logger = logging.getLogger(__name__)
 CHAR_NAME_ROLE = Qt.UserRole
 SCOPE_ROLE = Qt.UserRole + 1
 ACTOR_ID_ROLE = Qt.UserRole + 2
-PREVIOUS_SCOPE_ROLE = Qt.UserRole + 3
-PREVIOUS_ACTOR_ID_ROLE = Qt.UserRole + 4
 
 
 class ScopeComboDelegate(QStyledItemDelegate):
@@ -210,6 +209,194 @@ class ActorComboDelegate(QStyledItemDelegate):
             painter.fillRect(option.rect, brush)
             return
         super().paint(painter, option, index)
+
+
+class MainTableModel(QAbstractTableModel):
+    """Модель главной таблицы персонажей текущей серии."""
+
+    HEADERS = ["Персонаж", "Строчек", "Колец", "Слов", "Область", "Актер", "📺"]
+
+    def __init__(self, main_window: "MainWindow") -> None:
+        super().__init__(main_window)
+        self.main_window = main_window
+        self.rows: List[Dict[str, Any]] = []
+
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self.rows)
+
+    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self.HEADERS)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role: int):
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+            return self.HEADERS[section]
+        return None
+
+    def flags(self, index: QModelIndex):
+        if not index.isValid():
+            return Qt.NoItemFlags
+
+        flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        if index.column() in (0, 4, 5):
+            flags |= Qt.ItemIsEditable
+        return flags
+
+    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
+        if not index.isValid():
+            return None
+
+        row = self.rows[index.row()]
+        column = index.column()
+
+        if role in (Qt.DisplayRole, Qt.EditRole):
+            return self._display_value(row, column)
+
+        if role == Qt.TextAlignmentRole and column == 6:
+            return Qt.AlignCenter
+
+        if role == Qt.ToolTipRole:
+            if column == 5:
+                return self._actor_tooltip(row.get("actor_id"))
+            if column == 6:
+                return "Открыть предпросмотр персонажа"
+
+        if role == Qt.BackgroundRole and column == 5:
+            return self._actor_brush(row.get("actor_id"))
+
+        if role == CHAR_NAME_ROLE:
+            return row.get("name")
+        if role == SCOPE_ROLE and column == 4:
+            return row.get("scope")
+        if role == ACTOR_ID_ROLE and column == 5:
+            return row.get("actor_id")
+
+        return None
+
+    def setData(self, index: QModelIndex, value: Any, role: int = Qt.EditRole) -> bool:
+        if not index.isValid():
+            return False
+
+        row = self.rows[index.row()]
+        column = index.column()
+
+        if column == 0 and role == Qt.EditRole:
+            old_name = row.get("name", "")
+            new_name = str(value).strip()
+            if not new_name or new_name == old_name:
+                return False
+            if self.main_window.rename_character_from_table(old_name, new_name):
+                row["name"] = new_name
+                self.dataChanged.emit(index, index, [Qt.DisplayRole, CHAR_NAME_ROLE])
+                return True
+            return False
+
+        if column == 4 and role == SCOPE_ROLE:
+            new_scope = value or ASSIGNMENT_SCOPE_GLOBAL
+            if new_scope == row.get("scope"):
+                return False
+            row["scope"] = new_scope
+            self.main_window.update_assignment_scope_value(
+                row["name"], new_scope, row.get("actor_id")
+            )
+            self.dataChanged.emit(
+                self.index(index.row(), 4),
+                self.index(index.row(), 5),
+                [Qt.DisplayRole, SCOPE_ROLE, ACTOR_ID_ROLE, Qt.BackgroundRole],
+            )
+            return True
+
+        if column == 5 and role == ACTOR_ID_ROLE:
+            if value == row.get("actor_id"):
+                return False
+            row["actor_id"] = value
+            self.main_window.update_map_value(
+                row["name"], row.get("actor_id"), row.get("scope")
+            )
+            self.dataChanged.emit(
+                index,
+                index,
+                [Qt.DisplayRole, ACTOR_ID_ROLE, Qt.BackgroundRole, Qt.ToolTipRole],
+            )
+            return True
+
+        if role == Qt.DisplayRole:
+            return True
+
+        return False
+
+    def set_rows(self, rows: List[Dict[str, Any]]) -> None:
+        self.beginResetModel()
+        self.rows = rows
+        self.endResetModel()
+
+    def row_data(self, row: int) -> Optional[Dict[str, Any]]:
+        if 0 <= row < len(self.rows):
+            return self.rows[row]
+        return None
+
+    def update_actor_for_character(self, char_name: str) -> None:
+        for row_idx, row in enumerate(self.rows):
+            if row.get("name") != char_name:
+                continue
+
+            ep = self.main_window.ep_combo.currentData()
+            row["actor_id"] = get_actor_for_character(
+                self.main_window.data, char_name, ep
+            )
+            idx = self.index(row_idx, 5)
+            self.dataChanged.emit(
+                idx,
+                idx,
+                [Qt.DisplayRole, ACTOR_ID_ROLE, Qt.BackgroundRole, Qt.ToolTipRole],
+            )
+            return
+
+    def _display_value(self, row: Dict[str, Any], column: int) -> Any:
+        if column == 0:
+            return row.get("name", "")
+        if column == 1:
+            return row.get("lines", 0)
+        if column == 2:
+            return row.get("rings", 0)
+        if column == 3:
+            return row.get("words", 0)
+        if column == 4:
+            return (
+                "Серия"
+                if row.get("scope") == ASSIGNMENT_SCOPE_EPISODE
+                else "Глобально"
+            )
+        if column == 5:
+            return self._actor_name(row.get("actor_id"))
+        if column == 6:
+            return "📺"
+        return None
+
+    def _actor_name(self, actor_id: Optional[str]) -> str:
+        if not actor_id:
+            return "-"
+        return self.main_window.data.get("actors", {}).get(
+            actor_id, {}
+        ).get("name", "-")
+
+    def _actor_tooltip(self, actor_id: Optional[str]) -> str:
+        if not actor_id:
+            return "Актёр не назначен"
+        actor = self.main_window.data.get("actors", {}).get(actor_id, {})
+        color = QColor(actor.get("color", ""))
+        if color.isValid():
+            return f"{actor.get('name', actor_id)}\nЦвет актёра: {color.name()}"
+        return actor.get("name", actor_id)
+
+    def _actor_brush(self, actor_id: Optional[str]):
+        if not actor_id:
+            return None
+        actor = self.main_window.data.get("actors", {}).get(actor_id, {})
+        color = QColor(actor.get("color", ""))
+        if not color.isValid():
+            return None
+        color.setAlpha(72)
+        return QBrush(color)
 
 
 class MainWindow(QMainWindow):
@@ -528,11 +715,9 @@ class MainWindow(QMainWindow):
         # Стек таблиц
         self.table_stack = QStackedWidget()
 
-        self.main_table = QTableWidget(0, 7)
-        self.main_table.setHorizontalHeaderLabels([
-            "Персонаж", "Строчек", "Колец", "Слов",
-            "Область", "Актер", "📺"
-        ])
+        self.main_table = QTableView()
+        self.main_table_model = MainTableModel(self)
+        self.main_table.setModel(self.main_table_model)
         customize_table(self.main_table)
         header = self.main_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Stretch)
@@ -553,12 +738,9 @@ class MainWindow(QMainWindow):
         self.main_table.horizontalHeader().sectionClicked.connect(
             self.on_header_clicked
         )
-        self.main_table.itemChanged.connect(
-            self.on_main_table_item_changed
-        )
-        self.main_table.cellClicked.connect(self.on_main_table_cell_clicked)
-        self.main_table.itemSelectionChanged.connect(
-            self.update_selected_character_stats
+        self.main_table.clicked.connect(self.on_main_table_cell_clicked)
+        self.main_table.selectionModel().selectionChanged.connect(
+            lambda *_: self.update_selected_character_stats()
         )
 
         self.missing_file_widget = QWidget()
@@ -731,65 +913,21 @@ class MainWindow(QMainWindow):
 
     # === Методы работы с персонажами ===
 
-    def on_main_table_item_changed(self, item: QTableWidgetItem) -> None:
-        """Обработчик редактирования главной таблицы."""
-        column = item.column()
-        if column == 0:
-            self.on_character_name_changed(item)
-            return
-
-        if column == 4:
-            char_name = item.data(CHAR_NAME_ROLE)
-            scope = item.data(SCOPE_ROLE) or ASSIGNMENT_SCOPE_GLOBAL
-            if scope == item.data(PREVIOUS_SCOPE_ROLE):
-                return
-            item.setData(PREVIOUS_SCOPE_ROLE, scope)
-            actor_item = self.main_table.item(item.row(), 5)
-            actor_id = actor_item.data(ACTOR_ID_ROLE) if actor_item else None
-            if char_name:
-                self.update_assignment_scope_value(char_name, scope, actor_id)
-            return
-
-        if column == 5:
-            char_name = item.data(CHAR_NAME_ROLE)
-            actor_id = item.data(ACTOR_ID_ROLE)
-            if actor_id == item.data(PREVIOUS_ACTOR_ID_ROLE):
-                return
-            item.setData(PREVIOUS_ACTOR_ID_ROLE, actor_id)
-            scope_item = self.main_table.item(item.row(), 4)
-            scope = (
-                scope_item.data(SCOPE_ROLE)
-                if scope_item
-                else ASSIGNMENT_SCOPE_GLOBAL
-            )
-            if char_name:
-                self.update_map_value(char_name, actor_id, scope)
-
-    def on_main_table_cell_clicked(self, row: int, column: int) -> None:
+    def on_main_table_cell_clicked(self, index: QModelIndex) -> None:
         """Открыть предпросмотр персонажа по клику в колонке видео."""
-        if column != 6:
+        if not index.isValid() or index.column() != 6:
             return
-        item = self.main_table.item(row, column)
-        char_name = item.data(CHAR_NAME_ROLE) if item else None
+        row = self.main_table_model.row_data(index.row())
+        char_name = row.get("name") if row else None
         if char_name:
             self.open_preview(char_name)
     
-    def on_character_name_changed(self, item: QTableWidgetItem) -> None:
-        """Обработчик изменения имени персонажа"""
-        if item.column() != 0:
-            return
-
+    def rename_character_from_table(self, old_name: str, new_name: str) -> bool:
+        """Переименовать персонажа из модели главной таблицы."""
         ep = self.ep_combo.currentData()
-        if not ep:
-            return
+        if not ep or new_name == old_name or not new_name:
+            return False
 
-        old_name = item.data(Qt.UserRole)
-        new_name = item.text().strip()
-
-        if new_name == old_name or not new_name:
-            return
-
-        # Используем команду для отмены действия
         command = RenameCharacterCommand(
             self.data["global_map"],
             self.data.get("loaded_episodes", {}),
@@ -808,18 +946,13 @@ class MainWindow(QMainWindow):
             )
         )
         self.undo_stack.push(command)
-
-        # Инвалидируем кэш в episode_service
         self.episode_service.invalidate_episode(ep)
-
-        # Обновляем открытые окна (телесуфлёр, превью)
         self._refresh_open_windows(ep)
-
-        item.setData(Qt.UserRole, new_name)
         self.character_names_changed[ep] = True
         self.update_save_ass_button()
         self.refresh_actor_list()
         self.set_dirty(True)
+        return True
 
     def _refresh_open_windows(self, ep: str) -> None:
         """Обновление открытых окон после изменений"""
@@ -845,20 +978,17 @@ class MainWindow(QMainWindow):
 
     def update_selected_character_stats(self) -> None:
         """Обновить статистику выбранного персонажа в правой панели."""
-        selected_items = self.main_table.selectedItems()
-        if not selected_items:
+        selected_rows = self.main_table.selectionModel().selectedRows()
+        if not selected_rows:
             self._reset_character_stats_panel()
             return
 
-        row = min(item.row() for item in selected_items)
-        name_item = self.main_table.item(row, 0)
-        if not name_item:
+        row_data = self.main_table_model.row_data(selected_rows[0].row())
+        if not row_data:
             self._reset_character_stats_panel()
             return
 
-        self.update_character_stats_panel(
-            name_item.data(Qt.UserRole) or name_item.text()
-        )
+        self.update_character_stats_panel(row_data["name"])
 
     def update_character_stats_panel(self, char_name: str) -> None:
         """Показать серии, кольца и слова для персонажа."""
@@ -1752,21 +1882,6 @@ class MainWindow(QMainWindow):
             self.change_episode()
             self.set_dirty()
 
-    def update_map(
-        self,
-        char_name: str,
-        actor_combo: QComboBox,
-        scope_combo: Optional[QComboBox] = None
-    ) -> None:
-        """Обновление маппинга персонаж-актёр"""
-        aid = actor_combo.currentData()
-        scope = (
-            scope_combo.currentData()
-            if scope_combo is not None
-            else ASSIGNMENT_SCOPE_GLOBAL
-        )
-        self.update_map_value(char_name, aid, scope)
-
     def update_map_value(
         self,
         char_name: str,
@@ -1790,19 +1905,6 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(command)
         self.refresh_actor_list()
         self.set_dirty(True)
-
-    def update_assignment_scope(
-        self,
-        char_name: str,
-        scope_combo: QComboBox,
-        actor_combo: QComboBox
-    ) -> None:
-        """Переключение назначения персонажа между проектом и серией."""
-        self.update_assignment_scope_value(
-            char_name,
-            scope_combo.currentData(),
-            actor_combo.currentData()
-        )
 
     def update_assignment_scope_value(
         self,
@@ -1834,62 +1936,10 @@ class MainWindow(QMainWindow):
 
     def _update_main_table_assignment_display(self, char_name: str) -> None:
         """Обновить отображение актёра после смены области назначения."""
-        ep = self.ep_combo.currentData()
-        actor_id = get_actor_for_character(self.data, char_name, ep)
-        actor_name = (
-            self.data.get("actors", {}).get(actor_id, {}).get("name", "-")
-            if actor_id
-            else "-"
-        )
-
-        self.main_table.blockSignals(True)
-        try:
-            for row in range(self.main_table.rowCount()):
-                name_item = self.main_table.item(row, 0)
-                if not name_item:
-                    continue
-                if (name_item.data(CHAR_NAME_ROLE) or name_item.text()) != char_name:
-                    continue
-
-                actor_item = self.main_table.item(row, 5)
-                if actor_item:
-                    actor_item.setData(ACTOR_ID_ROLE, actor_id)
-                    actor_item.setData(PREVIOUS_ACTOR_ID_ROLE, actor_id)
-                    actor_item.setText(actor_name)
-                    self._apply_actor_color_to_item(actor_item, actor_id)
-                break
-        finally:
-            self.main_table.blockSignals(False)
-
-    def _apply_actor_color_to_item(
-        self,
-        item: QTableWidgetItem,
-        actor_id: Optional[str]
-    ) -> None:
-        """Подкрасить ячейку актёра мягким цветом из базы актёров."""
-        if not actor_id:
-            item.setBackground(QBrush())
-            item.setToolTip("Актёр не назначен")
-            return
-
-        actor = self.data.get("actors", {}).get(actor_id, {})
-        color = QColor(actor.get("color", ""))
-        if not color.isValid():
-            item.setBackground(QBrush())
-            item.setToolTip(actor.get("name", actor_id))
-            return
-
-        color.setAlpha(72)
-        item.setBackground(QBrush(color))
-        item.setToolTip(
-            f"{actor.get('name', actor_id)}\nЦвет актёра: {color.name()}"
-        )
+        self.main_table_model.update_actor_for_character(char_name)
     
     def refresh_main_table(self) -> None:
         """Обновление главной таблицы"""
-        self.main_table.blockSignals(True)
-        self.main_table.setRowCount(0)
-        
         query = self.search_edit.text().lower()
         only_unassigned = self.filter_unassigned.isChecked()
         
@@ -1899,7 +1949,8 @@ class MainWindow(QMainWindow):
             key=lambda x: x[keys[self.sort_col]],
             reverse=self.sort_desc
         )
-        
+
+        rows: List[Dict[str, Any]] = []
         for stat in sorted_stats:
             if query and query not in stat["name"].lower():
                 continue
@@ -1909,60 +1960,18 @@ class MainWindow(QMainWindow):
             is_assigned = actor_id is not None
             if only_unassigned and is_assigned:
                 continue
-            
-            row = self.main_table.rowCount()
-            self.main_table.insertRow(row)
-            
-            name_item = QTableWidgetItem(stat["name"])
-            name_item.setFlags(
-                name_item.flags() | Qt.ItemIsEditable
-            )
-            name_item.setData(Qt.UserRole, stat["name"])
-            self.main_table.setItem(row, 0, name_item)
-            
-            self.main_table.setItem(
-                row, 1, QTableWidgetItem(str(stat["lines"]))
-            )
-            self.main_table.setItem(
-                row, 2, QTableWidgetItem(str(stat["rings"]))
-            )
-            self.main_table.setItem(
-                row, 3, QTableWidgetItem(str(stat["words"]))
-            )
 
             scope = get_assignment_scope(self.data, stat["name"], ep)
-            scope_item = QTableWidgetItem(
-                "Серия"
-                if scope == ASSIGNMENT_SCOPE_EPISODE
-                else "Глобально"
-            )
-            scope_item.setData(CHAR_NAME_ROLE, stat["name"])
-            scope_item.setData(SCOPE_ROLE, scope)
-            scope_item.setData(PREVIOUS_SCOPE_ROLE, scope)
-            self.main_table.setItem(row, 4, scope_item)
+            rows.append({
+                "name": stat["name"],
+                "lines": stat["lines"],
+                "rings": stat["rings"],
+                "words": stat["words"],
+                "scope": scope,
+                "actor_id": actor_id,
+            })
 
-            actor_name = (
-                self.data["actors"].get(actor_id, {}).get("name", "-")
-                if actor_id
-                else "-"
-            )
-            actor_item = QTableWidgetItem(actor_name)
-            actor_item.setData(CHAR_NAME_ROLE, stat["name"])
-            actor_item.setData(ACTOR_ID_ROLE, actor_id)
-            actor_item.setData(PREVIOUS_ACTOR_ID_ROLE, actor_id)
-            self._apply_actor_color_to_item(actor_item, actor_id)
-            self.main_table.setItem(row, 5, actor_item)
-
-            video_item = QTableWidgetItem("📺")
-            video_item.setTextAlignment(Qt.AlignCenter)
-            video_item.setToolTip("Открыть предпросмотр персонажа")
-            video_item.setData(CHAR_NAME_ROLE, stat["name"])
-            video_item.setFlags(
-                video_item.flags() & ~Qt.ItemIsEditable
-            )
-            self.main_table.setItem(row, 6, video_item)
-        
-        self.main_table.blockSignals(False)
+        self.main_table_model.set_rows(rows)
 
     def refresh_actor_list(self) -> None:
         """Обновление списка актёров"""
