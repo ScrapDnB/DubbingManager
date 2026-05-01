@@ -36,7 +36,7 @@ TABLE_ROW_HEIGHT = 32
 VIDEO_BTN_WIDTH = 40
 MAIN_TABLE_COUNT_COL_WIDTH = 72
 MAIN_TABLE_SCOPE_COL_WIDTH = 130
-MAIN_TABLE_VIDEO_COL_WIDTH = 58
+MAIN_TABLE_VIDEO_COL_WIDTH = 64
 
 # =============================================================================
 # КОНСТАНТЫ UI — ТЕЛЕСУФЛЁР
@@ -223,7 +223,7 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Версия приложения
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 
 # Версия формата проекта для совместимости
 PROJECT_VERSION = "1.3"

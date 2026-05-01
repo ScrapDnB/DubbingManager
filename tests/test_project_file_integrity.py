@@ -7,7 +7,11 @@ import tempfile
 import shutil
 from datetime import datetime
 from services import ProjectService
-from config.constants import DEFAULT_PROMPTER_CONFIG, PROJECT_VERSION
+from config.constants import (
+    DEFAULT_DOCX_IMPORT_CONFIG,
+    DEFAULT_PROMPTER_CONFIG,
+    PROJECT_VERSION,
+)
 
 
 class TestProjectFileStructure:
@@ -38,6 +42,7 @@ class TestProjectFileStructure:
         assert "export_config" in data
         assert "prompter_config" in data
         assert "replica_merge_config" in data
+        assert "docx_import_config" in data
         assert "project_folder" in data
         
         # Проверка metadata
@@ -53,6 +58,7 @@ class TestProjectFileStructure:
         assert isinstance(data["video_paths"], dict)
         assert isinstance(data["episode_texts"], dict)
         assert isinstance(data["episode_actor_map"], dict)
+        assert isinstance(data["docx_import_config"], dict)
 
     def test_create_new_project_deep_copies_default_configs(self):
         """Проверка, что вложенные настройки не разделяют default dict."""
@@ -60,9 +66,12 @@ class TestProjectFileStructure:
         second = self.project_service.create_new_project("Second")
 
         first["prompter_config"]["colors"]["bg"] = "#ABCDEF"
+        first["docx_import_config"]["mapping"]["text"] = 3
 
         assert second["prompter_config"]["colors"]["bg"] == "#000000"
+        assert second["docx_import_config"]["mapping"] == {}
         assert DEFAULT_PROMPTER_CONFIG["colors"]["bg"] == "#000000"
+        assert DEFAULT_DOCX_IMPORT_CONFIG["mapping"] == {}
 
     def test_save_and_load_project(self):
         """Проверка сохранения и загрузки проекта"""

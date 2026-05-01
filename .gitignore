@@ -33,3 +33,4 @@ QWEN.md
 .qwen/
 build.sh
 CODEX_CONTEXT.md
+/tmp

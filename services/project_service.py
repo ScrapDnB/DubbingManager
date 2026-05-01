@@ -21,6 +21,7 @@ except ImportError:
 from PySide6.QtWidgets import QMessageBox
 
 from config.constants import (
+    DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
     DEFAULT_PROMPTER_CONFIG,
     DEFAULT_REPLICA_MERGE_CONFIG,
@@ -89,6 +90,7 @@ class ProjectService:
             "export_config": deepcopy(DEFAULT_EXPORT_CONFIG),
             "prompter_config": deepcopy(DEFAULT_PROMPTER_CONFIG),
             "replica_merge_config": deepcopy(DEFAULT_REPLICA_MERGE_CONFIG),
+            "docx_import_config": deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
             "project_folder": None,  # Путь к папке проекта
         }
 
@@ -422,6 +424,8 @@ class ProjectService:
                 data["replica_merge_config"] = deepcopy(
                     DEFAULT_REPLICA_MERGE_CONFIG
                 )
+        if "docx_import_config" not in data:
+            data["docx_import_config"] = deepcopy(DEFAULT_DOCX_IMPORT_CONFIG)
         
         # Добавляем project_folder для старых проектов
         if "project_folder" not in data:

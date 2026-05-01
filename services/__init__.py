@@ -6,6 +6,7 @@ from .actor_service import ActorService
 from .export_service import ExportService
 from .global_settings_service import GlobalSettingsService
 from .project_folder_service import ProjectFolderService
+from .project_health_service import ProjectHealthIssue, ProjectHealthService
 from .docx_import_service import DocxImportService
 from .script_text_service import ScriptTextService
 from .assignment_service import (
@@ -32,6 +33,8 @@ __all__ = [
     'ExportService',
     'GlobalSettingsService',
     'ProjectFolderService',
+    'ProjectHealthIssue',
+    'ProjectHealthService',
     'DocxImportService',
     'ScriptTextService',
     'ASSIGNMENT_SCOPE_GLOBAL',

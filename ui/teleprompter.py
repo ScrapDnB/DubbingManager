@@ -665,8 +665,7 @@ class TeleprompterWindow(QDialog):
         self.toolbar: QToolBar = QToolBar("Управление")
         self.toolbar.setMovable(False)
         self.toolbar.setStyleSheet(
-            "QToolBar { padding: 5px; background: #333; "
-            "border-bottom: 1px solid #111; }"
+            "QToolBar { padding: 5px; }"
         )
 
         self.btn_toggle_settings = QPushButton("⚙ Панель настроек")
