@@ -223,7 +223,7 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Версия приложения
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 
 # Версия формата проекта для совместимости
 PROJECT_VERSION = "1.3"

@@ -48,8 +48,8 @@ Windows собирается в формате `onedir`, а не `onefile`, чт
 ## Публикация релиза
 
 ```bash
-git tag v1.3.0
-git push origin v1.3.0
+git tag v1.3.1
+git push origin v1.3.1
 ```
 
 После этого workflow соберёт Windows и macOS артефакты и прикрепит их к релизу.
