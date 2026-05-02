@@ -1,4 +1,4 @@
-<img width="64" height="64" alt="icon_32x32@2x" src="https://github.com/user-attachments/assets/9e226534-92b0-4bd9-b64e-5e082ba229fd" /> # Dubbing Manager
+# Dubbing Manager <img width="64" height="64" alt="icon_32x32@2x" src="https://github.com/user-attachments/assets/9e226534-92b0-4bd9-b64e-5e082ba229fd" /> 
 
 [![Tests](https://github.com/ScrapDnB/DubbingManager/actions/workflows/tests.yml/badge.svg)](https://github.com/ScrapDnB/DubbingManager/actions/workflows/tests.yml)
 [![Build](https://github.com/ScrapDnB/DubbingManager/actions/workflows/build.yml/badge.svg)](https://github.com/ScrapDnB/DubbingManager/actions/workflows/build.yml)
