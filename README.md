@@ -6,7 +6,7 @@
 
 **Dubbing Manager** — настольное приложение для подготовки проектов дубляжа: импорт сценариев, рабочие тексты, распределение актёров, телесуфлёр, видео, статистика и экспорт монтажных листов.
 
-![Screenshot](Screenshot.png)
+<img width="1592" height="990" alt="Screenshot" src="https://github.com/user-attachments/assets/457a64dd-0cab-41ed-b7ed-c6f413a54745" />
 
 ## Возможности
 
