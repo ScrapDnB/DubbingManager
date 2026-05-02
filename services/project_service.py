@@ -26,6 +26,7 @@ from config.constants import (
     DEFAULT_REPLICA_MERGE_CONFIG,
     PROJECT_VERSION,
 )
+from utils.i18n import translate_source
 
 logger = logging.getLogger(__name__)
 
@@ -353,7 +354,7 @@ class ProjectService:
 
     def get_project_name(self, data: Dict[str, Any]) -> str:
         """Return project name."""
-        return data.get("project_name", "Новый проект")
+        return data.get("project_name", translate_source("Новый проект"))
 
     def set_project_name(
         self,
@@ -371,7 +372,7 @@ class ProjectService:
         if self.current_project_path:
             title += f" - {os.path.basename(self.current_project_path)}"
         else:
-            title += " - [Новый]"
+            title += f" - [{translate_source('Новый')}]"
 
         if self.is_dirty:
             title += " *"

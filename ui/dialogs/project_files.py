@@ -119,12 +119,12 @@ class ProjectFilesDialog(QDialog):
         """Return a label for the episode source file."""
         ext = os.path.splitext(path or "")[1].lower()
         if ext == '.docx':
-            return "📄 Исходный DOCX"
+            return translate_source("📄 Исходный DOCX")
         if ext == '.srt':
-            return "📄 Субтитры (.srt)"
+            return translate_source("📄 Субтитры (.srt)")
         if ext == '.ass':
-            return "📄 Субтитры (.ass)"
-        return "📄 Исходный файл"
+            return translate_source("📄 Субтитры (.ass)")
+        return translate_source("📄 Исходный файл")
 
     def _get_working_text_status(
         self,
@@ -134,18 +134,18 @@ class ProjectFilesDialog(QDialog):
     ) -> Tuple[str, QColor]:
         """Return working text status."""
         if text_path and os.path.exists(text_path):
-            return "✓ Используется рабочий текст", QColor("#28a745")
+            return translate_source("✓ Используется рабочий текст"), QColor("#28a745")
 
         if text_path:
-            return "✗ Рабочий текст потерян", QColor("#dc3545")
+            return translate_source("✗ Рабочий текст потерян"), QColor("#dc3545")
 
         if source_path and os.path.exists(source_path):
-            return "○ Рабочий текст не создан", QColor("#e0a800")
+            return translate_source("○ Рабочий текст не создан"), QColor("#e0a800")
 
         if source_path and self._is_text_source_path(source_path):
-            return "⚠ Исходный файл не найден", QColor("#dc3545")
+            return translate_source("⚠ Исходный файл не найден"), QColor("#dc3545")
 
-        return "○ Рабочий текст не указан", QColor("#999999")
+        return translate_source("○ Рабочий текст не указан"), QColor("#999999")
 
     def _get_episode_text_source_status(
         self,
@@ -155,18 +155,18 @@ class ProjectFilesDialog(QDialog):
     ) -> Tuple[str, QColor]:
         """Return episode text source status."""
         if text_path and os.path.exists(text_path):
-            return "Текст: рабочий JSON", QColor("#28a745")
+            return translate_source("Текст: рабочий JSON"), QColor("#28a745")
 
         if text_path:
-            return "Текст: рабочий JSON потерян", QColor("#dc3545")
+            return translate_source("Текст: рабочий JSON потерян"), QColor("#dc3545")
 
         if source_path and os.path.exists(source_path):
-            return "Текст: субтитры", QColor("#e0a800")
+            return translate_source("Текст: субтитры"), QColor("#e0a800")
 
         if source_path and self._is_text_source_path(source_path):
-            return "Текст: источник потерян", QColor("#dc3545")
+            return translate_source("Текст: источник потерян"), QColor("#dc3545")
 
-        return "Текст: не найден", QColor("#999999")
+        return translate_source("Текст: не найден"), QColor("#999999")
 
     def _populate_tree(self) -> None:
         """Populate tree."""
@@ -189,7 +189,7 @@ class ProjectFilesDialog(QDialog):
         
         for ep_num in all_ep_nums:
             ep_item = QTreeWidgetItem([
-                f"Серия {ep_num}",
+                f"{translate_source('Серия')} {ep_num}",
                 "",
                 "",
                 ""
@@ -237,7 +237,7 @@ class ProjectFilesDialog(QDialog):
 
                 text_item = QTreeWidgetItem([
                     "",
-                    "📝 Рабочий текст",
+                    translate_source("📝 Рабочий текст"),
                     status_text,
                     text_path or ""
                 ])
@@ -255,7 +255,7 @@ class ProjectFilesDialog(QDialog):
                 
                 video_item = QTreeWidgetItem([
                     "",
-                    "🎬 Видео",
+                    translate_source("🎬 Видео"),
                     status_text,
                     video_path or ""
                 ])
@@ -269,9 +269,9 @@ class ProjectFilesDialog(QDialog):
         # Update statistics
         missing_count = total_count - found_count
         self.lbl_stats.setText(
-            f"Всего файлов: {total_count} | "
-            f"✓ Найдено: {found_count} | "
-            f"✗ Не найдено: {missing_count}"
+            f"{translate_source('Всего файлов:')} {total_count} | "
+            f"{translate_source('✓ Найдено:')} {found_count} | "
+            f"{translate_source('✗ Не найдено:')} {missing_count}"
         )
         
         self.file_tree.expandAll()
@@ -311,18 +311,18 @@ class ProjectFilesDialog(QDialog):
             current_ext = os.path.splitext(current_path or "")[1].lower()
             if current_ext == '.docx':
                 file_filter = "DOCX Files (*.docx);;Supported Text Sources (*.ass *.srt *.docx);;All Files (*)"
-                title = "Выберите исходный DOCX"
+                title = translate_source("Выберите исходный DOCX")
             else:
                 file_filter = "Supported Text Sources (*.ass *.srt *.docx);;Subtitle Files (*.ass *.srt);;DOCX Files (*.docx);;All Files (*)"
-                title = "Выберите исходный файл серии"
+                title = translate_source("Выберите исходный файл серии")
         elif file_type == "text":
             current_path = self.data.get("episode_texts", {}).get(ep_num)
             file_filter = "Episode Text Files (*.json)"
-            title = "Выберите рабочий текст эпизода"
+            title = translate_source("Выберите рабочий текст эпизода")
         else:
             current_path = self.data.get("video_paths", {}).get(ep_num)
             file_filter = "Video Files (*.mp4 *.mkv *.avi *.mov *.m4v *.wmv)"
-            title = "Выберите видео файл"
+            title = translate_source("Выберите видео файл")
         
         # Open dialog
         path, _ = QFileDialog.getOpenFileName(
@@ -365,7 +365,7 @@ class ProjectFilesDialog(QDialog):
         if not source_path or not os.path.exists(source_path):
             source_path, _ = QFileDialog.getOpenFileName(
                 self,
-                "Выберите исходный файл серии",
+                translate_source("Выберите исходный файл серии"),
                 source_path or "",
                 "Supported Text Sources (*.ass *.srt *.docx);;Subtitle Files (*.ass *.srt);;DOCX Files (*.docx);;All Files (*)"
             )
@@ -377,8 +377,8 @@ class ProjectFilesDialog(QDialog):
         if not parent or not hasattr(parent, "regenerate_episode_text"):
             QMessageBox.warning(
                 self,
-                "Ошибка",
-                "Не удалось пересоздать рабочий текст из этого окна."
+                translate_source("Ошибка"),
+                translate_source("Не удалось пересоздать рабочий текст из этого окна.")
             )
             return
 

@@ -139,6 +139,7 @@ def translate_widget_tree(root: Any) -> None:
         QLineEdit,
         QTabWidget,
         QTableWidget,
+        QTreeWidget,
         QWidget,
     )
 
@@ -193,3 +194,11 @@ def translate_widget_tree(root: Any) -> None:
                     translated = translate_source(text)
                     if translated != text:
                         item.setText(translated)
+        elif isinstance(widget, QTreeWidget):
+            item = widget.headerItem()
+            if item is not None:
+                for index in range(widget.columnCount()):
+                    text = item.text(index)
+                    translated = translate_source(text)
+                    if translated != text:
+                        item.setText(index, translated)

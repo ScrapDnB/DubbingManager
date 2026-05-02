@@ -729,8 +729,8 @@ class TeleprompterWindow(QDialog):
         if str(ep_num) not in self.main_app.data.get("episodes", {}):
             QMessageBox.warning(
                 self,
-                "Ошибка",
-                f"Серия {ep_num} не найдена в проекте."
+                translate_source("Ошибка"),
+                f"{translate_source('Серия не найдена в проекте:')} {ep_num}"
             )
             self._populate_episode_combo()
             return
@@ -932,7 +932,7 @@ class TeleprompterWindow(QDialog):
         )
         
         self.lbl_focus_percent = QLabel(
-            f"Высота линии: {self.slider_focus_pos.value()}%"
+            f"{translate_source('Высота линии:')} {self.slider_focus_pos.value()}%"
         )
         self.lbl_focus_percent.setAlignment(Qt.AlignCenter)
         
@@ -1043,7 +1043,7 @@ class TeleprompterWindow(QDialog):
         self.spin_offset.setRange(-10, 10)
         self.spin_offset.setSingleStep(0.5)
         self.spin_offset.setValue(self.cfg.get("reaper_offset_seconds", -2.0))
-        self.spin_offset.setSuffix(" сек")
+        self.spin_offset.setSuffix(f" {translate_source('сек')}")
         
         self.chk_offset.toggled.connect(self.save_current_config_to_project)
         self.spin_offset.valueChanged.connect(self.save_current_config_to_project)
@@ -1601,16 +1601,16 @@ class TeleprompterWindow(QDialog):
                 self.osc_client = SimpleUDPClient(
                     "127.0.0.1", self.cfg["port_out"]
                 )
-                self.btn_osc.setText("OSC Связь: Активна")
+                self.btn_osc.setText(translate_source("OSC Связь: Активна"))
             except Exception as e:
                 logger.error(f"OSC client error: {e}")
-                self.btn_osc.setText("Ошибка OSC")
+                self.btn_osc.setText(translate_source("Ошибка OSC"))
         else:
             if self.osc_thread:
                 self.osc_thread.stop()
                 self.osc_thread = None
             self.osc_client = None
-            self.btn_osc.setText("Включи��ь OSC связь")
+            self.btn_osc.setText(translate_source("Включить OSC связь"))
             self.btn_osc.setStyleSheet("")
     
     @Slot(float)

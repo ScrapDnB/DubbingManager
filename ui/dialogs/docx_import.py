@@ -140,7 +140,7 @@ class DocxImportDialog(QDialog):
         for col_type, col_name in COLUMN_TYPES.items():
             label = QLabel(col_name)
             combo = QComboBox()
-            combo.addItem("Не использовать", None)
+            combo.addItem(translate_source("Не использовать"), None)
             combo.currentIndexChanged.connect(self._on_mapping_changed)
             self.mapping_combos[col_type] = combo
 
@@ -238,7 +238,7 @@ class DocxImportDialog(QDialog):
     def _select_file(self) -> None:
         """Select file."""
         path, _ = QFileDialog.getOpenFileName(
-            self, "Выберите DOCX файл", "", "DOCX Files (*.docx)"
+            self, translate_source("Выберите DOCX файл"), "", "DOCX Files (*.docx)"
         )
 
         if path:
@@ -251,9 +251,12 @@ class DocxImportDialog(QDialog):
 
             if not self.current_tables:
                 QMessageBox.warning(
-                    self, "Ошибка",
-                    "Не удалось извлечь таблицу из файла.\n"
-                    "Убедитесь, что файл содержит таблицу."
+                    self,
+                    translate_source("Ошибка"),
+                    translate_source(
+                        "Не удалось извлечь таблицу из файла.\n"
+                        "Убедитесь, что файл содержит таблицу."
+                    )
                 )
                 return
 
@@ -275,8 +278,9 @@ class DocxImportDialog(QDialog):
         except Exception as e:
             logger.error(f"Error loading DOCX: {e}")
             QMessageBox.critical(
-                self, "Ошибка",
-                f"Ошибка загрузки файла: {e}"
+                self,
+                translate_source("Ошибка"),
+                f"{translate_source('Ошибка загрузки файла:')} {e}"
             )
 
     def _show_table_selector(self) -> None:
@@ -285,7 +289,7 @@ class DocxImportDialog(QDialog):
         self.table_selector.clear()
         
         for i in range(len(self.current_tables)):
-            table_name = f"Таблица {i + 1}"
+            table_name = f"{translate_source('Таблица')} {i + 1}"
             if self.current_tables[i] and self.current_tables[i][0]:
                 first_cell = self.current_tables[i][0][0] if self.current_tables[i][0] else ""
                 if first_cell:
@@ -317,7 +321,7 @@ class DocxImportDialog(QDialog):
         for combo in self.mapping_combos.values():
             combo.blockSignals(True)
             combo.clear()
-            combo.addItem("Не использовать", None)
+            combo.addItem(translate_source("Не использовать"), None)
 
             for col_idx in self.available_columns:
                 header = ""
@@ -325,9 +329,9 @@ class DocxImportDialog(QDialog):
                     header = self.current_rows[0][col_idx]
 
                 if header:
-                    combo.addItem(f"Колонка {col_idx}: {header}", col_idx)
+                    combo.addItem(f"{translate_source('Колонка')} {col_idx}: {header}", col_idx)
                 else:
-                    combo.addItem(f"Колонка {col_idx}", col_idx)
+                    combo.addItem(f"{translate_source('Колонка')} {col_idx}", col_idx)
 
             combo.blockSignals(False)
 
@@ -339,7 +343,7 @@ class DocxImportDialog(QDialog):
             self.current_mapping.update(saved_mapping)
             self._apply_mapping_to_combos(self.current_mapping)
             self.mapping_hint.setText(
-                "Применены последние сохранённые настройки колонок."
+                translate_source("Применены последние сохранённые настройки колонок.")
             )
             self._update_preview()
             return
@@ -386,7 +390,7 @@ class DocxImportDialog(QDialog):
         self.current_mapping = detected
 
         self._apply_mapping_to_combos(detected)
-        self.mapping_hint.setText("Колонки определены автоматически.")
+        self.mapping_hint.setText(translate_source("Колонки определены автоматически."))
 
         self._update_preview()
 
@@ -477,7 +481,7 @@ class DocxImportDialog(QDialog):
                 valid_count += 1
             self.preview_table.setItem(row, 4, text_item)
 
-            status = "✓" if text else "⚠ Нет текста"
+            status = "✓" if text else translate_source("⚠ Нет текста")
             status_item = QTableWidgetItem(status)
             if not text:
                 status_item.setBackground(Qt.yellow)
@@ -486,7 +490,9 @@ class DocxImportDialog(QDialog):
         # Update statistics
         total = len(preview_data)
         self.stats_label.setText(
-            f"Показано: {total} | Корректных: {valid_count} | Проблемных: {invalid_count}"
+            f"{translate_source('Показано:')} {total} | "
+            f"{translate_source('Корректных:')} {valid_count} | "
+            f"{translate_source('Проблемных:')} {invalid_count}"
         )
 
     @Slot()
@@ -497,8 +503,9 @@ class DocxImportDialog(QDialog):
 
         if self.current_mapping.get('text') is None:
             QMessageBox.warning(
-                self, "Ошибка",
-                "Необходимо указать колонку с текстом фразы."
+                self,
+                translate_source("Ошибка"),
+                translate_source("Необходимо указать колонку с текстом фразы.")
             )
             return
 
@@ -510,8 +517,9 @@ class DocxImportDialog(QDialog):
 
             if not lines:
                 QMessageBox.warning(
-                    self, "Ошибка",
-                    "Не удалось извлечь данные из файла."
+                    self,
+                    translate_source("Ошибка"),
+                    translate_source("Не удалось извлечь данные из файла.")
                 )
                 return
 
@@ -529,8 +537,9 @@ class DocxImportDialog(QDialog):
         except Exception as e:
             logger.error(f"Error parsing DOCX: {e}")
             QMessageBox.critical(
-                self, "Ошибка",
-                f"Ошибка парсинга данных: {e}"
+                self,
+                translate_source("Ошибка"),
+                f"{translate_source('Ошибка парсинга данных:')} {e}"
             )
 
     @Slot()
@@ -541,8 +550,9 @@ class DocxImportDialog(QDialog):
 
         if self.current_mapping.get('text') is None:
             QMessageBox.warning(
-                self, "Ошибка",
-                "Необходимо указать колонку с текстом фразы."
+                self,
+                translate_source("Ошибка"),
+                translate_source("Необходимо указать колонку с текстом фразы.")
             )
             return
 
@@ -560,8 +570,9 @@ class DocxImportDialog(QDialog):
 
             if not all_lines:
                 QMessageBox.warning(
-                    self, "Ошибка",
-                    "Не удалось извлечь данные из файла."
+                    self,
+                    translate_source("Ошибка"),
+                    translate_source("Не удалось извлечь данные из файла.")
                 )
                 return
 
@@ -579,8 +590,9 @@ class DocxImportDialog(QDialog):
         except Exception as e:
             logger.error(f"Error parsing DOCX tables: {e}")
             QMessageBox.critical(
-                self, "Ошибка",
-                f"Ошибка парсинга данных: {e}"
+                self,
+                translate_source("Ошибка"),
+                f"{translate_source('Ошибка парсинга данных:')} {e}"
             )
 
     def get_result(self) -> Optional[Dict[str, Any]]:

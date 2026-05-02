@@ -530,15 +530,15 @@ class SettingsDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        project_folder = self.project_data.get("project_folder") or "не задана"
+        project_folder = self.project_data.get("project_folder") or translate_source("не задана")
         texts_count = len(self.project_data.get("episode_texts", {}))
         episodes_count = len(self.project_data.get("episodes", {}))
 
         info = QLabel(
-            f"Папка проекта: {project_folder}\n"
-            f"Серий: {episodes_count}\n"
-            f"Рабочих текстов: {texts_count}\n\n"
-            "Папка проекта и проверка целостности доступны с верхней панели."
+            f"{translate_source('Папка проекта:')} {project_folder}\n"
+            f"{translate_source('Серий:')} {episodes_count}\n"
+            f"{translate_source('Рабочих текстов:')} {texts_count}\n\n"
+            f"{translate_source('Папка проекта и проверка целостности доступны с верхней панели.')}"
         )
         info.setWordWrap(True)
         info.setStyleSheet("color: #666;")
