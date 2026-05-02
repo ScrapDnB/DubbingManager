@@ -28,7 +28,10 @@ SEARCH_EDIT_WIDTH = 160
 
 # Buttons
 EPISODE_COMBO_MIN_WIDTH = 120
-BTN_RENAME_WIDTH = 30
+BTN_RENAME_WIDTH = 42
+BTN_ICON_WIDTH = 42
+BTN_COMPOUND_ICON_WIDTH = 58
+BTN_SAVE_ICON_WIDTH = 46
 BTN_SAVE_ASS_WIDTH = 120
 
 # Table
@@ -196,6 +199,7 @@ DEFAULT_EXPORT_CONFIG = {
     'use_color': True,
     'open_auto': True,
     'round_time': False,
+    'time_display': 'range',
     'allow_edit': True
 }
 
@@ -223,7 +227,7 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Internal implementation detail
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.4.0"
 
 # Internal implementation detail
 PROJECT_VERSION = "1.3"

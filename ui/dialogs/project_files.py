@@ -74,8 +74,8 @@ class ProjectFilesDialog(QDialog):
         self.btn_relink.setEnabled(False)
         btn_layout.addWidget(self.btn_relink)
 
-        self.btn_regenerate_text = QPushButton("📝 Создать из субтитров...")
-        self.btn_regenerate_text.setToolTip("Пересоздать рабочий текст из ASS/SRT")
+        self.btn_regenerate_text = QPushButton("📝 Создать из источника...")
+        self.btn_regenerate_text.setToolTip("Пересоздать рабочий текст из ASS/SRT/DOCX")
         self.btn_regenerate_text.clicked.connect(self._regenerate_selected_text)
         self.btn_regenerate_text.setEnabled(False)
         btn_layout.addWidget(self.btn_regenerate_text)
@@ -115,6 +115,21 @@ class ProjectFilesDialog(QDialog):
         """Is subtitle source path."""
         return os.path.splitext(path or "")[1].lower() in {'.ass', '.srt'}
 
+    def _is_text_source_path(self, path: Optional[str]) -> bool:
+        """Return whether a path can generate a working text."""
+        return os.path.splitext(path or "")[1].lower() in {'.ass', '.srt', '.docx'}
+
+    def _source_file_label(self, path: Optional[str]) -> str:
+        """Return a label for the episode source file."""
+        ext = os.path.splitext(path or "")[1].lower()
+        if ext == '.docx':
+            return "📄 Исходный DOCX"
+        if ext == '.srt':
+            return "📄 Субтитры (.srt)"
+        if ext == '.ass':
+            return "📄 Субтитры (.ass)"
+        return "📄 Исходный файл"
+
     def _get_working_text_status(
         self,
         ep_num: str,
@@ -131,8 +146,8 @@ class ProjectFilesDialog(QDialog):
         if source_path and os.path.exists(source_path):
             return "○ Рабочий текст не создан", QColor("#e0a800")
 
-        if source_path and self._is_subtitle_source_path(source_path):
-            return "⚠ Файл субтитров не найден", QColor("#dc3545")
+        if source_path and self._is_text_source_path(source_path):
+            return "⚠ Исходный файл не найден", QColor("#dc3545")
 
         return "○ Рабочий текст не указан", QColor("#999999")
 
@@ -152,7 +167,7 @@ class ProjectFilesDialog(QDialog):
         if source_path and os.path.exists(source_path):
             return "Текст: субтитры", QColor("#e0a800")
 
-        if source_path and self._is_subtitle_source_path(source_path):
+        if source_path and self._is_text_source_path(source_path):
             return "Текст: источник потерян", QColor("#dc3545")
 
         return "Текст: не найден", QColor("#999999")
@@ -196,7 +211,7 @@ class ProjectFilesDialog(QDialog):
             ep_item.setText(2, ep_status_text)
             ep_item.setForeground(2, ep_status_color)
             
-            # ASS file
+            # Episode source file
             if ass_path:
                 total_count += 1
                 status_text, status_color = self._get_file_status(ass_path)
@@ -204,19 +219,15 @@ class ProjectFilesDialog(QDialog):
                 if status_text.startswith("✓"):
                     found_count += 1
 
-                # Internal implementation detail
-                file_ext = ".srt" if ass_path.lower().endswith('.srt') else ".ass"
-                file_icon = "📄"
-                
-                ass_item = QTreeWidgetItem([
+                source_item = QTreeWidgetItem([
                     "",
-                    f"{file_icon} Субтитры ({file_ext})",
+                    self._source_file_label(ass_path),
                     status_text,
                     ass_path or ""
                 ])
-                ass_item.setForeground(2, status_color)
-                ass_item.setData(3, Qt.UserRole, ("ass", ep_num))
-                ep_item.addChild(ass_item)
+                source_item.setForeground(2, status_color)
+                source_item.setData(3, Qt.UserRole, ("ass", ep_num))
+                ep_item.addChild(source_item)
 
             # Working text
             if text_path or ass_path:
@@ -307,13 +318,13 @@ class ProjectFilesDialog(QDialog):
         # Internal implementation detail
         if file_type == "ass":
             current_path = self.data.get("episodes", {}).get(ep_num)
-            # Internal implementation detail
-            if current_path and current_path.lower().endswith('.srt'):
-                file_filter = "Subtitle Files (*.srt *.ass)"
-                title = "Выберите файл субтитров"
+            current_ext = os.path.splitext(current_path or "")[1].lower()
+            if current_ext == '.docx':
+                file_filter = "DOCX Files (*.docx);;Supported Text Sources (*.ass *.srt *.docx);;All Files (*)"
+                title = "Выберите исходный DOCX"
             else:
-                file_filter = "Subtitle Files (*.ass *.srt)"
-                title = "Выберите файл субтитров"
+                file_filter = "Supported Text Sources (*.ass *.srt *.docx);;Subtitle Files (*.ass *.srt);;DOCX Files (*.docx);;All Files (*)"
+                title = "Выберите исходный файл серии"
         elif file_type == "text":
             current_path = self.data.get("episode_texts", {}).get(ep_num)
             file_filter = "Episode Text Files (*.json)"
@@ -367,9 +378,9 @@ class ProjectFilesDialog(QDialog):
         if not source_path or not os.path.exists(source_path):
             source_path, _ = QFileDialog.getOpenFileName(
                 self,
-                "Выберите файл субтитров",
+                "Выберите исходный файл серии",
                 source_path or "",
-                "Subtitle Files (*.ass *.srt)"
+                "Supported Text Sources (*.ass *.srt *.docx);;Subtitle Files (*.ass *.srt);;DOCX Files (*.docx);;All Files (*)"
             )
             if not source_path:
                 return

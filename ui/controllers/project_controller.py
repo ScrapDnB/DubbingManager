@@ -80,6 +80,12 @@ class ProjectController:
             )
 
             if reply == QMessageBox.Save:
+                if (
+                    not self.project_service.current_project_path and
+                    getattr(parent_widget, "project_controller", None) is self and
+                    hasattr(parent_widget, "save_project")
+                ):
+                    return parent_widget.save_project()
                 return self.save_project()
             return reply == QMessageBox.Discard
 

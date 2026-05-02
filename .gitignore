@@ -4,6 +4,10 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.hypothesis/
 
 # Виртуальное окружение
 venv/
@@ -14,8 +18,23 @@ build/
 dist/
 test_files
 
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Упаковка и релизные артефакты
+*.dmg
+*.pkg
+*.zip
+*.tar.gz
+*.AppImage
+*.deb
+
 # Файлы с секретами
 .env
+.env.*
 
 # Редакторы
 .vscode/
@@ -31,6 +50,7 @@ dubbing_manager.log
 *.tmp
 QWEN.md
 .qwen/
+.codex/
 build.sh
 CODEX_CONTEXT.md
 /tmp

@@ -2,6 +2,8 @@
 
 import json
 import os
+import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -61,6 +63,7 @@ class ScriptTextService:
         texts_dir.mkdir(parents=True, exist_ok=True)
 
         text_path = texts_dir / f"episode_{self._safe_episode_num(ep_num)}.json"
+        self.backup_episode_text(text_path, ep_num, "recreate")
         with open(text_path, 'w', encoding='utf-8') as f:
             json.dump(text_data, f, ensure_ascii=False, indent=4)
 
@@ -108,6 +111,101 @@ class ScriptTextService:
 
         return result
 
+    def find_existing_episode_text(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str,
+        project_path: Optional[str] = None
+    ) -> Optional[str]:
+        """Find an existing generated working-text file for an episode."""
+        ep_num = str(ep_num)
+        current_path = project_data.get("episode_texts", {}).get(ep_num)
+        if current_path and os.path.exists(current_path):
+            return current_path
+
+        candidates = self._candidate_episode_text_paths(
+            project_data,
+            ep_num,
+            project_path
+        )
+        for candidate in candidates:
+            if (
+                candidate.exists() and
+                candidate.is_file() and
+                self._looks_like_episode_text(candidate, ep_num)
+            ):
+                return str(candidate)
+
+        return None
+
+    def find_existing_episode_texts(
+        self,
+        project_data: Dict[str, Any],
+        project_path: Optional[str] = None
+    ) -> Dict[str, str]:
+        """Find existing generated working-text files for project episodes."""
+        found = {}
+        for ep_num in project_data.get("episodes", {}).keys():
+            path = self.find_existing_episode_text(
+                project_data,
+                str(ep_num),
+                project_path
+            )
+            if path:
+                found[str(ep_num)] = path
+        return found
+
+    def _candidate_episode_text_paths(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str,
+        project_path: Optional[str] = None
+    ) -> List[Path]:
+        """Return standard working-text locations for an episode."""
+        safe_ep = self._safe_episode_num(ep_num)
+        filename = f"episode_{safe_ep}.json"
+        candidates = []
+
+        project_folder = project_data.get("project_folder")
+        if project_folder:
+            candidates.append(Path(project_folder) / SCRIPT_TEXT_DIR_NAME / filename)
+
+        if project_path:
+            project_file = Path(project_path)
+            candidates.append(
+                project_file.parent /
+                f"{project_file.stem}_{SCRIPT_TEXT_DIR_NAME}" /
+                filename
+            )
+
+        source_path = project_data.get("episodes", {}).get(ep_num)
+        if source_path:
+            candidates.append(Path(source_path).resolve().parent / SCRIPT_TEXT_DIR_NAME / filename)
+
+        unique_candidates = []
+        seen = set()
+        for candidate in candidates:
+            key = str(candidate)
+            if key not in seen:
+                seen.add(key)
+                unique_candidates.append(candidate)
+        return unique_candidates
+
+    def _looks_like_episode_text(self, path: Path, ep_num: str) -> bool:
+        """Check whether a JSON file is a generated episode working text."""
+        try:
+            payload = self.load_episode_text(str(path))
+        except (OSError, json.JSONDecodeError):
+            return False
+
+        if not isinstance(payload, dict):
+            return False
+        if not isinstance(payload.get("lines"), list):
+            return False
+
+        payload_ep = payload.get("episode")
+        return payload_ep in (None, ep_num, str(ep_num))
+
     def update_line_text(
         self,
         project_data: Dict[str, Any],
@@ -132,6 +230,7 @@ class ScriptTextService:
         target["dirty"] = True
         payload["modified_at"] = datetime.now().isoformat()
 
+        self.backup_episode_text(text_path, ep_num, "edit")
         with open(text_path, 'w', encoding='utf-8') as f:
             json.dump(payload, f, ensure_ascii=False, indent=4)
 
@@ -175,11 +274,33 @@ class ScriptTextService:
 
             if changed:
                 payload["modified_at"] = datetime.now().isoformat()
+                self.backup_episode_text(text_path, ep_num or payload.get("episode"), "rename")
                 with open(text_path, 'w', encoding='utf-8') as f:
                     json.dump(payload, f, ensure_ascii=False, indent=4)
                 updated_files += 1
 
         return updated_files
+
+    def backup_episode_text(
+        self,
+        text_path: Any,
+        ep_num: Optional[Any] = None,
+        reason: str = "backup"
+    ) -> Optional[str]:
+        """Create a timestamped backup for an existing working-text file."""
+        source = Path(text_path)
+        if not source.exists() or not source.is_file():
+            return None
+
+        backup_dir = source.parent / ".backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        safe_ep = self._safe_episode_num(str(ep_num or source.stem))
+        safe_reason = re.sub(r'[^A-Za-z0-9_-]+', '_', reason).strip('_') or "backup"
+        target = backup_dir / f"{source.stem}_{safe_ep}_{safe_reason}_{timestamp}.json"
+        shutil.copy2(source, target)
+        return str(target)
 
     def _ensure_source_ids(
         self,

@@ -72,6 +72,7 @@ class TestExportService:
             'use_color': True,
             'open_auto': True,
             'round_time': False,
+            'time_display': 'range',
             'allow_edit': True
         }
 
@@ -294,6 +295,63 @@ class TestExportService:
         assert "<img src=x" not in html
         assert "Hero<script>" not in html
 
+    def test_generate_html_table_respects_columns_and_rounded_time(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: HTML-таблица учитывает колонки и округление времени."""
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {"merge": False})
+        export_config.update({
+            "col_tc": True,
+            "col_char": False,
+            "col_actor": False,
+            "col_text": True,
+            "round_time": True,
+        })
+
+        html = service.generate_html(
+            ep="1",
+            processed=processed,
+            cfg=export_config,
+            layout_type="Таблица",
+            is_editable=False
+        )
+
+        assert "<th>Время</th><th>Текст</th>" in html
+        assert "<th>Персонаж</th>" not in html
+        assert "<th>Актер</th>" not in html
+        assert "0:00:00-0:00:02" in html
+        assert "0:00:00.00" not in html
+
+    def test_generate_html_table_can_show_start_time_only(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: HTML-таблица может показывать только начало реплики."""
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {"merge": False})
+        export_config.update({
+            "col_tc": True,
+            "round_time": True,
+            "time_display": "start",
+        })
+
+        html = service.generate_html(
+            ep="1",
+            processed=processed,
+            cfg=export_config,
+            layout_type="Таблица",
+            is_editable=False
+        )
+
+        assert "0:00:00</td>" in html
+        assert "0:00:00-0:00:02" not in html
+
     def test_process_merge_logic_keeps_working_text_lines(self) -> None:
         """Тест: рабочие тексты не объединяются повторно"""
         service = ExportService({})
@@ -357,6 +415,27 @@ class TestExportService:
         assert "серия (1A)" in wb.sheetnames
         assert "серия (S01E02)" in wb.sheetnames
         assert "серия (pilot)" in wb.sheetnames
+
+    def test_create_excel_book_can_show_start_time_only(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: Excel может показывать только начало реплики."""
+        pytest.importorskip("openpyxl")
+        export_config.update({
+            "round_time": True,
+            "time_display": "start",
+        })
+
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        wb = service.create_excel_book({"1": processed}, export_config)
+        ws = wb["серия (1)"]
+
+        assert ws.cell(row=2, column=2).value == "0:00:00"
+        assert ws.cell(row=2, column=2).value != "0:00:00-0:00:02"
 
     def test_export_batch_writes_shared_excel_once(
         self,
@@ -487,6 +566,47 @@ class TestExportService:
         raw = save_path.read_bytes()
         assert raw.startswith(b'\xef\xbb\xbf')
         assert save_path.read_text(encoding='utf-8-sig') == content
+
+    def test_get_reaper_rpp_preview_summarizes_export(
+        self,
+        sample_project_data: Dict[str, Any]
+    ) -> None:
+        """Тест: предпросмотр RPP показывает регионы, актёров и ошибки тайминга."""
+        service = ExportService(sample_project_data)
+        lines = [
+            {
+                "id": 1,
+                "s": 0.0,
+                "e": 1.0,
+                "char": "Character1",
+                "text": "First",
+                "s_raw": "0:00:00.00"
+            },
+            {
+                "id": 2,
+                "s": 2.0,
+                "e": 2.0,
+                "char": "Character2",
+                "text": "Broken",
+                "s_raw": "0:00:02.00"
+            },
+        ]
+
+        preview = service.get_reaper_rpp_preview(
+            "1",
+            lines,
+            merge_cfg={"merge": False},
+            video_path="/tmp/video.mov",
+            use_video=True,
+            use_regions=True
+        )
+
+        assert preview["regions"] == 2
+        assert preview["tracks"] == 2
+        assert preview["actors"] == ["Actor One", "Actor Two"]
+        assert preview["video"] is True
+        assert preview["invalid_lines"] == 1
+        assert "Character1: First" in preview["sample_regions"][0]
 
     def test_count_words(self) -> None:
         """Тест: подсчёт количества слов"""

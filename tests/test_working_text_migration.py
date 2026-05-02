@@ -1,5 +1,6 @@
 """Tests for working text migration from old projects."""
 
+import json
 from pathlib import Path
 
 from services import EpisodeService, ScriptTextService
@@ -34,7 +35,39 @@ def test_episodes_needing_working_texts_ignores_existing_file(tmp_path):
     }
     window.data["episode_texts"] = {"1": str(existing_text)}
 
-    assert window._episodes_needing_working_texts() == ["2"]
+    assert window._episodes_needing_working_texts() == ["2", "3"]
+
+
+def test_episodes_needing_working_texts_links_text_next_to_project(tmp_path):
+    window = _make_window_stub(tmp_path)
+    texts_dir = tmp_path / "project_texts_dm"
+    texts_dir.mkdir()
+    text_path = texts_dir / "episode_1.json"
+    text_path.write_text(
+        json.dumps({"episode": "1", "lines": []}),
+        encoding="utf-8"
+    )
+    window.data["episodes"] = {"1": str(tmp_path / "episode_1.srt")}
+
+    assert window._episodes_needing_working_texts() == []
+    assert window.data["episode_texts"]["1"] == str(text_path)
+
+
+def test_episodes_needing_working_texts_links_text_from_project_folder(tmp_path):
+    window = _make_window_stub(tmp_path)
+    project_folder = tmp_path / "Work"
+    texts_dir = project_folder / "texts_dm"
+    texts_dir.mkdir(parents=True)
+    text_path = texts_dir / "episode_1.json"
+    text_path.write_text(
+        json.dumps({"episode": "1", "lines": []}),
+        encoding="utf-8"
+    )
+    window.data["project_folder"] = str(project_folder)
+    window.data["episodes"] = {"1": str(tmp_path / "episode_1.srt")}
+
+    assert window._episodes_needing_working_texts() == []
+    assert window.data["episode_texts"]["1"] == str(text_path)
 
 
 def test_create_missing_working_texts_builds_found_sources(tmp_path, monkeypatch):

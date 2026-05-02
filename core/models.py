@@ -169,6 +169,7 @@ class ExportConfig:
     use_color: bool = True
     open_auto: bool = True
     round_time: bool = False
+    time_display: str = 'range'
     allow_edit: bool = True
     highlight_ids_export: Optional[List[str]] = None
 
@@ -176,6 +177,8 @@ class ExportConfig:
         """Post init."""
         if self.layout_type not in ['Таблица', 'Сценарий']:
             raise ValueError(f"layout_type must be 'Таблица' or 'Сценарий', got {self.layout_type}")
+        if self.time_display not in ['range', 'start']:
+            raise ValueError(f"time_display must be 'range' or 'start', got {self.time_display}")
         if not 10 <= self.f_time <= 150:
             raise ValueError(f"f_time must be 10-150, got {self.f_time}")
         if not 10 <= self.f_char <= 150:

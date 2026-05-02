@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from unittest.mock import MagicMock
+import json
 
 from PySide6.QtWidgets import QDialog
 
@@ -64,3 +65,39 @@ def test_docx_import_creates_working_text(tmp_path, monkeypatch):
     assert window.data["episodes"]["1"] == docx_path
     assert window.data["loaded_episodes"]["1"][0]["_working_text"] is True
     assert window.get_episode_lines("1")[0]["text"] == "Hello docx"
+
+
+def test_docx_working_text_is_created_without_merging_replicas(tmp_path):
+    window = _make_window_stub(tmp_path)
+    docx_path = str(tmp_path / "Episode_01.docx")
+    Path(docx_path).write_text("placeholder", encoding="utf-8")
+    window.data["replica_merge_config"] = {
+        "merge": True,
+        "merge_gap": 120,
+        "fps": 25,
+    }
+    lines = [
+        {
+            "id": 0,
+            "s": 1.0,
+            "e": 2.0,
+            "char": "Hero",
+            "text": "First",
+            "s_raw": "00:00:01,000",
+        },
+        {
+            "id": 1,
+            "s": 2.1,
+            "e": 3.0,
+            "char": "Hero",
+            "text": "Second",
+            "s_raw": "00:00:02,100",
+        },
+    ]
+
+    window._create_working_text_for_episode("1", docx_path, lines)
+
+    text_path = Path(window.data["episode_texts"]["1"])
+    payload = json.loads(text_path.read_text(encoding="utf-8"))
+    assert len(payload["lines"]) == 2
+    assert payload["merge_config"]["merge"] is False

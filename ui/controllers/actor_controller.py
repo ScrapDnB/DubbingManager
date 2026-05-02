@@ -37,10 +37,11 @@ class ActorController:
     def _setup_table(self) -> None:
         """Setup table."""
         self.actor_table.setHorizontalHeaderLabels(
-            ["Актер", "Роли", "Цвет"]
+            ["Актер", "Роли", "Цвет", "Пол"]
         )
         self.actor_table.setShowGrid(False)
         self.actor_table.setAlternatingRowColors(True)
+        self.actor_table.setSortingEnabled(True)
         self.actor_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.actor_table.setFrameShape(QFrame.NoFrame)
         self.actor_table.verticalHeader().setVisible(False)
@@ -49,6 +50,7 @@ class ActorController:
         )
         self.actor_table.setColumnWidth(1, 100)
         self.actor_table.setColumnWidth(2, 60)
+        self.actor_table.setColumnWidth(3, 50)
         
         # Internal implementation detail
         self.actor_table.cellClicked.connect(self._on_cell_clicked)
@@ -87,6 +89,10 @@ class ActorController:
         logger.info(f"ActorController.refresh: actors={len(self.data_ref.get('actors', {}))}, table={self.actor_table}")
 
         self.actor_table.blockSignals(True)
+        self.actor_table.setSortingEnabled(False)
+        self.actor_table.setHorizontalHeaderLabels(
+            ["Актер", "Роли", "Цвет", "Пол"]
+        )
         self.actor_table.setRowCount(0)
 
         actor_roles = self._get_actor_roles()
@@ -117,6 +123,13 @@ class ActorController:
             color_item.setBackground(QColor(info["color"]))
             self.actor_table.setItem(row, 2, color_item)
 
+            gender_item: QTableWidgetItem = QTableWidgetItem(
+                info.get("gender", "")
+            )
+            gender_item.setFlags(gender_item.flags() & ~Qt.ItemIsEditable)
+            self.actor_table.setItem(row, 3, gender_item)
+
+        self.actor_table.setSortingEnabled(True)
         self.actor_table.blockSignals(False)
         logger.info(f"ActorController.refresh: loaded {self.actor_table.rowCount()} actors")
 

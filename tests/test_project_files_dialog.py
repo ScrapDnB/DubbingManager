@@ -173,7 +173,30 @@ class TestProjectFilesDialog:
 
         assert text_item is not None
         assert text_item.text(2) == "○ Рабочий текст не создан"
-        assert root_item.text(2) == "Текст: субтитры"
+
+    def test_docx_source_is_displayed_as_source_file(self, app, test_data):
+        """DOCX источник остаётся видимым при наличии рабочего текста."""
+        data, test_dir = test_data
+        docx_path = os.path.join(test_dir, "Episode_04.docx")
+        text_path = os.path.join(test_dir, "episode_04.json")
+        with open(docx_path, "w") as f:
+            f.write("docx placeholder")
+        with open(text_path, "w") as f:
+            f.write("{}")
+        data["episodes"]["4"] = docx_path
+        data["episode_texts"]["4"] = text_path
+
+        dialog = ProjectFilesDialog(data)
+        root_item = None
+        for i in range(dialog.file_tree.topLevelItemCount()):
+            item = dialog.file_tree.topLevelItem(i)
+            if item.text(0) == "Серия 4":
+                root_item = item
+                break
+
+        assert root_item is not None
+        assert root_item.child(0).text(1) == "📄 Исходный DOCX"
+        assert root_item.text(2) == "Текст: рабочий JSON"
 
     def test_refresh_button(self, app, test_data):
         """Кнопка обновления"""
@@ -229,11 +252,11 @@ class TestProjectFilesDialog:
 
         assert dialog.btn_regenerate_text.isEnabled()
 
-    def test_regenerate_text_asks_for_missing_subtitles(self, app, test_data, monkeypatch):
-        """Пересоздание предлагает выбрать субтитры, если источник потерян"""
+    def test_regenerate_text_asks_for_missing_text_source(self, app, test_data, monkeypatch):
+        """Пересоздание предлагает выбрать исходник, если он потерян"""
         data, test_dir = test_data
-        new_ass_path = os.path.join(test_dir, "Episode_02.ass")
-        with open(new_ass_path, "w") as f:
+        new_source_path = os.path.join(test_dir, "Episode_02.docx")
+        with open(new_source_path, "w") as f:
             f.write("test")
 
         class Parent(QWidget):
@@ -252,7 +275,7 @@ class TestProjectFilesDialog:
         dialog = ProjectFilesDialog(data, parent)
         monkeypatch.setattr(
             "ui.dialogs.project_files.QFileDialog.getOpenFileName",
-            lambda *args, **kwargs: (new_ass_path, "")
+            lambda *args, **kwargs: (new_source_path, "")
         )
 
         root_item = dialog.file_tree.topLevelItem(1)
@@ -266,8 +289,8 @@ class TestProjectFilesDialog:
         dialog.file_tree.setCurrentItem(text_item)
         dialog._regenerate_selected_text()
 
-        assert parent.calls == [("2", new_ass_path)]
-        assert data["episodes"]["2"] == new_ass_path
+        assert parent.calls == [("2", new_source_path)]
+        assert data["episodes"]["2"] == new_source_path
 
     def test_tree_expanded(self, app, test_data):
         """Дерево развёрнуто"""

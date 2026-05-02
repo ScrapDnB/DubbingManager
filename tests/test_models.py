@@ -310,12 +310,14 @@ class TestExportConfig:
         assert config.col_text == True
         assert config.use_color == True
         assert config.open_auto == True
+        assert config.time_display == 'range'
 
     def test_from_dict(self):
         """Тест создания из словаря"""
         data = {
             "layout_type": "Сценарий",
             "col_tc": False,
+            "time_display": "start",
             "f_text": 50
         }
         
@@ -323,6 +325,7 @@ class TestExportConfig:
         
         assert config.layout_type == "Сценарий"
         assert config.col_tc == False
+        assert config.time_display == "start"
         assert config.f_text == 50
 
     def test_from_dict_empty(self):

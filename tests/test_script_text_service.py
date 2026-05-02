@@ -172,6 +172,9 @@ class TestScriptTextService:
         assert payload["lines"][0]["text"] == "New"
         assert payload["lines"][0]["dirty"] is True
         assert "modified_at" in payload
+        backup_dir = os.path.join(os.path.dirname(text_path), ".backups")
+        assert os.path.isdir(backup_dir)
+        assert len(os.listdir(backup_dir)) == 1
 
     def test_rename_character_updates_display_names_only(self):
         """Переименование меняет display-поля, но не исходного персонажа"""
@@ -197,3 +200,36 @@ class TestScriptTextService:
         assert payload["lines"][0]["character"] == "Hero"
         assert payload["lines"][0]["display_character"] == "Renamed Hero"
         assert "modified_at" in payload
+        backup_dir = os.path.join(os.path.dirname(text_path), ".backups")
+        assert os.path.isdir(backup_dir)
+        assert len(os.listdir(backup_dir)) == 1
+
+    def test_create_episode_text_backs_up_existing_working_text(self):
+        """Пересоздание рабочего текста сохраняет предыдущую версию."""
+        source_path = os.path.join(self.test_dir, "Episode_01.ass")
+        with open(source_path, "w", encoding="utf-8") as f:
+            f.write("test")
+
+        data = {"actors": {}, "global_map": {}, "episode_texts": {}}
+        text_path = self.service.create_episode_text(
+            data,
+            "1",
+            source_path,
+            [{"id": 0, "s": 1.0, "e": 2.0, "char": "Hero", "text": "Old"}],
+            {"merge": False},
+            None
+        )
+        self.service.create_episode_text(
+            data,
+            "1",
+            source_path,
+            [{"id": 1, "s": 3.0, "e": 4.0, "char": "Hero", "text": "New"}],
+            {"merge": False},
+            None
+        )
+
+        backup_dir = os.path.join(os.path.dirname(text_path), ".backups")
+        backups = os.listdir(backup_dir)
+        assert len(backups) == 1
+        with open(os.path.join(backup_dir, backups[0]), encoding="utf-8") as f:
+            assert "Old" in f.read()

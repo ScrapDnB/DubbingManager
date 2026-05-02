@@ -38,6 +38,7 @@ def project_data():
             "use_color": True,
             "allow_edit": True,
             "round_time": False,
+            "time_display": "range",
             "open_auto": True,
             "highlight_ids_export": ["actor1"],
         },
@@ -77,6 +78,7 @@ def test_settings_dialog_creation(app, project_data):
 
     assert dialog.windowTitle() == "Настройки"
     assert dialog.tabs.currentIndex() == 0
+    assert dialog.tabs.tabText(5) == "Базы актёров"
     assert dialog.export_layout_type.currentText() == "Таблица"
     assert dialog.highlight_ids_export == ["actor1"]
     assert dialog.merge_enabled.isChecked() is True
@@ -120,3 +122,9 @@ def test_settings_dialog_opens_requested_tab(app, project_data):
     dialog = SettingsDialog(project_data, initial_tab="prompter")
 
     assert dialog.tabs.currentIndex() == 2
+
+
+def test_settings_dialog_opens_actor_bases_tab(app, project_data):
+    dialog = SettingsDialog(project_data, initial_tab="actor_bases")
+
+    assert dialog.tabs.currentIndex() == 5

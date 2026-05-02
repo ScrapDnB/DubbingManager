@@ -35,12 +35,14 @@ class AddActorCommand(Command):
         actors: Dict[str, dict],
         actor_id: str,
         name: str,
-        color: str
+        color: str,
+        gender: str = ""
     ):
         self.actors = actors
         self.actor_id = actor_id
         self.name = name
         self.color = color
+        self.gender = gender
         self._old_data: Optional[dict] = None
 
     def execute(self) -> None:
@@ -48,6 +50,7 @@ class AddActorCommand(Command):
         self.actors[self.actor_id] = {
             "name": self.name,
             "color": self.color,
+            "gender": self.gender,
             "roles": []
         }
         logger.debug(f"AddActorCommand executed: {self.name}")

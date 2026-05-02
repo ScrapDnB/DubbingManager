@@ -45,7 +45,8 @@ class TestGlobalSettingsService:
         test_data = {
             'export_config': {'layout_type': 'Сценарий'},
             'prompter_config': {'f_tc': 30},
-            'replica_merge_config': {'merge_gap': 10}
+            'replica_merge_config': {'merge_gap': 10},
+            'recent_projects': ['/tmp/a.json', '/tmp/a.json', '/tmp/b.json'],
         }
         
         temp_settings_file.parent.mkdir(parents=True, exist_ok=True)
@@ -57,6 +58,7 @@ class TestGlobalSettingsService:
         assert settings['export_config']['layout_type'] == 'Сценарий'
         assert settings['prompter_config']['f_tc'] == 30
         assert settings['replica_merge_config']['merge_gap'] == 10
+        assert settings['recent_projects'] == ['/tmp/a.json', '/tmp/b.json']
 
     def test_load_settings_with_colors(self, service, temp_settings_file):
         """Тест загрузки с цветами"""
@@ -107,6 +109,111 @@ class TestGlobalSettingsService:
         assert saved_data['export_config']['layout_type'] == 'Таблица'
         assert saved_data['prompter_config']['f_tc'] == 25
         assert saved_data['docx_import_config']['mapping']['text'] == 2
+        assert saved_data['recent_projects'] == []
+
+    def test_save_settings_creates_backup_before_overwrite(self, service, temp_settings_file):
+        """Тест бэкапа глобальных настроек перед перезаписью."""
+        temp_settings_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_settings_file.write_text(
+            '{"global_actor_base": {"old": {"name": "Old", "color": "#111111"}}}',
+            encoding='utf-8'
+        )
+
+        assert service.save_settings(service._get_defaults()) is True
+
+        backups = list((temp_settings_file.parent / ".backups").glob("*.json"))
+        assert len(backups) == 1
+        assert "Old" in backups[0].read_text(encoding='utf-8')
+
+    def test_recent_projects_are_deduplicated_and_limited(self, service):
+        """Тест списка недавних проектов."""
+        service.settings = {}
+
+        for idx in range(12):
+            service.add_recent_project(f"/tmp/project_{idx}.json")
+        service.add_recent_project("/tmp/project_5.json")
+
+        recent = service.get_recent_projects()
+        assert recent[0].endswith("project_5.json")
+        assert len(recent) == 10
+        assert len(recent) == len(set(recent))
+
+        service.clear_recent_projects()
+        assert service.get_recent_projects() == []
+
+    def test_global_actor_base_roundtrip(self, service, tmp_path):
+        """Тест экспорта и импорта глобальной базы актёров."""
+        service.settings = service._get_defaults()
+        actor_id = service.add_global_actor("Actor One", "#123456", gender="M")
+        assert service.find_global_actor_by_name("actor one") == actor_id
+
+        export_path = tmp_path / "actors.json"
+        service.export_global_actor_base(str(export_path))
+
+        other = GlobalSettingsService()
+        other.settings = other._get_defaults()
+        stats = other.import_global_actor_base(str(export_path))
+
+        assert stats == {"added": 1, "matched": 0}
+        assert other.get_global_actor_base()[actor_id] == {
+            "name": "Actor One",
+            "color": "#123456",
+            "gender": "М",
+        }
+
+    def test_global_actor_base_deduplicates_by_name(self, service, tmp_path):
+        """Тест сопоставления актёров глобальной базы по имени."""
+        service.settings = service._get_defaults()
+        service.add_global_actor("Actor One", "#123456", actor_id="a1")
+        export_path = tmp_path / "actors.json"
+        service.export_global_actor_base(str(export_path))
+
+        other = GlobalSettingsService()
+        other.settings = other._get_defaults()
+        other.add_global_actor("Actor One", "#FFFFFF", actor_id="existing")
+        stats = other.import_global_actor_base(str(export_path))
+
+        assert stats == {"added": 0, "matched": 1}
+        assert len(other.get_global_actor_base()) == 1
+
+    def test_add_project_actors_to_global_skips_existing(self, service):
+        """Тест пакетного добавления проектных актёров в глобальную базу."""
+        service.settings = service._get_defaults()
+        service.add_global_actor("Actor One", "#111111", actor_id="global1")
+
+        stats = service.add_project_actors_to_global(
+            {
+                "actor1": {"name": "Actor One", "color": "#123456"},
+                "actor2": {"name": "Actor Two", "color": "#654321", "gender": "Ж"},
+            },
+            ["actor1", "actor2"]
+        )
+
+        actor_base = service.get_global_actor_base()
+        assert stats == {
+            "added": 1,
+            "skipped_existing": 1,
+            "skipped_invalid": 0,
+        }
+        assert actor_base["actor2"] == {
+            "name": "Actor Two",
+            "color": "#654321",
+            "gender": "Ж",
+        }
+        assert actor_base["global1"] == {
+            "name": "Actor One",
+            "color": "#111111",
+            "gender": "",
+        }
+
+    def test_remove_global_actor(self, service):
+        """Тест удаления актёра из глобальной базы."""
+        service.settings = service._get_defaults()
+        service.add_global_actor("Actor One", "#111111", actor_id="global1")
+
+        assert service.remove_global_actor("global1") is True
+        assert service.remove_global_actor("global1") is False
+        assert service.get_global_actor_base() == {}
 
     def test_save_settings_creates_directory(self, service, tmp_path):
         """Тест создания директории при сохранении"""

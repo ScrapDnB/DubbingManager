@@ -3,7 +3,7 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QComboBox, QSpinBox, QGroupBox, QFormLayout,
-    QFrame
+    QFrame, QCheckBox
 )
 from PySide6.QtCore import Qt
 from PySide6.QtWebChannel import QWebChannel
@@ -108,10 +108,50 @@ class HtmlLivePreview(QDialog):
             "layout_type", "Таблица"
         )
         self.combo_layout.setCurrentText(current_type)
-        self.combo_layout.currentIndexChanged.connect(self.update_preview)
+        self.combo_layout.currentIndexChanged.connect(self.on_setting_change)
         sp_layout.addWidget(QLabel("Формат:"))
         sp_layout.addWidget(self.combo_layout)
         sp_layout.addSpacing(10)
+
+        columns_group = QGroupBox("Колонки и время")
+        columns_layout = QVBoxLayout(columns_group)
+        cfg = self.main_app.data["export_config"]
+        self.chk_col_tc = self._preview_check_box(
+            "Тайминг", cfg.get("col_tc", True)
+        )
+        self.chk_col_char = self._preview_check_box(
+            "Имя персонажа", cfg.get("col_char", True)
+        )
+        self.chk_col_actor = self._preview_check_box(
+            "Актёр", cfg.get("col_actor", True)
+        )
+        self.chk_col_text = self._preview_check_box(
+            "Текст реплики", cfg.get("col_text", True)
+        )
+        self.chk_round_time = self._preview_check_box(
+            "Округлять время", cfg.get("round_time", False)
+        )
+        self.combo_time_display = QComboBox()
+        self.combo_time_display.addItem("Начало и конец", "range")
+        self.combo_time_display.addItem("Только начало", "start")
+        time_display_index = self.combo_time_display.findData(
+            cfg.get("time_display", "range")
+        )
+        if time_display_index < 0:
+            time_display_index = 0
+        self.combo_time_display.setCurrentIndex(time_display_index)
+        self.combo_time_display.currentIndexChanged.connect(self.on_setting_change)
+        for checkbox in [
+            self.chk_col_tc,
+            self.chk_col_char,
+            self.chk_col_actor,
+            self.chk_col_text,
+            self.chk_round_time,
+        ]:
+            columns_layout.addWidget(checkbox)
+        columns_layout.addWidget(QLabel("Тайминг:"))
+        columns_layout.addWidget(self.combo_time_display)
+        sp_layout.addWidget(columns_group)
         
         # Internal implementation detail
         font_group = QGroupBox("Размеры шрифтов")
@@ -171,6 +211,13 @@ class HtmlLivePreview(QDialog):
         if not WEB_ENGINE_AVAILABLE:
             self.browser.setOpenExternalLinks(False)
         self.content_layout.addWidget(self.browser)
+
+    def _preview_check_box(self, text: str, checked: bool) -> QCheckBox:
+        """Create a preview settings checkbox."""
+        checkbox = QCheckBox(text)
+        checkbox.setChecked(bool(checked))
+        checkbox.toggled.connect(self.on_setting_change)
+        return checkbox
     
     def on_page_loaded(self, ok: bool) -> None:
         """Handle page loaded."""
@@ -234,11 +281,30 @@ class HtmlLivePreview(QDialog):
     def on_setting_change(self) -> None:
         """Handle setting change."""
         cfg = self.main_app.data["export_config"]
+        cfg["layout_type"] = self.combo_layout.currentText()
+        cfg["col_tc"] = self.chk_col_tc.isChecked()
+        cfg["col_char"] = self.chk_col_char.isChecked()
+        cfg["col_actor"] = self.chk_col_actor.isChecked()
+        cfg["col_text"] = self.chk_col_text.isChecked()
+        cfg["round_time"] = self.chk_round_time.isChecked()
+        cfg["time_display"] = self.combo_time_display.currentData()
         cfg["f_time"] = self.s_time.value()
         cfg["f_char"] = self.s_char.value()
         cfg["f_actor"] = self.s_actor.value()
         cfg["f_text"] = self.s_text.value()
+        self._save_export_settings()
         self.update_preview()
+
+    def _save_export_settings(self) -> None:
+        """Persist preview export settings as the main export defaults."""
+        if not hasattr(self.main_app, "global_settings_service"):
+            return
+        self.main_app.global_settings["export_config"] = (
+            self.main_app.data["export_config"]
+        )
+        self.main_app.global_settings_service.save_settings(
+            self.main_app.global_settings
+        )
     
     def open_actor_filter(self) -> None:
         """Open actor filter."""

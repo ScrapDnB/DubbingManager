@@ -8,7 +8,12 @@ from html import escape
 from typing import Dict, List, Any, Optional, Set, Tuple, Callable
 
 from services.assignment_service import get_actor_for_character
-from utils.helpers import hex_to_rgba_string, format_timing_range, format_seconds_to_tc
+from utils.helpers import (
+    hex_to_rgba_string,
+    format_seconds_to_full_tc,
+    format_seconds_to_tc,
+    format_timing_range,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +48,27 @@ class ExportService:
             return None
 
         return selected_ids
+
+    def _format_export_timing(
+        self,
+        line: Dict[str, Any],
+        cfg: Dict[str, Any]
+    ) -> str:
+        """Format timing according to export settings."""
+        start = line.get('s', 0)
+        end = line.get('e', 0)
+        start_only = cfg.get('time_display', 'range') == 'start'
+
+        if cfg.get('round_time', False):
+            start_tc = format_seconds_to_tc(start)
+            if start_only:
+                return start_tc
+            return f"{start_tc}-{format_seconds_to_tc(end)}"
+
+        if start_only:
+            return format_seconds_to_full_tc(start)
+
+        return format_timing_range(start, end)
 
     def process_merge_logic(
         self,
@@ -171,7 +197,7 @@ class ExportService:
 
             if layout_type == "Таблица":
                 html += self._build_table_row(
-                    line, actor, text_html, bg_color, h_class,
+                    line, actor, text_html, bg_color, h_class, cfg,
                     is_first=idx == 0, is_last=idx == len(processed) - 1
                 )
             else:
@@ -343,27 +369,44 @@ class ExportService:
         text_html: str,
         bg_color: str,
         h_class: str,
+        cfg: Dict[str, Any],
         is_first: bool,
         is_last: bool
     ) -> str:
         """Build one table export row."""
-        s_raw = escape(str(line.get('s_raw', '')))
-        char = escape(str(line.get('char', '')))
-        actor_name = escape(str(actor.get('name', '-')))
+        columns = []
+        if cfg.get('col_tc', True):
+            timing = self._format_export_timing(line, cfg)
+            columns.append(("Время", "t", escape(str(timing))))
+        if cfg.get('col_char', True):
+            columns.append(("Персонаж", "c", escape(str(line.get('char', '')))))
+        if cfg.get('col_actor', True):
+            actor_name = escape(str(actor.get('name', '-')))
+            columns.append(("Актер", "a", actor_name))
+        if cfg.get('col_text', True):
+            columns.append(("Текст", "txt", text_html))
+
+        if not columns:
+            columns.append((" ", "txt", ""))
+
+        cells = "".join(
+            f"<td class='{css_class}'>{value}</td>"
+            for _header, css_class, value in columns
+        )
         row = (
             f"<tr style='background-color:{bg_color}' "
             f"class='{h_class}'>"
-            f"<td class='t'>{s_raw}</td>"
-            f"<td class='c'>{char}</td>"
-            f"<td class='a'>{actor_name}</td>"
-            f"<td class='txt'>{text_html}</td></tr>"
+            f"{cells}</tr>"
         )
 
         if is_first:
+            headers = "".join(
+                f"<th>{header}</th>"
+                for header, _css_class, _value in columns
+            )
             header = (
                 "<table><thead><tr>"
-                "<th>Время</th><th>Персонаж</th>"
-                "<th>Актер</th><th>Текст</th>"
+                f"{headers}"
                 "</tr></thead><tbody>"
             )
             row = header + row
@@ -578,7 +621,6 @@ class ExportService:
 
         actors = self.project_data.get('actors', {})
         use_color = cfg.get('use_color', True)
-        round_time = cfg.get('round_time', False)
         effective_filter = self._get_effective_highlight_filter(cfg)
 
         # Choose columns from settings
@@ -648,13 +690,7 @@ class ExportService:
             else:
                 color_hex = 'FFFFFF'
 
-            # Format timing
-            if round_time:
-                # Rounded format without milliseconds: HH:MM:SS-HH:MM:SS
-                timing = f"{format_seconds_to_tc(line.get('s', 0))}-{format_seconds_to_tc(line.get('e', 0))}"
-            else:
-                # Full format with milliseconds: HH:MM:SS,mmm-HH:MM:SS,mmm
-                timing = format_timing_range(line.get('s', 0), line.get('e', 0))
+            timing = self._format_export_timing(line, cfg)
 
             # Row data only for selected columns
             row_data = [row_idx - 1]  # Always include the row number
@@ -879,6 +915,59 @@ class ExportService:
 
         rpp.append('>')
         return '\n'.join(rpp)
+
+    def get_reaper_rpp_preview(
+        self,
+        ep: str,
+        lines: List[Dict[str, Any]],
+        merge_cfg: Optional[Dict[str, Any]] = None,
+        video_path: Optional[str] = None,
+        use_video: bool = False,
+        use_regions: bool = True
+    ) -> Dict[str, Any]:
+        """Return a user-facing preview summary for RPP export."""
+        if merge_cfg is None:
+            merge_cfg = self.project_data.get("replica_merge_config", {})
+
+        processed_lines = self.process_merge_logic(lines, merge_cfg)
+        actors = self.project_data.get("actors", {})
+
+        active_actor_ids: Set[str] = set()
+        invalid_lines = 0
+        sample_regions: List[str] = []
+
+        for line in processed_lines:
+            start = float(line.get('s', 0.0))
+            end = float(line.get('e', 0.0))
+            if end <= start:
+                invalid_lines += 1
+
+            char = line.get('char', '')
+            actor_id = get_actor_for_character(self.project_data, char, ep)
+            if actor_id:
+                active_actor_ids.add(actor_id)
+
+            if use_regions and len(sample_regions) < 5:
+                label = (
+                    f"{self._escape_rpp_text(char)}: "
+                    f"{self._escape_rpp_text(line.get('text', ''))}"
+                )
+                sample_regions.append(f"{start:.2f}-{end:.2f}  {label}")
+
+        active_actor_names = sorted(
+            actors.get(actor_id, {}).get("name", actor_id)
+            for actor_id in active_actor_ids
+        )
+
+        return {
+            "regions": len(processed_lines) if use_regions else 0,
+            "tracks": len(active_actor_ids),
+            "actors": active_actor_names,
+            "video": bool(use_video and video_path),
+            "video_path": video_path if use_video and video_path else None,
+            "invalid_lines": invalid_lines,
+            "sample_regions": sample_regions,
+        }
 
     # ==========================================================================
     # Batch export

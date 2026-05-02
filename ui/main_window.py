@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QStackedWidget, QDoubleSpinBox, QRadioButton,
     QGridLayout, QScrollArea, QSplitter, QSizePolicy, QToolBar,
     QDialogButtonBox, QTextEdit, QDialog, QProgressDialog, QApplication,
-    QStyledItemDelegate, QStyle
+    QStyledItemDelegate, QStyle, QMenu
 )
 from PySide6.QtGui import QColor, QFont, QAction, QKeySequence, QPen, QBrush
 from PySide6.QtCore import (
@@ -47,6 +47,9 @@ from config.constants import (
     SEARCH_EDIT_WIDTH,
     EPISODE_COMBO_MIN_WIDTH,
     BTN_RENAME_WIDTH,
+    BTN_ICON_WIDTH,
+    BTN_COMPOUND_ICON_WIDTH,
+    BTN_SAVE_ICON_WIDTH,
     TABLE_ROW_HEIGHT,
     MAIN_TABLE_COUNT_COL_WIDTH,
     MAIN_TABLE_SCOPE_COL_WIDTH,
@@ -74,6 +77,7 @@ from services import (
     GlobalSettingsService,
     ProjectFolderService,
     ScriptTextService,
+    AssignmentTransferService,
     ASSIGNMENT_SCOPE_GLOBAL,
     ASSIGNMENT_SCOPE_EPISODE,
     LOCAL_UNASSIGNED_ACTOR_ID,
@@ -100,6 +104,7 @@ from .dialogs import (
     ProjectFilesDialog,
     ProjectHealthDialog,
     SettingsDialog,
+    DocxImportDialog,
 )
 from .teleprompter import TeleprompterWindow
 from core.commands import (
@@ -424,6 +429,7 @@ class MainWindow(QMainWindow):
         self.global_settings_service = GlobalSettingsService()
         self.project_folder_service = ProjectFolderService()
         self.script_text_service = ScriptTextService()
+        self.assignment_transfer_service = AssignmentTransferService()
         self.episode_service = EpisodeService()
 
         # Internal implementation detail
@@ -462,6 +468,7 @@ class MainWindow(QMainWindow):
 
         self._init_ui()
         self.update_window_title()
+        self._update_new_project_button()
 
         # Internal implementation detail
         self.autosave_timer = QTimer(self)
@@ -531,9 +538,18 @@ class MainWindow(QMainWindow):
         left_widget.setFrameShape(QFrame.StyledPanel)
         left_widget.setLayout(left_panel)
 
-        left_panel.addWidget(QLabel("<b>БАЗА АКТЕРОВ</b>"))
+        actor_header = QHBoxLayout()
+        actor_header.addWidget(QLabel("<b>Актёры:</b>"))
+        self.actor_base_mode = QComboBox()
+        self.actor_base_mode.addItem("Проект", "project")
+        self.actor_base_mode.addItem("Глобальная база", "global")
+        self.actor_base_mode.currentIndexChanged.connect(
+            self._on_actor_base_mode_changed
+        )
+        actor_header.addWidget(self.actor_base_mode, stretch=1)
+        left_panel.addLayout(actor_header)
 
-        self.actor_table = QTableWidget(0, 3)
+        self.actor_table = QTableWidget(0, 4)
         customize_table(self.actor_table)
 
         # Internal implementation detail
@@ -552,14 +568,23 @@ class MainWindow(QMainWindow):
         # Internal implementation detail
         btn_layout = QHBoxLayout()
         
-        btn_add = QPushButton("+ Актер")
-        btn_add.clicked.connect(self.add_actor_dialog)
-        btn_layout.addWidget(btn_add)
+        self.btn_add_actor = QPushButton("+ Актер")
+        self.btn_add_actor.clicked.connect(self.add_actor_button_clicked)
+        btn_layout.addWidget(self.btn_add_actor)
         
-        btn_delete = QPushButton("- Актер")
-        btn_delete.setToolTip("Удалить выбранного актёра из базы")
-        btn_delete.clicked.connect(self.delete_actor_dialog)
-        btn_layout.addWidget(btn_delete)
+        self.btn_delete_actor = QPushButton("- Актер")
+        self.btn_delete_actor.setToolTip("Удалить выбранного актёра из проекта")
+        self.btn_delete_actor.clicked.connect(self.delete_actor_button_clicked)
+        btn_layout.addWidget(self.btn_delete_actor)
+
+        self.btn_add_project_actors_to_global = QPushButton("В глобальную")
+        self.btn_add_project_actors_to_global.setToolTip(
+            "Добавить выбранных актёров проекта в глобальную базу"
+        )
+        self.btn_add_project_actors_to_global.clicked.connect(
+            self.actor_transfer_button_clicked
+        )
+        btn_layout.addWidget(self.btn_add_project_actors_to_global)
         
         left_panel.addLayout(btn_layout)
 
@@ -596,15 +621,33 @@ class MainWindow(QMainWindow):
         top.addWidget(QLabel("Проект:"))
         top.addWidget(self.proj_edit)
 
-        btn_load = QPushButton("Открыть")
+        self.recent_projects_menu = QMenu(self)
+        btn_recent = QPushButton("Недавние")
+        btn_recent.setMenu(self.recent_projects_menu)
+        top.addWidget(btn_recent)
+        self._update_recent_projects_menu()
+
+        self.btn_new_project = QPushButton("📄")
+        self.btn_new_project.setToolTip("Создать новый проект")
+        self.btn_new_project.setMinimumWidth(BTN_SAVE_ICON_WIDTH)
+        self.btn_new_project.clicked.connect(self.create_new_project)
+        top.addWidget(self.btn_new_project)
+
+        btn_load = QPushButton("📂")
+        btn_load.setToolTip("Открыть проект")
+        btn_load.setMinimumWidth(BTN_SAVE_ICON_WIDTH)
         btn_load.clicked.connect(self.load_project_dialog)
         top.addWidget(btn_load)
 
-        btn_save = QPushButton("Сохранить")
+        btn_save = QPushButton("💾")
+        btn_save.setToolTip("Сохранить проект")
+        btn_save.setMinimumWidth(BTN_SAVE_ICON_WIDTH)
         btn_save.clicked.connect(self.save_project)
         top.addWidget(btn_save)
 
-        btn_copy = QPushButton("Копия")
+        btn_copy = QPushButton("💾 +")
+        btn_copy.setToolTip("Сохранить копию проекта")
+        btn_copy.setMinimumWidth(BTN_COMPOUND_ICON_WIDTH)
         btn_copy.clicked.connect(self.save_project_as)
         top.addWidget(btn_copy)
 
@@ -672,25 +715,33 @@ class MainWindow(QMainWindow):
         btn_import.clicked.connect(self.import_files)
         ep_ctrl.addWidget(btn_import)
 
+        btn_vid = QPushButton("🎬 +")
+        btn_vid.setToolTip("Прикрепить видео к серии")
+        btn_vid.setMinimumWidth(BTN_COMPOUND_ICON_WIDTH)
+        btn_vid.clicked.connect(self.set_episode_video)
+        ep_ctrl.addWidget(btn_vid)
+
         btn_ren = QPushButton("✎")
-        btn_ren.setFixedWidth(BTN_RENAME_WIDTH)
+        btn_ren.setMinimumWidth(BTN_RENAME_WIDTH)
         btn_ren.clicked.connect(self.rename_episode)
         ep_ctrl.addWidget(btn_ren)
 
         btn_del = QPushButton("🗑")
-        btn_del.setFixedWidth(BTN_RENAME_WIDTH)
+        btn_del.setMinimumWidth(BTN_RENAME_WIDTH)
         btn_del.clicked.connect(self.delete_episode_dialog)
         ep_ctrl.addWidget(btn_del)
-
-        btn_vid = QPushButton("🎬 Видео")
-        btn_vid.clicked.connect(self.set_episode_video)
-        ep_ctrl.addWidget(btn_vid)
-        
-        btn_ep_sum = QPushButton("📊 Отчет серии")
-        btn_ep_sum.clicked.connect(self.show_episode_summary)
-        ep_ctrl.addWidget(btn_ep_sum)
         
         ep_ctrl.addStretch()
+
+        self.actor_filter_combo = QComboBox()
+        self.actor_filter_combo.setMinimumWidth(150)
+        self.actor_filter_combo.currentIndexChanged.connect(self.refresh_main_table)
+        ep_ctrl.addWidget(QLabel("Актёр:"))
+        ep_ctrl.addWidget(self.actor_filter_combo)
+
+        self.filter_unassigned = QCheckBox("Пустые")
+        self.filter_unassigned.toggled.connect(self.refresh_main_table)
+        ep_ctrl.addWidget(self.filter_unassigned)
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Поиск...")
@@ -701,10 +752,6 @@ class MainWindow(QMainWindow):
         btn_glob_search = QPushButton("🔍 Глобальный поиск")
         btn_glob_search.clicked.connect(self.open_global_search)
         ep_ctrl.addWidget(btn_glob_search)
-        
-        self.filter_unassigned = QCheckBox("Пустые")
-        self.filter_unassigned.toggled.connect(self.refresh_main_table)
-        ep_ctrl.addWidget(self.filter_unassigned)
         
         layout.addLayout(ep_ctrl)
     
@@ -791,6 +838,10 @@ class MainWindow(QMainWindow):
         btn_reaper.clicked.connect(self.export_to_reaper_rpp)
         tools_sidebar_layout.addWidget(btn_reaper)
 
+        btn_ep_sum = QPushButton("📊 Отчёт серии")
+        btn_ep_sum.clicked.connect(self.show_episode_summary)
+        tools_sidebar_layout.addWidget(btn_ep_sum)
+
         tools_sidebar_layout.addStretch()
 
         self.character_stats_group = QGroupBox("Статистика персонажа")
@@ -876,6 +927,7 @@ class MainWindow(QMainWindow):
             self.project_service.set_dirty(dirty)
         self.update_window_title()
         self.update_save_ass_button()
+        self._update_new_project_button()
 
     def update_window_title(self) -> None:
         """Update window title."""
@@ -883,6 +935,55 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(self.project_controller.get_window_title())
         else:
             self.setWindowTitle(self.project_service.get_window_title(self.data))
+
+    def _update_new_project_button(self) -> None:
+        """Update the new-project button state."""
+        if not hasattr(self, "btn_new_project"):
+            return
+        has_saved_path = bool(
+            self.project_controller and
+            self.project_controller.get_current_project_path()
+        )
+        is_dirty = (
+            self.project_controller.is_dirty()
+            if self.project_controller
+            else self.project_service.is_dirty
+        )
+        self.btn_new_project.setEnabled(has_saved_path or is_dirty)
+
+    def create_new_project(self) -> None:
+        """Close the current project and create a new one."""
+        if not self.project_controller:
+            return
+        if not self.project_controller.maybe_save(self):
+            return
+
+        new_data = self.project_service.create_new_project("Новый проект")
+        self._apply_global_settings_to_project_data(new_data)
+        self.data.clear()
+        self.data.update(new_data)
+        self.episode_service.set_merge_gap_from_config(
+            self.data["replica_merge_config"]
+        )
+        self.project_service.current_project_path = None
+        self.current_project_path = None
+        self.project_service.set_dirty(False)
+        self.undo_stack.clear()
+        self.episode_service.clear_cache()
+        self.current_ep_stats = []
+        self.character_names_changed = {}
+        self.text_changes = {}
+
+        self.proj_edit.blockSignals(True)
+        self.proj_edit.setText(self.project_service.get_project_name(self.data))
+        self.proj_edit.blockSignals(False)
+
+        self.refresh_actor_list()
+        self.update_ep_list()
+        self.refresh_main_table()
+        self._update_project_folder_button()
+        self.update_window_title()
+        self._update_new_project_button()
     
     def maybe_save(self) -> bool:
         """Check whether to save."""
@@ -901,6 +1002,104 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.Save:
             return self.save_project()
         return reply == QMessageBox.Discard
+
+    def export_actor_assignments(self) -> None:
+        """Export actor base and assignments."""
+        default_name = (
+            f"{self.data.get('project_name', 'Project')} - "
+            "распределение актёров.json"
+        )
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Экспорт распределения актёров",
+            default_name,
+            "JSON (*.json)"
+        )
+        if not path:
+            return
+
+        try:
+            self.assignment_transfer_service.save_export(self.data, path)
+        except Exception as e:
+            log_exception(logger, "Failed to export actor assignments", e)
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось экспортировать распределение:\n{e}"
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Готово",
+            f"Распределение актёров сохранено:\n{path}"
+        )
+
+    def import_actor_assignments(self) -> None:
+        """Import actor base and assignments."""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Импорт распределения актёров",
+            "",
+            "JSON (*.json)"
+        )
+        if not path:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Импорт распределения актёров",
+            "Импорт добавит актёров, которых нет в текущем проекте, "
+            "и обновит назначения ролей. Продолжить?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        try:
+            stats = self.assignment_transfer_service.import_from_file(
+                self.data,
+                path
+            )
+            for actor_id, actor in self.data.get("actors", {}).items():
+                self.global_settings_service.add_global_actor(
+                    actor.get("name", actor_id),
+                    actor.get("color", "#FFFFFF"),
+                    gender=actor.get("gender", "")
+                )
+            self.global_settings["global_actor_base"] = (
+                self.global_settings_service.get_global_actor_base()
+            )
+            self.global_settings_service.save_settings(self.global_settings)
+        except Exception as e:
+            log_exception(logger, "Failed to import actor assignments", e)
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось импортировать распределение:\n{e}"
+            )
+            return
+
+        self.refresh_actor_list()
+        self.refresh_main_table()
+        self.set_dirty(True)
+
+        skipped = stats.get("skipped_episode_assignments", 0)
+        skipped_text = (
+            f"\nСерийных назначений пропущено: {skipped}"
+            if skipped else ""
+        )
+        QMessageBox.information(
+            self,
+            "Готово",
+            "Распределение импортировано.\n\n"
+            f"Актёров добавлено: {stats.get('actors_added', 0)}\n"
+            f"Актёров сопоставлено: {stats.get('actors_matched', 0)}\n"
+            f"Глобальных назначений: {stats.get('global_assignments', 0)}\n"
+            f"Серийных назначений: {stats.get('episode_assignments', 0)}"
+            f"{skipped_text}"
+        )
 
     def on_project_name_changed(self, text: str) -> None:
         """Handle project name change."""
@@ -1063,7 +1262,9 @@ class MainWindow(QMainWindow):
             result = self.project_controller.save_project()
             if result:
                 self.current_project_path = self.project_controller.get_current_project_path()
+                self._remember_recent_project(self.current_project_path)
                 self.update_window_title()
+                self._update_new_project_button()
             return result
         return self.save_project_as()
 
@@ -1077,8 +1278,11 @@ class MainWindow(QMainWindow):
         )
         if path:
             result = self.project_controller.save_project_as(path)
-            self.current_project_path = self.project_controller.get_current_project_path()
-            self.update_window_title()
+            if result:
+                self.current_project_path = self.project_controller.get_current_project_path()
+                self._remember_recent_project(self.current_project_path)
+                self.update_window_title()
+                self._update_new_project_button()
             return result
         return False
 
@@ -1094,6 +1298,66 @@ class MainWindow(QMainWindow):
             if path:
                 self._load_from_path(path)
 
+    def _remember_recent_project(self, path: Optional[str]) -> None:
+        """Store a project path in the recent-project list."""
+        if not path:
+            return
+        self.global_settings_service.add_recent_project(path)
+        self.global_settings["recent_projects"] = (
+            self.global_settings_service.get_recent_projects()
+        )
+        self.global_settings_service.save_settings(self.global_settings)
+        self._update_recent_projects_menu()
+
+    def _update_recent_projects_menu(self) -> None:
+        """Refresh the recent-project menu."""
+        if not hasattr(self, "recent_projects_menu"):
+            return
+
+        self.recent_projects_menu.clear()
+        recent = self.global_settings_service.get_recent_projects()
+        existing = [path for path in recent if os.path.exists(path)]
+
+        if not existing:
+            action = self.recent_projects_menu.addAction("Нет недавних проектов")
+            action.setEnabled(False)
+            return
+
+        for path in existing:
+            label = os.path.basename(path) or path
+            action = self.recent_projects_menu.addAction(label)
+            action.setToolTip(path)
+            action.triggered.connect(
+                lambda _checked=False, p=path: self.load_recent_project(p)
+            )
+
+        self.recent_projects_menu.addSeparator()
+        self.recent_projects_menu.addAction(
+            "Очистить список", self.clear_recent_projects
+        )
+
+    def clear_recent_projects(self) -> None:
+        """Clear recent projects."""
+        self.global_settings_service.clear_recent_projects()
+        self.global_settings["recent_projects"] = []
+        self.global_settings_service.save_settings(self.global_settings)
+        self._update_recent_projects_menu()
+
+    def load_recent_project(self, path: str) -> None:
+        """Load a project from the recent-project list."""
+        if not self.project_controller:
+            return
+        if not os.path.exists(path):
+            QMessageBox.warning(
+                self,
+                "Проект не найден",
+                f"Файл больше не существует:\n{path}"
+            )
+            self._update_recent_projects_menu()
+            return
+        if self.project_controller.maybe_save(self):
+            self._load_from_path(path)
+
     def _load_from_path(self, path: str) -> None:
         """Load from path."""
         if not self.project_controller:
@@ -1105,6 +1369,8 @@ class MainWindow(QMainWindow):
                 return
             
             self.current_project_path = self.project_controller.get_current_project_path()
+            self._remember_recent_project(self.current_project_path)
+            self._update_new_project_button()
 
             # Internal implementation detail
             if self.actor_controller:
@@ -1124,6 +1390,7 @@ class MainWindow(QMainWindow):
             self.current_ep_stats = []
             self.episode_service.clear_cache()
 
+            self._sync_project_actors_with_global_base()
             self.refresh_actor_list()
             self.update_ep_list()
 
@@ -1142,6 +1409,7 @@ class MainWindow(QMainWindow):
 
         # Internal implementation detail
         self._scan_project_folder()
+        self._link_existing_working_texts()
         self._prompt_working_text_migration()
 
     def _update_project_folder_button(self) -> None:
@@ -1178,21 +1446,49 @@ class MainWindow(QMainWindow):
         text_path = self.data.get("episode_texts", {}).get(str(ep))
         return bool(text_path and os.path.exists(text_path))
 
+    def _link_existing_working_texts(self) -> int:
+        """Link already generated working texts before migration prompt."""
+        found = self.script_text_service.find_existing_episode_texts(
+            self.data,
+            self.current_project_path
+        )
+        linked_count = 0
+        episode_texts = self.data.setdefault("episode_texts", {})
+
+        for ep_num, text_path in found.items():
+            current_path = episode_texts.get(str(ep_num))
+            if current_path == text_path and os.path.exists(current_path):
+                continue
+            episode_texts[str(ep_num)] = text_path
+            linked_count += 1
+
+        if linked_count:
+            self.update_ep_list()
+            self.set_dirty(True)
+            logger.info(f"Linked {linked_count} existing working text files")
+
+        return linked_count
+
     def _episodes_needing_working_texts(self) -> List[str]:
         """Episodes needing working texts."""
+        self._link_existing_working_texts()
         episodes = self.data.get("episodes", {})
         return [
             str(ep)
             for ep, path in episodes.items()
             if (
                 not self._episode_text_exists(str(ep)) and
-                self._is_subtitle_source_path(path)
+                self._is_text_source_path(path)
             )
         ]
 
     def _is_subtitle_source_path(self, path: str) -> bool:
         """Is subtitle source path."""
         return os.path.splitext(path or "")[1].lower() in {'.ass', '.srt'}
+
+    def _is_text_source_path(self, path: str) -> bool:
+        """Return whether a path can generate a working text."""
+        return os.path.splitext(path or "")[1].lower() in {'.ass', '.srt', '.docx'}
 
     def _prompt_working_text_migration(self) -> None:
         """Prompt working text migration."""
@@ -1205,7 +1501,7 @@ class MainWindow(QMainWindow):
         msg.setIcon(QMessageBox.Question)
         msg.setText(
             "Этот проект использует старый формат текстов.\n\n"
-            "Можно создать рабочие тексты из найденных ASS/SRT-файлов сейчас. "
+            "Можно создать рабочие тексты из найденных ASS/SRT/DOCX-файлов сейчас. "
             "Если часть файлов была перенесена, их можно будет найти позже через менеджер файлов проекта."
         )
         create_button = msg.addButton(
@@ -1231,7 +1527,7 @@ class MainWindow(QMainWindow):
             path = self.data.get("episodes", {}).get(str(ep), "")
             if (
                 not path or
-                not self._is_subtitle_source_path(path) or
+                not self._is_text_source_path(path) or
                 not os.path.exists(path)
             ):
                 skipped_count += 1
@@ -1335,31 +1631,563 @@ class MainWindow(QMainWindow):
             self.sort_col = index
             self.sort_desc = True
         self.refresh_main_table()
+
+    def _is_global_actor_mode(self) -> bool:
+        """Return whether the actor panel shows the global actor base."""
+        return (
+            hasattr(self, "actor_base_mode") and
+            self.actor_base_mode.currentData() == "global"
+        )
+
+    def _on_actor_base_mode_changed(self) -> None:
+        """Handle actor panel mode changes."""
+        is_global = self._is_global_actor_mode()
+        self.actor_table.setEditTriggers(
+            QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed
+        )
+        self._update_actor_base_buttons()
+
+        if is_global:
+            self.refresh_global_actor_table()
+        else:
+            self.refresh_actor_list()
+
+    def _update_actor_base_buttons(self) -> None:
+        """Update actor panel buttons for the current actor-base mode."""
+        if not hasattr(self, "btn_add_actor"):
+            return
+
+        if self._is_global_actor_mode():
+            self.btn_add_actor.setText("+ Актер")
+            self.btn_add_actor.setToolTip("Добавить актёра в глобальную базу")
+            self.btn_delete_actor.setText("- Актер")
+            self.btn_delete_actor.setToolTip("Удалить выбранного актёра из глобальной базы")
+            self.btn_add_project_actors_to_global.setText("В проект")
+            self.btn_add_project_actors_to_global.setToolTip(
+                "Добавить выбранного актёра из глобальной базы в текущий проект"
+            )
+        else:
+            self.btn_add_actor.setText("+ Актер")
+            self.btn_add_actor.setToolTip("Добавить актёра в проект")
+            self.btn_delete_actor.setText("- Актер")
+            self.btn_delete_actor.setToolTip("Удалить выбранного актёра из проекта")
+            self.btn_add_project_actors_to_global.setText("В глобальную")
+            self.btn_add_project_actors_to_global.setToolTip(
+                "Добавить выбранных актёров проекта в глобальную базу"
+            )
+
+        self.btn_add_actor.setEnabled(True)
+        self.btn_delete_actor.setEnabled(True)
+        self.btn_add_project_actors_to_global.setEnabled(True)
+
+    def refresh_global_actor_table(self) -> None:
+        """Refresh the global actor-base view."""
+        self.actor_table.blockSignals(True)
+        self.actor_table.setSortingEnabled(False)
+        self.actor_table.setRowCount(0)
+        self.actor_table.setHorizontalHeaderLabels(
+            ["Актер", "Статус", "Цвет", "Пол"]
+        )
+        actor_base = self.global_settings_service.get_global_actor_base()
+        project_actor_names = {
+            actor.get("name", "").strip().casefold()
+            for actor in self.data.get("actors", {}).values()
+            if isinstance(actor, dict)
+        }
+
+        for actor_id, info in sorted(
+            actor_base.items(),
+            key=lambda item: item[1].get("name", "").lower()
+        ):
+            row = self.actor_table.rowCount()
+            self.actor_table.insertRow(row)
+
+            item = QTableWidgetItem(info.get("name", actor_id))
+            item.setData(Qt.UserRole, actor_id)
+            item.setFlags(item.flags() | Qt.ItemIsEditable)
+            self.actor_table.setItem(row, 0, item)
+
+            in_project = (
+                info.get("name", "").strip().casefold()
+                in project_actor_names
+            )
+            roles_item = QTableWidgetItem("В проекте" if in_project else "")
+            roles_item.setFlags(roles_item.flags() & ~Qt.ItemIsEditable)
+            self.actor_table.setItem(row, 1, roles_item)
+
+            color_item = QTableWidgetItem()
+            color_item.setFlags(color_item.flags() & ~Qt.ItemIsEditable)
+            color_item.setBackground(QColor(info.get("color", "#FFFFFF")))
+            self.actor_table.setItem(row, 2, color_item)
+
+            gender_item = QTableWidgetItem(info.get("gender", ""))
+            gender_item.setData(Qt.UserRole, actor_id)
+            gender_item.setToolTip("Введите М или Ж")
+            gender_item.setFlags(gender_item.flags() | Qt.ItemIsEditable)
+            self.actor_table.setItem(row, 3, gender_item)
+
+        self.actor_table.setSortingEnabled(True)
+        self.actor_table.blockSignals(False)
+
+    def add_actor_button_clicked(self) -> None:
+        """Handle the add-actor button for the selected actor-base mode."""
+        if self._is_global_actor_mode():
+            self.add_global_actor_dialog()
+            return
+        self.add_actor_dialog()
+
+    def delete_actor_button_clicked(self) -> None:
+        """Handle the delete-actor button for the selected actor-base mode."""
+        if self._is_global_actor_mode():
+            self.delete_global_actor_dialog()
+            return
+        self.delete_actor_dialog()
+
+    def actor_transfer_button_clicked(self) -> None:
+        """Move actors between project and global bases."""
+        if self._is_global_actor_mode():
+            self.add_selected_global_actor_to_project()
+            return
+        self.add_project_actors_to_global_dialog()
+
+    def add_global_actor_dialog(self) -> None:
+        """Add an actor directly to the global actor base."""
+        name, ok = QInputDialog.getText(self, "Новый актёр", "Имя:")
+        if not ok or not name.strip():
+            return
+
+        dialog = CustomColorDialog(self)
+        if not dialog.exec() or not dialog.selected_color:
+            return
+
+        gender, gender_ok = QInputDialog.getItem(
+            self,
+            "Пол актёра",
+            "Пол:",
+            ["", "М", "Ж"],
+            0,
+            False
+        )
+        if not gender_ok:
+            return
+
+        existing_id = self.global_settings_service.find_global_actor_by_name(name)
+        if existing_id:
+            QMessageBox.information(
+                self,
+                "Актёр уже есть",
+                f"{name.strip()} уже есть в глобальной базе."
+            )
+            return
+
+        self.global_settings_service.add_global_actor(
+            name,
+            dialog.selected_color,
+            gender=gender
+        )
+        self.global_settings["global_actor_base"] = (
+            self.global_settings_service.get_global_actor_base()
+        )
+        self.global_settings_service.save_settings(self.global_settings)
+        self.refresh_global_actor_table()
+
+    def delete_global_actor_dialog(self) -> None:
+        """Delete the selected actor from the global actor base."""
+        actor_id, actor_name = self._selected_global_actor()
+        if not actor_id:
+            QMessageBox.information(
+                self,
+                "Инфо",
+                "Выберите актёра для удаления."
+            )
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Удалить актёра?",
+            f"Удалить {actor_name} из глобальной базы?\n\n"
+            "Это не удалит актёра из текущего проекта.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        if self.global_settings_service.remove_global_actor(actor_id):
+            self.global_settings["global_actor_base"] = (
+                self.global_settings_service.get_global_actor_base()
+            )
+            self.global_settings_service.save_settings(self.global_settings)
+            self.refresh_global_actor_table()
+
+    def add_selected_global_actor_to_project(self) -> None:
+        """Add the selected global actor to the current project."""
+        actor_id, actor_name = self._selected_global_actor()
+        if not actor_id:
+            QMessageBox.information(
+                self,
+                "Инфо",
+                "Выберите актёра для добавления в проект."
+            )
+            return
+
+        actor = self.global_settings_service.get_global_actor_base().get(actor_id)
+        if not actor:
+            return
+
+        self._add_actor_to_project(
+            actor.get("name", actor_name),
+            actor.get("color", "#FFFFFF"),
+            actor.get("gender", "")
+        )
+        if self._is_global_actor_mode():
+            self.refresh_global_actor_table()
+
+    def _selected_global_actor(self) -> Tuple[Optional[str], str]:
+        """Return selected global actor id and name."""
+        selected_rows = self.actor_table.selectionModel().selectedRows()
+        if not selected_rows:
+            return None, ""
+
+        row = selected_rows[0].row()
+        item = self.actor_table.item(row, 0)
+        if not item:
+            return None, ""
+        return item.data(Qt.UserRole), item.text()
+
+    def _sync_project_actors_with_global_base(self) -> int:
+        """Sync project actor records with global actor records by name."""
+        actors = self.data.get("actors", {})
+        if not isinstance(actors, dict) or not actors:
+            return 0
+
+        actor_base = self.global_settings_service.get_global_actor_base()
+        if not actor_base:
+            return 0
+
+        global_by_name = {
+            self._actor_name_key(actor.get("name", "")): (actor_id, actor)
+            for actor_id, actor in actor_base.items()
+            if isinstance(actor, dict) and self._actor_name_key(actor.get("name", ""))
+        }
+
+        changed = 0
+        for project_actor_id, project_actor in list(actors.items()):
+            if not isinstance(project_actor, dict):
+                continue
+
+            match = global_by_name.get(
+                self._actor_name_key(project_actor.get("name", ""))
+            )
+            if not match:
+                continue
+
+            global_actor_id, global_actor = match
+            if self._merge_project_actor_with_global(
+                project_actor_id,
+                global_actor_id,
+                global_actor
+            ):
+                changed += 1
+
+        if changed:
+            self.set_dirty(True)
+            logger.info(
+                f"Synced {changed} project actors with the global actor base"
+            )
+
+        return changed
+
+    def _actor_name_key(self, name: str) -> str:
+        """Return a stable comparison key for actor names."""
+        return " ".join(str(name or "").split()).casefold()
+
+    def _merge_project_actor_with_global(
+        self,
+        project_actor_id: str,
+        global_actor_id: str,
+        global_actor: Dict[str, Any]
+    ) -> bool:
+        """Merge one project actor with a global actor record."""
+        actors = self.data.setdefault("actors", {})
+        old_actor = actors.get(project_actor_id)
+        if not isinstance(old_actor, dict):
+            return False
+
+        merged_actor = old_actor.copy()
+        merged_actor.update({
+            "name": global_actor.get("name", old_actor.get("name", "")),
+            "color": global_actor.get("color", old_actor.get("color", "#FFFFFF")),
+            "gender": global_actor.get("gender", old_actor.get("gender", "")),
+        })
+
+        changed = False
+        if project_actor_id != global_actor_id:
+            if global_actor_id in actors and isinstance(actors[global_actor_id], dict):
+                target_actor = actors[global_actor_id].copy()
+                target_actor.update(merged_actor)
+                actors[global_actor_id] = target_actor
+            else:
+                actors[global_actor_id] = merged_actor
+            del actors[project_actor_id]
+            self._replace_project_actor_references(
+                project_actor_id,
+                global_actor_id
+            )
+            changed = True
+        elif actors.get(project_actor_id) != merged_actor:
+            actors[project_actor_id] = merged_actor
+            changed = True
+
+        return changed
+
+    def _replace_project_actor_references(
+        self,
+        old_actor_id: str,
+        new_actor_id: str
+    ) -> None:
+        """Replace actor ids in project assignment and filter data."""
+        for mapping_name in ("global_map",):
+            mapping = self.data.get(mapping_name, {})
+            if not isinstance(mapping, dict):
+                continue
+            for char_name, actor_id in list(mapping.items()):
+                if actor_id == old_actor_id:
+                    mapping[char_name] = new_actor_id
+
+        episode_maps = self.data.get("episode_actor_map", {})
+        if isinstance(episode_maps, dict):
+            for episode_map in episode_maps.values():
+                if not isinstance(episode_map, dict):
+                    continue
+                for char_name, actor_id in list(episode_map.items()):
+                    if actor_id == old_actor_id:
+                        episode_map[char_name] = new_actor_id
+
+        export_config = self.data.get("export_config", {})
+        if (
+            isinstance(export_config, dict) and
+            isinstance(export_config.get("highlight_ids_export"), list)
+        ):
+            export_config["highlight_ids_export"] = (
+                self._replace_actor_ids_in_list(
+                    export_config.get("highlight_ids_export"),
+                    old_actor_id,
+                    new_actor_id
+                )
+            )
+
+    def _replace_actor_ids_in_list(
+        self,
+        values: Any,
+        old_actor_id: str,
+        new_actor_id: str
+    ) -> Any:
+        """Replace an actor id in a list while preserving order."""
+        if not isinstance(values, list):
+            return values
+
+        result = []
+        for value in values:
+            next_value = new_actor_id if value == old_actor_id else value
+            if next_value not in result:
+                result.append(next_value)
+        return result
+
+    def add_project_actors_to_global_dialog(self) -> None:
+        """Batch-add project actors to the global actor base."""
+        project_actors = self.data.get("actors", {})
+        if not project_actors:
+            QMessageBox.information(
+                self,
+                "Глобальная база",
+                "В проекте пока нет актёров."
+            )
+            return
+
+        global_names = {
+            actor.get("name", "").strip().casefold()
+            for actor in self.global_settings_service.get_global_actor_base().values()
+            if isinstance(actor, dict)
+        }
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Добавить актёров в глобальную базу")
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Выберите актёров проекта для добавления:"))
+
+        actor_list = QListWidget()
+        available_count = 0
+        for actor_id, actor in sorted(
+            project_actors.items(),
+            key=lambda item: item[1].get("name", "").lower()
+        ):
+            name = actor.get("name", actor_id)
+            exists = name.strip().casefold() in global_names
+            item = QListWidgetItem(
+                f"{name} — уже есть в глобальной базе" if exists else name
+            )
+            item.setData(Qt.UserRole, actor_id)
+            if exists:
+                item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+                item.setCheckState(Qt.Unchecked)
+            else:
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked)
+                available_count += 1
+            actor_list.addItem(item)
+
+        layout.addWidget(actor_list)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        buttons.button(QDialogButtonBox.Ok).setText("Добавить")
+        buttons.button(QDialogButtonBox.Ok).setEnabled(available_count > 0)
+        buttons.button(QDialogButtonBox.Cancel).setText("Отмена")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if available_count == 0:
+            layout.addWidget(QLabel("Все актёры проекта уже есть в глобальной базе."))
+
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        selected_ids = []
+        for row in range(actor_list.count()):
+            item = actor_list.item(row)
+            if item.flags() & Qt.ItemIsEnabled and item.checkState() == Qt.Checked:
+                selected_ids.append(item.data(Qt.UserRole))
+
+        if not selected_ids:
+            QMessageBox.information(
+                self,
+                "Глобальная база",
+                "Не выбрано ни одного актёра."
+            )
+            return
+
+        stats = self.global_settings_service.add_project_actors_to_global(
+            project_actors,
+            selected_ids
+        )
+        self.global_settings["global_actor_base"] = (
+            self.global_settings_service.get_global_actor_base()
+        )
+        self.global_settings_service.save_settings(self.global_settings)
+
+        if self._is_global_actor_mode():
+            self.refresh_global_actor_table()
+
+        QMessageBox.information(
+            self,
+            "Готово",
+            "Актёры добавлены в глобальную базу.\n\n"
+            f"Добавлено: {stats.get('added', 0)}\n"
+            f"Уже было: {stats.get('skipped_existing', 0)}"
+        )
     
     def add_actor_dialog(self) -> None:
         """Add actor dialog."""
-        if self.actor_controller:
-            name: str
-            ok: bool
-            name, ok = QInputDialog.getText(self, "Новый актер", "Имя:")
-            if ok and name:
-                dialog = CustomColorDialog(self)
-                if dialog.exec():
-                    # Internal implementation detail
-                    actor_id = str(datetime.now().timestamp())
-                    command = AddActorCommand(
-                        self.data["actors"],
-                        actor_id,
+        if not self.actor_controller:
+            return
+
+        actor_base = self.global_settings_service.get_global_actor_base()
+        if actor_base:
+            options = ["Новый актёр..."]
+            sorted_global = sorted(
+                actor_base.items(),
+                key=lambda item: item[1].get("name", "").lower()
+            )
+            options.extend(
+                info.get("name", actor_id)
+                for actor_id, info in sorted_global
+            )
+            choice, ok = QInputDialog.getItem(
+                self,
+                "Добавить актёра",
+                "Выберите актёра из глобальной базы или создайте нового:",
+                options,
+                0,
+                False
+            )
+            if not ok:
+                return
+            if choice != "Новый актёр...":
+                for _global_id, info in sorted_global:
+                    if info.get("name") == choice:
+                        self._add_actor_to_project(
+                            info.get("name", choice),
+                            info.get("color", "#FFFFFF"),
+                            info.get("gender", "")
+                        )
+                        return
+
+        name, ok = QInputDialog.getText(self, "Новый актер", "Имя:")
+        if ok and name:
+            dialog = CustomColorDialog(self)
+            if dialog.exec():
+                gender, gender_ok = QInputDialog.getItem(
+                    self,
+                    "Пол актёра",
+                    "Пол:",
+                    ["", "М", "Ж"],
+                    0,
+                    False
+                )
+                if gender_ok:
+                    self._add_actor_to_project(
                         name,
-                        dialog.selected_color
+                        dialog.selected_color,
+                        gender
                     )
-                    self.undo_stack.push(command)
-                    self.actor_controller.refresh()
-                    self.refresh_main_table()
-                    self.set_dirty()
+
+    def _add_actor_to_project(
+        self,
+        name: str,
+        color: str,
+        gender: str = ""
+    ) -> None:
+        """Add an actor to the current project and remember them globally."""
+        actor_name = name.strip()
+        if not actor_name:
+            return
+
+        for actor in self.data.get("actors", {}).values():
+            if actor.get("name", "").strip().casefold() == actor_name.casefold():
+                QMessageBox.information(
+                    self,
+                    "Актёр уже в проекте",
+                    f"{actor_name} уже добавлен в этот проект."
+                )
+                return
+
+        actor_id = str(datetime.now().timestamp())
+        command = AddActorCommand(
+            self.data["actors"],
+            actor_id,
+            actor_name,
+            color,
+            gender
+        )
+        self.undo_stack.push(command)
+        self.global_settings_service.add_global_actor(actor_name, color, gender=gender)
+        self.global_settings["global_actor_base"] = (
+            self.global_settings_service.get_global_actor_base()
+        )
+        self.global_settings_service.save_settings(self.global_settings)
+        self.actor_controller.refresh()
+        self.refresh_main_table()
+        self.set_dirty()
 
     def on_actor_renamed(self, item: QTableWidgetItem) -> None:
         """Handle actor renamed."""
+        if self._is_global_actor_mode():
+            self._update_global_actor_from_table_item(item)
+            return
+
         if item.column() != 0:
             return
 
@@ -1389,8 +2217,58 @@ class MainWindow(QMainWindow):
                 self._refresh_open_windows(self.ep_combo.currentData())
                 self.set_dirty()
 
+    def _update_global_actor_from_table_item(self, item: QTableWidgetItem) -> None:
+        """Update global actor-base data from an edited table item."""
+        if item.column() not in (0, 3):
+            return
+
+        actor_id = item.data(Qt.UserRole)
+        actor_base = self.global_settings_service.get_global_actor_base()
+        if actor_id not in actor_base:
+            return
+
+        if item.column() == 0:
+            new_name = item.text().strip()
+            if not new_name:
+                self.actor_table.blockSignals(True)
+                item.setText(actor_base[actor_id].get("name", ""))
+                self.actor_table.blockSignals(False)
+                return
+            actor_base[actor_id]["name"] = new_name
+        else:
+            gender = self.global_settings_service._normalize_actor_gender(
+                item.text()
+            )
+            actor_base[actor_id]["gender"] = gender
+            if item.text() != gender:
+                self.actor_table.blockSignals(True)
+                item.setText(gender)
+                self.actor_table.blockSignals(False)
+
+        self.global_settings_service.set_global_actor_base(actor_base)
+        self.global_settings["global_actor_base"] = (
+            self.global_settings_service.get_global_actor_base()
+        )
+        self.global_settings_service.save_settings(self.global_settings)
+        self.refresh_global_actor_table()
+
     def on_actor_color_clicked(self, aid: str) -> None:
         """Handle actor color click."""
+        if self._is_global_actor_mode():
+            actor_base = self.global_settings_service.get_global_actor_base()
+            if aid not in actor_base:
+                return
+            dialog = CustomColorDialog(self)
+            if dialog.exec() and dialog.selected_color:
+                actor_base[aid]["color"] = dialog.selected_color
+                self.global_settings_service.set_global_actor_base(actor_base)
+                self.global_settings["global_actor_base"] = (
+                    self.global_settings_service.get_global_actor_base()
+                )
+                self.global_settings_service.save_settings(self.global_settings)
+                self.refresh_global_actor_table()
+            return
+
         if self.actor_controller:
             dialog = CustomColorDialog(self)
             if dialog.exec() and dialog.selected_color:
@@ -1570,12 +2448,16 @@ class MainWindow(QMainWindow):
         if not lines:
             return
 
+        merge_config = self.data.get("replica_merge_config", {})
+        if os.path.splitext(path or "")[1].lower() == '.docx':
+            merge_config = {**merge_config, "merge": False}
+
         self.script_text_service.create_episode_text(
             self.data,
             ep,
             path,
             lines,
-            self.data.get("replica_merge_config", {}),
+            merge_config,
             self.current_project_path
         )
 
@@ -1879,6 +2761,8 @@ class MainWindow(QMainWindow):
         )
         self.undo_stack.push(command)
         self.refresh_actor_list()
+        if hasattr(self, "actor_filter_combo") and self.actor_filter_combo.currentData():
+            self.refresh_main_table()
         self.set_dirty(True)
 
     def update_assignment_scope_value(
@@ -1907,6 +2791,8 @@ class MainWindow(QMainWindow):
         self._update_main_table_assignment_display(char_name)
 
         self.refresh_actor_list()
+        if hasattr(self, "actor_filter_combo") and self.actor_filter_combo.currentData():
+            self.refresh_main_table()
         self.set_dirty(True)
 
     def _update_main_table_assignment_display(self, char_name: str) -> None:
@@ -1917,6 +2803,11 @@ class MainWindow(QMainWindow):
         """Refresh main table."""
         query = self.search_edit.text().lower()
         only_unassigned = self.filter_unassigned.isChecked()
+        actor_filter_id = (
+            self.actor_filter_combo.currentData()
+            if hasattr(self, "actor_filter_combo")
+            else None
+        )
         
         keys = ["name", "lines", "rings", "words"]
         sorted_stats = sorted(
@@ -1935,6 +2826,8 @@ class MainWindow(QMainWindow):
             is_assigned = actor_id is not None
             if only_unassigned and is_assigned:
                 continue
+            if actor_filter_id and actor_id != actor_filter_id:
+                continue
 
             scope = get_assignment_scope(self.data, stat["name"], ep)
             rows.append({
@@ -1948,8 +2841,34 @@ class MainWindow(QMainWindow):
 
         self.main_table_model.set_rows(rows)
 
+    def _update_actor_filter_combo(self) -> None:
+        """Refresh the quick actor filter."""
+        if not hasattr(self, "actor_filter_combo"):
+            return
+
+        current = self.actor_filter_combo.currentData()
+        self.actor_filter_combo.blockSignals(True)
+        self.actor_filter_combo.clear()
+        self.actor_filter_combo.addItem("Все", None)
+
+        for actor_id, info in sorted(
+            self.data.get("actors", {}).items(),
+            key=lambda item: item[1].get("name", "").lower()
+        ):
+            self.actor_filter_combo.addItem(info.get("name", actor_id), actor_id)
+
+        index = self.actor_filter_combo.findData(current)
+        self.actor_filter_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.actor_filter_combo.blockSignals(False)
+
     def refresh_actor_list(self) -> None:
         """Refresh actor list."""
+        self._sync_project_actors_with_global_base()
+        if self._is_global_actor_mode():
+            self.refresh_global_actor_table()
+            self._update_actor_filter_combo()
+            return
+
         logger.info(f"refresh_actor_list: actor_controller={self.actor_controller is not None}, actors={len(self.data.get('actors', {}))}")
         
         if self.actor_controller:
@@ -1958,6 +2877,10 @@ class MainWindow(QMainWindow):
             # Internal implementation detail
             logger.warning("refresh_actor_list: actor_controller is None, using fallback")
             self.actor_table.blockSignals(True)
+            self.actor_table.setSortingEnabled(False)
+            self.actor_table.setHorizontalHeaderLabels(
+                ["Актер", "Роли", "Цвет", "Пол"]
+            )
             self.actor_table.setRowCount(0)
 
             actor_roles: Dict[str, List[str]] = {
@@ -1987,8 +2910,14 @@ class MainWindow(QMainWindow):
                 color_item.setBackground(QColor(info["color"]))
                 self.actor_table.setItem(row, 2, color_item)
 
+                gender_item = QTableWidgetItem(info.get("gender", ""))
+                gender_item.setFlags(gender_item.flags() & ~Qt.ItemIsEditable)
+                self.actor_table.setItem(row, 3, gender_item)
+
+            self.actor_table.setSortingEnabled(True)
             self.actor_table.blockSignals(False)
             logger.info(f"refresh_actor_list: fallback loaded {self.actor_table.rowCount()} actors")
+        self._update_actor_filter_combo()
 
     def rename_episode(self) -> None:
         """Rename episode."""
@@ -2074,6 +3003,10 @@ class MainWindow(QMainWindow):
             self.ep_combo.setCurrentIndex(0)
 
         self.ep_combo.blockSignals(False)
+        if self.ep_combo.count() == 0:
+            self.current_ep_stats = []
+            self.refresh_main_table()
+            return
         self.change_episode()
 
     # Internal implementation detail
@@ -2286,7 +3219,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Ошибка",
-                "Файл субтитров не найден."
+                "Исходный файл серии не найден."
             )
             return False
 
@@ -2294,7 +3227,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Ошибка",
-                "Не удалось получить реплики из файла субтитров."
+                "Не удалось получить реплики из исходного файла."
             )
             return False
 
@@ -2314,6 +3247,17 @@ class MainWindow(QMainWindow):
             ext = os.path.splitext(path)[1].lower()
             if ext == '.srt':
                 stats, lines = self.episode_service.parse_srt_file(path)
+            elif ext == '.docx':
+                dialog = DocxImportDialog(self, path)
+                if dialog.exec() != QDialog.Accepted:
+                    return False
+                result = dialog.get_result()
+                if not result:
+                    return False
+                stats = result.get('stats', [])
+                lines = self._convert_imported_lines_for_cache(
+                    result.get('lines', [])
+                )
             else:
                 stats, lines = self.episode_service.parse_ass_file(path)
         except Exception as e:
@@ -2474,34 +3418,40 @@ class MainWindow(QMainWindow):
 
     def _apply_global_settings_to_project(self) -> None:
         """Apply global settings to project."""
+        self._apply_global_settings_to_project_data(self.data)
+        self.episode_service.set_merge_gap_from_config(
+            self.data["replica_merge_config"]
+        )
+
+    def _apply_global_settings_to_project_data(
+        self,
+        project_data: Dict[str, Any]
+    ) -> None:
+        """Apply global settings to a project data dictionary."""
         # Internal implementation detail
         if self.global_settings.get('export_config'):
-            self.data["export_config"].update(
+            project_data["export_config"].update(
                 self.global_settings['export_config']
             )
         
         # Internal implementation detail
         if self.global_settings.get('prompter_config'):
-            self.data["prompter_config"].update(
+            project_data["prompter_config"].update(
                 self.global_settings['prompter_config']
             )
         
         # Internal implementation detail
         if self.global_settings.get('replica_merge_config'):
-            self.data["replica_merge_config"].update(
+            project_data["replica_merge_config"].update(
                 self.global_settings['replica_merge_config']
-            )
-            # Update episode_service
-            self.episode_service.set_merge_gap_from_config(
-                self.data["replica_merge_config"]
             )
 
         if self.global_settings.get('docx_import_config'):
-            self.data.setdefault(
+            project_data.setdefault(
                 "docx_import_config",
                 deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
             )
-            self.data["docx_import_config"].update(
+            project_data["docx_import_config"].update(
                 self.global_settings['docx_import_config']
             )
 
@@ -2516,28 +3466,7 @@ class MainWindow(QMainWindow):
         if not ep_num:
             QMessageBox.warning(self, "Ошибка", "Выберите серию.")
             return
-        
-        video_path = self.data["video_paths"].get(ep_num)
-        dialog = ReaperExportDialog(video_path, self)
-        
-        if dialog.exec() != QDialog.Accepted:
-            return
-        
-        use_video, use_regions = dialog.get_options()
-        
-        if use_video and video_path:
-            video_path = os.path.abspath(video_path)
-        
-        default_name = (
-            f"{self.data.get('project_name', 'Project')} - "
-            f"Ep{ep_num}.rpp"
-        )
-        save_path, _ = QFileDialog.getSaveFileName(
-            self, "Сохранить RPP", default_name, "Reaper Project (*.rpp)"
-        )
-        if not save_path:
-            return
-        
+
         lines = self.get_episode_lines(ep_num)
         if not lines:
             QMessageBox.warning(
@@ -2548,7 +3477,46 @@ class MainWindow(QMainWindow):
             )
             return
 
+        video_path = self.data["video_paths"].get(ep_num)
         export_service = ExportService(self.data)
+
+        def make_preview(use_video: bool, use_regions: bool) -> Dict[str, Any]:
+            preview_video_path = video_path
+            if use_video and preview_video_path:
+                preview_video_path = os.path.abspath(preview_video_path)
+            return export_service.get_reaper_rpp_preview(
+                ep_num,
+                lines,
+                merge_cfg=self.data.get("replica_merge_config", {}),
+                video_path=preview_video_path,
+                use_video=use_video,
+                use_regions=use_regions
+            )
+
+        dialog = ReaperExportDialog(
+            video_path,
+            self,
+            preview_provider=make_preview
+        )
+
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        use_video, use_regions = dialog.get_options()
+
+        if use_video and video_path:
+            video_path = os.path.abspath(video_path)
+
+        default_name = (
+            f"{self.data.get('project_name', 'Project')} - "
+            f"Ep{ep_num}.rpp"
+        )
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "Сохранить RPP", default_name, "Reaper Project (*.rpp)"
+        )
+        if not save_path:
+            return
+
         rpp_content = export_service.generate_reaper_rpp(
             ep_num,
             lines,

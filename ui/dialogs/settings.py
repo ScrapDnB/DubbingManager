@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -46,6 +47,7 @@ class SettingsDialog(QDialog):
         self.resize(720, 560)
 
         self.project_data = project_data
+        self.main_window = parent
         self.initial_tab = initial_tab
         self.export_config = deepcopy(
             project_data.get("export_config", DEFAULT_EXPORT_CONFIG)
@@ -79,6 +81,7 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self._build_prompter_tab(), "Телесуфлёр")
         self.tabs.addTab(self._build_docx_tab(), "DOCX")
         self.tabs.addTab(self._build_project_tab(), "Проект")
+        self.tabs.addTab(self._build_actor_bases_tab(), "Базы актёров")
         layout.addWidget(self.tabs)
         self._select_initial_tab()
 
@@ -210,6 +213,18 @@ class SettingsDialog(QDialog):
             "Убирает дробную точность таймкодов в листе, если нужна более "
             "простая визуальная разметка."
         )
+        self.export_time_display = QComboBox()
+        self.export_time_display.addItem("Начало и конец", "range")
+        self.export_time_display.addItem("Только начало", "start")
+        current_time_display = self.export_config.get("time_display", "range")
+        time_display_index = self.export_time_display.findData(current_time_display)
+        if time_display_index < 0:
+            time_display_index = 0
+        self.export_time_display.setCurrentIndex(time_display_index)
+        self.export_time_display.setToolTip(
+            "Определяет, показывать ли в таймкоде конец реплики или только "
+            "момент её начала."
+        )
         self.export_open_auto = self._check_box(
             "Открывать после экспорта",
             self.export_config.get("open_auto", True)
@@ -224,6 +239,9 @@ class SettingsDialog(QDialog):
             self.export_open_auto,
         ]:
             layout.addWidget(checkbox)
+        time_display_form = QFormLayout()
+        time_display_form.addRow("Тайминг:", self.export_time_display)
+        layout.addLayout(time_display_form)
         layout.addWidget(self.btn_export_actor_filter)
         layout.addWidget(self.export_actor_filter_summary)
 
@@ -492,6 +510,274 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return tab
 
+    def _build_actor_bases_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        layout.addWidget(self._hint(
+            "Здесь находятся операции переноса актёров между проектами и "
+            "глобальной базой. Глобальная база хранит только имена актёров "
+            "и их цвета. Проектное распределение дополнительно хранит, кто "
+            "назначен на каких персонажей, включая серийные переопределения."
+        ))
+
+        actor_base_group = QGroupBox("Глобальная база актёров")
+        actor_base_layout = QVBoxLayout(actor_base_group)
+        actor_base_layout.addWidget(self._hint(
+            "Используйте этот JSON как общую адресную книгу актёров. Его "
+            "можно перенести на другой компьютер или импортировать в другую "
+            "установку Dubbing Manager."
+        ))
+        actor_buttons = QHBoxLayout()
+        btn_export_actor_base = QPushButton("Экспорт...")
+        btn_export_actor_base.setToolTip(
+            "Сохранить глобальную базу актёров в JSON-файл."
+        )
+        btn_export_actor_base.clicked.connect(self._export_global_actor_base)
+        actor_buttons.addWidget(btn_export_actor_base)
+
+        btn_import_actor_base = QPushButton("Импорт...")
+        btn_import_actor_base.setToolTip(
+            "Загрузить глобальную базу актёров из JSON-файла."
+        )
+        btn_import_actor_base.clicked.connect(self._import_global_actor_base)
+        actor_buttons.addWidget(btn_import_actor_base)
+        actor_base_layout.addLayout(actor_buttons)
+
+        if not self._has_global_actor_base_service():
+            actor_base_layout.addWidget(self._hint(
+                "Импорт и экспорт доступны из главного окна приложения."
+            ))
+            btn_export_actor_base.setEnabled(False)
+            btn_import_actor_base.setEnabled(False)
+
+        layout.addWidget(actor_base_group)
+
+        assignment_group = QGroupBox("Распределение текущего проекта")
+        assignment_layout = QVBoxLayout(assignment_group)
+        assignment_layout.addWidget(self._hint(
+            "Этот экспорт нужен для переноса кастинга в другой проект, "
+            "например в новый сезон. В файл попадут актёры проекта, "
+            "глобальные назначения персонажей и серийные назначения. "
+            "При импорте актёры сопоставляются по имени, чтобы не плодить "
+            "дубли."
+        ))
+        assignment_buttons = QHBoxLayout()
+        btn_export_assignments = QPushButton("Экспорт...")
+        btn_export_assignments.setToolTip(
+            "Экспортировать актёров проекта и распределение ролей в JSON."
+        )
+        btn_export_assignments.clicked.connect(self._export_project_assignments)
+        assignment_buttons.addWidget(btn_export_assignments)
+
+        btn_import_assignments = QPushButton("Импорт...")
+        btn_import_assignments.setToolTip(
+            "Импортировать актёров проекта и распределение ролей из JSON."
+        )
+        btn_import_assignments.clicked.connect(self._import_project_assignments)
+        assignment_buttons.addWidget(btn_import_assignments)
+        assignment_layout.addLayout(assignment_buttons)
+
+        if not self._has_project_assignment_service():
+            assignment_layout.addWidget(self._hint(
+                "Импорт и экспорт распределения доступны из главного окна "
+                "приложения."
+            ))
+            btn_export_assignments.setEnabled(False)
+            btn_import_assignments.setEnabled(False)
+
+        layout.addWidget(assignment_group)
+        layout.addStretch()
+        return tab
+
+    def _has_global_actor_base_service(self) -> bool:
+        return bool(
+            self.main_window is not None and
+            hasattr(self.main_window, "global_settings_service") and
+            hasattr(self.main_window, "global_settings")
+        )
+
+    def _has_project_assignment_service(self) -> bool:
+        return bool(
+            self.main_window is not None and
+            hasattr(self.main_window, "assignment_transfer_service") and
+            hasattr(self.main_window, "data")
+        )
+
+    def _export_global_actor_base(self) -> None:
+        if not self._has_global_actor_base_service():
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Экспорт глобальной базы актёров",
+            "global_actor_base.json",
+            "JSON (*.json)"
+        )
+        if not path:
+            return
+
+        try:
+            self.main_window.global_settings_service.export_global_actor_base(path)
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось экспортировать глобальную базу актёров:\n{e}"
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Готово",
+            f"Глобальная база актёров сохранена:\n{path}"
+        )
+
+    def _import_global_actor_base(self) -> None:
+        if not self._has_global_actor_base_service():
+            return
+
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Импорт глобальной базы актёров",
+            "",
+            "JSON (*.json)"
+        )
+        if not path:
+            return
+
+        try:
+            stats = self.main_window.global_settings_service.import_global_actor_base(
+                path
+            )
+            self.main_window.global_settings["global_actor_base"] = (
+                self.main_window.global_settings_service.get_global_actor_base()
+            )
+            self.main_window.global_settings_service.save_settings(
+                self.main_window.global_settings
+            )
+            if hasattr(self.main_window, "refresh_actor_list"):
+                self.main_window.refresh_actor_list()
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось импортировать глобальную базу актёров:\n{e}"
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Готово",
+            "Глобальная база актёров импортирована.\n\n"
+            f"Добавлено: {stats.get('added', 0)}\n"
+            f"Уже было: {stats.get('matched', 0)}"
+        )
+
+    def _export_project_assignments(self) -> None:
+        if not self._has_project_assignment_service():
+            return
+
+        default_name = (
+            f"{self.project_data.get('project_name', 'Project')} - "
+            "распределение актёров.json"
+        )
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Экспорт распределения актёров",
+            default_name,
+            "JSON (*.json)"
+        )
+        if not path:
+            return
+
+        try:
+            self.main_window.assignment_transfer_service.save_export(
+                self.main_window.data,
+                path
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось экспортировать распределение:\n{e}"
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Готово",
+            f"Распределение актёров сохранено:\n{path}"
+        )
+
+    def _import_project_assignments(self) -> None:
+        if not self._has_project_assignment_service():
+            return
+
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Импорт распределения актёров",
+            "",
+            "JSON (*.json)"
+        )
+        if not path:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Импорт распределения актёров",
+            "Импорт добавит актёров, которых нет в текущем проекте, "
+            "и обновит назначения ролей. Продолжить?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        try:
+            stats = self.main_window.assignment_transfer_service.import_from_file(
+                self.main_window.data,
+                path
+            )
+            for actor_id, actor in self.main_window.data.get("actors", {}).items():
+                self.main_window.global_settings_service.add_global_actor(
+                    actor.get("name", actor_id),
+                    actor.get("color", "#FFFFFF"),
+                    gender=actor.get("gender", "")
+                )
+            self.main_window.global_settings["global_actor_base"] = (
+                self.main_window.global_settings_service.get_global_actor_base()
+            )
+            self.main_window.global_settings_service.save_settings(
+                self.main_window.global_settings
+            )
+            self.main_window.refresh_actor_list()
+            self.main_window.refresh_main_table()
+            self.main_window.set_dirty(True)
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось импортировать распределение:\n{e}"
+            )
+            return
+
+        skipped = stats.get("skipped_episode_assignments", 0)
+        skipped_text = (
+            f"\nСерийных назначений пропущено: {skipped}"
+            if skipped else ""
+        )
+        QMessageBox.information(
+            self,
+            "Готово",
+            "Распределение импортировано.\n\n"
+            f"Актёров добавлено: {stats.get('actors_added', 0)}\n"
+            f"Актёров сопоставлено: {stats.get('actors_matched', 0)}\n"
+            f"Глобальных назначений: {stats.get('global_assignments', 0)}\n"
+            f"Серийных назначений: {stats.get('episode_assignments', 0)}"
+            f"{skipped_text}"
+        )
+
     def _open_prompter_colors(self) -> None:
         dialog = PrompterColorDialog(self.prompter_colors, self)
         if dialog.exec():
@@ -513,6 +799,7 @@ class SettingsDialog(QDialog):
             "use_color": self.export_use_color.isChecked(),
             "allow_edit": self.export_allow_edit.isChecked(),
             "round_time": self.export_round_time.isChecked(),
+            "time_display": self.export_time_display.currentData(),
             "open_auto": self.export_open_auto.isChecked(),
             "highlight_ids_export": self.highlight_ids_export,
         })
@@ -575,6 +862,7 @@ class SettingsDialog(QDialog):
             "prompter": 2,
             "docx": 3,
             "project": 4,
+            "actor_bases": 5,
         }
         self.tabs.setCurrentIndex(tab_indexes.get(self.initial_tab, 0))
 
