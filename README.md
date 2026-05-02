@@ -118,18 +118,6 @@ python scripts/prepare_icons.py
 python -m PyInstaller dubbing_manager.spec --clean
 ```
 
-GitHub Actions:
-
-- `Tests` запускается на push/PR для macOS и Windows.
-- `Build Dubbing Manager` запускается вручную или по тегу `v*`, собирает macOS DMG и Windows ZIP.
-
-Для релиза:
-
-```bash
-git tag v1.4.0
-git push origin v1.4.0
-```
-
 ## Форматы файлов
 
 | Тип | Расширения |
@@ -146,4 +134,3 @@ git push origin v1.4.0
 - [DOCX import](docs/DOCX_IMPORT.md)
 - [Project folder](docs/PROJECT_FOLDER.md)
 - [Project files dialog](docs/PROJECT_FILES_DIALOG.md)
-- [Undo/Redo](docs/UNDO_REDO.md)
