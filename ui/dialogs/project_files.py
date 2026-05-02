@@ -35,12 +35,10 @@ class ProjectFilesDialog(QDialog):
         """Init ui."""
         layout = QVBoxLayout(self)
         
-        # Internal implementation detail
         header_label = QLabel("Структура файлов проекта")
         header_label.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout.addWidget(header_label)
         
-        # Internal implementation detail
         self.file_tree = QTreeWidget()
         self.file_tree.setHeaderLabels([
             "Эпизод", "Файл", "Статус", "Путь"
@@ -60,12 +58,10 @@ class ProjectFilesDialog(QDialog):
         self.file_tree.setAlternatingRowColors(True)
         layout.addWidget(self.file_tree)
         
-        # Internal implementation detail
         self.lbl_stats = QLabel("")
         self.lbl_stats.setStyleSheet("color: #666;")
         layout.addWidget(self.lbl_stats)
         
-        # Internal implementation detail
         btn_layout = QHBoxLayout()
         
         self.btn_relink = QPushButton("📁 Перепривязать...")
@@ -86,14 +82,12 @@ class ProjectFilesDialog(QDialog):
         
         btn_layout.addStretch()
         
-        # Internal implementation detail
         self.btn_close = QPushButton("Закрыть")
         self.btn_close.clicked.connect(self.accept)
         btn_layout.addWidget(self.btn_close)
         
         layout.addLayout(btn_layout)
         
-        # Internal implementation detail
         self.file_tree.itemSelectionChanged.connect(
             self._on_selection_changed
         )
@@ -181,7 +175,6 @@ class ProjectFilesDialog(QDialog):
         video_paths = self.data.get("video_paths", {})
         project_folder = self.data.get("project_folder")
         
-        # Internal implementation detail
         all_ep_nums = sorted(
             set(episodes.keys()) |
             set(episode_texts.keys()) |
@@ -193,7 +186,6 @@ class ProjectFilesDialog(QDialog):
         total_count = 0
         
         for ep_num in all_ep_nums:
-            # Internal implementation detail
             ep_item = QTreeWidgetItem([
                 f"Серия {ep_num}",
                 "",
@@ -251,7 +243,6 @@ class ProjectFilesDialog(QDialog):
                 text_item.setData(3, Qt.UserRole, ("text", ep_num))
                 ep_item.addChild(text_item)
             
-            # Internal implementation detail
             video_path = video_paths.get(ep_num)
             if video_path:
                 total_count += 1
@@ -281,14 +272,12 @@ class ProjectFilesDialog(QDialog):
             f"✗ Не найдено: {missing_count}"
         )
         
-        # Internal implementation detail
         self.file_tree.expandAll()
 
     def _on_selection_changed(self) -> None:
         """Handle selection change."""
         selected_items = self.file_tree.selectedItems()
         
-        # Internal implementation detail
         if selected_items:
             item = selected_items[0]
             file_data = item.data(3, Qt.UserRole)
@@ -315,7 +304,6 @@ class ProjectFilesDialog(QDialog):
         
         file_type, ep_num = file_data
         
-        # Internal implementation detail
         if file_type == "ass":
             current_path = self.data.get("episodes", {}).get(ep_num)
             current_ext = os.path.splitext(current_path or "")[1].lower()
@@ -343,7 +331,6 @@ class ProjectFilesDialog(QDialog):
         )
         
         if path:
-            # Internal implementation detail
             if file_type == "ass":
                 self.data["episodes"][ep_num] = path
             elif file_type == "text":
@@ -355,10 +342,8 @@ class ProjectFilesDialog(QDialog):
                     self.data["video_paths"] = {}
                 self.data["video_paths"][ep_num] = path
             
-            # Internal implementation detail
             self._populate_tree()
             
-            # Internal implementation detail
             self.parent()._on_files_changed() if hasattr(self.parent(), '_on_files_changed') else None
 
     def _regenerate_selected_text(self) -> None:

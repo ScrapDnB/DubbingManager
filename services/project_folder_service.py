@@ -117,11 +117,9 @@ class ProjectFolderService:
             r'[Ee][Pp]?(\d+)',
             # Episode 01
             r'[Ee]pisode\s*(\d+)',
-            # Internal implementation detail
             r'-\s*(\d+)',
             # [01]
             r'\[(\d+)\]',
-            # Internal implementation detail
             r'^(\d+)',
             r'(\d+)$',
         ]

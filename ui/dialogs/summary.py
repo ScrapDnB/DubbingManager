@@ -93,7 +93,6 @@ class SummaryDialog(QDialog):
                 self.data.get("replica_merge_config", {})
             )
 
-            # Internal implementation detail
             line: Dict[str, Any]
             for line in merged:
                 aid: Optional[str] = get_actor_for_character(
@@ -108,7 +107,6 @@ class SummaryDialog(QDialog):
                 target["words"] += len(line['text'].split())
                 target["roles"].add(line['char'])
 
-        # Internal implementation detail
         aid: str
         stat: Dict[str, Any]
         for aid, stat in stats.items():
@@ -139,7 +137,6 @@ class SummaryDialog(QDialog):
             ])
             self._table.setItem(row, 4, QTableWidgetItem(roles_text))
 
-        # Internal implementation detail
         if unassigned["roles"]:
             row: int = self._table.rowCount()
             self._table.insertRow(row)

@@ -27,7 +27,7 @@ class ActorController:
     ) -> None:
         self.actor_table: QTableWidget = actor_table
         self.actor_service: ActorService = actor_service
-        self.data_ref: Dict[str, Any] = data_ref  # Internal implementation detail
+        self.data_ref: Dict[str, Any] = data_ref
         self.on_dirty_callback = on_dirty_callback
         self.on_edit_roles_callback = on_edit_roles_callback
         self.on_color_click_callback = on_color_click_callback
@@ -52,12 +52,11 @@ class ActorController:
         self.actor_table.setColumnWidth(2, 60)
         self.actor_table.setColumnWidth(3, 50)
         
-        # Internal implementation detail
         self.actor_table.cellClicked.connect(self._on_cell_clicked)
 
     def _on_cell_clicked(self, row: int, col: int) -> None:
         """Handle cell click."""
-        if col == 2 and self.on_color_click_callback:  # Internal implementation detail
+        if col == 2 and self.on_color_click_callback:
             item: Optional[QTableWidgetItem] = self.actor_table.item(row, 0)
             if item:
                 aid: Optional[str] = item.data(Qt.UserRole)
@@ -103,13 +102,11 @@ class ActorController:
             row: int = self.actor_table.rowCount()
             self.actor_table.insertRow(row)
 
-            # Internal implementation detail
             item: QTableWidgetItem = QTableWidgetItem(info["name"])
             item.setData(Qt.UserRole, aid)
             self.actor_table.setItem(row, 0, item)
             item.setFlags(item.flags() | Qt.ItemIsEditable)
 
-            # Internal implementation detail
             btn: QPushButton = QPushButton(f"Роли ({len(actor_roles[aid])})")
             if self.on_edit_roles_callback:
                 btn.clicked.connect(
@@ -118,7 +115,6 @@ class ActorController:
                 )
             self.actor_table.setCellWidget(row, 1, wrap_widget(btn))
 
-            # Internal implementation detail
             color_item: QTableWidgetItem = QTableWidgetItem()
             color_item.setBackground(QColor(info["color"]))
             self.actor_table.setItem(row, 2, color_item)
@@ -139,14 +135,12 @@ class ActorController:
             self.data_ref["actors"], actor_id, color
         )
         
-        # Internal implementation detail
         row = self._find_actor_row(actor_id)
         if row is not None:
             color_item = self.actor_table.item(row, 2)
             if color_item:
                 color_item.setBackground(QColor(color))
             else:
-                # Internal implementation detail
                 color_item = QTableWidgetItem()
                 color_item.setBackground(QColor(color))
                 self.actor_table.setItem(row, 2, color_item)
@@ -159,7 +153,6 @@ class ActorController:
             self.data_ref["actors"], actor_id, new_name
         )
         
-        # Internal implementation detail
         row = self._find_actor_row(actor_id)
         if row is not None:
             item = self.actor_table.item(row, 0)
@@ -178,7 +171,6 @@ class ActorController:
             self.data_ref["global_map"], actor_id, new_roles
         )
         
-        # Internal implementation detail
         row = self._find_actor_row(actor_id)
         if row is not None:
             btn_widget = self.actor_table.cellWidget(row, 1)

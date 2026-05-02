@@ -297,7 +297,7 @@ class DocxImportService:
                         h, m, s, ms = groups
                         seconds = int(h) * 3600 + int(m) * 60 + float(f"{s}.{ms}")
                         return seconds
-                    elif len(groups) == 3:  # Internal implementation detail
+                    elif len(groups) == 3:
                         if ':' in time_str and time_str.count(':') == 2:
                             h, m, s = groups
                             seconds = int(h) * 3600 + int(m) * 60 + float(s)

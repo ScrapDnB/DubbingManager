@@ -37,7 +37,6 @@ class ReaperExportDialog(QDialog):
         self._chk_video = QCheckBox("Добавить дорожку с видео")
         self._chk_regions = QCheckBox("Создать регионы (реплики с текстом)")
 
-        # Internal implementation detail
         has_video: bool = bool(video_path and os.path.exists(video_path))
         if has_video:
             self._chk_video.setChecked(True)

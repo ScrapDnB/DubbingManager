@@ -1,4 +1,4 @@
-"""Точка входа приложения Dubbing Manager"""
+"""Application entry point for Dubbing Manager."""
 
 import sys
 import os
@@ -11,9 +11,9 @@ from ui.main_window import MainWindow
 
 
 def get_log_path() -> Path:
-    """Получить путь для лог-файла в пользовательской директории."""
+    """Return the log file path in the user's writable data directory."""
     if sys.platform == 'win32':
-        # Windows: используем %LOCALAPPDATA%
+        # Windows: prefer %LOCALAPPDATA%.
         base = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA')
         if not base:
             base = str(Path.home())
@@ -22,7 +22,7 @@ def get_log_path() -> Path:
         # macOS: ~/Library/Logs
         log_dir = Path.home() / 'Library' / 'Logs' / 'DubbingManager'
     else:
-        # Linux и другие: ~/.local/share
+        # Linux and other Unix-like systems: ~/.local/share.
         log_dir = Path.home() / '.local' / 'share' / 'dubbing-manager' / 'logs'
 
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def setup_logging() -> None:
-    """Настроить логирование приложения с ротацией файлов."""
+    """Configure application logging with rotating file logs."""
     root_logger = logging.getLogger()
     if any(getattr(handler, "_dubbing_manager_handler", False) for handler in root_logger.handlers):
         return
@@ -68,11 +68,11 @@ def setup_logging() -> None:
 
 
 def main() -> int:
-    """Точка входа приложения"""
+    """Run the application."""
     setup_logging()
     logger.info("Starting Dubbing Manager")
     
-    # Настройка High DPI
+    # High DPI setup.
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )

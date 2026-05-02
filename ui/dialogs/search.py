@@ -31,7 +31,6 @@ class GlobalSearchDialog(QDialog):
     def _init_ui(self) -> None:
         layout: QVBoxLayout = QVBoxLayout(self)
 
-        # Internal implementation detail
         search_layout: QHBoxLayout = QHBoxLayout()
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText(
@@ -47,7 +46,6 @@ class GlobalSearchDialog(QDialog):
         search_layout.addWidget(btn_search)
         layout.addLayout(search_layout)
 
-        # Internal implementation detail
         self._table = QTableWidget(0, 4)
         self._table.setHorizontalHeaderLabels([
             "Серия", "Таймкод", "Персонаж", "Текст"

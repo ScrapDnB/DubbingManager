@@ -117,14 +117,12 @@ def split_merged_text(text: str, ids: list) -> list:
 
     parts = []
 
-    # Internal implementation detail
     if ' // ' in text:
+        # Prefer the long pause separator when both forms could be present.
         parts = [p.strip() for p in text.split(' // ') if p.strip()]
-    # Internal implementation detail
     elif ' / ' in text:
         parts = [p.strip() for p in text.split(' / ') if p.strip()]
 
-    # Internal implementation detail
     if len(parts) == len(ids):
         return parts
 
@@ -133,7 +131,7 @@ def split_merged_text(text: str, ids: list) -> list:
 
 def get_video_fps(video_path: str) -> float:
     """Return video fps."""
-    # Internal implementation detail
+    # Reject obvious path traversal before resolving the path.
     if '..' in video_path:
         logger.warning(f"Invalid video path (path traversal detected): {video_path}")
         return FPS
@@ -141,7 +139,6 @@ def get_video_fps(video_path: str) -> float:
     try:
         path = Path(video_path).resolve()
         
-        # Internal implementation detail
         if not path.exists() or not path.is_file():
             logger.warning(f"Video file not found: {video_path}")
             return FPS
@@ -161,24 +158,21 @@ def get_video_fps(video_path: str) -> float:
 
         data = json.loads(result.stdout)
 
-        # Internal implementation detail
         for stream in data.get('streams', []):
             if stream.get('codec_type') == 'video':
-                # Internal implementation detail
+                # Prefer avg_frame_rate, then fall back to r_frame_rate.
                 avg_frame_rate = stream.get('avg_frame_rate')
                 if avg_frame_rate:
                     num, den = avg_frame_rate.split('/')
                     if den and int(den) != 0:
                         return float(num) / float(den)
 
-                # Internal implementation detail
                 r_frame_rate = stream.get('r_frame_rate')
                 if r_frame_rate:
                     num, den = r_frame_rate.split('/')
                     if den and int(den) != 0:
                         return float(num) / float(den)
 
-                # Internal implementation detail
                 avg_fps = stream.get('avg_frame_rate')
                 if avg_fps:
                     return float(avg_fps)

@@ -92,7 +92,6 @@ class PrompterConfig:
         if not data:
             return cls()
 
-        # Internal implementation detail
         colors_data = data.get('colors', {})
         if isinstance(colors_data, dict):
             colors = PrompterColors.from_dict(colors_data)
@@ -100,7 +99,7 @@ class PrompterConfig:
             colors = PrompterColors()
 
         valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
-        valid_keys.discard('colors')  # Internal implementation detail
+        valid_keys.discard('colors')
 
         filtered = {k: v for k, v in data.items() if k in valid_keys}
         filtered['colors'] = colors

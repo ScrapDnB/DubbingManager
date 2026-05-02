@@ -42,17 +42,14 @@ class EpisodeController:
         if not path:
             return []
 
-        # Internal implementation detail
         if not os.path.exists(path):
             return []
 
-        # Internal implementation detail
         if path.lower().endswith('.srt'):
             lines = self.episode_service.load_srt_episode(ep_num, episodes)
         else:
             lines = self.episode_service.load_episode(ep_num, episodes)
 
-        # Internal implementation detail
         self.data_ref["loaded_episodes"][ep_num] = lines
 
         return lines
@@ -199,7 +196,6 @@ class EpisodeController:
         if old_name not in episodes:
             return False
 
-        # Internal implementation detail
         path = episodes.pop(old_name)
         episodes[new_name] = path
 
@@ -237,7 +233,6 @@ class EpisodeController:
         import re
         filename = os.path.basename(path)
 
-        # Internal implementation detail
         match = re.search(r'[Ss](\d+)[Ee](\d+)|(\d+)[xX](\d+)|[Ee]p\.?\s*(\d+)', filename)
         if match:
             groups = match.groups()
@@ -248,12 +243,10 @@ class EpisodeController:
             elif groups[4]:  # Ep. 1
                 return f"{int(groups[4])}"
 
-        # Internal implementation detail
         numbers = re.findall(r'\d+', filename)
         if numbers:
-            return numbers[-1]  # Internal implementation detail
+            return numbers[-1]
 
-        # Internal implementation detail
         name = os.path.splitext(filename)[0]
         return name if name else "1"
 

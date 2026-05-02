@@ -50,7 +50,6 @@ from config.constants import (
     SCROLL_THRESHOLD_TOP,
     SCROLL_THRESHOLD_BOTTOM,
     PROMPTER_NAV_BUTTON_MIN_WIDTH,
-    # Internal implementation detail
     FLOAT_BTN_WIDTH,
     FLOAT_BTN_HEIGHT,
     FLOAT_BTN_Y_PREV,
@@ -90,7 +89,6 @@ class SettingsSection(QFrame):
         self.main_layout.setContentsMargins(8, 6, 8, 8)
         self.main_layout.setSpacing(4)
 
-        # Internal implementation detail
         title_label = QLabel(title)
         title_label.setStyleSheet(
             "font-weight: bold; font-size: 13px;"
@@ -151,7 +149,6 @@ class EditableTextItem(QGraphicsTextItem):
                         log_exception(logger, "Error editing text", e)
         except Exception as e:
             log_exception(logger, "Error in mouseDoubleClickEvent", e)
-        # Internal implementation detail
 
 
 class TeleprompterFloatWindow(QDialog):
@@ -160,7 +157,7 @@ class TeleprompterFloatWindow(QDialog):
     def __init__(self, teleprompter: 'TeleprompterWindow') -> None:
         super().__init__(None)
         self.teleprompter: 'TeleprompterWindow' = teleprompter
-        self._drag_pos = None  # Internal implementation detail
+        self._drag_pos = None
         self._cocoa_window = None  # macOS-specific handling
 
         # macOS-specific handling
@@ -191,7 +188,6 @@ class TeleprompterFloatWindow(QDialog):
             )
             import objc
             
-            # Internal implementation detail
             self._cocoa_window = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
                 NSMakeRect(100, 100, PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT),
                 NSUtilityWindowMask | NSNonactivatingPanelMask,
@@ -204,13 +200,10 @@ class TeleprompterFloatWindow(QDialog):
             self._cocoa_window.setTitle_("Управление")
             self._cocoa_window.setMovableByWindowBackground_(True)
             
-            # Internal implementation detail
             content_view = NSView.alloc().initWithFrame_(
                 NSMakeRect(0, 0, PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT)
             )
             
-            # Internal implementation detail
-            # Internal implementation detail
             btn_next = NSButton.alloc().initWithFrame_(
                 NSMakeRect(FLOAT_MARGIN_X, FLOAT_BTN_Y_PREV, FLOAT_BTN_WIDTH, FLOAT_BTN_HEIGHT)
             )
@@ -220,7 +213,6 @@ class TeleprompterFloatWindow(QDialog):
             btn_next.setAction_(objc.selector(self.onNextClicked_, signature=b'v@:@'))
             content_view.addSubview_(btn_next)
             
-            # Internal implementation detail
             btn_prev = NSButton.alloc().initWithFrame_(
                 NSMakeRect(FLOAT_MARGIN_X, FLOAT_BTN_Y_NEXT, FLOAT_BTN_WIDTH, FLOAT_BTN_HEIGHT)
             )
@@ -230,7 +222,6 @@ class TeleprompterFloatWindow(QDialog):
             btn_prev.setAction_(objc.selector(self.onPrevClicked_, signature=b'v@:@'))
             content_view.addSubview_(btn_prev)
             
-            # Internal implementation detail
             from AppKit import NSTextField, NSCenterTextAlignment
             label = NSTextField.alloc().initWithFrame_(
                 NSMakeRect(FLOAT_MARGIN_X, FLOAT_LABEL_Y, FLOAT_BTN_WIDTH, FLOAT_LABEL_HEIGHT)
@@ -244,7 +235,6 @@ class TeleprompterFloatWindow(QDialog):
             label.setAlignment_(NSCenterTextAlignment)
             content_view.addSubview_(label)
             
-            # Internal implementation detail
             from AppKit import NSTextView, NSScrollView, NSBezelBorder, NSTextViewDidChangeSelectionNotification
             from Foundation import NSNotificationCenter
             
@@ -267,7 +257,6 @@ class TeleprompterFloatWindow(QDialog):
             scroll_view.setDocumentView_(text_view)
             content_view.addSubview_(scroll_view)
             
-            # Internal implementation detail
             NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
                 self,
                 'onReplicaSelected:',
@@ -280,7 +269,6 @@ class TeleprompterFloatWindow(QDialog):
             self._replica_scroll_view = scroll_view
             self._replica_items = []
 
-            # Internal implementation detail
             btn_hide = NSButton.alloc().initWithFrame_(
                 NSMakeRect(FLOAT_BTN_HIDE_X, FLOAT_BTN_HIDE_Y, FLOAT_BTN_HIDE_WIDTH, FLOAT_BTN_HIDE_HEIGHT)
             )
@@ -293,7 +281,6 @@ class TeleprompterFloatWindow(QDialog):
             self._cocoa_window.setContentView_(content_view)
             self._content_view = content_view
 
-            # Internal implementation detail
             self._btn_prev = btn_prev
             self._btn_next = btn_next
             
@@ -320,7 +307,6 @@ class TeleprompterFloatWindow(QDialog):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(4)
 
-        # Internal implementation detail
         self.drag_label = QLabel("☰ Управление")
         self.drag_label.setStyleSheet("""
             QLabel {
@@ -336,7 +322,6 @@ class TeleprompterFloatWindow(QDialog):
         self.drag_label.setCursor(Qt.OpenHandCursor)
         layout.addWidget(self.drag_label)
 
-        # Internal implementation detail
         btn_layout: QHBoxLayout = QHBoxLayout()
 
         self.btn_prev = QPushButton("⏮ Назад")
@@ -355,7 +340,6 @@ class TeleprompterFloatWindow(QDialog):
 
         layout.addLayout(btn_layout)
 
-        # Internal implementation detail
         layout.addWidget(QLabel("<b>Список реплик:</b>"))
         self.replica_list = QListWidget()
         self.replica_list.itemClicked.connect(
@@ -363,7 +347,6 @@ class TeleprompterFloatWindow(QDialog):
         )
         layout.addWidget(self.replica_list)
 
-        # Internal implementation detail
         btn_close = QPushButton("Скрыть")
         btn_close.clicked.connect(self.hide_window)
         layout.addWidget(btn_close)
@@ -390,10 +373,8 @@ class TeleprompterFloatWindow(QDialog):
     def show_cocoa_window(self) -> None:
         """Show cocoa window."""
         if self._cocoa_window:
-            # Internal implementation detail
             self.update_cocoa_replica_list()
             
-            # Internal implementation detail
             if hasattr(self, 'teleprompter') and self.teleprompter:
                 current_time = self.teleprompter.last_known_time
                 for i, item in enumerate(self._replica_items):
@@ -401,7 +382,6 @@ class TeleprompterFloatWindow(QDialog):
                         self.update_cocoa_selection(i)
                         break
             
-            # Internal implementation detail
             self._cocoa_window.orderFrontRegardless()
             self._cocoa_window.makeKeyAndOrderFront_(None)
 
@@ -431,11 +411,9 @@ class TeleprompterFloatWindow(QDialog):
         
         logger.debug(f"Cocoa: найдено {len(self._replica_items)} реплик")
         
-        # Internal implementation detail
         text = '\n'.join(replicas) if replicas else "Нет реплик"
         self._replica_text_view.setString_(text)
         
-        # Internal implementation detail
         from Foundation import NSMakeRange
         self._replica_text_view.scrollRangeToVisible_(NSMakeRange(0, 0))
         logger.debug("Cocoa: текст обновлён")
@@ -447,7 +425,6 @@ class TeleprompterFloatWindow(QDialog):
         selected_location = selected_range.location
         
         if selected_location >= 0 and hasattr(self, '_replica_items'):
-            # Internal implementation detail
             text = text_view.string()
             if text:
                 lines = text.split('\n')
@@ -458,36 +435,31 @@ class TeleprompterFloatWindow(QDialog):
                     line_end = current_pos + len(line)
                     
                     if line_start <= selected_location <= line_end:
-                        # Internal implementation detail
                         if i < len(self._replica_items):
                             time_code = self._replica_items[i].get('time')
                             if time_code:
                                 self.on_replica_clicked(time_code)
                         break
                     
-                    current_pos = line_end + 1  # Internal implementation detail
+                    current_pos = line_end + 1
 
     def update_cocoa_selection(self, index: int) -> None:
         """Update cocoa selection."""
         if not hasattr(self, '_replica_text_view') or not self._replica_items:
             return
         
-        # Internal implementation detail
         if 0 <= index < len(self._replica_items):
-            # Internal implementation detail
             text = self._replica_text_view.string()
             if text:
                 lines = text.split('\n')
                 pos = 0
                 for i in range(index):
-                    pos += len(lines[i]) + 1  # Internal implementation detail
+                    pos += len(lines[i]) + 1
                 
-                # Internal implementation detail
                 from Foundation import NSMakeRange
                 line_length = len(lines[index]) if index < len(lines) else 0
                 self._replica_text_view.setSelectedRange_(NSMakeRange(pos, line_length))
                 
-                # Internal implementation detail
                 self._replica_text_view.scrollRangeToVisible_(NSMakeRange(pos, line_length))
 
     def on_replica_clicked(self, time_code: float) -> None:
@@ -554,8 +526,7 @@ class TeleprompterFloatWindow(QDialog):
     def mousePressEvent(self, event) -> None:
         """Mousepressevent."""
         if event.button() == Qt.LeftButton:
-            # Internal implementation detail
-            if event.pos().y() < 30:  # Internal implementation detail
+            if event.pos().y() < 30:
                 self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                 self.drag_label.setCursor(Qt.ClosedHandCursor)
                 event.accept()
@@ -601,10 +572,8 @@ class TeleprompterWindow(QDialog):
         self.setWindowTitle(f"Телесуфлёр - Серия {ep_num}")
         self.resize(PROMPTER_WINDOW_WIDTH, PROMPTER_WINDOW_HEIGHT)
 
-        # Internal implementation detail
         self._init_config()
 
-        # Internal implementation detail
         self.time_map = []
         self.osc_thread: Optional[OscWorker] = None
         self.osc_client = None
@@ -632,7 +601,6 @@ class TeleprompterWindow(QDialog):
 
         self.cfg: Dict[str, Any] = self.main_app.data["prompter_config"]
 
-        # Internal implementation detail
         if "colors" not in self.cfg or not isinstance(self.cfg["colors"], dict):
             self.cfg["colors"] = DEFAULT_PROMPTER_CONFIG["colors"].copy()
         else:
@@ -648,13 +616,10 @@ class TeleprompterWindow(QDialog):
         self.root_layout.setContentsMargins(0, 0, 0, 0)
         self.root_layout.setSpacing(0)
 
-        # Internal implementation detail
         self._init_toolbar()
 
-        # Internal implementation detail
         self._init_splitters()
 
-        # Internal implementation detail
         self.smooth_scroll_timer = QTimer()
         self.smooth_scroll_timer.setInterval(16)
         self.smooth_scroll_timer.timeout.connect(self.smooth_scroll_step)
@@ -800,7 +765,6 @@ class TeleprompterWindow(QDialog):
             lambda pos, idx: self.update_big_timecode_font_size()
         )
         
-        # Internal implementation detail
         self.header_panel = QFrame()
         self.header_panel.setObjectName("HeaderPanel")
         self.header_panel.setMinimumHeight(0)
@@ -812,15 +776,12 @@ class TeleprompterWindow(QDialog):
         header_layout.addWidget(self.lbl_big_timecode)
         self.v_splitter.addWidget(self.header_panel)
         
-        # Internal implementation detail
         self.h_splitter = QSplitter(Qt.Horizontal)
         self.h_splitter.setHandleWidth(8)
         
-        # Internal implementation detail
         self._init_side_panel()
         self.h_splitter.addWidget(self.side_panel_widget)
         
-        # Internal implementation detail
         self.prompter_scene = QGraphicsScene()
         self.prompter_view = QGraphicsView(self.prompter_scene)
         self.prompter_view.setRenderHints(
@@ -837,7 +798,6 @@ class TeleprompterWindow(QDialog):
         self.v_splitter.addWidget(self.h_splitter)
         self.root_layout.addWidget(self.v_splitter)
 
-        # Internal implementation detail
         self.header_panel.setVisible(self.cfg["show_header"])
         self.v_splitter.setSizes(PROMPTER_V_SPLITTER_SIZES)
         self.h_splitter.setSizes(PROMPTER_H_SPLITTER_SIZES)
@@ -882,7 +842,6 @@ class TeleprompterWindow(QDialog):
         self.side_panel_widget.setMinimumWidth(PROMPTER_SIDE_PANEL_MIN_WIDTH)
         self.side_layout = QVBoxLayout(self.side_panel_widget)
         
-        # Internal implementation detail
         self.settings_scroll_area = QScrollArea()
         self.settings_scroll_area.setWidgetResizable(True)
         self.settings_scroll_area.setFrameShape(QFrame.NoFrame)
@@ -891,7 +850,6 @@ class TeleprompterWindow(QDialog):
         settings_v_layout = QVBoxLayout(settings_container)
         settings_v_layout.setSpacing(4)
         
-        # Internal implementation detail
         self._init_font_settings(settings_v_layout)
         self._init_focus_settings(settings_v_layout)
         self._init_scroll_settings(settings_v_layout)
@@ -901,7 +859,6 @@ class TeleprompterWindow(QDialog):
         self.settings_scroll_area.setWidget(settings_container)
         self.side_layout.addWidget(self.settings_scroll_area)
         
-        # Internal implementation detail
         self.btn_actor_filter = QPushButton(
             "🎭 Выбор актёров для суфлёра..."
         )
@@ -1067,7 +1024,6 @@ class TeleprompterWindow(QDialog):
         osc_layout.addWidget(self.chk_reaper_follow)
         osc_layout.addWidget(self.btn_osc)
         
-        # Internal implementation detail
         offset_layout = QHBoxLayout()
         self.chk_offset = QCheckBox(
             "Отступ -2 секунды",
@@ -1200,7 +1156,6 @@ class TeleprompterWindow(QDialog):
         self.cfg["f_actor"] = self.spin_font_actor.value()
         self.cfg["f_text"] = self.spin_font_text.value()
 
-        # Internal implementation detail
         self.main_app.save_global_prompter_settings(self.cfg)
 
         if not getattr(self, '_initializing', False):
@@ -1271,7 +1226,6 @@ class TeleprompterWindow(QDialog):
         if dialog.exec():
             self.cfg["colors"] = dialog.get_final_colors()
             
-            # Internal implementation detail
             self.main_app.save_global_prompter_settings(self.cfg)
             
             self.main_app.set_dirty(True)
@@ -1307,7 +1261,6 @@ class TeleprompterWindow(QDialog):
         lines.sort(key=lambda x: x['s'])
         export_service = ExportService(self.main_app.data)
         
-        # Internal implementation detail
         merge_cfg = self.main_app.data.get("replica_merge_config", {})
         processed = export_service.process_merge_logic(
             lines, merge_cfg
@@ -1352,7 +1305,6 @@ class TeleprompterWindow(QDialog):
                     self.list_of_replicas.count() - 1
                 ).setData(Qt.UserRole, replica['s'])
                 
-                # Internal implementation detail
                 if self.last_known_time == 0.0:
                     self.last_known_time = replica['s']
             else:
@@ -1361,7 +1313,6 @@ class TeleprompterWindow(QDialog):
             
             row_y = y_cursor
             
-            # Internal implementation detail
             item_char = QGraphicsTextItem(replica['char'])
             item_char.setFont(f_char)
             item_char.setDefaultTextColor(char_col)
@@ -1380,7 +1331,6 @@ class TeleprompterWindow(QDialog):
             )
             self.prompter_scene.addItem(item_tc)
             
-            # Internal implementation detail
             item_actor = QGraphicsTextItem(f"({actor_info['name']}) ")
             item_actor.setFont(f_actor)
             item_actor.setDefaultTextColor(char_col)
@@ -1393,7 +1343,6 @@ class TeleprompterWindow(QDialog):
             
             y_cursor += item_char.boundingRect().height()
             
-            # Internal implementation detail
             if replica.get('_working_text'):
                 editable_ids = [replica.get('id', i)]
             else:
@@ -1407,7 +1356,6 @@ class TeleprompterWindow(QDialog):
             item_text.setPos(0, y_cursor)
             self.prompter_scene.addItem(item_text)
             
-            # Internal implementation detail
             self.time_map.append({
                 'index': i,
                 's': replica['s'],
@@ -1483,7 +1431,6 @@ class TeleprompterWindow(QDialog):
                     time_seconds - segment['e']
                 ) * 100
 
-        # Internal implementation detail
         if target_list_idx != -1:
             self.list_of_replicas.blockSignals(True)
             self.list_of_replicas.setCurrentRow(target_list_idx)
@@ -1493,7 +1440,6 @@ class TeleprompterWindow(QDialog):
             )
             self.list_of_replicas.blockSignals(False)
 
-        # Internal implementation detail
         view_h = self.prompter_view.height()
         offset = (0.5 - self.cfg["focus_ratio"]) * view_h
         target_full_y = target_y + offset
@@ -1616,7 +1562,6 @@ class TeleprompterWindow(QDialog):
         if self.cfg["sync_in"]:
             self.exit_manual_scroll_override()
         
-        # Internal implementation detail
         self.main_app.save_global_prompter_settings(self.cfg)
         
         self.main_app.set_dirty(True)
@@ -1856,10 +1801,8 @@ class TeleprompterWindow(QDialog):
 
     def refresh_episode_data(self) -> None:
         """Refresh episode data."""
-        # Internal implementation detail
         self.main_app.episode_service.invalidate_episode(self.ep_num)
         
-        # Internal implementation detail
         try:
             self.build_prompter_content()
         except Exception as e:

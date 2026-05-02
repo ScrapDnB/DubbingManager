@@ -31,7 +31,6 @@ class ActorFilterDialog(QDialog):
     def _init_ui(self) -> None:
         layout: QVBoxLayout = QVBoxLayout(self)
 
-        # Internal implementation detail
         btn_layout: QHBoxLayout = QHBoxLayout()
         btn_all = QPushButton("Все")
         btn_none = QPushButton("Сбросить")
@@ -41,7 +40,6 @@ class ActorFilterDialog(QDialog):
         btn_layout.addWidget(btn_none)
         layout.addLayout(btn_layout)
 
-        # Internal implementation detail
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         content = QWidget()
@@ -61,7 +59,6 @@ class ActorFilterDialog(QDialog):
         scroll.setWidget(content)
         layout.addWidget(scroll)
 
-        # Internal implementation detail
         btn_ok = QPushButton("Применить")
         btn_ok.clicked.connect(self.accept)
         layout.addWidget(btn_ok)

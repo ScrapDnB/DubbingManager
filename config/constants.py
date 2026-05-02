@@ -1,7 +1,7 @@
 """Application constants."""
 
 # =============================================================================
-# Internal implementation detail
+# Palette and Colors
 # =============================================================================
 
 MY_PALETTE = [
@@ -12,18 +12,15 @@ MY_PALETTE = [
 ]
 
 # =============================================================================
-# Internal implementation detail
+# Main Window UI Constants
 # =============================================================================
 
-# Internal implementation detail
 MAIN_WINDOW_WIDTH = 1350
 MAIN_WINDOW_HEIGHT = 850
 
-# Internal implementation detail
 ACTOR_PANEL_WIDTH = 350
 TOOLS_SIDEBAR_WIDTH = 160
 
-# Internal implementation detail
 SEARCH_EDIT_WIDTH = 160
 
 # Buttons
@@ -42,10 +39,9 @@ MAIN_TABLE_SCOPE_COL_WIDTH = 130
 MAIN_TABLE_VIDEO_COL_WIDTH = 64
 
 # =============================================================================
-# Internal implementation detail
+# Teleprompter UI Constants
 # =============================================================================
 
-# Internal implementation detail
 PROMPTER_WINDOW_WIDTH = 1200
 PROMPTER_WINDOW_HEIGHT = 900
 PROMPTER_FLOAT_WINDOW_WIDTH = 300
@@ -56,8 +52,8 @@ EDIT_TEXT_DIALOG_HEIGHT = 400
 # macOS-specific handling
 FLOAT_BTN_WIDTH = 280
 FLOAT_BTN_HEIGHT = 50
-FLOAT_BTN_Y_PREV = 340  # Internal implementation detail
-FLOAT_BTN_Y_NEXT = 280  # Internal implementation detail
+FLOAT_BTN_Y_PREV = 340  # Back button in the upper slot.
+FLOAT_BTN_Y_NEXT = 280  # Forward button in the lower slot.
 FLOAT_LABEL_Y = 250
 FLOAT_LABEL_HEIGHT = 20
 FLOAT_SCROLL_Y = 50
@@ -70,13 +66,11 @@ FLOAT_BTN_HIDE_X = 105
 FLOAT_BTN_HIDE_Y = 10
 FLOAT_MARGIN_X = 10
 
-# Internal implementation detail
 PROMPTER_SETTINGS_PANEL_MIN_WIDTH = 320
 PROMPTER_SIDE_PANEL_MIN_WIDTH = 320
 PROMPTER_SETTINGS_WIDTH = 280
 PROMPTER_NAV_BUTTON_MIN_WIDTH = 160
 
-# Internal implementation detail
 PROMPTER_V_SPLITTER_SIZES = [100, 800]
 PROMPTER_H_SPLITTER_SIZES = [320, 900]
 PROMPTER_SIDE_MIN_WIDTH = 200
@@ -84,24 +78,21 @@ PROMPTER_SIDE_MAX_WIDTH = 420
 PROMPTER_SCENE_WIDTH = 850
 PROMPTER_SCENE_CENTER_X = 425
 
-# Internal implementation detail
 PROMPTER_FONT_MIN_SIZE = 10
 PROMPTER_FONT_TC_MAX = 150
 PROMPTER_FONT_CHAR_MAX = 150
 PROMPTER_FONT_ACTOR_MAX = 150
 PROMPTER_FONT_TEXT_MAX = 300
 
-# Internal implementation detail
 PROMPTER_FOCUS_SLIDER_MAX = 100
 PROMPTER_SCROLL_SMOOTHNESS_MAX = 100
 PROMPTER_SCROLL_SMOOTHNESS_SCALE = 100
 
-# Internal implementation detail
 PROMPTER_TIMECODE_Y_CURSOR = 1000.0
 PROMPTER_SCENE_EXTRA_HEIGHT = 1000
 
 # =============================================================================
-# Internal implementation detail
+# Preview UI Constants
 # =============================================================================
 
 PREVIEW_WINDOW_WIDTH = 1200
@@ -109,7 +100,7 @@ PREVIEW_WINDOW_HEIGHT = 900
 PREVIEW_SETTINGS_PANEL_WIDTH = 280
 
 # =============================================================================
-# Internal implementation detail
+# Dialog UI Constants
 # =============================================================================
 
 DOCX_IMPORT_DIALOG_WIDTH = 900
@@ -118,7 +109,7 @@ ACTOR_ROLES_DIALOG_WIDTH = 520
 ACTOR_ROLES_DIALOG_HEIGHT = 420
 
 # =============================================================================
-# Internal implementation detail
+# Video UI Constants
 # =============================================================================
 
 VIDEO_WINDOW_WIDTH = 1000
@@ -126,37 +117,31 @@ VIDEO_WINDOW_HEIGHT = 800
 VIDEO_WIDGET_MIN_HEIGHT = 400
 
 # =============================================================================
-# Internal implementation detail
+# Shared UI Constants
 # =============================================================================
 
-# Internal implementation detail
 DEFAULT_MARGIN = 5
 DEFAULT_SPACING = 4
 HEADER_MARGIN = (8, 6, 8, 6)  # left, top, right, bottom
 CONTENT_MARGIN = (8, 0, 8, 8)
 
-# Internal implementation detail
 PROJECT_BAR_SPACING = 20
 PROJECT_FOLDER_BTN_WIDTH = 30
 ABOUT_BTN_WIDTH = 30
 EXPORT_PANEL_SPACING = 10
 
-# Internal implementation detail
-AUTOSAVE_INTERVAL_MS = 300000  # Internal implementation detail
+AUTOSAVE_INTERVAL_MS = 300000  # 5 minutes.
 SCROLL_TIMEOUT_MS = 50
 
-# Internal implementation detail
 SCROLL_THRESHOLD_TOP = 50
 SCROLL_THRESHOLD_BOTTOM = 160
 
-# Internal implementation detail
 FPS = 25
 
 # =============================================================================
-# Internal implementation detail
+# Default Configuration
 # =============================================================================
 
-# Internal implementation detail
 DEFAULT_PROMPTER_CONFIG = {
     "f_tc": 20,
     "f_char": 24,
@@ -185,7 +170,6 @@ DEFAULT_PROMPTER_CONFIG = {
     }
 }
 
-# Internal implementation detail
 DEFAULT_EXPORT_CONFIG = {
     'layout_type': 'Таблица',
     'col_tc': True,
@@ -203,13 +187,12 @@ DEFAULT_EXPORT_CONFIG = {
     'allow_edit': True
 }
 
-# Internal implementation detail
 DEFAULT_REPLICA_MERGE_CONFIG = {
     'merge': True,
-    'merge_gap': 120,  # Internal implementation detail
+    'merge_gap': 120,  # Maximum frame gap for merging adjacent replicas.
     'p_short': 0.5,
     'p_long': 2.0,
-    'fps': 25,  # Internal implementation detail
+    'fps': 25,  # Frame rate used for time conversion.
 }
 
 # DOCX-specific handling
@@ -218,19 +201,18 @@ DEFAULT_DOCX_IMPORT_CONFIG = {
     'time_separators': ['-'],
 }
 
-# Internal implementation detail
 DEFAULT_GLOBAL_SETTINGS = {
-    'export_config': None,  # Internal implementation detail
-    'prompter_config': None,  # Internal implementation detail
-    'replica_merge_config': None,  # Internal implementation detail
+    'export_config': None,  # Initialized from DEFAULT_EXPORT_CONFIG.
+    'prompter_config': None,  # Initialized from DEFAULT_PROMPTER_CONFIG.
+    'replica_merge_config': None,  # Initialized from DEFAULT_REPLICA_MERGE_CONFIG.
     'docx_import_config': None,  # DOCX-specific handling
 }
 
-# Internal implementation detail
+# Application version shown in the UI and build metadata.
 APP_VERSION = "1.4.0"
 
-# Internal implementation detail
+# Project file format version used for compatibility migrations.
 PROJECT_VERSION = "1.3"
 
-# Internal implementation detail
+# Folder name for Dubbing Manager working text JSON files.
 SCRIPT_TEXT_DIR_NAME = "texts_dm"

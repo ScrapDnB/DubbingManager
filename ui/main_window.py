@@ -423,7 +423,6 @@ class MainWindow(QMainWindow):
         self.resize(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
         self.setAcceptDrops(True)
 
-        # Internal implementation detail
         self.project_service = ProjectService()
         self.actor_service = ActorService()
         self.global_settings_service = GlobalSettingsService()
@@ -432,17 +431,14 @@ class MainWindow(QMainWindow):
         self.assignment_transfer_service = AssignmentTransferService()
         self.episode_service = EpisodeService()
 
-        # Internal implementation detail
         self.actor_controller: Optional[ActorController] = None
         self.episode_controller: Optional[EpisodeController] = None
         self.export_controller: Optional[ExportController] = None
         self.project_controller: Optional[ProjectController] = None
 
-        # Internal implementation detail
         self.undo_stack = UndoStack()
         self.undo_stack.on_change(self._on_undo_stack_change)
 
-        # Internal implementation detail
         self.current_project_path = None
         self.is_dirty = False
         self.sort_col = 1
@@ -450,27 +446,22 @@ class MainWindow(QMainWindow):
         self.preview_window = None
         self.teleprompter_window = None
 
-        # Internal implementation detail
         self.global_settings = self.global_settings_service.load_settings()
 
-        # Internal implementation detail
         self.data = self.project_service.create_new_project("Новый проект")
 
-        # Internal implementation detail
         self._init_controllers()
 
-        # Internal implementation detail
         self._apply_global_settings_to_project()
 
         self.current_ep_stats = []
         self.character_names_changed = {}
-        self.text_changes = {}  # Internal implementation detail
+        self.text_changes = {}
 
         self._init_ui()
         self.update_window_title()
         self._update_new_project_button()
 
-        # Internal implementation detail
         self.autosave_timer = QTimer(self)
         self.autosave_timer.timeout.connect(self._on_autosave_timer)
         self.autosave_timer.start(AUTOSAVE_INTERVAL_MS)
@@ -505,25 +496,20 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         main_layout: QHBoxLayout = QHBoxLayout(central)
 
-        # Internal implementation detail
         self._init_actor_panel(main_layout)
 
-        # Internal implementation detail
         self._init_main_panel(main_layout)
 
-        # Internal implementation detail
         self._setup_undo_redo_shortcuts()
 
     def _setup_undo_redo_shortcuts(self) -> None:
         """Setup undo redo shortcuts."""
-        # Internal implementation detail
         undo_shortcut = QKeySequence("Ctrl+Z")
         undo_action = QAction("Undo", self)
         undo_action.setShortcut(undo_shortcut)
         undo_action.triggered.connect(self.undo)
         self.addAction(undo_action)
 
-        # Internal implementation detail
         redo_shortcut = QKeySequence("Ctrl+Shift+Z")
         redo_action = QAction("Redo", self)
         redo_action.setShortcut(redo_shortcut)
@@ -552,7 +538,6 @@ class MainWindow(QMainWindow):
         self.actor_table = QTableWidget(0, 4)
         customize_table(self.actor_table)
 
-        # Internal implementation detail
         self.actor_controller = ActorController(
             actor_table=self.actor_table,
             actor_service=self.actor_service,
@@ -565,7 +550,6 @@ class MainWindow(QMainWindow):
 
         left_panel.addWidget(self.actor_table)
 
-        # Internal implementation detail
         btn_layout = QHBoxLayout()
         
         self.btn_add_actor = QPushButton("+ Актер")
@@ -598,16 +582,12 @@ class MainWindow(QMainWindow):
         """Init main panel."""
         right_panel: QVBoxLayout = QVBoxLayout()
 
-        # Internal implementation detail
         self._init_project_bar(right_panel)
 
-        # Internal implementation detail
         self._init_episode_controls(right_panel)
 
-        # Internal implementation detail
         self._init_center_area(right_panel)
 
-        # Internal implementation detail
         self._init_bottom_panel(right_panel)
 
         main_layout.addLayout(right_panel)
@@ -668,7 +648,6 @@ class MainWindow(QMainWindow):
 
         top.addSpacing(PROJECT_BAR_SPACING)
 
-        # Internal implementation detail
         self.btn_folder = QPushButton("📁 Папка")
         self.btn_folder.setToolTip("Установить папку проекта")
         self.btn_folder.clicked.connect(self.set_project_folder_dialog)
@@ -682,7 +661,6 @@ class MainWindow(QMainWindow):
 
         top.addStretch()
 
-        # Internal implementation detail
         btn_files = QPushButton("📋 Файлы")
         btn_files.setToolTip("Просмотр структуры файлов проекта")
         btn_files.clicked.connect(self.open_project_files_dialog)
@@ -710,7 +688,6 @@ class MainWindow(QMainWindow):
         ep_ctrl.addWidget(QLabel("Серия:"))
         ep_ctrl.addWidget(self.ep_combo)
 
-        # Internal implementation detail
         btn_import = QPushButton("📥 Импорт")
         btn_import.clicked.connect(self.import_files)
         ep_ctrl.addWidget(btn_import)
@@ -759,7 +736,6 @@ class MainWindow(QMainWindow):
         """Init center area."""
         middle_layout: QHBoxLayout = QHBoxLayout()
 
-        # Internal implementation detail
         self.table_stack = QStackedWidget()
 
         self.main_table = QTableView()
@@ -812,7 +788,6 @@ class MainWindow(QMainWindow):
 
         middle_layout.addWidget(self.table_stack, stretch=1)
 
-        # Internal implementation detail
         self._init_tools_sidebar(middle_layout)
 
         layout.addLayout(middle_layout)
@@ -867,7 +842,6 @@ class MainWindow(QMainWindow):
         """Init bottom panel."""
         bottom_panel = QHBoxLayout()
 
-        # Internal implementation detail
         btn_settings = QPushButton("⚙ Настройки")
         btn_settings.setToolTip("Общие настройки экспорта, объединения, телесуфлёра и DOCX")
         btn_settings.clicked.connect(self.open_settings)
@@ -875,7 +849,6 @@ class MainWindow(QMainWindow):
 
         bottom_panel.addStretch()
 
-        # Internal implementation detail
         exp_group = QGroupBox("Экспорт монтажных листов")
         exp_lay = QHBoxLayout(exp_group)
         exp_lay.setContentsMargins(5, 5, 5, 5)
@@ -917,7 +890,6 @@ class MainWindow(QMainWindow):
         bottom_panel.addWidget(exp_group)
         layout.addLayout(bottom_panel)
     
-    # Internal implementation detail
 
     def set_dirty(self, dirty: bool = True) -> None:
         """Set dirty."""
@@ -1105,12 +1077,10 @@ class MainWindow(QMainWindow):
         """Handle project name change."""
         old_name = self.data.get("project_name", "")
         if text != old_name:
-            # Internal implementation detail
             command = UpdateProjectNameCommand(self.data, text)
             self.undo_stack.push(command)
             self.set_dirty()
 
-    # Internal implementation detail
 
     def on_main_table_cell_clicked(self, index: QModelIndex) -> None:
         """Handle main table cell click."""
@@ -1155,11 +1125,9 @@ class MainWindow(QMainWindow):
 
     def _refresh_open_windows(self, ep: str) -> None:
         """Refresh open windows."""
-        # Internal implementation detail
         if hasattr(self, 'preview_window') and self.preview_window:
             self.preview_window.update_preview()
 
-        # Internal implementation detail
         if hasattr(self, 'teleprompter_window') and self.teleprompter_window:
             self.teleprompter_window.refresh_episode_data()
     
@@ -1251,7 +1219,6 @@ class MainWindow(QMainWindow):
 
         return result
 
-    # Internal implementation detail
 
     def save_project(self) -> bool:
         """Save project."""
@@ -1372,11 +1339,9 @@ class MainWindow(QMainWindow):
             self._remember_recent_project(self.current_project_path)
             self._update_new_project_button()
 
-            # Internal implementation detail
             if self.actor_controller:
                 self.actor_controller.data_ref = self.data
 
-            # Internal implementation detail
             self.proj_edit.blockSignals(True)
             self.proj_edit.setText(self.project_service.get_project_name(self.data))
             self.proj_edit.blockSignals(False)
@@ -1385,7 +1350,6 @@ class MainWindow(QMainWindow):
             logger.info(f"Actors count: {len(self.data.get('actors', {}))}")
             logger.info(f"Global map count: {len(self.data.get('global_map', {}))}")
 
-            # Internal implementation detail
             self.data["loaded_episodes"] = {}
             self.current_ep_stats = []
             self.episode_service.clear_cache()
@@ -1401,13 +1365,10 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # Internal implementation detail
         self.undo_stack.clear()
 
-        # Internal implementation detail
         self._update_project_folder_button()
 
-        # Internal implementation detail
         self._scan_project_folder()
         self._link_existing_working_texts()
         self._prompt_working_text_migration()
@@ -1561,11 +1522,9 @@ class MainWindow(QMainWindow):
         )
         
         if folder:
-            # Internal implementation detail
             command = SetProjectFolderCommand(self.data, folder)
             self.undo_stack.push(command)
             
-            # Internal implementation detail
             self.project_folder_service.set_project_folder(self.data, folder)
             
             # Update UI
@@ -1589,11 +1548,9 @@ class MainWindow(QMainWindow):
         )
 
         if reply == QMessageBox.Yes:
-            # Internal implementation detail
             command = SetProjectFolderCommand(self.data, None)
             self.undo_stack.push(command)
             
-            # Internal implementation detail
             self.project_folder_service.clear_project_folder(self.data)
             
             # Update UI
@@ -1619,7 +1576,6 @@ class MainWindow(QMainWindow):
             self.refresh_main_table()
             self.set_dirty()
 
-    # Internal implementation detail
     
     def on_header_clicked(self, index: int) -> None:
         """Handle header click."""
@@ -2205,7 +2161,6 @@ class MainWindow(QMainWindow):
                 if new_name == old_name:
                     return
 
-                # Internal implementation detail
                 command = RenameActorCommand(
                     self.data["actors"],
                     aid,
@@ -2272,7 +2227,6 @@ class MainWindow(QMainWindow):
         if self.actor_controller:
             dialog = CustomColorDialog(self)
             if dialog.exec() and dialog.selected_color:
-                # Internal implementation detail
                 command = UpdateActorColorCommand(
                     self.data["actors"],
                     aid,
@@ -2288,7 +2242,6 @@ class MainWindow(QMainWindow):
         if not self.actor_controller:
             return
 
-        # Internal implementation detail
         selected_rows = self.actor_table.selectionModel().selectedRows()
         if not selected_rows:
             QMessageBox.information(
@@ -2304,7 +2257,6 @@ class MainWindow(QMainWindow):
         actor_id = item.data(Qt.UserRole)
         actor_name = item.text()
 
-        # Internal implementation detail
         roles = self.actor_controller.get_actor_roles(actor_id)
         
         warning_message = f"Вы уверены, что хотите удалить актёра \"{actor_name}\"?"
@@ -2325,7 +2277,6 @@ class MainWindow(QMainWindow):
         )
 
         if reply == QMessageBox.Yes:
-            # Internal implementation detail
             command = DeleteActorCommand(
                 self.data["actors"],
                 self.data["global_map"],
@@ -2357,7 +2308,6 @@ class MainWindow(QMainWindow):
                     self.data["video_paths"] = {}
                 self.data["video_paths"][ep] = path
                 
-                # Internal implementation detail
                 fps = get_video_fps(path)
                 self.data["replica_merge_config"]["fps"] = fps
                 self.episode_service.set_fps(fps)
@@ -2381,13 +2331,11 @@ class MainWindow(QMainWindow):
 
         self.table_stack.setCurrentIndex(1)
 
-        # Internal implementation detail
-        # Internal implementation detail
 
     def _display_episode_lines(self, lines: List[Dict[str, Any]]) -> None:
         """Display episode lines."""
         # DOCX-specific handling
-        pass  # Internal implementation detail
+        pass
 
     def _recalculate_episode_stats(self, lines: List[Dict[str, Any]]) -> None:
         """Recalculate episode stats."""
@@ -2397,14 +2345,12 @@ class MainWindow(QMainWindow):
             lambda: {"lines": 0, "raw": []}
         )
 
-        # Internal implementation detail
         for line in lines:
             char = line.get('char', '')
             if char:
                 char_data[char]["lines"] += 1
                 char_data[char]["raw"].append(line)
 
-        # Internal implementation detail
         merge_gap_seconds = self.episode_service.merge_gap / self.episode_service.fps
 
         stats = []
@@ -2520,7 +2466,6 @@ class MainWindow(QMainWindow):
         )
 
         if ok and name:
-            # Internal implementation detail
             command = AddEpisodeCommand(
                 self.data["episodes"],
                 name,
@@ -2528,7 +2473,6 @@ class MainWindow(QMainWindow):
             )
             self.undo_stack.push(command)
 
-            # Internal implementation detail
             ext = os.path.splitext(path)[1].lower()
             if ext == '.srt':
                 lines = self._parse_srt_episode(name, path)
@@ -2570,17 +2514,14 @@ class MainWindow(QMainWindow):
         import re
         import os
 
-        # Internal implementation detail
         dialog = DocxImportDialog(self, file_path)
         if dialog.exec() != QDialog.Accepted:
             return
 
-        # Internal implementation detail
         result = dialog.get_result()
         if not result:
             return
 
-        # Internal implementation detail
         numbers: List[str] = re.findall(r'\d+', os.path.basename(file_path))
         num: str = " ".join(numbers) or "1"
 
@@ -2596,11 +2537,9 @@ class MainWindow(QMainWindow):
         if not ok or not name:
             return
 
-        # Internal implementation detail
         lines = result['lines']
         episode_lines = self._convert_imported_lines_for_cache(lines)
 
-        # Internal implementation detail
         command = AddEpisodeCommand(
             self.data["episodes"],
             name,
@@ -2608,12 +2547,10 @@ class MainWindow(QMainWindow):
         )
         self.undo_stack.push(command)
 
-        # Internal implementation detail
         if "loaded_episodes" not in self.data:
             self.data["loaded_episodes"] = {}
         self.data["loaded_episodes"][name] = episode_lines
 
-        # Internal implementation detail
         self.episode_service._loaded_episodes[name] = episode_lines
 
         self._create_working_text_for_episode(name, file_path, episode_lines)
@@ -2624,7 +2561,6 @@ class MainWindow(QMainWindow):
         if working_lines:
             self.data["loaded_episodes"][name] = working_lines
 
-        # Internal implementation detail
         self.current_ep_stats = result['stats']
 
         # Update UI
@@ -2657,12 +2593,10 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.Accepted:
             return
 
-        # Internal implementation detail
         result = dialog.get_result()
         if not result:
             return
 
-        # Internal implementation detail
         numbers: List[str] = re.findall(r'\d+', dialog.file_label.text())
         num: str = " ".join(numbers) or "1"
 
@@ -2678,7 +2612,6 @@ class MainWindow(QMainWindow):
         if not ok or not name:
             return
 
-        # Internal implementation detail
         lines = result['lines']
         episode_lines = self._convert_imported_lines_for_cache(lines)
         docx_path = (
@@ -2690,7 +2623,6 @@ class MainWindow(QMainWindow):
             )
         )
 
-        # Internal implementation detail
         command = AddEpisodeCommand(
             self.data["episodes"],
             name,
@@ -2698,12 +2630,10 @@ class MainWindow(QMainWindow):
         )
         self.undo_stack.push(command)
 
-        # Internal implementation detail
         if "loaded_episodes" not in self.data:
             self.data["loaded_episodes"] = {}
         self.data["loaded_episodes"][name] = episode_lines
 
-        # Internal implementation detail
         self.episode_service._loaded_episodes[name] = episode_lines
 
         self._create_working_text_for_episode(name, docx_path, episode_lines)
@@ -2714,7 +2644,6 @@ class MainWindow(QMainWindow):
         if working_lines:
             self.data["loaded_episodes"][name] = working_lines
 
-        # Internal implementation detail
         self.current_ep_stats = result['stats']
 
         # Update UI
@@ -2753,7 +2682,6 @@ class MainWindow(QMainWindow):
             if scope == ASSIGNMENT_SCOPE_EPISODE and actor_id is None
             else actor_id
         )
-        # Internal implementation detail
         command = AssignActorToCharacterCommand(
             target_map,
             char_name,
@@ -2874,7 +2802,6 @@ class MainWindow(QMainWindow):
         if self.actor_controller:
             self.actor_controller.refresh()
         else:
-            # Internal implementation detail
             logger.warning("refresh_actor_list: actor_controller is None, using fallback")
             self.actor_table.blockSignals(True)
             self.actor_table.setSortingEnabled(False)
@@ -2896,16 +2823,13 @@ class MainWindow(QMainWindow):
                 row: int = self.actor_table.rowCount()
                 self.actor_table.insertRow(row)
 
-                # Internal implementation detail
                 item: QTableWidgetItem = QTableWidgetItem(info["name"])
                 item.setData(Qt.UserRole, aid)
                 self.actor_table.setItem(row, 0, item)
 
-                # Internal implementation detail
                 btn: QPushButton = QPushButton(f"Роли ({len(actor_roles[aid])})")
                 self.actor_table.setCellWidget(row, 1, wrap_widget(btn))
 
-                # Internal implementation detail
                 color_item: QTableWidgetItem = QTableWidgetItem()
                 color_item.setBackground(QColor(info["color"]))
                 self.actor_table.setItem(row, 2, color_item)
@@ -2928,7 +2852,6 @@ class MainWindow(QMainWindow):
             self, "Rename", "New name:", text=str(old)
         )
         if ok and new_name and new_name != old:
-            # Internal implementation detail
             command = RenameEpisodeCommand(
                 self.data["episodes"],
                 old,
@@ -2960,7 +2883,6 @@ class MainWindow(QMainWindow):
 
     def delete_episode(self, ep: str) -> None:
         """Delete episode."""
-        # Internal implementation detail
         command = DeleteEpisodeCommand(
             self.data["episodes"],
             self.data.get("video_paths", {}),
@@ -2970,13 +2892,10 @@ class MainWindow(QMainWindow):
         )
         self.undo_stack.push(command)
 
-        # Internal implementation detail
         self.episode_service.invalidate_episode(ep)
 
-        # Internal implementation detail
         self.update_ep_list()
 
-        # Internal implementation detail
         self.set_dirty()
 
         QMessageBox.information(
@@ -3009,7 +2928,6 @@ class MainWindow(QMainWindow):
             return
         self.change_episode()
 
-    # Internal implementation detail
 
     def run_unified_export(self) -> None:
         """Run unified export."""
@@ -3056,17 +2974,15 @@ class MainWindow(QMainWindow):
         """Execute batch export."""
         export_service = ExportService(self.data)
         
-        # Internal implementation detail
         progress = QProgressDialog(self)
         progress.setWindowTitle("Экспорт")
         progress.setLabelText("Экспорт серий...")
         progress.setRange(0, len(episodes))
         progress.setValue(0)
-        progress.setCancelButton(None)  # Internal implementation detail
+        progress.setCancelButton(None)
         progress.setWindowModality(Qt.WindowModal)
         progress.show()
         
-        # Internal implementation detail
         def progress_callback(current: int, total: int, message: str):
             progress.setValue(current)
             progress.setLabelText(message)
@@ -3154,7 +3070,6 @@ class MainWindow(QMainWindow):
 
 
 
-    # Internal implementation detail
     
     def open_preview(self, char: Optional[str]) -> None:
         """Open preview."""
@@ -3428,19 +3343,16 @@ class MainWindow(QMainWindow):
         project_data: Dict[str, Any]
     ) -> None:
         """Apply global settings to a project data dictionary."""
-        # Internal implementation detail
         if self.global_settings.get('export_config'):
             project_data["export_config"].update(
                 self.global_settings['export_config']
             )
         
-        # Internal implementation detail
         if self.global_settings.get('prompter_config'):
             project_data["prompter_config"].update(
                 self.global_settings['prompter_config']
             )
         
-        # Internal implementation detail
         if self.global_settings.get('replica_merge_config'):
             project_data["replica_merge_config"].update(
                 self.global_settings['replica_merge_config']
@@ -3618,11 +3530,8 @@ class MainWindow(QMainWindow):
 
     def _on_files_changed(self) -> None:
         """Handle files change."""
-        # Internal implementation detail
         self.update_ep_list()
         
-        # Internal implementation detail
         self.change_episode()
         
-        # Internal implementation detail
         self.set_dirty()

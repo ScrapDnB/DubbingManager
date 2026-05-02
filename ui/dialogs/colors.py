@@ -58,7 +58,6 @@ class PrompterColorDialog(QDialog):
 
         main_layout.addLayout(form_layout)
 
-        # Internal implementation detail
         dialog_buttons: QHBoxLayout = QHBoxLayout()
         btn_save = QPushButton("Сохранить цветовую схему")
         btn_save.clicked.connect(self.accept)

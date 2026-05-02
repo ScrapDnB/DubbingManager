@@ -84,7 +84,6 @@ class WebBridge(QObject):
 
                     logger.debug(f"Updated line {lid}: {new_text}")
                 
-                # Internal implementation detail
                 ep = self.main_app.ep_combo.currentData()
                 if ep:
                     if not hasattr(self.main_app, 'text_changes'):

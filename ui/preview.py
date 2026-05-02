@@ -78,7 +78,6 @@ class HtmlLivePreview(QDialog):
         """Init ui."""
         self.root_layout: QVBoxLayout = QVBoxLayout(self)
 
-        # Internal implementation detail
         self.nav_panel: QHBoxLayout = QHBoxLayout()
 
         self.btn_toggle_sidebar = QPushButton("⬅ Скрыть настройки")
@@ -90,11 +89,9 @@ class HtmlLivePreview(QDialog):
 
         self.root_layout.addLayout(self.nav_panel)
 
-        # Internal implementation detail
         self.content_layout: QHBoxLayout = QHBoxLayout()
         self.root_layout.addLayout(self.content_layout)
 
-        # Internal implementation detail
         self.settings_panel = QFrame()
         self.settings_panel.setFixedWidth(PREVIEW_SETTINGS_PANEL_WIDTH)
         self.settings_panel.setFrameShape(QFrame.StyledPanel)
@@ -153,7 +150,6 @@ class HtmlLivePreview(QDialog):
         columns_layout.addWidget(self.combo_time_display)
         sp_layout.addWidget(columns_group)
         
-        # Internal implementation detail
         font_group = QGroupBox("Размеры шрифтов")
         fg_layout = QFormLayout(font_group)
         
@@ -191,7 +187,6 @@ class HtmlLivePreview(QDialog):
         fg_layout.addRow("Текст:", self.s_text)
         sp_layout.addWidget(font_group)
         
-        # Internal implementation detail
         filter_group = QGroupBox("Подсветка")
         f_lay = QVBoxLayout(filter_group)
         btn_filter = QPushButton("Выбрать актеров...")
@@ -206,7 +201,6 @@ class HtmlLivePreview(QDialog):
         
         self.content_layout.addWidget(self.settings_panel)
         
-        # Internal implementation detail
         self.browser = QWebEngineView()
         if not WEB_ENGINE_AVAILABLE:
             self.browser.setOpenExternalLinks(False)
@@ -331,7 +325,6 @@ class HtmlLivePreview(QDialog):
     
     def keyPressEvent(self, event) -> None:
         """Keypressevent."""
-        # Internal implementation detail
         super().keyPressEvent(event)
     
     def closeEvent(self, event) -> None:

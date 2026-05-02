@@ -125,7 +125,6 @@ class ExportController:
             )
 
             if all_episodes:
-                # Internal implementation detail
                 episodes_data = {}
                 for ep_num in self.data_ref.get("episodes", {}).keys():
                     lines = self._get_episode_lines(ep_num)
@@ -197,7 +196,6 @@ class ExportController:
         """Run unified export."""
         results = []
 
-        # Internal implementation detail
         default_name = f"Export_{ep}" if not all_episodes else "Export_All"
 
         if export_html:
@@ -222,7 +220,6 @@ class ExportController:
                 success, msg = self.export_to_excel(ep, path, all_episodes)
                 results.append(("Excel", success, msg))
 
-        # Internal implementation detail
         if not results:
             return False, "Экспорт не выполнен"
 

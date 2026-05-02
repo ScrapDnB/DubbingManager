@@ -47,18 +47,15 @@ class VideoPreviewWindow(QDialog):
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
 
-        # Internal implementation detail
         self.video_widget = QVideoWidget()
         self.video_widget.setMinimumHeight(VIDEO_WIDGET_MIN_HEIGHT)
         layout.addWidget(self.video_widget)
         
-        # Internal implementation detail
         self.media_player = QMediaPlayer()
         self.audio_output = QAudioOutput()
         self.media_player.setVideoOutput(self.video_widget)
         self.media_player.setAudioOutput(self.audio_output)
         
-        # Internal implementation detail
         ctrl_layout = QHBoxLayout()
         btn_play = QPushButton("Play/Pause")
         btn_play.clicked.connect(self.toggle_play)
@@ -74,7 +71,6 @@ class VideoPreviewWindow(QDialog):
         ctrl_layout.addWidget(self.slider)
         layout.addLayout(ctrl_layout)
         
-        # Internal implementation detail
         self.line_table = QTableWidget(0, 3)
         self.line_table.setHorizontalHeaderLabels([
             "Время", "Персонаж", "Текст"
@@ -86,7 +82,6 @@ class VideoPreviewWindow(QDialog):
         self.line_table.cellClicked.connect(self.seek_to_line)
         layout.addWidget(self.line_table)
         
-        # Internal implementation detail
         for line in self.lines:
             row = self.line_table.rowCount()
             self.line_table.insertRow(row)

@@ -49,7 +49,7 @@ hidden_imports = [
     'PySide6.QtWebEngineWidgets',
 ]
 
-# Добавляем остальные зависимости проекта
+# Add the remaining project dependencies.
 hidden_imports += [
     'services', 'ui', 'utils', 'config',
     'certifi', 'charset_normalizer', 'idna', 'requests', 'urllib3',
@@ -124,7 +124,7 @@ if is_onedir:
     )
 
 if is_macos:
-    # Для macOS создаём .app bundle
+    # Create a macOS .app bundle.
     app = BUNDLE(
         coll,
         name=f'{app_name}.app',

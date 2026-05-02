@@ -439,7 +439,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             with open(source_path, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            # Internal implementation detail
             blocks = re.split(r'\n\s*\n', content.strip())
             new_file_content = []
             line_idx = 0

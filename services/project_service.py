@@ -10,8 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-# Internal implementation detail
-# Internal implementation detail
+# fcntl is only available on Unix-like systems; Windows saves without locking.
 try:
     import fcntl
     HAS_FCNTL = True
@@ -30,10 +29,8 @@ from config.constants import (
 
 logger = logging.getLogger(__name__)
 
-# Internal implementation detail
 PROJECT_FORMAT_VERSION = PROJECT_VERSION
 
-# Internal implementation detail
 MAX_BACKUPS = 10
 
 
@@ -74,7 +71,7 @@ class ProjectService:
             "prompter_config": deepcopy(DEFAULT_PROMPTER_CONFIG),
             "replica_merge_config": deepcopy(DEFAULT_REPLICA_MERGE_CONFIG),
             "docx_import_config": deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
-            "project_folder": None,  # Internal implementation detail
+            "project_folder": None,
         }
 
     def load_project(self, path: str) -> Optional[Dict[str, Any]]:
@@ -83,13 +80,10 @@ class ProjectService:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            # Internal implementation detail
             self._validate_project_structure(data)
             
-            # Internal implementation detail
             self._ensure_compatibility(data)
             
-            # Internal implementation detail
             self._update_metadata_on_load(data, path)
 
             self.current_project_path = path
@@ -133,36 +127,32 @@ class ProjectService:
 
     def _do_save(self, data: Dict[str, Any], path: str) -> bool:
         """Do save."""
-        # Internal implementation detail
         self._update_metadata_on_save(data)
 
-        # Internal implementation detail
+        # Write to a temporary file first so a failed save does not corrupt the project.
         temp_path = path + ".tmp"
 
         try:
-            # Internal implementation detail
             with open(temp_path, 'w', encoding='utf-8') as f:
-                # Internal implementation detail
-                # Internal implementation detail
                 if HAS_FCNTL:
                     try:
+                        # Use a non-blocking exclusive lock when the platform supports it.
                         fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                     except (IOError, OSError) as lock_err:
                         logger.warning(f"Could not acquire lock on {temp_path}: {lock_err}")
-                        # Internal implementation detail
 
                 json.dump(data, f, ensure_ascii=False, indent=4)
                 f.flush()
-                os.fsync(f.fileno())  # Internal implementation detail
+                # Force the JSON to disk before swapping it into place.
+                os.fsync(f.fileno())
 
-                # Internal implementation detail
                 if HAS_FCNTL:
                     try:
                         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
                     except (IOError, OSError):
                         pass
 
-            # Internal implementation detail
+            # os.replace is atomic on the same filesystem.
             os.replace(temp_path, path)
 
             self.is_dirty = False
@@ -171,7 +161,6 @@ class ProjectService:
 
         except Exception as e:
             logger.error(f"Save failed: {e}")
-            # Internal implementation detail
             if os.path.exists(temp_path):
                 try:
                     os.unlink(temp_path)
@@ -179,7 +168,7 @@ class ProjectService:
                     pass
             return False
         finally:
-            # Internal implementation detail
+            # Clean up a leftover temp file if os.replace or any earlier step failed.
             if os.path.exists(temp_path):
                 try:
                     os.unlink(temp_path)
@@ -192,23 +181,20 @@ class ProjectService:
             return True
 
         if self.current_project_path:
-            # Internal implementation detail
+            # Saved projects keep rotating backups next to the project file.
             backup_dir = Path(self.current_project_path).parent / ".backups"
             backup_dir.mkdir(exist_ok=True)
             
-            # Internal implementation detail
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             base_name = Path(self.current_project_path).stem
             backup_path = backup_dir / f"{base_name}_{timestamp}.json"
             
             try:
-                # Internal implementation detail
                 with open(backup_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, ensure_ascii=False, indent=4)
                 
                 logger.debug(f"Auto-saved to {backup_path}")
                 
-                # Internal implementation detail
                 self._rotate_backups(backup_dir)
                 
                 return True
@@ -217,7 +203,7 @@ class ProjectService:
                 logger.error(f"Auto-save failed: {e}")
                 return False
         else:
-            # Internal implementation detail
+            # Unsaved projects still get a temporary backup in the current working directory.
             path = "temp_autosave.json.bak"
             try:
                 with open(path, 'w', encoding='utf-8') as f:
@@ -231,14 +217,12 @@ class ProjectService:
     def _rotate_backups(self, backup_dir: Path) -> None:
         """Rotate backups."""
         try:
-            # Internal implementation detail
             backups = sorted(
                 backup_dir.glob("*.json"),
                 key=lambda p: p.stat().st_mtime,
                 reverse=True
             )
             
-            # Internal implementation detail
             for old_backup in backups[MAX_BACKUPS:]:
                 try:
                     old_backup.unlink()
@@ -251,7 +235,6 @@ class ProjectService:
 
     def _validate_project_structure(self, data: Dict[str, Any]) -> None:
         """Validate project structure."""
-        # Internal implementation detail
         required_fields = [
             "project_name",
             "actors",
@@ -264,7 +247,6 @@ class ProjectService:
                     f"Missing required field: {field}"
                 )
         
-        # Internal implementation detail
         if not isinstance(data["project_name"], str):
             raise ProjectValidationError(
                 "Field 'project_name' must be a string"
@@ -280,13 +262,11 @@ class ProjectService:
                 "Field 'episodes' must be a dictionary"
             )
         
-        # Internal implementation detail
         if "global_map" in data and not isinstance(data["global_map"], dict):
             raise ProjectValidationError(
                 "Field 'global_map' must be a dictionary"
             )
 
-        # Internal implementation detail
         if (
             "episode_actor_map" in data and
             not isinstance(data["episode_actor_map"], dict)
@@ -301,7 +281,6 @@ class ProjectService:
                 "Field 'video_paths' must be a dictionary"
             )
 
-        # Internal implementation detail
         if "episode_texts" in data and not isinstance(data["episode_texts"], dict):
             raise ProjectValidationError(
                 "Field 'episode_texts' must be a dictionary"
@@ -324,8 +303,8 @@ class ProjectService:
         if "loaded_episodes" not in data:
             data["loaded_episodes"] = {}
         if "replica_merge_config" not in data:
-            # Internal implementation detail
             if "export_config" in data:
+                # Older projects stored replica merge settings inside export_config.
                 export_cfg = data["export_config"]
                 data["replica_merge_config"] = {
                     'merge': export_cfg.get('merge', True),
@@ -340,15 +319,13 @@ class ProjectService:
         if "docx_import_config" not in data:
             data["docx_import_config"] = deepcopy(DEFAULT_DOCX_IMPORT_CONFIG)
         
-        # Internal implementation detail
         if "project_folder" not in data:
             data["project_folder"] = None
 
-        # Internal implementation detail
         if "metadata" not in data:
             now = datetime.now().isoformat()
             data["metadata"] = {
-                "format_version": "0.9",  # Internal implementation detail
+                "format_version": "0.9",  # Legacy format marker.
                 "app_version": "pre-1.0",
                 "created_at": now,
                 "modified_at": now,
@@ -359,7 +336,6 @@ class ProjectService:
         if "metadata" not in data:
             data["metadata"] = {}
         
-        # Internal implementation detail
         data["metadata"]["modified_at"] = datetime.now().isoformat()
         data["metadata"]["format_version"] = PROJECT_FORMAT_VERSION
         data["metadata"]["app_version"] = "1.0+"
@@ -426,14 +402,11 @@ class ProjectService:
     def restore_from_backup(self, backup_path: str, target_path: str) -> bool:
         """Restore from backup."""
         try:
-            # Internal implementation detail
             with open(backup_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            # Internal implementation detail
             self._validate_project_structure(data)
             
-            # Internal implementation detail
             return self._do_save(data, target_path)
             
         except Exception as e:

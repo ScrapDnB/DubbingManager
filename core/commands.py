@@ -87,12 +87,10 @@ class DeleteActorCommand(Command):
     def execute(self) -> None:
         self._deleted_data = self.actors.get(self.actor_id)
 
-        # Internal implementation detail
         self._removed_mappings = [
             (char, aid) for char, aid in self.global_map.items()
             if aid == self.actor_id
         ]
-        # Internal implementation detail
         chars_to_remove = [char for char, aid in self.global_map.items() if aid == self.actor_id]
         for char in chars_to_remove:
             del self.global_map[char]
@@ -116,11 +114,9 @@ class DeleteActorCommand(Command):
         logger.debug(f"DeleteActorCommand executed: {self.actor_id}")
 
     def undo(self) -> None:
-        # Internal implementation detail
         if self._deleted_data:
             self.actors[self.actor_id] = self._deleted_data
         
-        # Internal implementation detail
         for char, aid in self._removed_mappings:
             self.global_map[char] = aid
 
@@ -262,13 +258,11 @@ class RenameCharacterCommand(Command):
             del self.global_map[from_name]
             self.global_map[to_name] = actor_id
 
-        # Internal implementation detail
         if self.episode in self.loaded_episodes:
             for line in self.loaded_episodes[self.episode]:
                 if line.get('char') == from_name:
                     line['char'] = to_name
 
-        # Internal implementation detail
         for stat in self.current_ep_stats:
             if stat.get("name") == from_name:
                 stat["name"] = to_name
@@ -477,14 +471,12 @@ class UndoStack:
         command.execute()
         self._undo_stack.append(command)
 
-        # Internal implementation detail
-        # Internal implementation detail
         while len(self._undo_stack) > self._max_size:
             old_command = self._undo_stack.pop(0)
-            # Internal implementation detail
+            # Old commands were already applied, so only release their heavy references.
             self._cleanup_command(old_command)
 
-        # Internal implementation detail
+        # A new command invalidates the redo history.
         self._redo_stack.clear()
 
         self._notify_change()
@@ -492,7 +484,7 @@ class UndoStack:
 
     def _cleanup_command(self, command: Command) -> None:
         """Cleanup command."""
-        # Internal implementation detail
+        # Commands may keep snapshots of large project data; clear them when they leave the stack.
         for attr_name in ['_old_data', '_deleted_data', '_removed_mappings', 
                           '_old_name', '_old_color', '_old_folder', '_old_actor_id']:
             if hasattr(command, attr_name):
@@ -536,7 +528,6 @@ class UndoStack:
 
     def clear(self) -> None:
         """Clear."""
-        # Internal implementation detail
         for command in self._undo_stack:
             self._cleanup_command(command)
         for command in self._redo_stack:
