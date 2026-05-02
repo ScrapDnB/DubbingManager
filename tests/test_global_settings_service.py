@@ -58,7 +58,10 @@ class TestGlobalSettingsService:
         assert settings['export_config']['layout_type'] == 'Сценарий'
         assert settings['prompter_config']['f_tc'] == 30
         assert settings['replica_merge_config']['merge_gap'] == 10
-        assert settings['recent_projects'] == ['/tmp/a.json', '/tmp/b.json']
+        assert settings['recent_projects'] == [
+            str(Path('/tmp/a.json').expanduser()),
+            str(Path('/tmp/b.json').expanduser()),
+        ]
 
     def test_load_settings_with_colors(self, service, temp_settings_file):
         """Тест загрузки с цветами"""
