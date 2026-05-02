@@ -12,6 +12,7 @@ import logging
 
 from services import EpisodeService
 from config.constants import DEFAULT_REPLICA_MERGE_CONFIG
+from utils.i18n import translate_source
 
 logger = logging.getLogger(__name__)
 
@@ -63,13 +64,13 @@ class EpisodeController:
         if not paths:
             paths, _ = QFileDialog.getOpenFileNames(
                 parent_widget,
-                "Импорт ASS",
+                translate_source("Импорт ASS"),
                 "",
                 "ASS Files (*.ass)"
             )
 
         if not paths:
-            return False, "Файлы не выбраны"
+            return False, translate_source("Файлы не выбраны")
 
         episodes = self.data_ref.get("episodes", {})
         imported_count = 0
@@ -89,7 +90,7 @@ class EpisodeController:
         self.data_ref["episodes"] = episodes
         self._mark_dirty()
 
-        return True, f"Импортировано серий: {imported_count}"
+        return True, f"{translate_source('Импортировано серий:')} {imported_count}"
 
     def import_srt(
         self,
@@ -100,13 +101,13 @@ class EpisodeController:
         if not paths:
             paths, _ = QFileDialog.getOpenFileNames(
                 parent_widget,
-                "Импорт SRT",
+                translate_source("Импорт SRT"),
                 "",
                 "SRT Files (*.srt)"
             )
 
         if not paths:
-            return False, "Файлы не выбраны"
+            return False, translate_source("Файлы не выбраны")
 
         episodes = self.data_ref.get("episodes", {})
         imported_count = 0
@@ -125,7 +126,7 @@ class EpisodeController:
         self.data_ref["episodes"] = episodes
         self._mark_dirty()
 
-        return True, f"Импортировано серий: {imported_count}"
+        return True, f"{translate_source('Импортировано серий:')} {imported_count}"
 
     def import_docx(
         self,
@@ -136,13 +137,13 @@ class EpisodeController:
         if not paths:
             paths, _ = QFileDialog.getOpenFileNames(
                 parent_widget,
-                "Импорт DOCX",
+                translate_source("Импорт DOCX"),
                 "",
                 "DOCX Files (*.docx)"
             )
 
         if not paths:
-            return False, "Файлы не выбраны"
+            return False, translate_source("Файлы не выбраны")
 
         # DOCX-specific handling
         return True, paths[0] if len(paths) == 1 else str(paths)
@@ -157,7 +158,7 @@ class EpisodeController:
         loaded_episodes = self.data_ref.get("loaded_episodes", {})
 
         if ep_num not in loaded_episodes:
-            return False, "Эпизод не загружен"
+            return False, translate_source("Эпизод не загружен")
 
         memory_lines = loaded_episodes[ep_num]
 
@@ -165,10 +166,12 @@ class EpisodeController:
             if target_path:
                 return (
                     False,
-                    "Рабочий текст нельзя сохранить как ASS/SRT напрямую. "
-                    "Пересоздайте рабочий текст из субтитров или экспортируйте монтажный лист."
+                    translate_source(
+                        "Рабочий текст нельзя сохранить как ASS/SRT напрямую. "
+                        "Пересоздайте рабочий текст из субтитров или экспортируйте монтажный лист."
+                    )
                 )
-            return True, "Рабочий текст сохранён"
+            return True, translate_source("Рабочий текст сохранён")
 
         # Detect the file type
         source_path = episodes.get(ep_num, "")

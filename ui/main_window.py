@@ -69,6 +69,7 @@ from utils.helpers import (
     log_exception,
     get_video_fps
 )
+from utils.i18n import set_language, tr, translate_source, translate_widget_tree
 from services import (
     ProjectService,
     EpisodeService,
@@ -140,8 +141,8 @@ class ScopeComboDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         self._editing_index = QPersistentModelIndex(index)
         combo = QComboBox(parent)
-        combo.addItem("Глобально", ASSIGNMENT_SCOPE_GLOBAL)
-        combo.addItem("Серия", ASSIGNMENT_SCOPE_EPISODE)
+        combo.addItem(translate_source("Глобально"), ASSIGNMENT_SCOPE_GLOBAL)
+        combo.addItem(translate_source("Серия"), ASSIGNMENT_SCOPE_EPISODE)
         return combo
 
     def setEditorData(self, editor, index) -> None:
@@ -219,7 +220,15 @@ class ActorComboDelegate(QStyledItemDelegate):
 class MainTableModel(QAbstractTableModel):
     """Main Table Model class."""
 
-    HEADERS = ["Персонаж", "Строчек", "Колец", "Слов", "Область", "Актер", "📺"]
+    HEADER_KEYS = [
+        "table.character",
+        "table.lines",
+        "table.rings",
+        "table.words",
+        "table.scope",
+        "table.actor",
+        None,
+    ]
 
     def __init__(self, main_window: "MainWindow") -> None:
         super().__init__(main_window)
@@ -230,11 +239,12 @@ class MainTableModel(QAbstractTableModel):
         return 0 if parent.isValid() else len(self.rows)
 
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        return 0 if parent.isValid() else len(self.HEADERS)
+        return 0 if parent.isValid() else len(self.HEADER_KEYS)
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return self.HEADERS[section]
+            key = self.HEADER_KEYS[section]
+            return tr(key) if key else "📺"
         return None
 
     def flags(self, index: QModelIndex):
@@ -263,7 +273,7 @@ class MainTableModel(QAbstractTableModel):
             if column == 5:
                 return self._actor_tooltip(row.get("actor_id"))
             if column == 6:
-                return "Открыть предпросмотр персонажа"
+                return translate_source("Открыть предпросмотр персонажа")
 
         if role == Qt.BackgroundRole and column == 5:
             return self._actor_brush(row.get("actor_id"))
@@ -367,9 +377,9 @@ class MainTableModel(QAbstractTableModel):
             return row.get("words", 0)
         if column == 4:
             return (
-                "Серия"
+                translate_source("Серия")
                 if row.get("scope") == ASSIGNMENT_SCOPE_EPISODE
-                else "Глобально"
+                else translate_source("Глобально")
             )
         if column == 5:
             return self._actor_name(row.get("actor_id"))
@@ -386,11 +396,14 @@ class MainTableModel(QAbstractTableModel):
 
     def _actor_tooltip(self, actor_id: Optional[str]) -> str:
         if not actor_id:
-            return "Актёр не назначен"
+            return translate_source("Актёр не назначен")
         actor = self.main_window.data.get("actors", {}).get(actor_id, {})
         color = QColor(actor.get("color", ""))
         if color.isValid():
-            return f"{actor.get('name', actor_id)}\nЦвет актёра: {color.name()}"
+            return (
+                f"{actor.get('name', actor_id)}\n"
+                f"{translate_source('Цвет актёра:')} {color.name()}"
+            )
         return actor.get("name", actor_id)
 
     def _actor_brush(self, actor_id: Optional[str]):
@@ -447,6 +460,7 @@ class MainWindow(QMainWindow):
         self.teleprompter_window = None
 
         self.global_settings = self.global_settings_service.load_settings()
+        set_language(self.global_settings.get("language", "ru"))
 
         self.data = self.project_service.create_new_project("Новый проект")
 
@@ -525,10 +539,11 @@ class MainWindow(QMainWindow):
         left_widget.setLayout(left_panel)
 
         actor_header = QHBoxLayout()
-        actor_header.addWidget(QLabel("<b>Актёры:</b>"))
+        self.lbl_actor_header = QLabel()
+        actor_header.addWidget(self.lbl_actor_header)
         self.actor_base_mode = QComboBox()
-        self.actor_base_mode.addItem("Проект", "project")
-        self.actor_base_mode.addItem("Глобальная база", "global")
+        self.actor_base_mode.addItem("", "project")
+        self.actor_base_mode.addItem("", "global")
         self.actor_base_mode.currentIndexChanged.connect(
             self._on_actor_base_mode_changed
         )
@@ -552,19 +567,15 @@ class MainWindow(QMainWindow):
 
         btn_layout = QHBoxLayout()
         
-        self.btn_add_actor = QPushButton("+ Актер")
+        self.btn_add_actor = QPushButton()
         self.btn_add_actor.clicked.connect(self.add_actor_button_clicked)
         btn_layout.addWidget(self.btn_add_actor)
         
-        self.btn_delete_actor = QPushButton("- Актер")
-        self.btn_delete_actor.setToolTip("Удалить выбранного актёра из проекта")
+        self.btn_delete_actor = QPushButton()
         self.btn_delete_actor.clicked.connect(self.delete_actor_button_clicked)
         btn_layout.addWidget(self.btn_delete_actor)
 
-        self.btn_add_project_actors_to_global = QPushButton("В глобальную")
-        self.btn_add_project_actors_to_global.setToolTip(
-            "Добавить выбранных актёров проекта в глобальную базу"
-        )
+        self.btn_add_project_actors_to_global = QPushButton()
         self.btn_add_project_actors_to_global.clicked.connect(
             self.actor_transfer_button_clicked
         )
@@ -572,9 +583,9 @@ class MainWindow(QMainWindow):
         
         left_panel.addLayout(btn_layout)
 
-        btn_sum = QPushButton("📋 Сводный отчет проекта")
-        btn_sum.clicked.connect(self.show_project_summary)
-        left_panel.addWidget(btn_sum)
+        self.btn_project_summary = QPushButton()
+        self.btn_project_summary.clicked.connect(self.show_project_summary)
+        left_panel.addWidget(self.btn_project_summary)
 
         main_layout.addWidget(left_widget)
 
@@ -598,49 +609,44 @@ class MainWindow(QMainWindow):
 
         self.proj_edit = QLineEdit()
         self.proj_edit.textChanged.connect(self.on_project_name_changed)
-        top.addWidget(QLabel("Проект:"))
+        self.lbl_project = QLabel()
+        top.addWidget(self.lbl_project)
         top.addWidget(self.proj_edit)
 
         self.recent_projects_menu = QMenu(self)
-        btn_recent = QPushButton("Недавние")
-        btn_recent.setMenu(self.recent_projects_menu)
-        top.addWidget(btn_recent)
+        self.btn_recent = QPushButton()
+        self.btn_recent.setMenu(self.recent_projects_menu)
+        top.addWidget(self.btn_recent)
         self._update_recent_projects_menu()
 
         self.btn_new_project = QPushButton("📄")
-        self.btn_new_project.setToolTip("Создать новый проект")
         self.btn_new_project.setMinimumWidth(BTN_SAVE_ICON_WIDTH)
         self.btn_new_project.clicked.connect(self.create_new_project)
         top.addWidget(self.btn_new_project)
 
-        btn_load = QPushButton("📂")
-        btn_load.setToolTip("Открыть проект")
-        btn_load.setMinimumWidth(BTN_SAVE_ICON_WIDTH)
-        btn_load.clicked.connect(self.load_project_dialog)
-        top.addWidget(btn_load)
+        self.btn_load = QPushButton("📂")
+        self.btn_load.setMinimumWidth(BTN_SAVE_ICON_WIDTH)
+        self.btn_load.clicked.connect(self.load_project_dialog)
+        top.addWidget(self.btn_load)
 
-        btn_save = QPushButton("💾")
-        btn_save.setToolTip("Сохранить проект")
-        btn_save.setMinimumWidth(BTN_SAVE_ICON_WIDTH)
-        btn_save.clicked.connect(self.save_project)
-        top.addWidget(btn_save)
+        self.btn_save = QPushButton("💾")
+        self.btn_save.setMinimumWidth(BTN_SAVE_ICON_WIDTH)
+        self.btn_save.clicked.connect(self.save_project)
+        top.addWidget(self.btn_save)
 
-        btn_copy = QPushButton("💾 +")
-        btn_copy.setToolTip("Сохранить копию проекта")
-        btn_copy.setMinimumWidth(BTN_COMPOUND_ICON_WIDTH)
-        btn_copy.clicked.connect(self.save_project_as)
-        top.addWidget(btn_copy)
+        self.btn_copy = QPushButton("💾 +")
+        self.btn_copy.setMinimumWidth(BTN_COMPOUND_ICON_WIDTH)
+        self.btn_copy.clicked.connect(self.save_project_as)
+        top.addWidget(self.btn_copy)
 
         # Buttons Undo/Redo
         self.btn_undo = QPushButton("↶")
-        self.btn_undo.setToolTip("Отменить последнее действие (Ctrl+Z)")
         self.btn_undo.setFixedWidth(PROJECT_FOLDER_BTN_WIDTH)
         self.btn_undo.clicked.connect(self.undo)
         self.btn_undo.setEnabled(False)
         top.addWidget(self.btn_undo)
 
         self.btn_redo = QPushButton("↷")
-        self.btn_redo.setToolTip("Повторить отменённое действие (Ctrl+Shift+Z)")
         self.btn_redo.setFixedWidth(PROJECT_FOLDER_BTN_WIDTH)
         self.btn_redo.clicked.connect(self.redo)
         self.btn_redo.setEnabled(False)
@@ -648,28 +654,24 @@ class MainWindow(QMainWindow):
 
         top.addSpacing(PROJECT_BAR_SPACING)
 
-        self.btn_folder = QPushButton("📁 Папка")
-        self.btn_folder.setToolTip("Установить папку проекта")
+        self.btn_folder = QPushButton()
         self.btn_folder.clicked.connect(self.set_project_folder_dialog)
         top.addWidget(self.btn_folder)
 
-        btn_unlink = QPushButton("🔓")
-        btn_unlink.setToolTip("Отвязать папку проекта")
-        btn_unlink.setFixedWidth(PROJECT_FOLDER_BTN_WIDTH)
-        btn_unlink.clicked.connect(self.clear_project_folder)
-        top.addWidget(btn_unlink)
+        self.btn_unlink = QPushButton("🔓")
+        self.btn_unlink.setFixedWidth(PROJECT_FOLDER_BTN_WIDTH)
+        self.btn_unlink.clicked.connect(self.clear_project_folder)
+        top.addWidget(self.btn_unlink)
 
         top.addStretch()
 
-        btn_files = QPushButton("📋 Файлы")
-        btn_files.setToolTip("Просмотр структуры файлов проекта")
-        btn_files.clicked.connect(self.open_project_files_dialog)
-        top.addWidget(btn_files)
+        self.btn_files = QPushButton()
+        self.btn_files.clicked.connect(self.open_project_files_dialog)
+        top.addWidget(self.btn_files)
 
-        btn_health = QPushButton("✓ Проверка")
-        btn_health.setToolTip("Проверить проект на потерянные файлы и проблемы в тексте")
-        btn_health.clicked.connect(self.open_project_health_dialog)
-        top.addWidget(btn_health)
+        self.btn_health = QPushButton()
+        self.btn_health.clicked.connect(self.open_project_health_dialog)
+        top.addWidget(self.btn_health)
 
         btn_about = QPushButton("ℹ️")
         btn_about.setFixedWidth(ABOUT_BTN_WIDTH)
@@ -685,18 +687,18 @@ class MainWindow(QMainWindow):
         self.ep_combo = QComboBox()
         self.ep_combo.setMinimumWidth(EPISODE_COMBO_MIN_WIDTH)
         self.ep_combo.currentIndexChanged.connect(self.change_episode)
-        ep_ctrl.addWidget(QLabel("Серия:"))
+        self.lbl_episode = QLabel()
+        ep_ctrl.addWidget(self.lbl_episode)
         ep_ctrl.addWidget(self.ep_combo)
 
-        btn_import = QPushButton("📥 Импорт")
-        btn_import.clicked.connect(self.import_files)
-        ep_ctrl.addWidget(btn_import)
+        self.btn_import = QPushButton()
+        self.btn_import.clicked.connect(self.import_files)
+        ep_ctrl.addWidget(self.btn_import)
 
-        btn_vid = QPushButton("🎬 +")
-        btn_vid.setToolTip("Прикрепить видео к серии")
-        btn_vid.setMinimumWidth(BTN_COMPOUND_ICON_WIDTH)
-        btn_vid.clicked.connect(self.set_episode_video)
-        ep_ctrl.addWidget(btn_vid)
+        self.btn_vid = QPushButton("🎬 +")
+        self.btn_vid.setMinimumWidth(BTN_COMPOUND_ICON_WIDTH)
+        self.btn_vid.clicked.connect(self.set_episode_video)
+        ep_ctrl.addWidget(self.btn_vid)
 
         btn_ren = QPushButton("✎")
         btn_ren.setMinimumWidth(BTN_RENAME_WIDTH)
@@ -713,22 +715,22 @@ class MainWindow(QMainWindow):
         self.actor_filter_combo = QComboBox()
         self.actor_filter_combo.setMinimumWidth(150)
         self.actor_filter_combo.currentIndexChanged.connect(self.refresh_main_table)
-        ep_ctrl.addWidget(QLabel("Актёр:"))
+        self.lbl_actor_filter = QLabel()
+        ep_ctrl.addWidget(self.lbl_actor_filter)
         ep_ctrl.addWidget(self.actor_filter_combo)
 
-        self.filter_unassigned = QCheckBox("Пустые")
+        self.filter_unassigned = QCheckBox()
         self.filter_unassigned.toggled.connect(self.refresh_main_table)
         ep_ctrl.addWidget(self.filter_unassigned)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Поиск...")
         self.search_edit.setFixedWidth(SEARCH_EDIT_WIDTH)
         self.search_edit.textChanged.connect(self.refresh_main_table)
         ep_ctrl.addWidget(self.search_edit)
         
-        btn_glob_search = QPushButton("🔍 Глобальный поиск")
-        btn_glob_search.clicked.connect(self.open_global_search)
-        ep_ctrl.addWidget(btn_glob_search)
+        self.btn_glob_search = QPushButton()
+        self.btn_glob_search.clicked.connect(self.open_global_search)
+        ep_ctrl.addWidget(self.btn_glob_search)
         
         layout.addLayout(ep_ctrl)
     
@@ -769,18 +771,18 @@ class MainWindow(QMainWindow):
         self.missing_file_widget = QWidget()
         mf_lay: QVBoxLayout = QVBoxLayout(self.missing_file_widget)
 
-        self.lbl_missing = QLabel("ФАЙЛ НЕ НАЙДЕН")
+        self.lbl_missing = QLabel()
         self.lbl_missing.setStyleSheet(
             "color: red; font-weight: bold;"
         )
         self.lbl_missing.setAlignment(Qt.AlignCenter)
 
-        btn_relink = QPushButton("Найти...")
-        btn_relink.clicked.connect(self.relink_file)
+        self.btn_relink = QPushButton()
+        self.btn_relink.clicked.connect(self.relink_file)
 
         mf_lay.addStretch()
         mf_lay.addWidget(self.lbl_missing)
-        mf_lay.addWidget(btn_relink)
+        mf_lay.addWidget(self.btn_relink)
         mf_lay.addStretch()
 
         self.table_stack.addWidget(self.main_table)
@@ -799,34 +801,35 @@ class MainWindow(QMainWindow):
         tools_sidebar_layout = QVBoxLayout(tools_sidebar_widget)
         tools_sidebar_layout.setContentsMargins(5, 0, 0, 0)
         
-        tools_sidebar_layout.addWidget(QLabel("<b>Инструменты:</b>"))
+        self.lbl_tools = QLabel()
+        tools_sidebar_layout.addWidget(self.lbl_tools)
         
-        btn_all_v = QPushButton("📺 Просмотр серии")
-        btn_all_v.clicked.connect(lambda: self.open_preview(None))
-        tools_sidebar_layout.addWidget(btn_all_v)
+        self.btn_all_v = QPushButton()
+        self.btn_all_v.clicked.connect(lambda: self.open_preview(None))
+        tools_sidebar_layout.addWidget(self.btn_all_v)
 
-        btn_prompter = QPushButton("🎤 Телесуфлёр")
-        btn_prompter.clicked.connect(self.open_teleprompter)
-        tools_sidebar_layout.addWidget(btn_prompter)
+        self.btn_prompter = QPushButton()
+        self.btn_prompter.clicked.connect(self.open_teleprompter)
+        tools_sidebar_layout.addWidget(self.btn_prompter)
 
-        btn_reaper = QPushButton("🎹 Reaper RPP")
-        btn_reaper.clicked.connect(self.export_to_reaper_rpp)
-        tools_sidebar_layout.addWidget(btn_reaper)
+        self.btn_reaper = QPushButton()
+        self.btn_reaper.clicked.connect(self.export_to_reaper_rpp)
+        tools_sidebar_layout.addWidget(self.btn_reaper)
 
-        btn_ep_sum = QPushButton("📊 Отчёт серии")
-        btn_ep_sum.clicked.connect(self.show_episode_summary)
-        tools_sidebar_layout.addWidget(btn_ep_sum)
+        self.btn_ep_sum = QPushButton()
+        self.btn_ep_sum.clicked.connect(self.show_episode_summary)
+        tools_sidebar_layout.addWidget(self.btn_ep_sum)
 
         tools_sidebar_layout.addStretch()
 
-        self.character_stats_group = QGroupBox("Статистика персонажа")
+        self.character_stats_group = QGroupBox()
         stats_layout = QVBoxLayout(self.character_stats_group)
-        self.lbl_character_stats_name = QLabel("Выберите персонажа")
+        self.lbl_character_stats_name = QLabel()
         self.lbl_character_stats_name.setWordWrap(True)
         self.lbl_character_stats_name.setStyleSheet("font-weight: bold;")
         stats_layout.addWidget(self.lbl_character_stats_name)
 
-        self.lbl_character_stats_totals = QLabel("Колец: -\nСлов: -")
+        self.lbl_character_stats_totals = QLabel()
         stats_layout.addWidget(self.lbl_character_stats_totals)
 
         self.txt_character_stats_episodes = QTextEdit()
@@ -842,41 +845,39 @@ class MainWindow(QMainWindow):
         """Init bottom panel."""
         bottom_panel = QHBoxLayout()
 
-        btn_settings = QPushButton("⚙ Настройки")
-        btn_settings.setToolTip("Общие настройки экспорта, объединения, телесуфлёра и DOCX")
-        btn_settings.clicked.connect(self.open_settings)
-        bottom_panel.addWidget(btn_settings)
+        self.btn_settings = QPushButton()
+        self.btn_settings.clicked.connect(self.open_settings)
+        bottom_panel.addWidget(self.btn_settings)
 
         bottom_panel.addStretch()
 
-        exp_group = QGroupBox("Экспорт монтажных листов")
-        exp_lay = QHBoxLayout(exp_group)
+        self.exp_group = QGroupBox()
+        exp_lay = QHBoxLayout(self.exp_group)
         exp_lay.setContentsMargins(5, 5, 5, 5)
 
-        btn_cfg = QPushButton("⚙ Вид листа")
-        btn_cfg.setToolTip("Быстрые настройки монтажного листа")
-        btn_cfg.clicked.connect(self.open_export_settings)
-        exp_lay.addWidget(btn_cfg)
+        self.btn_cfg = QPushButton()
+        self.btn_cfg.clicked.connect(self.open_export_settings)
+        exp_lay.addWidget(self.btn_cfg)
 
         exp_lay.addSpacing(EXPORT_PANEL_SPACING)
 
-        btn_preview = QPushButton("📃 Превью")
-        btn_preview.clicked.connect(self.open_live_preview)
-        exp_lay.addWidget(btn_preview)
+        self.btn_preview = QPushButton()
+        self.btn_preview.clicked.connect(self.open_live_preview)
+        exp_lay.addWidget(self.btn_preview)
 
         exp_lay.addSpacing(EXPORT_PANEL_SPACING)
 
-        self.chk_exp_html = QCheckBox("Лист")
+        self.chk_exp_html = QCheckBox()
         self.chk_exp_html.setChecked(True)
 
         self.chk_exp_xls = QCheckBox("Excel")
 
-        self.radio_cur = QRadioButton("Текущая")
+        self.radio_cur = QRadioButton()
         self.radio_cur.setChecked(True)
 
-        self.radio_all = QRadioButton("Все")
+        self.radio_all = QRadioButton()
 
-        self.btn_run_export = QPushButton("ЭКСПОРТ")
+        self.btn_run_export = QPushButton()
         self.btn_run_export.clicked.connect(self.run_unified_export)
 
         exp_lay.addWidget(self.chk_exp_html)
@@ -887,8 +888,9 @@ class MainWindow(QMainWindow):
         exp_lay.addSpacing(EXPORT_PANEL_SPACING)
         exp_lay.addWidget(self.btn_run_export)
 
-        bottom_panel.addWidget(exp_group)
+        bottom_panel.addWidget(self.exp_group)
         layout.addLayout(bottom_panel)
+        self.retranslate_ui()
     
 
     def set_dirty(self, dirty: bool = True) -> None:
@@ -898,6 +900,72 @@ class MainWindow(QMainWindow):
         else:
             self.project_service.set_dirty(dirty)
         self.update_window_title()
+
+    def retranslate_ui(self) -> None:
+        """Apply the selected interface language to the main window."""
+        if hasattr(self, "lbl_actor_header"):
+            self.lbl_actor_header.setText(tr("actor.header"))
+            self.actor_base_mode.setItemText(0, tr("actor.base.project"))
+            self.actor_base_mode.setItemText(1, tr("actor.base.global"))
+            self.btn_project_summary.setText(tr("main.summary"))
+
+        if hasattr(self, "lbl_project"):
+            self.lbl_project.setText(tr("main.project"))
+            self.btn_recent.setText(tr("main.recent"))
+            self.btn_new_project.setToolTip(tr("main.new_project.tooltip"))
+            self.btn_load.setToolTip(tr("main.open.tooltip"))
+            self.btn_save.setToolTip(tr("main.save.tooltip"))
+            self.btn_copy.setToolTip(tr("main.save_copy.tooltip"))
+            self.btn_undo.setToolTip(tr("main.undo.tooltip"))
+            self.btn_redo.setToolTip(tr("main.redo.tooltip"))
+            self.btn_unlink.setToolTip(tr("main.folder.unlink.tooltip"))
+            self.btn_files.setText(tr("main.project_files"))
+            self.btn_files.setToolTip(tr("main.project_files.tooltip"))
+            self.btn_health.setText(tr("main.health"))
+            self.btn_health.setToolTip(tr("main.health.tooltip"))
+
+        if hasattr(self, "lbl_episode"):
+            self.lbl_episode.setText(tr("episode.label"))
+            self.btn_import.setText(tr("episode.import"))
+            self.btn_vid.setToolTip(tr("main.video.add.tooltip"))
+            self.lbl_actor_filter.setText(tr("actor.filter"))
+            self.filter_unassigned.setText(tr("episode.unassigned"))
+            self.search_edit.setPlaceholderText(tr("main.search.placeholder"))
+            self.btn_glob_search.setText(tr("main.global_search"))
+            self.lbl_missing.setText(tr("main.missing_file"))
+            self.btn_relink.setText(tr("main.relink"))
+
+        if hasattr(self, "lbl_tools"):
+            self.lbl_tools.setText(tr("tools.header"))
+            self.btn_all_v.setText(tr("tools.episode_preview"))
+            self.btn_prompter.setText(tr("tools.prompter"))
+            self.btn_reaper.setText(tr("tools.reaper"))
+            self.btn_ep_sum.setText(tr("tools.episode_report"))
+            self.character_stats_group.setTitle(tr("stats.group"))
+
+        if hasattr(self, "btn_settings"):
+            self.btn_settings.setText(tr("main.settings"))
+            self.btn_settings.setToolTip(tr("main.settings.tooltip"))
+            self.exp_group.setTitle(tr("export.group"))
+            self.btn_cfg.setText(tr("export.sheet_view"))
+            self.btn_cfg.setToolTip(tr("export.sheet_view.tooltip"))
+            self.btn_preview.setText(tr("export.preview"))
+            self.chk_exp_html.setText(tr("export.html"))
+            self.radio_cur.setText(tr("episode.current"))
+            self.radio_all.setText(tr("common.all"))
+            self.btn_run_export.setText(tr("export.run"))
+
+        self._update_actor_base_buttons()
+        self._reset_character_stats_panel()
+        self._update_project_folder_button()
+        self._update_actor_filter_combo()
+        if hasattr(self, "main_table_model"):
+            self.main_table_model.headerDataChanged.emit(
+                Qt.Horizontal,
+                0,
+                self.main_table_model.columnCount() - 1
+            )
+        translate_widget_tree(self)
         self.update_save_ass_button()
         self._update_new_project_button()
 
@@ -1139,8 +1207,8 @@ class MainWindow(QMainWindow):
         """Reset character stats panel."""
         if not hasattr(self, "lbl_character_stats_name"):
             return
-        self.lbl_character_stats_name.setText("Выберите персонажа")
-        self.lbl_character_stats_totals.setText("Колец: -\nСлов: -")
+        self.lbl_character_stats_name.setText(tr("stats.empty"))
+        self.lbl_character_stats_totals.setText(tr("stats.totals.empty"))
         self.txt_character_stats_episodes.setPlainText("")
 
     def update_selected_character_stats(self) -> None:
@@ -1162,7 +1230,7 @@ class MainWindow(QMainWindow):
         stats = self._calculate_character_project_stats(char_name)
         self.lbl_character_stats_name.setText(char_name)
         self.lbl_character_stats_totals.setText(
-            f"Колец: {stats['rings']}\nСлов: {stats['words']}"
+            tr("stats.totals", rings=stats["rings"], words=stats["words"])
         )
 
         if not stats["episodes"]:
@@ -1378,11 +1446,13 @@ class MainWindow(QMainWindow):
         folder = self.project_folder_service.get_project_folder(self.data)
         if folder:
             folder_name = os.path.basename(folder)
-            self.btn_folder.setText("📁 Папка ✓")
-            self.btn_folder.setToolTip(f"Папка проекта: {folder_name}\n{folder}")
+            self.btn_folder.setText(tr("main.folder.linked"))
+            self.btn_folder.setToolTip(
+                tr("main.folder.tooltip", name=folder_name, path=folder)
+            )
         else:
-            self.btn_folder.setText("📁 Папка")
-            self.btn_folder.setToolTip("Установить папку проекта")
+            self.btn_folder.setText(tr("main.folder"))
+            self.btn_folder.setToolTip(tr("main.folder.set.tooltip"))
 
     def _scan_project_folder(self) -> None:
         """Scan project folder."""
@@ -1614,22 +1684,22 @@ class MainWindow(QMainWindow):
             return
 
         if self._is_global_actor_mode():
-            self.btn_add_actor.setText("+ Актер")
-            self.btn_add_actor.setToolTip("Добавить актёра в глобальную базу")
-            self.btn_delete_actor.setText("- Актер")
-            self.btn_delete_actor.setToolTip("Удалить выбранного актёра из глобальной базы")
-            self.btn_add_project_actors_to_global.setText("В проект")
+            self.btn_add_actor.setText(tr("actor.add"))
+            self.btn_add_actor.setToolTip(tr("actor.add.global.tooltip"))
+            self.btn_delete_actor.setText(tr("actor.delete"))
+            self.btn_delete_actor.setToolTip(tr("actor.delete.global.tooltip"))
+            self.btn_add_project_actors_to_global.setText(tr("actor.add.to.project"))
             self.btn_add_project_actors_to_global.setToolTip(
-                "Добавить выбранного актёра из глобальной базы в текущий проект"
+                tr("actor.add.to.project.tooltip")
             )
         else:
-            self.btn_add_actor.setText("+ Актер")
-            self.btn_add_actor.setToolTip("Добавить актёра в проект")
-            self.btn_delete_actor.setText("- Актер")
-            self.btn_delete_actor.setToolTip("Удалить выбранного актёра из проекта")
-            self.btn_add_project_actors_to_global.setText("В глобальную")
+            self.btn_add_actor.setText(tr("actor.add"))
+            self.btn_add_actor.setToolTip(tr("actor.add.project.tooltip"))
+            self.btn_delete_actor.setText(tr("actor.delete"))
+            self.btn_delete_actor.setToolTip(tr("actor.delete.project.tooltip"))
+            self.btn_add_project_actors_to_global.setText(tr("actor.add.to.global"))
             self.btn_add_project_actors_to_global.setToolTip(
-                "Добавить выбранных актёров проекта в глобальную базу"
+                tr("actor.add.to.global.tooltip")
             )
 
         self.btn_add_actor.setEnabled(True)
@@ -1641,9 +1711,12 @@ class MainWindow(QMainWindow):
         self.actor_table.blockSignals(True)
         self.actor_table.setSortingEnabled(False)
         self.actor_table.setRowCount(0)
-        self.actor_table.setHorizontalHeaderLabels(
-            ["Актер", "Статус", "Цвет", "Пол"]
-        )
+        self.actor_table.setHorizontalHeaderLabels([
+            tr("actor.table.actor"),
+            tr("actor.table.status"),
+            tr("actor.table.color"),
+            tr("actor.table.gender"),
+        ])
         actor_base = self.global_settings_service.get_global_actor_base()
         project_actor_names = {
             actor.get("name", "").strip().casefold()
@@ -2777,7 +2850,7 @@ class MainWindow(QMainWindow):
         current = self.actor_filter_combo.currentData()
         self.actor_filter_combo.blockSignals(True)
         self.actor_filter_combo.clear()
-        self.actor_filter_combo.addItem("Все", None)
+        self.actor_filter_combo.addItem(tr("common.all"), None)
 
         for actor_id, info in sorted(
             self.data.get("actors", {}).items(),
@@ -2806,7 +2879,12 @@ class MainWindow(QMainWindow):
             self.actor_table.blockSignals(True)
             self.actor_table.setSortingEnabled(False)
             self.actor_table.setHorizontalHeaderLabels(
-                ["Актер", "Роли", "Цвет", "Пол"]
+                [
+                    tr("actor.table.actor"),
+                    tr("actor.table.roles"),
+                    tr("actor.table.color"),
+                    tr("actor.table.gender"),
+                ]
             )
             self.actor_table.setRowCount(0)
 
@@ -3281,7 +3359,13 @@ class MainWindow(QMainWindow):
             self.global_settings["docx_import_config"] = (
                 self.data["docx_import_config"]
             )
+            old_language = self.global_settings.get("language", "ru")
+            self.global_settings["language"] = settings.get("language", old_language)
             self.global_settings_service.save_settings(self.global_settings)
+
+            if self.global_settings["language"] != old_language:
+                set_language(self.global_settings["language"])
+                self.retranslate_ui()
 
             self.episode_service.set_merge_gap_from_config(
                 self.data["replica_merge_config"]

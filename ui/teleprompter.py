@@ -70,6 +70,7 @@ from services import ExportService, ScriptTextService
 from services.assignment_service import get_actor_for_character
 from services.osc_worker import OscWorker, OSC_AVAILABLE
 from utils.helpers import ass_time_to_seconds, format_seconds_to_tc, log_exception
+from utils.i18n import translate_source, translate_widget_tree
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +198,7 @@ class TeleprompterFloatWindow(QDialog):
             self._cocoa_window.setLevel_(NSFloatingWindowLevel)
             self._cocoa_window.setCollectionBehavior_(2)
             self._cocoa_window.setWorksWhenModal_(True)
-            self._cocoa_window.setTitle_("Управление")
+            self._cocoa_window.setTitle_(translate_source("Управление"))
             self._cocoa_window.setMovableByWindowBackground_(True)
             
             content_view = NSView.alloc().initWithFrame_(
@@ -207,7 +208,7 @@ class TeleprompterFloatWindow(QDialog):
             btn_next = NSButton.alloc().initWithFrame_(
                 NSMakeRect(FLOAT_MARGIN_X, FLOAT_BTN_Y_PREV, FLOAT_BTN_WIDTH, FLOAT_BTN_HEIGHT)
             )
-            btn_next.setTitle_("Вперёд ⏭")
+            btn_next.setTitle_(translate_source("Вперёд ⏭"))
             btn_next.setBezelStyle_(NSSmallSquareBezelStyle)
             btn_next.setTarget_(self)
             btn_next.setAction_(objc.selector(self.onNextClicked_, signature=b'v@:@'))
@@ -216,7 +217,7 @@ class TeleprompterFloatWindow(QDialog):
             btn_prev = NSButton.alloc().initWithFrame_(
                 NSMakeRect(FLOAT_MARGIN_X, FLOAT_BTN_Y_NEXT, FLOAT_BTN_WIDTH, FLOAT_BTN_HEIGHT)
             )
-            btn_prev.setTitle_("⏮ Назад")
+            btn_prev.setTitle_(translate_source("⏮ Назад"))
             btn_prev.setBezelStyle_(NSSmallSquareBezelStyle)
             btn_prev.setTarget_(self)
             btn_prev.setAction_(objc.selector(self.onPrevClicked_, signature=b'v@:@'))
@@ -226,7 +227,7 @@ class TeleprompterFloatWindow(QDialog):
             label = NSTextField.alloc().initWithFrame_(
                 NSMakeRect(FLOAT_MARGIN_X, FLOAT_LABEL_Y, FLOAT_BTN_WIDTH, FLOAT_LABEL_HEIGHT)
             )
-            label.setStringValue_("Список реплик:")
+            label.setStringValue_(translate_source("Список реплик:"))
             label.setEditable_(False)
             label.setSelectable_(False)
             label.setBezeled_(False)
@@ -272,7 +273,7 @@ class TeleprompterFloatWindow(QDialog):
             btn_hide = NSButton.alloc().initWithFrame_(
                 NSMakeRect(FLOAT_BTN_HIDE_X, FLOAT_BTN_HIDE_Y, FLOAT_BTN_HIDE_WIDTH, FLOAT_BTN_HIDE_HEIGHT)
             )
-            btn_hide.setTitle_("Скрыть")
+            btn_hide.setTitle_(translate_source("Скрыть"))
             btn_hide.setBezelStyle_(NSSmallSquareBezelStyle)
             btn_hide.setTarget_(self)
             btn_hide.setAction_(objc.selector(self.onHideClicked_, signature=b'v@:@'))
@@ -411,7 +412,7 @@ class TeleprompterFloatWindow(QDialog):
         
         logger.debug(f"Cocoa: найдено {len(self._replica_items)} реплик")
         
-        text = '\n'.join(replicas) if replicas else "Нет реплик"
+        text = '\n'.join(replicas) if replicas else translate_source("Нет реплик")
         self._replica_text_view.setString_(text)
         
         from Foundation import NSMakeRange
@@ -569,7 +570,9 @@ class TeleprompterWindow(QDialog):
         super().__init__(None)
         self.main_app: Any = main_app
         self.ep_num: str = ep_num
-        self.setWindowTitle(f"Телесуфлёр - Серия {ep_num}")
+        self.setWindowTitle(
+            f"{translate_source('Телесуфлёр')} - {translate_source('Серия')} {ep_num}"
+        )
         self.resize(PROMPTER_WINDOW_WIDTH, PROMPTER_WINDOW_HEIGHT)
 
         self._init_config()
@@ -585,6 +588,7 @@ class TeleprompterWindow(QDialog):
 
         # UI
         self._init_ui()
+        translate_widget_tree(self)
         self.build_prompter_content()
 
         self._initializing = False
@@ -700,7 +704,10 @@ class TeleprompterWindow(QDialog):
             key=self._episode_sort_key
         )
         for ep_num in episode_nums:
-            self.combo_episode.addItem(f"Серия {ep_num}", str(ep_num))
+            self.combo_episode.addItem(
+                f"{translate_source('Серия')} {ep_num}",
+                str(ep_num)
+            )
 
         index = self.combo_episode.findData(str(self.ep_num))
         if index >= 0:
@@ -733,7 +740,10 @@ class TeleprompterWindow(QDialog):
         self._scroll_target_y = None
         self.last_known_time = 0.0
         self.ep_num = str(ep_num)
-        self.setWindowTitle(f"Телесуфлёр - Серия {self.ep_num}")
+        self.setWindowTitle(
+            f"{translate_source('Телесуфлёр')} - "
+            f"{translate_source('Серия')} {self.ep_num}"
+        )
 
         self._sync_main_episode_selection()
         self.build_prompter_content()
@@ -1101,9 +1111,13 @@ class TeleprompterWindow(QDialog):
         self.side_panel_widget.setVisible(visible)
         
         if is_hidden:
-            self.btn_toggle_settings.setText("⚙ Показать настройки")
+            self.btn_toggle_settings.setText(
+                "⚙ " + translate_source("Показать настройки")
+            )
         else:
-            self.btn_toggle_settings.setText("⚙ Скрыть настройки")
+            self.btn_toggle_settings.setText(
+                "⚙ " + translate_source("Скрыть настройки")
+            )
         
         try:
             total_w = max(200, self.h_splitter.width())
@@ -1166,7 +1180,7 @@ class TeleprompterWindow(QDialog):
         """Handle focus ratio change."""
         val = self.slider_focus_pos.value()
         self.cfg["focus_ratio"] = val / 100.0
-        self.lbl_focus_percent.setText(f"Высота линии: {val}%")
+        self.lbl_focus_percent.setText(f"{translate_source('Высота линии:')} {val}%")
         
         if not getattr(self, '_initializing', False):
             self.main_app.set_dirty(True)
@@ -1180,10 +1194,14 @@ class TeleprompterWindow(QDialog):
         
         if tau <= 0:
             self.lbl_scroll_value.setText("instant")
-            self.lbl_scroll_descr.setText("Плавность прокрутки: мгновенно")
+            self.lbl_scroll_descr.setText(
+                translate_source("Плавность прокрутки: мгновенно")
+            )
         else:
             self.lbl_scroll_value.setText(f"{tau:.2f}s")
-            self.lbl_scroll_descr.setText(f"Плавность прокрутки: задержка ≈ {tau:.2f}s")
+            self.lbl_scroll_descr.setText(
+                f"{translate_source('Плавность прокрутки: задержка ≈')} {tau:.2f}s"
+            )
         
         if not getattr(self, '_initializing', False):
             self.main_app.set_dirty(True)

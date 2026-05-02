@@ -11,6 +11,7 @@ from config.constants import (
     ACTOR_ROLES_DIALOG_HEIGHT,
     ACTOR_ROLES_DIALOG_WIDTH,
 )
+from utils.i18n import translate_widget_tree
 
 
 class ActorRolesDialog(QDialog):
@@ -30,6 +31,7 @@ class ActorRolesDialog(QDialog):
         self._table: QTableWidget
         self._roles = current_roles
         self._init_ui(role_stats or self._roles_to_stats(current_roles))
+        translate_widget_tree(self)
 
     def _init_ui(self, role_stats: List[Dict[str, Any]]) -> None:
         layout = QVBoxLayout(self)

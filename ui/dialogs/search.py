@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from typing import Dict, Any, Optional
 from utils.helpers import format_seconds_to_tc
+from utils.i18n import translate_source, translate_widget_tree
 
 
 class GlobalSearchDialog(QDialog):
@@ -27,6 +28,7 @@ class GlobalSearchDialog(QDialog):
         self._search_input: QLineEdit
         self._table: QTableWidget
         self._init_ui()
+        translate_widget_tree(self)
 
     def _init_ui(self) -> None:
         layout: QVBoxLayout = QVBoxLayout(self)
@@ -105,7 +107,9 @@ class GlobalSearchDialog(QDialog):
 
         if self._table.rowCount() == 0:
             QMessageBox.information(
-                self, "Поиск", "Ничего не найдено."
+                self,
+                translate_source("Поиск"),
+                translate_source("Ничего не найдено.")
             )
 
     def _add_result_row(

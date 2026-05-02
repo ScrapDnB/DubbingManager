@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 
 from config.constants import APP_VERSION
 from services.assignment_service import LOCAL_UNASSIGNED_ACTOR_ID
+from utils.i18n import translate_source
 
 
 ASSIGNMENT_TRANSFER_FORMAT = "dubbing-manager.actor-assignments"
@@ -128,14 +129,20 @@ class AssignmentTransferService:
     def _validate_payload(self, payload: Dict[str, Any]) -> None:
         """Validate assignment transfer payload shape."""
         if not isinstance(payload, dict):
-            raise ValueError("Файл распределения должен быть JSON-объектом.")
+            raise ValueError(
+                translate_source("Файл распределения должен быть JSON-объектом.")
+            )
 
         if payload.get("format") != ASSIGNMENT_TRANSFER_FORMAT:
-            raise ValueError("Это не файл распределения актёров Dubbing Manager.")
+            raise ValueError(
+                translate_source("Это не файл распределения актёров Dubbing Manager.")
+            )
 
         for key in ("actors", "global_map", "episode_actor_map"):
             if key not in payload or not isinstance(payload[key], dict):
-                raise ValueError(f"В файле распределения нет секции {key}.")
+                raise ValueError(
+                    f"{translate_source('В файле распределения нет секции')} {key}."
+                )
 
     def _find_actor_by_name(
         self,

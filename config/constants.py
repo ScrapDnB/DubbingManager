@@ -206,6 +206,7 @@ DEFAULT_GLOBAL_SETTINGS = {
     'prompter_config': None,  # Initialized from DEFAULT_PROMPTER_CONFIG.
     'replica_merge_config': None,  # Initialized from DEFAULT_REPLICA_MERGE_CONFIG.
     'docx_import_config': None,  # DOCX-specific handling
+    'language': 'ru',
 }
 
 # Application version shown in the UI and build metadata.

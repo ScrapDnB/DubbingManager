@@ -11,11 +11,13 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from config.constants import (
+    DEFAULT_GLOBAL_SETTINGS,
     DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
     DEFAULT_PROMPTER_CONFIG,
     DEFAULT_REPLICA_MERGE_CONFIG,
 )
+from utils.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, translate_source
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +92,10 @@ class GlobalSettingsService:
                     loaded.get('global_actor_base', {})
                 )
 
+            settings['language'] = self._normalize_language(
+                loaded.get('language', DEFAULT_LANGUAGE)
+            )
+
             self.settings = settings
             logger.info(f"Global settings loaded from {self._settings_file}")
             return settings
@@ -116,6 +122,9 @@ class GlobalSettingsService:
                 ),
                 'global_actor_base': self._normalize_actor_base(
                     settings.get('global_actor_base', {})
+                ),
+                'language': self._normalize_language(
+                    settings.get('language', DEFAULT_LANGUAGE)
                 ),
             }
 
@@ -151,6 +160,7 @@ class GlobalSettingsService:
             'docx_import_config': deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
             'recent_projects': [],
             'global_actor_base': {},
+            'language': DEFAULT_GLOBAL_SETTINGS.get('language', DEFAULT_LANGUAGE),
         }
 
     def get_settings(self) -> Dict[str, Any]:
@@ -207,6 +217,16 @@ class GlobalSettingsService:
         if 'docx_import_config' not in self.settings:
             self.settings['docx_import_config'] = {}
         self.settings['docx_import_config'].update(config)
+
+    def get_language(self) -> str:
+        """Return the selected interface language."""
+        return self._normalize_language(
+            self.settings.get('language', DEFAULT_LANGUAGE)
+        )
+
+    def set_language(self, language: str) -> None:
+        """Set the selected interface language."""
+        self.settings['language'] = self._normalize_language(language)
 
     def get_recent_projects(self) -> List[str]:
         """Return recent project paths."""
@@ -354,7 +374,9 @@ class GlobalSettingsService:
             payload.get("format") != "dubbing-manager.global-actor-base" or
             not isinstance(payload.get("actors"), dict)
         ):
-            raise ValueError("Это не файл глобальной базы актёров Dubbing Manager.")
+            raise ValueError(
+                translate_source("Это не файл глобальной базы актёров Dubbing Manager.")
+            )
 
         current = self.get_global_actor_base()
         added = 0
@@ -420,3 +442,10 @@ class GlobalSettingsService:
         if value in {"F", "Ж"}:
             return "Ж"
         return ""
+
+    def _normalize_language(self, language: Any) -> str:
+        """Return a supported interface language code."""
+        language_code = str(language or DEFAULT_LANGUAGE)
+        if language_code in SUPPORTED_LANGUAGES:
+            return language_code
+        return DEFAULT_LANGUAGE

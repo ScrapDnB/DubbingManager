@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QColor
 from typing import Dict, Optional
 from config.constants import MY_PALETTE
+from utils.i18n import translate_source, translate_widget_tree
 
 
 class PrompterColorDialog(QDialog):
@@ -25,6 +26,7 @@ class PrompterColorDialog(QDialog):
         self._btns: Dict[str, QPushButton]
         self._color_names: Dict[str, str]
         self._init_ui()
+        translate_widget_tree(self)
 
     def _init_ui(self) -> None:
         main_layout: QVBoxLayout = QVBoxLayout(self)
@@ -70,7 +72,11 @@ class PrompterColorDialog(QDialog):
 
     def _pick_color_for(self, key: str) -> None:
         initial: QColor = QColor(self.colors[key])
-        new_color: QColor = QColorDialog.getColor(initial, self, "Выберите цвет")
+        new_color: QColor = QColorDialog.getColor(
+            initial,
+            self,
+            translate_source("Выберите цвет")
+        )
         if new_color.isValid():
             hex_val: str = new_color.name()
             self.colors[key] = hex_val
@@ -92,6 +98,7 @@ class CustomColorDialog(QDialog):
         self.selected_color: Optional[str] = None
 
         self._init_ui()
+        translate_widget_tree(self)
 
     def _init_ui(self) -> None:
         layout: QVBoxLayout = QVBoxLayout(self)

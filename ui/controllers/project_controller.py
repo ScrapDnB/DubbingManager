@@ -7,6 +7,7 @@ import os
 import logging
 
 from services import ProjectService
+from utils.i18n import translate_source
 from core.commands import (
     UpdateProjectNameCommand,
     SetProjectFolderCommand,
@@ -74,8 +75,8 @@ class ProjectController:
         if parent_widget:
             reply = QMessageBox.question(
                 parent_widget,
-                "Сохранить?",
-                "Сохранить изменения?",
+                translate_source("Сохранить?"),
+                translate_source("Сохранить изменения?"),
                 QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel
             )
 

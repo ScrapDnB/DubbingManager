@@ -29,6 +29,7 @@ from config.constants import (
     DEFAULT_PROMPTER_CONFIG,
     DEFAULT_REPLICA_MERGE_CONFIG,
 )
+from utils.i18n import available_languages, tr, translate_source, translate_widget_tree
 from .actor_filter import ActorFilterDialog
 from .colors import PrompterColorDialog
 
@@ -43,7 +44,7 @@ class SettingsDialog(QDialog):
         initial_tab: str = "export",
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Настройки")
+        self.setWindowTitle(tr("settings.title"))
         self.resize(720, 560)
 
         self.project_data = project_data
@@ -67,6 +68,9 @@ class SettingsDialog(QDialog):
         self.docx_config = deepcopy(
             project_data.get("docx_import_config", DEFAULT_DOCX_IMPORT_CONFIG)
         )
+        self.language = "ru"
+        if parent is not None and hasattr(parent, "global_settings"):
+            self.language = parent.global_settings.get("language", "ru")
         self.prompter_colors = deepcopy(DEFAULT_PROMPTER_CONFIG["colors"])
         self.prompter_colors.update(self.prompter_config.get("colors", {}))
 
@@ -76,23 +80,28 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_export_tab(), "Экспорт")
-        self.tabs.addTab(self._build_merge_tab(), "Объединение")
-        self.tabs.addTab(self._build_prompter_tab(), "Телесуфлёр")
-        self.tabs.addTab(self._build_docx_tab(), "DOCX")
-        self.tabs.addTab(self._build_project_tab(), "Проект")
-        self.tabs.addTab(self._build_actor_bases_tab(), "Базы актёров")
+        self.tabs.addTab(self._build_export_tab(), tr("settings.tab.export"))
+        self.tabs.addTab(self._build_merge_tab(), tr("settings.tab.merge"))
+        self.tabs.addTab(self._build_prompter_tab(), tr("settings.tab.prompter"))
+        self.tabs.addTab(self._build_docx_tab(), tr("settings.tab.docx"))
+        self.tabs.addTab(self._build_project_tab(), tr("settings.tab.project"))
+        self.tabs.addTab(
+            self._build_actor_bases_tab(),
+            tr("settings.tab.actor_bases"),
+        )
+        self.tabs.addTab(self._build_interface_tab(), tr("settings.interface"))
         layout.addWidget(self.tabs)
         self._select_initial_tab()
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.Save | QDialogButtonBox.Cancel
         )
-        buttons.button(QDialogButtonBox.Save).setText("Сохранить")
-        buttons.button(QDialogButtonBox.Cancel).setText("Отмена")
+        buttons.button(QDialogButtonBox.Save).setText(tr("common.save"))
+        buttons.button(QDialogButtonBox.Cancel).setText(tr("common.cancel"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        translate_widget_tree(self)
 
     def _build_export_tab(self) -> QWidget:
         tab = QWidget()
@@ -106,10 +115,12 @@ class SettingsDialog(QDialog):
 
         form = QFormLayout()
         self.export_layout_type = QComboBox()
-        self.export_layout_type.addItems(["Таблица", "Сценарий"])
-        self.export_layout_type.setCurrentText(
+        self.export_layout_type.addItem(translate_source("Таблица"), "Таблица")
+        self.export_layout_type.addItem(translate_source("Сценарий"), "Сценарий")
+        layout_index = self.export_layout_type.findData(
             self.export_config.get("layout_type", "Таблица")
         )
+        self.export_layout_type.setCurrentIndex(layout_index if layout_index >= 0 else 0)
         self.export_layout_type.setToolTip(
             "Таблица удобна для сверки и записи. Сценарий делает лист "
             "похожим на читабельный текст с репликами."
@@ -214,8 +225,8 @@ class SettingsDialog(QDialog):
             "простая визуальная разметка."
         )
         self.export_time_display = QComboBox()
-        self.export_time_display.addItem("Начало и конец", "range")
-        self.export_time_display.addItem("Только начало", "start")
+        self.export_time_display.addItem(translate_source("Начало и конец"), "range")
+        self.export_time_display.addItem(translate_source("Только начало"), "start")
         current_time_display = self.export_config.get("time_display", "range")
         time_display_index = self.export_time_display.findData(current_time_display)
         if time_display_index < 0:
@@ -245,6 +256,31 @@ class SettingsDialog(QDialog):
         layout.addWidget(self.btn_export_actor_filter)
         layout.addWidget(self.export_actor_filter_summary)
 
+        layout.addStretch()
+        return tab
+
+    def _build_interface_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        note = QLabel(tr("settings.interface.note"))
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #666;")
+        layout.addWidget(note)
+
+        form = QFormLayout()
+        self.language_combo = QComboBox()
+        for code, name in available_languages().items():
+            self.language_combo.addItem(name, code)
+        index = self.language_combo.findData(self.language)
+        self.language_combo.setCurrentIndex(index if index >= 0 else 0)
+        form.addRow(tr("settings.interface.language"), self.language_combo)
+        layout.addLayout(form)
+
+        restart_note = QLabel(tr("settings.language.restart_note"))
+        restart_note.setWordWrap(True)
+        restart_note.setStyleSheet("color: #666;")
+        layout.addWidget(restart_note)
         layout.addStretch()
         return tab
 
@@ -787,7 +823,7 @@ class SettingsDialog(QDialog):
         """Return settings."""
         export_config = deepcopy(self.export_config)
         export_config.update({
-            "layout_type": self.export_layout_type.currentText(),
+            "layout_type": self.export_layout_type.currentData(),
             "col_tc": self.export_col_tc.isChecked(),
             "col_char": self.export_col_char.isChecked(),
             "col_actor": self.export_col_actor.isChecked(),
@@ -843,6 +879,7 @@ class SettingsDialog(QDialog):
             "replica_merge_config": merge_config,
             "prompter_config": prompter_config,
             "docx_import_config": docx_config,
+            "language": self.language_combo.currentData(),
         }
 
     def _parse_separators(self, text: str) -> List[str]:
@@ -863,6 +900,7 @@ class SettingsDialog(QDialog):
             "docx": 3,
             "project": 4,
             "actor_bases": 5,
+            "interface": 6,
         }
         self.tabs.setCurrentIndex(tab_indexes.get(self.initial_tab, 0))
 

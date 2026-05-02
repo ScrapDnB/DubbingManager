@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from services import ProjectHealthIssue, ProjectHealthService
+from utils.i18n import translate_source, translate_widget_tree
 
 
 class ProjectHealthDialog(QDialog):
@@ -43,6 +44,7 @@ class ProjectHealthDialog(QDialog):
         self.resize(920, 560)
 
         self._init_ui()
+        translate_widget_tree(self)
         self._refresh()
 
     def _init_ui(self) -> None:
@@ -102,13 +104,13 @@ class ProjectHealthDialog(QDialog):
     def _update_summary(self) -> None:
         summary = self.health_service.get_summary(self.issues)
         if summary["total"] == 0:
-            self.lbl_summary.setText("Проблем не найдено.")
+            self.lbl_summary.setText(translate_source("Проблем не найдено."))
             return
 
         self.lbl_summary.setText(
-            f"Ошибки: {summary['errors']} | "
-            f"Предупреждения: {summary['warnings']} | "
-            f"Инфо: {summary['info']}"
+            f"{translate_source('Ошибки:')} {summary['errors']} | "
+            f"{translate_source('Предупреждения:')} {summary['warnings']} | "
+            f"{translate_source('Инфо:')} {summary['info']}"
         )
 
     def _populate_table(self) -> None:
@@ -116,10 +118,12 @@ class ProjectHealthDialog(QDialog):
 
         for row, issue in enumerate(self.issues):
             values = [
-                self.SEVERITY_LABELS.get(issue.severity, issue.severity),
+                translate_source(
+                    self.SEVERITY_LABELS.get(issue.severity, issue.severity)
+                ),
                 issue.episode or "",
-                issue.category,
-                issue.message,
+                translate_source(issue.category),
+                translate_source(issue.message),
                 issue.path or "",
             ]
 

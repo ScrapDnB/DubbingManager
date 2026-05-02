@@ -8,6 +8,7 @@ from PySide6.QtGui import QColor
 from typing import Dict, Any, Optional, List
 from services import ExportService
 from services.assignment_service import get_actor_for_character
+from utils.i18n import translate_source, translate_widget_tree
 
 
 class SummaryDialog(QDialog):
@@ -21,15 +22,19 @@ class SummaryDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.target_ep: Optional[str] = target_ep
-        self.setWindowTitle(
-            f"Отчет: {'Серия ' + target_ep if target_ep else 'Проект'}"
+        target = (
+            f"{translate_source('Серия')} {target_ep}"
+            if target_ep
+            else translate_source("Проект")
         )
+        self.setWindowTitle(f"{translate_source('Отчет:')} {target}")
         self.resize(1000, 700)
         self.data: Dict[str, Any] = data
         self.main_app = parent
 
         self._table: QTableWidget
         self._init_ui()
+        translate_widget_tree(self)
 
     def _init_ui(self) -> None:
         layout: QVBoxLayout = QVBoxLayout(self)
@@ -141,7 +146,7 @@ class SummaryDialog(QDialog):
             row: int = self._table.rowCount()
             self._table.insertRow(row)
 
-            name_item = QTableWidgetItem("НЕ РАСПРЕДЕЛЕНЫ")
+            name_item = QTableWidgetItem(translate_source("НЕ РАСПРЕДЕЛЕНЫ"))
             name_item.setForeground(QColor("red"))
             self._table.setItem(row, 0, name_item)
             self._table.setItem(

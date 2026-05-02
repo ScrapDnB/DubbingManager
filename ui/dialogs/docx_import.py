@@ -20,6 +20,7 @@ from services.docx_import_service import (
 )
 from services.global_settings_service import GlobalSettingsService
 from utils.helpers import customize_table
+from utils.i18n import translate_source, translate_widget_tree
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ class DocxImportDialog(QDialog):
         self.file_path: Optional[str] = file_path
 
         self._init_ui()
+        translate_widget_tree(self)
         
         if file_path:
             self._load_file(file_path)

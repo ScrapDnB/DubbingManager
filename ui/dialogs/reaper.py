@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 )
 import os
 from typing import Any, Callable, Dict, Optional, Tuple
+from utils.i18n import translate_source, translate_widget_tree
 
 
 class ReaperExportDialog(QDialog):
@@ -28,6 +29,7 @@ class ReaperExportDialog(QDialog):
         self._preview_label: QLabel
         self._button_box: QDialogButtonBox
         self._init_ui(video_path)
+        translate_widget_tree(self)
 
     def _init_ui(self, video_path: Optional[str]) -> None:
         layout: QVBoxLayout = QVBoxLayout(self)
@@ -94,30 +96,32 @@ class ReaperExportDialog(QDialog):
         )
         self._preview_label.setText(self._format_preview(preview))
 
-    @staticmethod
-    def _format_preview(preview: Dict[str, Any]) -> str:
+    def _format_preview(self, preview: Dict[str, Any]) -> str:
         actors = preview.get("actors", [])
-        actor_text = ", ".join(actors[:8]) if actors else "нет"
+        actor_text = ", ".join(actors[:8]) if actors else translate_source("нет")
         if len(actors) > 8:
-            actor_text += f" и ещё {len(actors) - 8}"
+            actor_text += f" {translate_source('и ещё')} {len(actors) - 8}"
 
         sample = preview.get("sample_regions", [])
-        details = "\n".join(sample) if sample else "Регионов не будет создано."
+        details = "\n".join(sample) if sample else translate_source(
+            "Регионов не будет создано."
+        )
         if len(sample) < preview.get("regions", 0):
             details += "\n..."
 
         warning = ""
         if preview.get("invalid_lines", 0):
             warning = (
-                f"\nВнимание: реплик с некорректной длиной: "
+                f"\n{translate_source('Внимание: реплик с некорректной длиной:')} "
                 f"{preview['invalid_lines']}"
             )
 
         return (
-            f"Регионов: {preview.get('regions', 0)}\n"
-            f"Дорожек актёров: {preview.get('tracks', 0)}\n"
-            f"Актёры: {actor_text}\n"
-            f"Видео: {'да' if preview.get('video') else 'нет'}"
+            f"{translate_source('Регионов:')} {preview.get('regions', 0)}\n"
+            f"{translate_source('Дорожек актёров:')} {preview.get('tracks', 0)}\n"
+            f"{translate_source('Актёры:')} {actor_text}\n"
+            f"{translate_source('Видео:')} "
+            f"{translate_source('да' if preview.get('video') else 'нет')}"
             f"{warning}\n\n"
-            f"Первые регионы:\n{details}"
+            f"{translate_source('Первые регионы:')}\n{details}"
         )

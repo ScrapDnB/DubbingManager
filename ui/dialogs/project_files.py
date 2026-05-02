@@ -11,6 +11,7 @@ from typing import Dict, List, Any, Optional, Tuple
 import os
 
 from services import ProjectFolderService
+from utils.i18n import translate_source, translate_widget_tree
 
 
 class ProjectFilesDialog(QDialog):
@@ -29,6 +30,7 @@ class ProjectFilesDialog(QDialog):
         self.resize(800, 600)
         
         self._init_ui()
+        translate_widget_tree(self)
         self._populate_tree()
 
     def _init_ui(self) -> None:
@@ -98,12 +100,12 @@ class ProjectFilesDialog(QDialog):
     ) -> Tuple[str, QColor]:
         """Return file status information."""
         if not path:
-            return "Не указан", QColor("#999999")
+            return translate_source("Не указан"), QColor("#999999")
         
         if os.path.exists(path):
-            return "✓ Найден", QColor("#28a745")
+            return translate_source("✓ Найден"), QColor("#28a745")
         else:
-            return "✗ Не найден", QColor("#dc3545")
+            return translate_source("✗ Не найден"), QColor("#dc3545")
 
     def _is_subtitle_source_path(self, path: Optional[str]) -> bool:
         """Is subtitle source path."""

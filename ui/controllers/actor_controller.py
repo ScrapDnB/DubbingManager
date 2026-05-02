@@ -11,6 +11,7 @@ from typing import Dict, List, Any, Optional, Callable
 from services import ActorService
 from services.assignment_service import get_actor_roles
 from utils.helpers import wrap_widget
+from utils.i18n import tr
 
 
 class ActorController:
@@ -36,9 +37,7 @@ class ActorController:
 
     def _setup_table(self) -> None:
         """Setup table."""
-        self.actor_table.setHorizontalHeaderLabels(
-            ["Актер", "Роли", "Цвет", "Пол"]
-        )
+        self._set_headers()
         self.actor_table.setShowGrid(False)
         self.actor_table.setAlternatingRowColors(True)
         self.actor_table.setSortingEnabled(True)
@@ -89,9 +88,7 @@ class ActorController:
 
         self.actor_table.blockSignals(True)
         self.actor_table.setSortingEnabled(False)
-        self.actor_table.setHorizontalHeaderLabels(
-            ["Актер", "Роли", "Цвет", "Пол"]
-        )
+        self._set_headers()
         self.actor_table.setRowCount(0)
 
         actor_roles = self._get_actor_roles()
@@ -107,7 +104,9 @@ class ActorController:
             self.actor_table.setItem(row, 0, item)
             item.setFlags(item.flags() | Qt.ItemIsEditable)
 
-            btn: QPushButton = QPushButton(f"Роли ({len(actor_roles[aid])})")
+            btn: QPushButton = QPushButton(
+                tr("actor.roles.button", count=len(actor_roles[aid]))
+            )
             if self.on_edit_roles_callback:
                 btn.clicked.connect(
                     lambda checked=False, a=aid, n=info["name"], r=actor_roles[aid]:
@@ -177,9 +176,18 @@ class ActorController:
             if btn_widget:
                 btn = btn_widget.findChild(QPushButton)
                 if btn:
-                    btn.setText(f"Роли ({len(new_roles)})")
+                    btn.setText(tr("actor.roles.button", count=len(new_roles)))
         
         self._mark_dirty()
+
+    def _set_headers(self) -> None:
+        """Apply localized table headers."""
+        self.actor_table.setHorizontalHeaderLabels([
+            tr("actor.table.actor"),
+            tr("actor.table.roles"),
+            tr("actor.table.color"),
+            tr("actor.table.gender"),
+        ])
 
     def bulk_assign_actors(
         self,

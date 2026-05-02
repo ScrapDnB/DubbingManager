@@ -24,6 +24,7 @@ from config.constants import (
     PREVIEW_SETTINGS_PANEL_WIDTH,
 )
 from utils.helpers import hex_to_rgba_string, log_exception
+from utils.i18n import translate_source, translate_widget_tree
 from utils.web_bridge import WebBridge
 from services import ExportService
 from .dialogs.actor_filter import ActorFilterDialog
@@ -44,13 +45,17 @@ class HtmlLivePreview(QDialog):
         super().__init__(None)
         self.main_app: Any = main_app
         self.ep_num: str = ep_num
-        self.setWindowTitle(f"Предпросмотр монтажного листа: Серия {ep_num}")
+        self.setWindowTitle(
+            f"{translate_source('Предпросмотр монтажного листа:')} "
+            f"{translate_source('Серия')} {ep_num}"
+        )
         self.resize(PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT)
 
         self.highlight_ids = None
         self._has_text_changes: bool = False
 
         self._init_ui()
+        translate_widget_tree(self)
 
         try:
             self.browser.loadFinished.connect(self.on_page_loaded)
@@ -100,11 +105,13 @@ class HtmlLivePreview(QDialog):
         sp_layout.addWidget(QLabel("<b>Настройки вида</b>"))
 
         self.combo_layout = QComboBox()
-        self.combo_layout.addItems(["Таблица", "Сценарий"])
+        self.combo_layout.addItem(translate_source("Таблица"), "Таблица")
+        self.combo_layout.addItem(translate_source("Сценарий"), "Сценарий")
         current_type: str = self.main_app.data["export_config"].get(
             "layout_type", "Таблица"
         )
-        self.combo_layout.setCurrentText(current_type)
+        index = self.combo_layout.findData(current_type)
+        self.combo_layout.setCurrentIndex(index if index >= 0 else 0)
         self.combo_layout.currentIndexChanged.connect(self.on_setting_change)
         sp_layout.addWidget(QLabel("Формат:"))
         sp_layout.addWidget(self.combo_layout)
@@ -129,8 +136,8 @@ class HtmlLivePreview(QDialog):
             "Округлять время", cfg.get("round_time", False)
         )
         self.combo_time_display = QComboBox()
-        self.combo_time_display.addItem("Начало и конец", "range")
-        self.combo_time_display.addItem("Только начало", "start")
+        self.combo_time_display.addItem(translate_source("Начало и конец"), "range")
+        self.combo_time_display.addItem(translate_source("Только начало"), "start")
         time_display_index = self.combo_time_display.findData(
             cfg.get("time_display", "range")
         )
@@ -226,7 +233,7 @@ class HtmlLivePreview(QDialog):
             logger.info(f"update_preview: lines={len(lines) if lines else 0}")
             
             if not lines:
-                self.browser.setHtml("<h3>Нет данных в серии</h3>")
+                self.browser.setHtml(f"<h3>{translate_source('Нет данных в серии')}</h3>")
                 return
 
             try:
@@ -238,7 +245,7 @@ class HtmlLivePreview(QDialog):
 
             cfg = self.main_app.data["export_config"]
             merge_cfg = self.main_app.data.get("replica_merge_config", {})
-            local_layout = self.combo_layout.currentText()
+            local_layout = self.combo_layout.currentData()
 
             logger.info(f"update_preview: generating HTML with layout={local_layout}")
 
@@ -260,7 +267,7 @@ class HtmlLivePreview(QDialog):
             
         except Exception as e:
             logger.error(f"update_preview failed: {e}", exc_info=True)
-            self.browser.setHtml(f"<h3>Ошибка: {e}</h3>")
+            self.browser.setHtml(f"<h3>{translate_source('Ошибка')}: {e}</h3>")
     
     def toggle_sidebar(self) -> None:
         """Toggle sidebar."""
@@ -268,14 +275,18 @@ class HtmlLivePreview(QDialog):
         self.settings_panel.setVisible(not is_hidden)
         
         if is_hidden:
-            self.btn_toggle_sidebar.setText("➡ Показать настройки")
+            self.btn_toggle_sidebar.setText(
+                "➡ " + translate_source("Показать настройки")
+            )
         else:
-            self.btn_toggle_sidebar.setText("⬅ Скрыть настройки")
+            self.btn_toggle_sidebar.setText(
+                "⬅ " + translate_source("Скрыть настройки")
+            )
     
     def on_setting_change(self) -> None:
         """Handle setting change."""
         cfg = self.main_app.data["export_config"]
-        cfg["layout_type"] = self.combo_layout.currentText()
+        cfg["layout_type"] = self.combo_layout.currentData()
         cfg["col_tc"] = self.chk_col_tc.isChecked()
         cfg["col_char"] = self.chk_col_char.isChecked()
         cfg["col_actor"] = self.chk_col_actor.isChecked()

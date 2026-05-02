@@ -18,6 +18,7 @@ from config.constants import (
     VIDEO_WIDGET_MIN_HEIGHT,
 )
 from utils.helpers import format_seconds_to_tc, customize_table
+from utils.i18n import translate_source, translate_widget_tree
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +34,15 @@ class VideoPreviewWindow(QDialog):
         parent=None
     ):
         super().__init__(parent)
-        self.setWindowTitle(f"Просмотр: Серия {ep_num}")
+        self.setWindowTitle(
+            f"{translate_source('Просмотр:')} {translate_source('Серия')} {ep_num}"
+        )
         self.resize(VIDEO_WINDOW_WIDTH, VIDEO_WINDOW_HEIGHT)
         self.video_path = video_path
         self.lines = lines
         
         self._init_ui()
+        translate_widget_tree(self)
         
         if self.video_path and os.path.exists(self.video_path):
             abs_path = os.path.abspath(self.video_path)

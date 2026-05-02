@@ -69,6 +69,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('config', 'config'),
+        ('resources/i18n', 'resources/i18n'),
     ],
     hiddenimports=hidden_imports,
     hookspath=['hooks'],

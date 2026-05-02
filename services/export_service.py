@@ -14,6 +14,7 @@ from utils.helpers import (
     format_seconds_to_tc,
     format_timing_range,
 )
+from utils.i18n import translate_source
 
 logger = logging.getLogger(__name__)
 
@@ -377,14 +378,14 @@ class ExportService:
         columns = []
         if cfg.get('col_tc', True):
             timing = self._format_export_timing(line, cfg)
-            columns.append(("Время", "t", escape(str(timing))))
+            columns.append((translate_source("Время"), "t", escape(str(timing))))
         if cfg.get('col_char', True):
-            columns.append(("Персонаж", "c", escape(str(line.get('char', '')))))
+            columns.append((translate_source("Персонаж"), "c", escape(str(line.get('char', '')))))
         if cfg.get('col_actor', True):
             actor_name = escape(str(actor.get('name', '-')))
-            columns.append(("Актер", "a", actor_name))
+            columns.append((translate_source("Актер"), "a", actor_name))
         if cfg.get('col_text', True):
-            columns.append(("Текст", "txt", text_html))
+            columns.append((translate_source("Текст"), "txt", text_html))
 
         if not columns:
             columns.append((" ", "txt", ""))
@@ -630,15 +631,15 @@ class ExportService:
         col_text = cfg.get('col_text', True)
 
         # Headers only for selected columns
-        headers = ['Номер']
+        headers = [translate_source('Номер')]
         if col_tc:
-            headers.append('Таймкод')
+            headers.append(translate_source('Таймкод'))
         if col_char:
-            headers.append('Персонаж')
+            headers.append(translate_source('Персонаж'))
         if col_actor:
-            headers.append('Актёр')
+            headers.append(translate_source('Актёр'))
         if col_text:
-            headers.append('Реплика')
+            headers.append(translate_source('Реплика'))
         ws.append(headers)
 
         # Header styles
@@ -766,7 +767,7 @@ class ExportService:
     ) -> Tuple[bool, str]:
         """Export data to an Excel file."""
         if not EXCEL_AVAILABLE:
-            return False, "openpyxl не установлен"
+            return False, translate_source("openpyxl не установлен")
 
         try:
             # Use all episodes for the summary when provided
@@ -785,10 +786,10 @@ class ExportService:
 
             wb = self.create_excel_book(processed_episodes, cfg)
             wb.save(save_path)
-            return True, f"Excel сохранён: {save_path}"
+            return True, f"{translate_source('Excel сохранён:')} {save_path}"
         except Exception as e:
             logger.error(f"Excel export error: {e}")
-            return False, f"Ошибка экспорта: {e}"
+            return False, f"{translate_source('Ошибка экспорта:')} {e}"
 
     # ==========================================================================
     # Reaper RPP export
@@ -984,7 +985,7 @@ class ExportService:
     ) -> Tuple[bool, str]:
         """Export several episodes in one batch."""
         if not folder:
-            return False, "Папка для экспорта не указана"
+            return False, translate_source("Папка для экспорта не указана")
 
         cfg = self.project_data["export_config"]
         merge_cfg = self.project_data.get("replica_merge_config", {})
@@ -1005,11 +1006,19 @@ class ExportService:
                 lines = get_lines_callback(ep)
                 if not lines:
                     if progress_callback:
-                        progress_callback(idx, total_episodes, f"Пропуск серии {ep}...")
+                        progress_callback(
+                            idx,
+                            total_episodes,
+                            f"{translate_source('Пропуск серии')} {ep}..."
+                        )
                     continue
 
                 if progress_callback:
-                    progress_callback(idx - 1, total_episodes, f"Экспорт серии {ep}...")
+                    progress_callback(
+                        idx - 1,
+                        total_episodes,
+                        f"{translate_source('Экспорт серии')} {ep}..."
+                    )
 
                 if do_html:
                     filename = f"{project_name} - Ep{ep}.html"
@@ -1027,7 +1036,7 @@ class ExportService:
                     exported_count += 1
 
             if do_xls and EXCEL_AVAILABLE and all_episodes_data:
-                filename = f"{project_name} - Все серии.xlsx"
+                filename = f"{project_name} - {translate_source('Все серии')}.xlsx"
                 filepath = os.path.join(folder, filename)
                 first_ep = next(iter(all_episodes_data))
                 first_lines = all_episodes_data[first_ep]
@@ -1040,7 +1049,7 @@ class ExportService:
 
             # Advance progress to completion
             if progress_callback:
-                progress_callback(total_episodes, total_episodes, "Готово!")
+                progress_callback(total_episodes, total_episodes, translate_source("Готово!"))
 
             # Open the folder
             if exported_count > 0:
@@ -1049,8 +1058,8 @@ class ExportService:
                 else:
                     os.startfile(folder)
 
-            return True, f"Экспортировано файлов: {exported_count}"
+            return True, f"{translate_source('Экспортировано файлов:')} {exported_count}"
 
         except Exception as e:
             logger.error(f"Batch export error: {e}")
-            return False, f"Ошибка пакетного экспорта: {e}"
+            return False, f"{translate_source('Ошибка пакетного экспорта:')} {e}"

@@ -39,6 +39,7 @@ class TestGlobalSettingsService:
         assert settings['export_config'] == DEFAULT_EXPORT_CONFIG
         assert settings['prompter_config'] == DEFAULT_PROMPTER_CONFIG
         assert settings['replica_merge_config'] == DEFAULT_REPLICA_MERGE_CONFIG
+        assert settings['language'] == 'ru'
 
     def test_load_settings_with_data(self, service, temp_settings_file):
         """Тест загрузки с данными"""
@@ -47,6 +48,7 @@ class TestGlobalSettingsService:
             'prompter_config': {'f_tc': 30},
             'replica_merge_config': {'merge_gap': 10},
             'recent_projects': ['/tmp/a.json', '/tmp/a.json', '/tmp/b.json'],
+            'language': 'en',
         }
         
         temp_settings_file.parent.mkdir(parents=True, exist_ok=True)
@@ -62,6 +64,7 @@ class TestGlobalSettingsService:
             str(Path('/tmp/a.json').expanduser()),
             str(Path('/tmp/b.json').expanduser()),
         ]
+        assert settings['language'] == 'en'
 
     def test_load_settings_with_colors(self, service, temp_settings_file):
         """Тест загрузки с цветами"""
@@ -113,6 +116,17 @@ class TestGlobalSettingsService:
         assert saved_data['prompter_config']['f_tc'] == 25
         assert saved_data['docx_import_config']['mapping']['text'] == 2
         assert saved_data['recent_projects'] == []
+        assert saved_data['language'] == 'ru'
+
+    def test_language_normalization(self, service):
+        """Тест нормализации языка интерфейса."""
+        settings = service.load_settings()
+        settings['language'] = 'en'
+        service.save_settings(settings)
+        assert service.get_language() == 'en'
+
+        service.set_language('unknown')
+        assert service.get_language() == 'ru'
 
     def test_save_settings_creates_backup_before_overwrite(self, service, temp_settings_file):
         """Тест бэкапа глобальных настроек перед перезаписью."""

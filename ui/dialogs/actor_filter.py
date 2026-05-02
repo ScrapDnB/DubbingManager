@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from typing import Dict, List, Set, Optional
+from utils.i18n import translate_widget_tree
 
 
 class ActorFilterDialog(QDialog):
@@ -27,6 +28,7 @@ class ActorFilterDialog(QDialog):
         self._checks_layout: QVBoxLayout
         self._checkboxes: Dict[str, QCheckBox]
         self._init_ui()
+        translate_widget_tree(self)
 
     def _init_ui(self) -> None:
         layout: QVBoxLayout = QVBoxLayout(self)
