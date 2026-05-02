@@ -189,7 +189,7 @@ class ProjectFilesDialog(QDialog):
         
         for ep_num in all_ep_nums:
             ep_item = QTreeWidgetItem([
-                f"{translate_source('Серия')} {ep_num}",
+                str(ep_num),
                 "",
                 "",
                 ""

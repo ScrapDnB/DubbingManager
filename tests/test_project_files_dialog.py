@@ -190,7 +190,7 @@ class TestProjectFilesDialog:
         root_item = None
         for i in range(dialog.file_tree.topLevelItemCount()):
             item = dialog.file_tree.topLevelItem(i)
-            if item.text(0) == "Серия 4":
+            if item.text(0) == "4":
                 root_item = item
                 break
 

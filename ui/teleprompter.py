@@ -705,7 +705,7 @@ class TeleprompterWindow(QDialog):
         )
         for ep_num in episode_nums:
             self.combo_episode.addItem(
-                f"{translate_source('Серия')} {ep_num}",
+                str(ep_num),
                 str(ep_num)
             )
 

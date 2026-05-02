@@ -19,7 +19,7 @@ MAIN_WINDOW_WIDTH = 1350
 MAIN_WINDOW_HEIGHT = 850
 
 ACTOR_PANEL_WIDTH = 350
-TOOLS_SIDEBAR_WIDTH = 160
+TOOLS_SIDEBAR_WIDTH = 250
 
 SEARCH_EDIT_WIDTH = 160
 
@@ -210,7 +210,7 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Application version shown in the UI and build metadata.
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.4.1"
 
 # Project file format version used for compatibility migrations.
 PROJECT_VERSION = "1.3"

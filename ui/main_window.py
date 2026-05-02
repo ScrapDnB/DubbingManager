@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QStackedWidget, QDoubleSpinBox, QRadioButton,
     QGridLayout, QScrollArea, QSplitter, QSizePolicy, QToolBar,
     QDialogButtonBox, QTextEdit, QDialog, QProgressDialog, QApplication,
-    QStyledItemDelegate, QStyle, QMenu
+    QStyledItemDelegate, QStyle
 )
 from PySide6.QtGui import QColor, QFont, QAction, QKeySequence, QPen, QBrush
 from PySide6.QtCore import (
@@ -613,11 +613,13 @@ class MainWindow(QMainWindow):
         top.addWidget(self.lbl_project)
         top.addWidget(self.proj_edit)
 
-        self.recent_projects_menu = QMenu(self)
-        self.btn_recent = QPushButton()
-        self.btn_recent.setMenu(self.recent_projects_menu)
-        top.addWidget(self.btn_recent)
-        self._update_recent_projects_menu()
+        self.recent_projects_combo = QComboBox()
+        self.recent_projects_combo.setMinimumWidth(EPISODE_COMBO_MIN_WIDTH)
+        self.recent_projects_combo.activated.connect(
+            self._on_recent_project_activated
+        )
+        top.addWidget(self.recent_projects_combo)
+        self._update_recent_projects_combo()
 
         self.btn_new_project = QPushButton("📄")
         self.btn_new_project.setMinimumWidth(BTN_SAVE_ICON_WIDTH)
@@ -911,7 +913,7 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, "lbl_project"):
             self.lbl_project.setText(tr("main.project"))
-            self.btn_recent.setText(tr("main.recent"))
+            self._update_recent_projects_combo()
             self.btn_new_project.setToolTip(tr("main.new_project.tooltip"))
             self.btn_load.setToolTip(tr("main.open.tooltip"))
             self.btn_save.setToolTip(tr("main.save.tooltip"))
@@ -1342,41 +1344,55 @@ class MainWindow(QMainWindow):
             self.global_settings_service.get_recent_projects()
         )
         self.global_settings_service.save_settings(self.global_settings)
-        self._update_recent_projects_menu()
+        self._update_recent_projects_combo()
 
-    def _update_recent_projects_menu(self) -> None:
-        """Refresh the recent-project menu."""
-        if not hasattr(self, "recent_projects_menu"):
+    def _update_recent_projects_combo(self) -> None:
+        """Refresh the recent-project combo box."""
+        if not hasattr(self, "recent_projects_combo"):
             return
 
-        self.recent_projects_menu.clear()
+        combo = self.recent_projects_combo
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem(tr("main.recent"), None)
+
         recent = self.global_settings_service.get_recent_projects()
         existing = [path for path in recent if os.path.exists(path)]
 
         if not existing:
-            action = self.recent_projects_menu.addAction("Нет недавних проектов")
-            action.setEnabled(False)
+            combo.addItem(translate_source("Нет недавних проектов"), None)
+            combo.setCurrentIndex(0)
+            combo.blockSignals(False)
             return
 
         for path in existing:
             label = os.path.basename(path) or path
-            action = self.recent_projects_menu.addAction(label)
-            action.setToolTip(path)
-            action.triggered.connect(
-                lambda _checked=False, p=path: self.load_recent_project(p)
-            )
+            combo.addItem(label, path)
+            combo.setItemData(combo.count() - 1, path, Qt.ToolTipRole)
 
-        self.recent_projects_menu.addSeparator()
-        self.recent_projects_menu.addAction(
-            "Очистить список", self.clear_recent_projects
-        )
+        combo.insertSeparator(combo.count())
+        combo.addItem(translate_source("Очистить список"), "__clear__")
+        combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+
+    def _on_recent_project_activated(self, index: int) -> None:
+        """Handle choosing an item from the recent-project combo."""
+        if not hasattr(self, "recent_projects_combo"):
+            return
+
+        action = self.recent_projects_combo.itemData(index)
+        self.recent_projects_combo.setCurrentIndex(0)
+        if action == "__clear__":
+            self.clear_recent_projects()
+        elif action:
+            self.load_recent_project(str(action))
 
     def clear_recent_projects(self) -> None:
         """Clear recent projects."""
         self.global_settings_service.clear_recent_projects()
         self.global_settings["recent_projects"] = []
         self.global_settings_service.save_settings(self.global_settings)
-        self._update_recent_projects_menu()
+        self._update_recent_projects_combo()
 
     def load_recent_project(self, path: str) -> None:
         """Load a project from the recent-project list."""
@@ -1388,7 +1404,7 @@ class MainWindow(QMainWindow):
                 "Проект не найден",
                 f"Файл больше не существует:\n{path}"
             )
-            self._update_recent_projects_menu()
+            self._update_recent_projects_combo()
             return
         if self.project_controller.maybe_save(self):
             self._load_from_path(path)
@@ -2990,7 +3006,7 @@ class MainWindow(QMainWindow):
             self.data["episodes"].keys(),
             key=lambda x: int(x) if x.isdigit() else 0
         ):
-            self.ep_combo.addItem(f"Серия {ep}", ep)
+            self.ep_combo.addItem(str(ep), ep)
 
         if select:
             self.ep_combo.setCurrentIndex(
