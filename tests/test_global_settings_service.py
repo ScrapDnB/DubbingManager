@@ -427,4 +427,6 @@ class TestGlobalSettingsServiceIntegration:
             assert 'prompter_config' not in loaded_settings
             assert 'replica_merge_config' not in loaded_settings
             assert loaded_settings['language'] == 'en'
-            assert loaded_settings['recent_projects'] == ['/tmp/project.json']
+            assert loaded_settings['recent_projects'] == [
+                str(Path('/tmp/project.json').expanduser())
+            ]
