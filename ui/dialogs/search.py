@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from typing import Dict, Any, Optional
-from utils.helpers import format_seconds_to_tc
+from utils.helpers import format_seconds_to_tc, natural_sort_key
 from utils.i18n import translate_source, translate_widget_tree
 
 
@@ -88,7 +88,7 @@ class GlobalSearchDialog(QDialog):
 
         for ep_num in sorted(
             episodes.keys(),
-            key=lambda x: int(x) if x.isdigit() else 0
+            key=natural_sort_key
         ):
             for line in self._get_episode_lines(ep_num):
                 char_name = line.get("char", "")

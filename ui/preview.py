@@ -301,15 +301,9 @@ class HtmlLivePreview(QDialog):
         self.update_preview()
 
     def _save_export_settings(self) -> None:
-        """Persist preview export settings as the main export defaults."""
-        if not hasattr(self.main_app, "global_settings_service"):
-            return
-        self.main_app.global_settings["export_config"] = (
-            self.main_app.data["export_config"]
-        )
-        self.main_app.global_settings_service.save_settings(
-            self.main_app.global_settings
-        )
+        """Mark project-local preview export settings as changed."""
+        if hasattr(self.main_app, "set_dirty"):
+            self.main_app.set_dirty(True)
     
     def open_actor_filter(self) -> None:
         """Open actor filter."""

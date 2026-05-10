@@ -21,11 +21,16 @@ class ParentStub(QWidget):
         self.global_settings_service = GlobalSettingsService()
         self.global_settings_service._settings_file = settings_file
         self.global_settings = self.global_settings_service.load_settings()
+        self.data = {"docx_import_config": {}}
+        self.dirty = False
+
+    def set_dirty(self, dirty=True):
+        self.dirty = dirty
 
 
 def test_dialog_applies_saved_mapping(app, tmp_path):
     parent = ParentStub(tmp_path / "settings.json")
-    parent.global_settings["docx_import_config"] = {
+    parent.data["docx_import_config"] = {
         "mapping": {
             "character": 0,
             "time_start": None,
@@ -65,6 +70,7 @@ def test_dialog_saves_mapping_on_import(app, tmp_path):
 
     dialog._save_current_import_settings()
 
-    saved = parent.global_settings["docx_import_config"]
+    saved = parent.data["docx_import_config"]
     assert saved["mapping"]["text"] == 2
     assert saved["time_separators"] == ["-", "|"]
+    assert parent.dirty is True

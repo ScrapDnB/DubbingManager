@@ -36,9 +36,9 @@ class TestGlobalSettingsService:
         """Тест загрузки при отсутствии файла"""
         settings = service.load_settings()
         
-        assert settings['export_config'] == DEFAULT_EXPORT_CONFIG
-        assert settings['prompter_config'] == DEFAULT_PROMPTER_CONFIG
-        assert settings['replica_merge_config'] == DEFAULT_REPLICA_MERGE_CONFIG
+        assert 'export_config' not in settings
+        assert 'prompter_config' not in settings
+        assert 'replica_merge_config' not in settings
         assert settings['language'] == 'ru'
 
     def test_load_settings_with_data(self, service, temp_settings_file):
@@ -57,17 +57,17 @@ class TestGlobalSettingsService:
         
         settings = service.load_settings()
         
-        assert settings['export_config']['layout_type'] == 'Сценарий'
-        assert settings['prompter_config']['f_tc'] == 30
-        assert settings['replica_merge_config']['merge_gap'] == 10
+        assert 'export_config' not in settings
+        assert 'prompter_config' not in settings
+        assert 'replica_merge_config' not in settings
         assert settings['recent_projects'] == [
             str(Path('/tmp/a.json').expanduser()),
             str(Path('/tmp/b.json').expanduser()),
         ]
         assert settings['language'] == 'en'
 
-    def test_load_settings_with_colors(self, service, temp_settings_file):
-        """Тест загрузки с цветами"""
+    def test_load_settings_ignores_legacy_project_settings(self, service, temp_settings_file):
+        """Legacy project-level global settings are ignored."""
         test_data = {
             'prompter_config': {
                 'colors': {'bg': '#FFFFFF'}
@@ -80,7 +80,7 @@ class TestGlobalSettingsService:
         
         settings = service.load_settings()
         
-        assert settings['prompter_config']['colors']['bg'] == '#FFFFFF'
+        assert 'prompter_config' not in settings
 
     def test_load_settings_invalid_json(self, service, temp_settings_file):
         """Тест загрузки с невалидным JSON"""
@@ -90,7 +90,7 @@ class TestGlobalSettingsService:
         
         settings = service.load_settings()
         
-        assert settings['export_config'] == DEFAULT_EXPORT_CONFIG
+        assert settings['language'] == 'ru'
 
     def test_save_settings(self, service, temp_settings_file):
         """Тест сохранения настроек"""
@@ -112,9 +112,10 @@ class TestGlobalSettingsService:
         with open(temp_settings_file, 'r', encoding='utf-8') as f:
             saved_data = json.load(f)
         
-        assert saved_data['export_config']['layout_type'] == 'Таблица'
-        assert saved_data['prompter_config']['f_tc'] == 25
-        assert saved_data['docx_import_config']['mapping']['text'] == 2
+        assert 'export_config' not in saved_data
+        assert 'prompter_config' not in saved_data
+        assert 'replica_merge_config' not in saved_data
+        assert 'docx_import_config' not in saved_data
         assert saved_data['recent_projects'] == []
         assert saved_data['language'] == 'ru'
 
@@ -256,7 +257,8 @@ class TestGlobalSettingsService:
         
         settings = service.get_settings()
         
-        assert settings['export_config'] == DEFAULT_EXPORT_CONFIG
+        assert 'export_config' not in settings
+        assert settings['language'] == 'ru'
 
     def test_get_settings_loaded(self, service):
         """Тест получения загруженных настроек"""
@@ -379,9 +381,8 @@ class TestGlobalSettingsService:
             
             assert 'dubbing_manager' in str(path)
 
-    def test_partial_settings_load(self, service, temp_settings_file):
-        """Тест частичной загрузки настроек"""
-        # Только export_config
+    def test_partial_settings_load_ignores_project_settings(self, service, temp_settings_file):
+        """Глобальная загрузка игнорирует legacy-настройки проекта."""
         test_data = {'export_config': {'layout_type': 'Сценарий'}}
         
         temp_settings_file.parent.mkdir(parents=True, exist_ok=True)
@@ -390,9 +391,8 @@ class TestGlobalSettingsService:
         
         settings = service.load_settings()
         
-        assert settings['export_config']['layout_type'] == 'Сценарий'
-        # Остальные должны быть по умолчанию
-        assert settings['prompter_config']['f_tc'] == 20
+        assert 'export_config' not in settings
+        assert settings['language'] == 'ru'
 
     def test_settings_file_attribute(self, service, temp_settings_file):
         """Тест атрибута _settings_file"""
@@ -403,7 +403,7 @@ class TestGlobalSettingsServiceIntegration:
     """Интеграционные тесты для GlobalSettingsService"""
 
     def test_full_cycle(self, tmp_path):
-        """Тест полного цикла: сохранение и загрузка"""
+        """Тест полного цикла: сохраняются только глобальные настройки."""
         settings_file = tmp_path / "settings.json"
         
         with patch('services.global_settings_service.SETTINGS_FILE', settings_file):
@@ -412,7 +412,9 @@ class TestGlobalSettingsServiceIntegration:
             original_settings = {
                 'export_config': {'layout_type': 'Сценарий', 'use_color': False},
                 'prompter_config': {'f_tc': 50, 'f_text': 100},
-                'replica_merge_config': {'merge': False, 'merge_gap': 200}
+                'replica_merge_config': {'merge': False, 'merge_gap': 200},
+                'language': 'en',
+                'recent_projects': ['/tmp/project.json'],
             }
             service1.save_settings(original_settings)
             
@@ -421,9 +423,8 @@ class TestGlobalSettingsServiceIntegration:
             loaded_settings = service2.load_settings()
             
             # Проверяем
-            assert loaded_settings['export_config']['layout_type'] == 'Сценарий'
-            assert loaded_settings['export_config']['use_color'] == False
-            assert loaded_settings['prompter_config']['f_tc'] == 50
-            assert loaded_settings['prompter_config']['f_text'] == 100
-            assert loaded_settings['replica_merge_config']['merge'] == False
-            assert loaded_settings['replica_merge_config']['merge_gap'] == 200
+            assert 'export_config' not in loaded_settings
+            assert 'prompter_config' not in loaded_settings
+            assert 'replica_merge_config' not in loaded_settings
+            assert loaded_settings['language'] == 'en'
+            assert loaded_settings['recent_projects'] == ['/tmp/project.json']

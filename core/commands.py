@@ -351,22 +351,30 @@ class DeleteEpisodeCommand(Command):
         video_paths: Dict[str, str],
         loaded_episodes: Dict[str, List[Dict[str, Any]]],
         episode_num: str,
-        episode_actor_map: Optional[Dict[str, Dict[str, str]]] = None
+        episode_actor_map: Optional[Dict[str, Dict[str, str]]] = None,
+        episode_texts: Optional[Dict[str, str]] = None
     ):
         self.episodes = episodes
         self.video_paths = video_paths
         self.loaded_episodes = loaded_episodes
         self.episode_actor_map = episode_actor_map
+        self.episode_texts = episode_texts
         self.episode_num = episode_num
         self._deleted_episode: Optional[str] = None
         self._deleted_video: Optional[str] = None
         self._deleted_loaded_data: Optional[List[Dict[str, Any]]] = None
         self._deleted_actor_map: Optional[Dict[str, str]] = None
+        self._deleted_text: Optional[str] = None
 
     def execute(self) -> None:
         self._deleted_episode = self.episodes.get(self.episode_num)
         self._deleted_video = self.video_paths.get(self.episode_num)
         self._deleted_loaded_data = self.loaded_episodes.get(self.episode_num)
+        self._deleted_text = (
+            self.episode_texts.get(self.episode_num)
+            if self.episode_texts
+            else None
+        )
         self._deleted_actor_map = (
             self.episode_actor_map.get(self.episode_num)
             if self.episode_actor_map
@@ -376,6 +384,8 @@ class DeleteEpisodeCommand(Command):
         self.episodes.pop(self.episode_num, None)
         self.video_paths.pop(self.episode_num, None)
         self.loaded_episodes.pop(self.episode_num, None)
+        if self.episode_texts:
+            self.episode_texts.pop(self.episode_num, None)
         if self.episode_actor_map:
             self.episode_actor_map.pop(self.episode_num, None)
 
@@ -388,6 +398,8 @@ class DeleteEpisodeCommand(Command):
             self.video_paths[self.episode_num] = self._deleted_video
         if self._deleted_loaded_data:
             self.loaded_episodes[self.episode_num] = self._deleted_loaded_data
+        if self._deleted_text and self.episode_texts is not None:
+            self.episode_texts[self.episode_num] = self._deleted_text
         if self._deleted_actor_map and self.episode_actor_map is not None:
             self.episode_actor_map[self.episode_num] = self._deleted_actor_map
 

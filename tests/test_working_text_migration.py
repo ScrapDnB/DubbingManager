@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+from PySide6.QtWidgets import QMessageBox
+
 from services import EpisodeService, ScriptTextService
 from ui.main_window import MainWindow
 
@@ -123,3 +125,45 @@ def test_create_missing_working_texts_uses_project_folder(tmp_path, monkeypatch)
     text_path = Path(window.data["episode_texts"]["1"])
     assert text_path == project_folder / "texts_dm" / "episode_1.json"
     assert text_path.exists()
+
+
+def test_migration_prompt_only_informs_user(tmp_path, monkeypatch):
+    window = _make_window_stub(tmp_path)
+    source_path = tmp_path / "episode_1.srt"
+    source_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nHi\n", encoding="utf-8")
+    window.data["episodes"] = {"1": str(source_path)}
+
+    messages = []
+    monkeypatch.setattr(
+        "ui.main_window.QMessageBox.information",
+        lambda *args: messages.append(args)
+    )
+    window.create_missing_working_texts = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("migration prompt must not create working texts")
+    )
+
+    window._prompt_working_text_migration()
+
+    assert messages
+    assert window.data["episode_texts"] == {}
+
+
+def test_ensure_working_text_offers_to_create_json(tmp_path, monkeypatch):
+    window = _make_window_stub(tmp_path)
+    source_path = tmp_path / "episode_1.srt"
+    source_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nHi\n", encoding="utf-8")
+    window.data["episodes"] = {"1": str(source_path)}
+
+    monkeypatch.setattr(
+        "ui.main_window.QMessageBox.question",
+        lambda *args: QMessageBox.Yes
+    )
+    called = []
+    window.regenerate_episode_text = (
+        lambda ep, source_path=None, show_result=True: called.append(
+            (ep, source_path, show_result)
+        ) or True
+    )
+
+    assert window.ensure_working_text_for_episode("1", "редактировать текст")
+    assert called == [("1", str(source_path), False)]

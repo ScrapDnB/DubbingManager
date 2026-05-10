@@ -129,6 +129,7 @@ class ProjectService:
     def _do_save(self, data: Dict[str, Any], path: str) -> bool:
         """Do save."""
         self._update_metadata_on_save(data)
+        save_data = self._project_data_for_disk(data)
 
         # Write to a temporary file first so a failed save does not corrupt the project.
         temp_path = path + ".tmp"
@@ -142,7 +143,7 @@ class ProjectService:
                     except (IOError, OSError) as lock_err:
                         logger.warning(f"Could not acquire lock on {temp_path}: {lock_err}")
 
-                json.dump(data, f, ensure_ascii=False, indent=4)
+                json.dump(save_data, f, ensure_ascii=False, indent=4)
                 f.flush()
                 # Force the JSON to disk before swapping it into place.
                 os.fsync(f.fileno())
@@ -180,6 +181,7 @@ class ProjectService:
         """Auto save."""
         if not self.is_dirty:
             return True
+        save_data = self._project_data_for_disk(data)
 
         if self.current_project_path:
             # Saved projects keep rotating backups next to the project file.
@@ -192,7 +194,7 @@ class ProjectService:
             
             try:
                 with open(backup_path, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, ensure_ascii=False, indent=4)
+                    json.dump(save_data, f, ensure_ascii=False, indent=4)
                 
                 logger.debug(f"Auto-saved to {backup_path}")
                 
@@ -208,7 +210,7 @@ class ProjectService:
             path = "temp_autosave.json.bak"
             try:
                 with open(path, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, ensure_ascii=False, indent=4)
+                    json.dump(save_data, f, ensure_ascii=False, indent=4)
                 logger.debug(f"Auto-saved to {path}")
                 return True
             except Exception as e:
@@ -233,6 +235,12 @@ class ProjectService:
                     
         except Exception as e:
             logger.error(f"Backup rotation failed: {e}")
+
+    def _project_data_for_disk(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a save payload without runtime-only cache fields."""
+        save_data = deepcopy(data)
+        save_data.pop("loaded_episodes", None)
+        return save_data
 
     def _validate_project_structure(self, data: Dict[str, Any]) -> None:
         """Validate project structure."""
@@ -301,8 +309,6 @@ class ProjectService:
             data["global_map"] = {}
         if "episode_actor_map" not in data:
             data["episode_actor_map"] = {}
-        if "loaded_episodes" not in data:
-            data["loaded_episodes"] = {}
         if "replica_merge_config" not in data:
             if "export_config" in data:
                 # Older projects stored replica merge settings inside export_config.
@@ -331,6 +337,8 @@ class ProjectService:
                 "created_at": now,
                 "modified_at": now,
             }
+        data["metadata"].setdefault("created_by", "")
+        data["metadata"].setdefault("studio", "")
 
     def _update_metadata_on_save(self, data: Dict[str, Any]) -> None:
         """Update metadata on save."""
@@ -368,6 +376,11 @@ class ProjectService:
     def get_window_title(self, data: Dict[str, Any]) -> str:
         """Return window title."""
         title = "Dubbing Manager"
+        project_name = str(
+            data.get("project_name") or translate_source("Новый проект")
+        ).strip()
+        if project_name:
+            title += f" - {project_name}"
 
         if self.current_project_path:
             title += f" - {os.path.basename(self.current_project_path)}"

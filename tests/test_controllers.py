@@ -213,11 +213,17 @@ class TestEpisodeController:
         data_ref["episodes"] = {"1": "/path/to/ep1.ass"}
         data_ref["video_paths"] = {"1": "/path/to/video1.mp4"}
         data_ref["loaded_episodes"] = {"1": []}
+        data_ref["episode_texts"] = {"1": "/path/to/text.json"}
+        data_ref["episode_actor_map"] = {"1": {"Character": "actor_1"}}
         
         success = controller.delete_episode("1")
         
         assert success == True
         assert "1" not in data_ref["episodes"]
+        assert "1" not in data_ref["video_paths"]
+        assert "1" not in data_ref["loaded_episodes"]
+        assert "1" not in data_ref["episode_texts"]
+        assert "1" not in data_ref["episode_actor_map"]
 
     def test_delete_episode_not_found(self, controller):
         """Тест удаления несуществующего эпизода"""

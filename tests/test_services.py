@@ -232,7 +232,10 @@ class TestProjectService:
         
         title = service.get_window_title(sample_project_data)
         assert "Dubbing Manager" in title
+        assert sample_project_data["project_name"] in title
         assert "project.json" in title
+        assert title.index("Dubbing Manager") < title.index(sample_project_data["project_name"])
+        assert title.index(sample_project_data["project_name"]) < title.index("project.json")
         
         # С флагом dirty
         service.set_dirty(True)

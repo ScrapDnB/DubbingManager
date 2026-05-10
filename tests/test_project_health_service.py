@@ -45,6 +45,34 @@ class TestProjectHealthService:
 
         assert issues == []
 
+    def test_relative_video_path_uses_project_folder(self, tmp_path):
+        source = tmp_path / "episode.ass"
+        text = tmp_path / "episode.json"
+        video_dir = tmp_path / "Video"
+        video = video_dir / "episode.mp4"
+        source.write_text("ass", encoding="utf-8")
+        video_dir.mkdir()
+        video.write_text("video", encoding="utf-8")
+        _write_working_text(text, [{
+            "start": 1.0,
+            "end": 2.0,
+            "character": "Hero",
+            "text": "Hello",
+        }])
+
+        data = {
+            "project_folder": str(tmp_path),
+            "episodes": {"1": str(source)},
+            "episode_texts": {"1": str(text)},
+            "video_paths": {"1": "Video/episode.mp4"},
+            "actors": [{"id": "actor-1", "name": "Actor"}],
+            "global_map": {"Hero": "actor-1"},
+        }
+
+        issues = ProjectHealthService().check_project(data)
+
+        assert issues == []
+
     def test_reports_missing_files_and_broken_lines(self, tmp_path):
         text = tmp_path / "episode.json"
         _write_working_text(text, [

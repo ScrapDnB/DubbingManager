@@ -57,30 +57,7 @@ class GlobalSettingsService:
             with open(self._settings_file, 'r', encoding='utf-8') as f:
                 loaded = json.load(f)
 
-            # Apply loaded settings over defaults
             settings = self._get_defaults()
-            
-            # Merge loaded settings with defaults
-            if 'export_config' in loaded and loaded['export_config']:
-                settings['export_config'].update(loaded['export_config'])
-            
-            if 'prompter_config' in loaded and loaded['prompter_config']:
-                settings['prompter_config'].update(loaded['prompter_config'])
-                # Special handling for nested colors
-                if 'colors' in loaded['prompter_config']:
-                    settings['prompter_config']['colors'].update(
-                        loaded['prompter_config']['colors']
-                    )
-            
-            if 'replica_merge_config' in loaded and loaded['replica_merge_config']:
-                settings['replica_merge_config'].update(
-                    loaded['replica_merge_config']
-                )
-
-            if 'docx_import_config' in loaded and loaded['docx_import_config']:
-                settings['docx_import_config'].update(
-                    loaded['docx_import_config']
-                )
 
             if 'recent_projects' in loaded:
                 settings['recent_projects'] = self._normalize_recent_projects(
@@ -111,12 +88,7 @@ class GlobalSettingsService:
             self._settings_file.parent.mkdir(parents=True, exist_ok=True)
             self._backup_settings_file()
 
-            # Save only the required sections
             data_to_save = {
-                'export_config': settings.get('export_config'),
-                'prompter_config': settings.get('prompter_config'),
-                'replica_merge_config': settings.get('replica_merge_config'),
-                'docx_import_config': settings.get('docx_import_config'),
                 'recent_projects': self._normalize_recent_projects(
                     settings.get('recent_projects', [])
                 ),
@@ -154,10 +126,6 @@ class GlobalSettingsService:
     def _get_defaults(self) -> Dict[str, Any]:
         """Return defaults."""
         return {
-            'export_config': deepcopy(DEFAULT_EXPORT_CONFIG),
-            'prompter_config': deepcopy(DEFAULT_PROMPTER_CONFIG),
-            'replica_merge_config': deepcopy(DEFAULT_REPLICA_MERGE_CONFIG),
-            'docx_import_config': deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
             'recent_projects': [],
             'global_actor_base': {},
             'language': DEFAULT_GLOBAL_SETTINGS.get('language', DEFAULT_LANGUAGE),

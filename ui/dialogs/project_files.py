@@ -10,7 +10,9 @@ from PySide6.QtCore import Qt
 from typing import Dict, List, Any, Optional, Tuple
 import os
 
+from core.commands import DeleteEpisodeCommand
 from services import ProjectFolderService
+from utils.helpers import natural_sort_key
 from utils.i18n import translate_source, translate_widget_tree
 
 
@@ -77,6 +79,21 @@ class ProjectFilesDialog(QDialog):
         self.btn_regenerate_text.clicked.connect(self._regenerate_selected_text)
         self.btn_regenerate_text.setEnabled(False)
         btn_layout.addWidget(self.btn_regenerate_text)
+
+        self.btn_create_all_texts = QPushButton("📝 Создать все JSON")
+        self.btn_create_all_texts.setToolTip(
+            "Создать рабочие JSON для всех найденных ASS/SRT/DOCX без рабочего текста"
+        )
+        self.btn_create_all_texts.clicked.connect(self._create_all_missing_texts)
+        btn_layout.addWidget(self.btn_create_all_texts)
+
+        self.btn_delete_episode = QPushButton("🗑 Удалить серию...")
+        self.btn_delete_episode.setToolTip(
+            "Удалить из проекта серию и все связанные с ней пути"
+        )
+        self.btn_delete_episode.clicked.connect(self._delete_selected_episode)
+        self.btn_delete_episode.setEnabled(False)
+        btn_layout.addWidget(self.btn_delete_episode)
         
         self.btn_refresh = QPushButton("🔄 Обновить")
         self.btn_refresh.clicked.connect(self._refresh)
@@ -102,7 +119,7 @@ class ProjectFilesDialog(QDialog):
         if not path:
             return translate_source("Не указан"), QColor("#999999")
         
-        if os.path.exists(path):
+        if self.folder_service.project_path_exists(self.data, path):
             return translate_source("✓ Найден"), QColor("#28a745")
         else:
             return translate_source("✗ Не найден"), QColor("#dc3545")
@@ -133,13 +150,13 @@ class ProjectFilesDialog(QDialog):
         source_path: Optional[str]
     ) -> Tuple[str, QColor]:
         """Return working text status."""
-        if text_path and os.path.exists(text_path):
+        if text_path and self.folder_service.project_path_exists(self.data, text_path):
             return translate_source("✓ Используется рабочий текст"), QColor("#28a745")
 
         if text_path:
             return translate_source("✗ Рабочий текст потерян"), QColor("#dc3545")
 
-        if source_path and os.path.exists(source_path):
+        if source_path and self.folder_service.project_path_exists(self.data, source_path):
             return translate_source("○ Рабочий текст не создан"), QColor("#e0a800")
 
         if source_path and self._is_text_source_path(source_path):
@@ -154,13 +171,13 @@ class ProjectFilesDialog(QDialog):
         source_path: Optional[str]
     ) -> Tuple[str, QColor]:
         """Return episode text source status."""
-        if text_path and os.path.exists(text_path):
+        if text_path and self.folder_service.project_path_exists(self.data, text_path):
             return translate_source("Текст: рабочий JSON"), QColor("#28a745")
 
         if text_path:
             return translate_source("Текст: рабочий JSON потерян"), QColor("#dc3545")
 
-        if source_path and os.path.exists(source_path):
+        if source_path and self.folder_service.project_path_exists(self.data, source_path):
             return translate_source("Текст: субтитры"), QColor("#e0a800")
 
         if source_path and self._is_text_source_path(source_path):
@@ -181,7 +198,7 @@ class ProjectFilesDialog(QDialog):
             set(episodes.keys()) |
             set(episode_texts.keys()) |
             set(video_paths.keys()),
-            key=lambda x: int(x) if x.isdigit() else 0
+            key=natural_sort_key
         )
         
         found_count = 0
@@ -195,6 +212,7 @@ class ProjectFilesDialog(QDialog):
                 ""
             ])
             ep_item.setFont(0, QFont("", -1, QFont.Bold))
+            ep_item.setData(0, Qt.UserRole, ("episode", ep_num))
             ass_path = episodes.get(ep_num)
             text_path = episode_texts.get(ep_num)
             ep_status_text, ep_status_color = self._get_episode_text_source_status(
@@ -232,7 +250,10 @@ class ProjectFilesDialog(QDialog):
                     ass_path
                 )
 
-                if text_path and os.path.exists(text_path):
+                if text_path and self.folder_service.project_path_exists(
+                    self.data,
+                    text_path
+                ):
                     found_count += 1
 
                 text_item = QTreeWidgetItem([
@@ -273,8 +294,27 @@ class ProjectFilesDialog(QDialog):
             f"{translate_source('✓ Найдено:')} {found_count} | "
             f"{translate_source('✗ Не найдено:')} {missing_count}"
         )
+        self.btn_create_all_texts.setEnabled(bool(self._missing_source_episodes()))
         
         self.file_tree.expandAll()
+
+    def _missing_source_episodes(self) -> List[str]:
+        """Return episodes that can generate a missing working text."""
+        episodes = self.data.get("episodes", {})
+        episode_texts = self.data.get("episode_texts", {})
+        result = []
+        for ep_num in sorted(episodes.keys(), key=natural_sort_key):
+            text_path = episode_texts.get(str(ep_num))
+            if text_path and self.folder_service.project_path_exists(self.data, text_path):
+                continue
+            source_path = episodes.get(ep_num)
+            if (
+                source_path and
+                self.folder_service.project_path_exists(self.data, source_path) and
+                self._is_text_source_path(source_path)
+            ):
+                result.append(str(ep_num))
+        return result
 
     def _on_selection_changed(self) -> None:
         """Handle selection change."""
@@ -288,9 +328,23 @@ class ProjectFilesDialog(QDialog):
             self.btn_regenerate_text.setEnabled(
                 bool(file_data and file_data[0] == "text")
             )
+            self.btn_delete_episode.setEnabled(
+                self._episode_from_item(item) is not None
+            )
         else:
             self.btn_relink.setEnabled(False)
             self.btn_regenerate_text.setEnabled(False)
+            self.btn_delete_episode.setEnabled(False)
+
+    def _episode_from_item(self, item: Optional[QTreeWidgetItem]) -> Optional[str]:
+        """Return the episode number represented by a tree item."""
+        while item is not None:
+            for column in (0, 3):
+                file_data = item.data(column, Qt.UserRole)
+                if file_data and len(file_data) >= 2:
+                    return str(file_data[1])
+            item = item.parent()
+        return None
 
     def _relink_selected(self) -> None:
         """Relink selected."""
@@ -362,7 +416,10 @@ class ProjectFilesDialog(QDialog):
         _, ep_num = file_data
         source_path = self.data.get("episodes", {}).get(ep_num)
 
-        if not source_path or not os.path.exists(source_path):
+        if not source_path or not self.folder_service.project_path_exists(
+            self.data,
+            source_path
+        ):
             source_path, _ = QFileDialog.getOpenFileName(
                 self,
                 translate_source("Выберите исходный файл серии"),
@@ -372,6 +429,11 @@ class ProjectFilesDialog(QDialog):
             if not source_path:
                 return
             self.data.setdefault("episodes", {})[ep_num] = source_path
+        else:
+            source_path = self.folder_service.resolve_project_path(
+                self.data,
+                source_path
+            )
 
         parent = self.parent()
         if not parent or not hasattr(parent, "regenerate_episode_text"):
@@ -386,6 +448,79 @@ class ProjectFilesDialog(QDialog):
             self._populate_tree()
             if hasattr(parent, '_on_files_changed'):
                 parent._on_files_changed()
+
+    def _delete_selected_episode(self) -> None:
+        """Delete the selected episode and every linked project entry."""
+        selected_items = self.file_tree.selectedItems()
+        if not selected_items:
+            return
+
+        ep_num = self._episode_from_item(selected_items[0])
+        if not ep_num:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            translate_source("Удалить серию"),
+            translate_source(
+                "Удалить серию {episode} из проекта?\n\n"
+                "Будут удалены ссылки на исходник, рабочий JSON, видео и "
+                "серийные назначения. Файлы на диске останутся."
+            ).format(episode=ep_num),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        command = DeleteEpisodeCommand(
+            self.data.setdefault("episodes", {}),
+            self.data.setdefault("video_paths", {}),
+            self.data.setdefault("loaded_episodes", {}),
+            ep_num,
+            self.data.setdefault("episode_actor_map", {}),
+            self.data.setdefault("episode_texts", {})
+        )
+
+        parent = self.parent()
+        if parent and hasattr(parent, "undo_stack"):
+            parent.undo_stack.push(command)
+        else:
+            command.execute()
+
+        if parent and hasattr(parent, "episode_service"):
+            parent.episode_service.invalidate_episode(ep_num)
+
+        self._populate_tree()
+        if parent and hasattr(parent, '_on_files_changed'):
+            parent._on_files_changed()
+        elif parent and hasattr(parent, "set_dirty"):
+            parent.set_dirty(True)
+
+    def _create_all_missing_texts(self) -> None:
+        """Create working texts for all found source files."""
+        parent = self.parent()
+        if not parent or not hasattr(parent, "create_missing_working_texts"):
+            QMessageBox.warning(
+                self,
+                translate_source("Ошибка"),
+                translate_source("Не удалось создать рабочие тексты из этого окна.")
+            )
+            return
+
+        episodes = self._missing_source_episodes()
+        if not episodes:
+            QMessageBox.information(
+                self,
+                translate_source("Рабочие тексты"),
+                translate_source("Нет найденных источников без рабочего JSON.")
+            )
+            return
+
+        parent.create_missing_working_texts(episodes)
+        self._populate_tree()
+        if hasattr(parent, '_on_files_changed'):
+            parent._on_files_changed()
 
     def _refresh(self) -> None:
         """Refresh."""

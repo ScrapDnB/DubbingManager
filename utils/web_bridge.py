@@ -23,6 +23,14 @@ class WebBridge(QObject):
         try:
             lid = int(line_id)
             ep = self.main_app.ep_combo.currentData()
+            if (
+                hasattr(self.main_app, "ensure_working_text_for_episode") and
+                not self.main_app.ensure_working_text_for_episode(
+                    str(ep),
+                    "редактировать текст реплики"
+                )
+            ):
+                return
 
             loaded = self.main_app.data.get("loaded_episodes", {})
             ep_key = None

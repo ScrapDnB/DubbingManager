@@ -4,7 +4,7 @@ import re
 import subprocess
 import traceback
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional, Tuple
 from PySide6.QtGui import QColor
 import logging
 import json
@@ -23,6 +23,16 @@ def log_exception(logger_obj: logging.Logger, message: str, exc: Exception) -> N
     """Log exception."""
     tb = traceback.format_exc()
     logger_obj.error(f"{message}: {exc}\n{tb}")
+
+
+def natural_sort_key(value: Any) -> Tuple[Any, ...]:
+    """Return a natural sort key for names with numeric parts."""
+    parts = re.split(r'(\d+)', str(value))
+    return tuple(
+        (0, int(part)) if part.isdigit() else (1, part.lower())
+        for part in parts
+        if part != ''
+    )
 
 
 def ass_time_to_seconds(time_str: str) -> float:

@@ -18,6 +18,10 @@ def app():
 def project_data():
     return {
         "project_name": "Test",
+        "metadata": {
+            "created_by": "Producer",
+            "studio": "Studio One",
+        },
         "project_folder": "/tmp/project",
         "actors": {
             "actor1": {"name": "Actor One"},
@@ -76,10 +80,14 @@ def project_data():
 def test_settings_dialog_creation(app, project_data):
     dialog = SettingsDialog(project_data)
 
-    assert dialog.windowTitle() == "Настройки"
+    assert dialog.windowTitle() == "Настройки проекта"
     assert dialog.tabs.currentIndex() == 0
+    assert dialog.tabs.tabText(0) == "Главные"
     assert dialog.tabs.tabText(5) == "Базы актёров"
     assert dialog.export_layout_type.currentText() == "Таблица"
+    assert dialog.project_name_edit.text() == "Test"
+    assert dialog.project_created_by_edit.text() == "Producer"
+    assert dialog.project_studio_edit.text() == "Studio One"
     assert dialog.highlight_ids_export == ["actor1"]
     assert dialog.merge_enabled.isChecked() is True
     assert dialog.prompter_port_in.value() == 8000
@@ -96,9 +104,15 @@ def test_settings_dialog_returns_updated_settings(app, project_data):
     dialog.prompter_sync_in.setChecked(False)
     dialog.prompter_offset_enabled.setChecked(True)
     dialog.docx_time_separators.setText("-, |")
+    dialog.project_name_edit.setText("Updated Project")
+    dialog.project_created_by_edit.setText("Editor")
+    dialog.project_studio_edit.setText("Studio Two")
 
     settings = dialog.get_settings()
 
+    assert settings["project_name"] == "Updated Project"
+    assert settings["metadata"]["created_by"] == "Editor"
+    assert settings["metadata"]["studio"] == "Studio Two"
     assert settings["export_config"]["layout_type"] == "Сценарий"
     assert settings["export_config"]["highlight_ids_export"] == ["actor1"]
     assert settings["replica_merge_config"]["merge"] is False
@@ -121,10 +135,21 @@ def test_settings_dialog_falls_back_to_default_docx_separator(app, project_data)
 def test_settings_dialog_opens_requested_tab(app, project_data):
     dialog = SettingsDialog(project_data, initial_tab="prompter")
 
-    assert dialog.tabs.currentIndex() == 2
+    assert dialog.tabs.currentIndex() == 3
 
 
 def test_settings_dialog_opens_actor_bases_tab(app, project_data):
     dialog = SettingsDialog(project_data, initial_tab="actor_bases")
 
     assert dialog.tabs.currentIndex() == 5
+
+
+def test_global_settings_dialog_contains_only_global_tabs(app, project_data):
+    dialog = SettingsDialog(project_data, settings_scope="global")
+
+    assert dialog.windowTitle() == "Настройки"
+    assert dialog.tabs.count() == 2
+    assert dialog.tabs.tabText(0) == "Базы актёров"
+    assert dialog.tabs.tabText(1) == "Интерфейс"
+    settings = dialog.get_settings()
+    assert set(settings.keys()) == {"language"}

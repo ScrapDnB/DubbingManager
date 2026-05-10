@@ -534,18 +534,33 @@ class TestDeleteEpisodeCommand:
         """Тест выполнения команды"""
         video_paths = {"1": "/path/to/video1.mp4"}
         loaded_episodes = {"1": [{"id": 0, "char": "Test"}]}
-        cmd = DeleteEpisodeCommand(episodes, video_paths, loaded_episodes, "1")
+        episode_texts = {"1": "/path/to/text.json"}
+        cmd = DeleteEpisodeCommand(
+            episodes,
+            video_paths,
+            loaded_episodes,
+            "1",
+            episode_texts=episode_texts
+        )
         cmd.execute()
 
         assert "1" not in episodes
         assert "1" not in video_paths
         assert "1" not in loaded_episodes
+        assert "1" not in episode_texts
 
     def test_undo(self, episodes):
         """Тест отмены команды"""
         video_paths = {"1": "/path/to/video1.mp4"}
         loaded_episodes = {"1": [{"id": 0, "char": "Test"}]}
-        cmd = DeleteEpisodeCommand(episodes, video_paths, loaded_episodes, "1")
+        episode_texts = {"1": "/path/to/text.json"}
+        cmd = DeleteEpisodeCommand(
+            episodes,
+            video_paths,
+            loaded_episodes,
+            "1",
+            episode_texts=episode_texts
+        )
         cmd.execute()
         assert "1" not in episodes
 
@@ -553,6 +568,7 @@ class TestDeleteEpisodeCommand:
         assert "1" in episodes
         assert "1" in video_paths
         assert "1" in loaded_episodes
+        assert episode_texts["1"] == "/path/to/text.json"
 
     def test_get_description(self, episodes):
         """Тест описания команды"""

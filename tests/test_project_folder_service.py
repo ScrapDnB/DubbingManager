@@ -49,6 +49,26 @@ class TestProjectFolderService:
         
         assert folder == self.test_dir
 
+    def test_resolve_project_relative_path(self):
+        """Относительный путь раскрывается от папки проекта."""
+        data = {"project_folder": self.test_dir}
+
+        result = self.service.resolve_project_path(data, "Video/Episode_01.mp4")
+
+        assert result == os.path.join(self.test_dir, "Video", "Episode_01.mp4")
+
+    def test_project_path_exists_for_relative_video(self):
+        """Проверка существования учитывает папку проекта."""
+        video_dir = os.path.join(self.test_dir, "Video")
+        os.makedirs(video_dir)
+        video_path = os.path.join(video_dir, "Episode_01.mp4")
+        with open(video_path, "w") as f:
+            f.write("test")
+
+        data = {"project_folder": self.test_dir}
+
+        assert self.service.project_path_exists(data, "Video/Episode_01.mp4")
+
     def test_extract_episode_number_various_formats(self):
         """Извлечение номера серии из различных форматов"""
         test_cases = [
@@ -300,6 +320,63 @@ class TestProjectFolderService:
         assert video_count == 1
         assert text_count == 0
         assert data["video_paths"]["1"] == video_path
+
+    def test_update_video_path_matches_normalized_episode_number(self):
+        """Старый ключ 01 сопоставляется с найденной серией 1."""
+        video_path = os.path.join(self.test_dir, "Episode_01.mp4")
+        with open(video_path, "w") as f:
+            f.write("test")
+
+        data = {
+            "project_folder": self.test_dir,
+            "episodes": {},
+            "video_paths": {"01": "/old/project/Episode_01.mp4"}
+        }
+
+        ass_count, video_count, text_count = self.service.scan_and_link_files(data)
+
+        assert ass_count == 0
+        assert video_count == 1
+        assert text_count == 0
+        assert data["video_paths"]["01"] == video_path
+
+    def test_update_video_path_falls_back_to_old_filename(self):
+        """Если номер не совпал, старое имя файла ищется в папке проекта."""
+        video_path = os.path.join(self.test_dir, "Scene A.mov")
+        with open(video_path, "w") as f:
+            f.write("test")
+
+        data = {
+            "project_folder": self.test_dir,
+            "episodes": {},
+            "video_paths": {"pilot": "/old/project/Scene A.mov"}
+        }
+
+        ass_count, video_count, text_count = self.service.scan_and_link_files(data)
+
+        assert ass_count == 0
+        assert video_count == 1
+        assert text_count == 0
+        assert data["video_paths"]["pilot"] == video_path
+
+    def test_scan_keeps_existing_relative_video_path(self):
+        """Сканирование не перезаписывает найденный относительный путь."""
+        video_path = os.path.join(self.test_dir, "Episode_01.mp4")
+        with open(video_path, "w") as f:
+            f.write("test")
+
+        data = {
+            "project_folder": self.test_dir,
+            "episodes": {},
+            "video_paths": {"1": "Episode_01.mp4"}
+        }
+
+        ass_count, video_count, text_count = self.service.scan_and_link_files(data)
+
+        assert ass_count == 0
+        assert video_count == 0
+        assert text_count == 0
+        assert data["video_paths"]["1"] == "Episode_01.mp4"
 
     def test_update_episode_text_path_if_file_moved(self):
         """Обновление пути рабочего текста при перемещении файла"""

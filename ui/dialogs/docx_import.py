@@ -36,7 +36,7 @@ class DocxImportDialog(QDialog):
         self.docx_service = DocxImportService()
         self.global_settings_service = GlobalSettingsService()
         self.global_settings = self._load_global_settings(parent)
-        self.saved_config = self.global_settings.get("docx_import_config", {})
+        self.saved_config = self._load_saved_import_config(parent)
         self.current_tables: List[List[List[str]]] = []
         self.current_table_idx: int = 0
         self.current_rows: List[List[str]] = []  # Current table
@@ -59,6 +59,12 @@ class DocxImportDialog(QDialog):
         if parent is not None and hasattr(parent, "global_settings"):
             return parent.global_settings
         return self.global_settings_service.load_settings()
+
+    def _load_saved_import_config(self, parent) -> Dict[str, Any]:
+        """Load project-local DOCX import settings."""
+        if parent is not None and hasattr(parent, "data"):
+            return parent.data.get("docx_import_config", {})
+        return {}
 
     def _init_ui(self) -> None:
         """Init ui."""
@@ -607,12 +613,10 @@ class DocxImportDialog(QDialog):
         }
 
         parent = self.parent()
-        if parent is not None and hasattr(parent, "global_settings_service"):
-            parent.global_settings.setdefault("docx_import_config", {}).update(config)
-            parent.global_settings_service.update_docx_import_config(config)
-            parent.global_settings_service.save_settings(parent.global_settings)
+        if parent is not None and hasattr(parent, "data"):
+            parent.data.setdefault("docx_import_config", {}).update(config)
+            if hasattr(parent, "set_dirty"):
+                parent.set_dirty(True)
             return
 
-        self.global_settings.setdefault("docx_import_config", {}).update(config)
-        self.global_settings_service.update_docx_import_config(config)
-        self.global_settings_service.save_settings(self.global_settings)
+        self.saved_config.update(config)

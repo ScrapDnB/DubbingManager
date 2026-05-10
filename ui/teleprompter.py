@@ -69,7 +69,12 @@ from config.constants import (
 from services import ExportService, ScriptTextService
 from services.assignment_service import get_actor_for_character
 from services.osc_worker import OscWorker, OSC_AVAILABLE
-from utils.helpers import ass_time_to_seconds, format_seconds_to_tc, log_exception
+from utils.helpers import (
+    ass_time_to_seconds,
+    format_seconds_to_tc,
+    log_exception,
+    natural_sort_key,
+)
 from utils.i18n import translate_source, translate_widget_tree
 
 logger = logging.getLogger(__name__)
@@ -690,10 +695,6 @@ class TeleprompterWindow(QDialog):
 
         self.root_layout.addWidget(self.toolbar)
 
-    def _episode_sort_key(self, ep_num: str) -> Tuple[int, str]:
-        """Return a natural sort key for episode identifiers."""
-        return (int(ep_num), ep_num) if str(ep_num).isdigit() else (0, str(ep_num))
-
     def _populate_episode_combo(self) -> None:
         """Populate episode combo."""
         self.combo_episode.blockSignals(True)
@@ -701,7 +702,7 @@ class TeleprompterWindow(QDialog):
 
         episode_nums = sorted(
             self.main_app.data.get("episodes", {}).keys(),
-            key=self._episode_sort_key
+            key=natural_sort_key
         )
         for ep_num in episode_nums:
             self.combo_episode.addItem(
@@ -1697,6 +1698,15 @@ class TeleprompterWindow(QDialog):
     
     def handle_text_edited(self, line_id: Any, new_text: str) -> None:
         """Handle text edited."""
+        if (
+            hasattr(self.main_app, "ensure_working_text_for_episode") and
+            not self.main_app.ensure_working_text_for_episode(
+                str(self.ep_num),
+                "редактировать текст реплики"
+            )
+        ):
+            return
+
         ids = []
         if isinstance(line_id, (list, tuple)):
             ids = [int(x) for x in line_id]

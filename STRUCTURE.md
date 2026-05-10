@@ -120,7 +120,7 @@ DubbingManager/
 Версии задаются в `config/constants.py`:
 
 ```python
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.4.2"
 PROJECT_VERSION = "1.3"
 SCRIPT_TEXT_DIR_NAME = "texts_dm"
 ```
@@ -351,7 +351,7 @@ python -m PyInstaller dubbing_manager.spec --clean
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
 ```
 
-Актуальный ориентир для версии 1.4.0:
+Актуальный ориентир для версии 1.4.2:
 
 ```text
 587 passed, 11 skipped

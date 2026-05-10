@@ -291,23 +291,34 @@ class TestDeleteEpisodeCommand:
         episodes = {"1": "/path/to/file.ass"}
         video_paths = {"1": "/path/to/video.mp4"}
         loaded_episodes = {"1": [{"char": "Test"}]}
+        episode_texts = {"1": "/path/to/text.json"}
         
         command = DeleteEpisodeCommand(
-            episodes, video_paths, loaded_episodes, "1"
+            episodes,
+            video_paths,
+            loaded_episodes,
+            "1",
+            episode_texts=episode_texts
         )
         command.execute()
         
         assert "1" not in episodes
         assert "1" not in video_paths
         assert "1" not in loaded_episodes
+        assert "1" not in episode_texts
 
     def test_undo_restores_episode(self):
         episodes = {"1": "/path/to/file.ass"}
         video_paths = {"1": "/path/to/video.mp4"}
         loaded_episodes = {"1": [{"char": "Test"}]}
+        episode_texts = {"1": "/path/to/text.json"}
         
         command = DeleteEpisodeCommand(
-            episodes, video_paths, loaded_episodes, "1"
+            episodes,
+            video_paths,
+            loaded_episodes,
+            "1",
+            episode_texts=episode_texts
         )
         command.execute()
         command.undo()
@@ -315,6 +326,7 @@ class TestDeleteEpisodeCommand:
         assert episodes["1"] == "/path/to/file.ass"
         assert video_paths["1"] == "/path/to/video.mp4"
         assert loaded_episodes["1"] == [{"char": "Test"}]
+        assert episode_texts["1"] == "/path/to/text.json"
 
 
 class TestUpdateProjectNameCommand:

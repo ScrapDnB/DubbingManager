@@ -41,10 +41,16 @@ class SettingsDialog(QDialog):
         self,
         project_data: Dict[str, Any],
         parent: Optional[QWidget] = None,
-        initial_tab: str = "export",
+        initial_tab: str = "project",
+        settings_scope: str = "project",
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle(tr("settings.title"))
+        self.settings_scope = settings_scope
+        self.setWindowTitle(
+            tr("settings.title")
+            if settings_scope == "global"
+            else tr("settings.project_title")
+        )
         self.resize(720, 560)
 
         self.project_data = project_data
@@ -80,16 +86,25 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_export_tab(), tr("settings.tab.export"))
-        self.tabs.addTab(self._build_merge_tab(), tr("settings.tab.merge"))
-        self.tabs.addTab(self._build_prompter_tab(), tr("settings.tab.prompter"))
-        self.tabs.addTab(self._build_docx_tab(), tr("settings.tab.docx"))
-        self.tabs.addTab(self._build_project_tab(), tr("settings.tab.project"))
-        self.tabs.addTab(
-            self._build_actor_bases_tab(),
-            tr("settings.tab.actor_bases"),
-        )
-        self.tabs.addTab(self._build_interface_tab(), tr("settings.interface"))
+        self._tab_indexes: Dict[str, int] = {}
+        if self.settings_scope == "project":
+            self._add_tab("project", self._build_project_tab(), tr("settings.tab.project"))
+            self._add_tab("export", self._build_export_tab(), tr("settings.tab.export"))
+            self._add_tab("merge", self._build_merge_tab(), tr("settings.tab.merge"))
+            self._add_tab("prompter", self._build_prompter_tab(), tr("settings.tab.prompter"))
+            self._add_tab("docx", self._build_docx_tab(), tr("settings.tab.docx"))
+            self._add_tab(
+                "actor_bases",
+                self._build_actor_bases_tab(),
+                tr("settings.tab.actor_bases"),
+            )
+        else:
+            self._add_tab(
+                "actor_bases",
+                self._build_actor_bases_tab(),
+                tr("settings.tab.actor_bases"),
+            )
+            self._add_tab("interface", self._build_interface_tab(), tr("settings.interface"))
         layout.addWidget(self.tabs)
         self._select_initial_tab()
 
@@ -102,6 +117,10 @@ class SettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         translate_widget_tree(self)
+
+    def _add_tab(self, key: str, widget: QWidget, title: str) -> None:
+        self._tab_indexes[key] = self.tabs.count()
+        self.tabs.addTab(widget, title)
 
     def _build_export_tab(self) -> QWidget:
         tab = QWidget()
@@ -530,99 +549,186 @@ class SettingsDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        project_folder = self.project_data.get("project_folder") or translate_source("не задана")
-        texts_count = len(self.project_data.get("episode_texts", {}))
-        episodes_count = len(self.project_data.get("episodes", {}))
-
-        info = QLabel(
-            f"{translate_source('Папка проекта:')} {project_folder}\n"
-            f"{translate_source('Серий:')} {episodes_count}\n"
-            f"{translate_source('Рабочих текстов:')} {texts_count}\n\n"
-            f"{translate_source('Папка проекта и проверка целостности доступны с верхней панели.')}"
+        details_group = QGroupBox("Сведения о проекте")
+        details_form = QFormLayout(details_group)
+        metadata = self.project_data.setdefault("metadata", {})
+        self.project_name_edit = QLineEdit(
+            self.project_data.get("project_name", "")
         )
-        info.setWordWrap(True)
-        info.setStyleSheet("color: #666;")
-        layout.addWidget(info)
+        self.project_created_by_edit = QLineEdit(
+            metadata.get("created_by", "")
+        )
+        self.project_studio_edit = QLineEdit(
+            metadata.get("studio", "")
+        )
+        details_form.addRow("Название проекта:", self.project_name_edit)
+        details_form.addRow("Автор проекта:", self.project_created_by_edit)
+        details_form.addRow("Студия:", self.project_studio_edit)
+        details_form.addRow(self._hint(
+            "Эти сведения сохраняются в файле проекта и используются для "
+            "заголовка окна и будущих отчётов."
+        ))
+        layout.addWidget(details_group)
+
+        self.project_info_label = QLabel()
+        self.project_info_label.setWordWrap(True)
+        self.project_info_label.setStyleSheet("color: #666;")
+        layout.addWidget(self.project_info_label)
+
+        folder_group = QGroupBox("Папка проекта")
+        folder_layout = QVBoxLayout(folder_group)
+        folder_layout.addWidget(self._hint(
+            "Рабочая папка используется для поиска исходников, видео и рабочих JSON."
+        ))
+        folder_buttons = QHBoxLayout()
+        self.btn_set_project_folder = QPushButton("Выбрать папку...")
+        self.btn_set_project_folder.clicked.connect(self._set_project_folder)
+        folder_buttons.addWidget(self.btn_set_project_folder)
+
+        self.btn_clear_project_folder = QPushButton("Отвязать папку")
+        self.btn_clear_project_folder.clicked.connect(self._clear_project_folder)
+        folder_buttons.addWidget(self.btn_clear_project_folder)
+        folder_layout.addLayout(folder_buttons)
+        layout.addWidget(folder_group)
+
+        files_group = QGroupBox("Файлы проекта")
+        files_layout = QVBoxLayout(files_group)
+        files_layout.addWidget(self._hint(
+            "Здесь можно проверить привязанные файлы, перепривязать потерянные пути и создать рабочие JSON."
+        ))
+        self.btn_project_files = QPushButton("Открыть файлы проекта...")
+        self.btn_project_files.clicked.connect(self._open_project_files)
+        files_layout.addWidget(self.btn_project_files)
+        layout.addWidget(files_group)
+
+        self._refresh_project_info()
         layout.addStretch()
         return tab
+
+    def _refresh_project_info(self) -> None:
+        """Refresh project tab summary."""
+        if not hasattr(self, "project_info_label"):
+            return
+
+        project_folder = (
+            self.project_data.get("project_folder") or
+            translate_source("не задана")
+        )
+        texts_count = len(self.project_data.get("episode_texts", {}))
+        episodes_count = len(self.project_data.get("episodes", {}))
+        self.project_info_label.setText(
+            f"{translate_source('Папка проекта:')} {project_folder}\n"
+            f"{translate_source('Серий:')} {episodes_count}\n"
+            f"{translate_source('Рабочих текстов:')} {texts_count}"
+        )
+        if hasattr(self, "btn_clear_project_folder"):
+            self.btn_clear_project_folder.setEnabled(bool(
+                self.project_data.get("project_folder")
+            ))
+
+    def _set_project_folder(self) -> None:
+        if self.main_window and hasattr(self.main_window, "set_project_folder_dialog"):
+            self.main_window.set_project_folder_dialog()
+            self._refresh_project_info()
+
+    def _clear_project_folder(self) -> None:
+        if self.main_window and hasattr(self.main_window, "clear_project_folder"):
+            self.main_window.clear_project_folder()
+            self._refresh_project_info()
+
+    def _open_project_files(self) -> None:
+        if self.main_window and hasattr(self.main_window, "open_project_files_dialog"):
+            self.main_window.open_project_files_dialog()
+            self._refresh_project_info()
 
     def _build_actor_bases_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        layout.addWidget(self._hint(
-            "Здесь находятся операции переноса актёров между проектами и "
-            "глобальной базой. Глобальная база хранит только имена актёров "
-            "и их цвета. Проектное распределение дополнительно хранит, кто "
-            "назначен на каких персонажей, включая серийные переопределения."
-        ))
+        if self.settings_scope == "global":
+            layout.addWidget(self._hint(
+                "Глобальная база хранит актёров, их цвет и пол отдельно от "
+                "проектов. Её можно перенести на другой компьютер или "
+                "импортировать в другую установку Dubbing Manager."
+            ))
+        else:
+            layout.addWidget(self._hint(
+                "Здесь находятся операции переноса проектного распределения. "
+                "В файл попадут актёры проекта, глобальные назначения "
+                "персонажей и серийные назначения."
+            ))
 
-        actor_base_group = QGroupBox("Глобальная база актёров")
-        actor_base_layout = QVBoxLayout(actor_base_group)
-        actor_base_layout.addWidget(self._hint(
-            "Используйте этот JSON как общую адресную книгу актёров. Его "
-            "можно перенести на другой компьютер или импортировать в другую "
-            "установку Dubbing Manager."
-        ))
-        actor_buttons = QHBoxLayout()
-        btn_export_actor_base = QPushButton("Экспорт...")
-        btn_export_actor_base.setToolTip(
-            "Сохранить глобальную базу актёров в JSON-файл."
-        )
-        btn_export_actor_base.clicked.connect(self._export_global_actor_base)
-        actor_buttons.addWidget(btn_export_actor_base)
-
-        btn_import_actor_base = QPushButton("Импорт...")
-        btn_import_actor_base.setToolTip(
-            "Загрузить глобальную базу актёров из JSON-файла."
-        )
-        btn_import_actor_base.clicked.connect(self._import_global_actor_base)
-        actor_buttons.addWidget(btn_import_actor_base)
-        actor_base_layout.addLayout(actor_buttons)
-
-        if not self._has_global_actor_base_service():
+        if self.settings_scope == "global":
+            actor_base_group = QGroupBox("Глобальная база актёров")
+            actor_base_layout = QVBoxLayout(actor_base_group)
             actor_base_layout.addWidget(self._hint(
-                "Импорт и экспорт доступны из главного окна приложения."
+                "Используйте этот JSON как общую адресную книгу актёров. Его "
+                "можно перенести на другой компьютер или импортировать в другую "
+                "установку Dubbing Manager."
             ))
-            btn_export_actor_base.setEnabled(False)
-            btn_import_actor_base.setEnabled(False)
+            actor_buttons = QHBoxLayout()
+            btn_export_actor_base = QPushButton("Экспорт...")
+            btn_export_actor_base.setToolTip(
+                "Сохранить глобальную базу актёров в JSON-файл."
+            )
+            btn_export_actor_base.clicked.connect(self._export_global_actor_base)
+            actor_buttons.addWidget(btn_export_actor_base)
 
-        layout.addWidget(actor_base_group)
+            btn_import_actor_base = QPushButton("Импорт...")
+            btn_import_actor_base.setToolTip(
+                "Загрузить глобальную базу актёров из JSON-файла."
+            )
+            btn_import_actor_base.clicked.connect(self._import_global_actor_base)
+            actor_buttons.addWidget(btn_import_actor_base)
+            actor_base_layout.addLayout(actor_buttons)
 
-        assignment_group = QGroupBox("Распределение текущего проекта")
-        assignment_layout = QVBoxLayout(assignment_group)
-        assignment_layout.addWidget(self._hint(
-            "Этот экспорт нужен для переноса кастинга в другой проект, "
-            "например в новый сезон. В файл попадут актёры проекта, "
-            "глобальные назначения персонажей и серийные назначения. "
-            "При импорте актёры сопоставляются по имени, чтобы не плодить "
-            "дубли."
-        ))
-        assignment_buttons = QHBoxLayout()
-        btn_export_assignments = QPushButton("Экспорт...")
-        btn_export_assignments.setToolTip(
-            "Экспортировать актёров проекта и распределение ролей в JSON."
-        )
-        btn_export_assignments.clicked.connect(self._export_project_assignments)
-        assignment_buttons.addWidget(btn_export_assignments)
+            if not self._has_global_actor_base_service():
+                actor_base_layout.addWidget(self._hint(
+                    "Импорт и экспорт доступны из главного окна приложения."
+                ))
+                btn_export_actor_base.setEnabled(False)
+                btn_import_actor_base.setEnabled(False)
 
-        btn_import_assignments = QPushButton("Импорт...")
-        btn_import_assignments.setToolTip(
-            "Импортировать актёров проекта и распределение ролей из JSON."
-        )
-        btn_import_assignments.clicked.connect(self._import_project_assignments)
-        assignment_buttons.addWidget(btn_import_assignments)
-        assignment_layout.addLayout(assignment_buttons)
-
-        if not self._has_project_assignment_service():
+            layout.addWidget(actor_base_group)
+        else:
+            assignment_group = QGroupBox("Распределение текущего проекта")
+            assignment_layout = QVBoxLayout(assignment_group)
             assignment_layout.addWidget(self._hint(
-                "Импорт и экспорт распределения доступны из главного окна "
-                "приложения."
+                "Этот экспорт нужен для переноса кастинга в другой проект, "
+                "например в новый сезон. В файл попадут актёры проекта, "
+                "глобальные назначения персонажей и серийные назначения. "
+                "При импорте актёры сопоставляются по имени, чтобы не плодить "
+                "дубли."
             ))
-            btn_export_assignments.setEnabled(False)
-            btn_import_assignments.setEnabled(False)
+            assignment_buttons = QHBoxLayout()
+            btn_export_assignments = QPushButton("Экспорт...")
+            btn_export_assignments.setToolTip(
+                "Экспортировать актёров проекта и распределение ролей в JSON."
+            )
+            btn_export_assignments.clicked.connect(
+                self._export_project_assignments
+            )
+            assignment_buttons.addWidget(btn_export_assignments)
 
-        layout.addWidget(assignment_group)
+            btn_import_assignments = QPushButton("Импорт...")
+            btn_import_assignments.setToolTip(
+                "Импортировать актёров проекта и распределение ролей из JSON."
+            )
+            btn_import_assignments.clicked.connect(
+                self._import_project_assignments
+            )
+            assignment_buttons.addWidget(btn_import_assignments)
+            assignment_layout.addLayout(assignment_buttons)
+
+            if not self._has_project_assignment_service():
+                assignment_layout.addWidget(self._hint(
+                    "Импорт и экспорт распределения доступны из главного окна "
+                    "приложения."
+                ))
+                btn_export_assignments.setEnabled(False)
+                btn_import_assignments.setEnabled(False)
+
+            layout.addWidget(assignment_group)
         layout.addStretch()
         return tab
 
@@ -821,6 +927,11 @@ class SettingsDialog(QDialog):
 
     def get_settings(self) -> Dict[str, Dict[str, Any]]:
         """Return settings."""
+        if self.settings_scope == "global":
+            return {
+                "language": self.language_combo.currentData(),
+            }
+
         export_config = deepcopy(self.export_config)
         export_config.update({
             "layout_type": self.export_layout_type.currentData(),
@@ -875,11 +986,15 @@ class SettingsDialog(QDialog):
         )
 
         return {
+            "project_name": self.project_name_edit.text().strip() or translate_source("Новый проект"),
+            "metadata": {
+                "created_by": self.project_created_by_edit.text().strip(),
+                "studio": self.project_studio_edit.text().strip(),
+            },
             "export_config": export_config,
             "replica_merge_config": merge_config,
             "prompter_config": prompter_config,
             "docx_import_config": docx_config,
-            "language": self.language_combo.currentData(),
         }
 
     def _parse_separators(self, text: str) -> List[str]:
@@ -893,16 +1008,7 @@ class SettingsDialog(QDialog):
         )
 
     def _select_initial_tab(self) -> None:
-        tab_indexes = {
-            "export": 0,
-            "merge": 1,
-            "prompter": 2,
-            "docx": 3,
-            "project": 4,
-            "actor_bases": 5,
-            "interface": 6,
-        }
-        self.tabs.setCurrentIndex(tab_indexes.get(self.initial_tab, 0))
+        self.tabs.setCurrentIndex(self._tab_indexes.get(self.initial_tab, 0))
 
     def _open_export_actor_filter(self) -> None:
         actors = self.project_data.get("actors", {})

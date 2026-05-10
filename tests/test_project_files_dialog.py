@@ -4,7 +4,7 @@ import pytest
 import os
 import tempfile
 import shutil
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 from ui.dialogs.project_files import ProjectFilesDialog
 
 
@@ -198,6 +198,26 @@ class TestProjectFilesDialog:
         assert root_item.child(0).text(1) == "📄 Исходный DOCX"
         assert root_item.text(2) == "Текст: рабочий JSON"
 
+    def test_episode_list_uses_natural_name_sort(self, app, test_data):
+        """Список файлов сортируется по имени серии естественным образом."""
+        data, _ = test_data
+        data["episodes"] = {
+            "10": "/nonexistent/10.ass",
+            "2": "/nonexistent/2.ass",
+            "pilot": "/nonexistent/pilot.ass",
+            "1A": "/nonexistent/1A.ass",
+        }
+        data["episode_texts"] = {}
+        data["video_paths"] = {}
+
+        dialog = ProjectFilesDialog(data)
+        names = [
+            dialog.file_tree.topLevelItem(i).text(0)
+            for i in range(dialog.file_tree.topLevelItemCount())
+        ]
+
+        assert names == ["1A", "2", "10", "pilot"]
+
     def test_refresh_button(self, app, test_data):
         """Кнопка обновления"""
         data, _ = test_data
@@ -234,6 +254,7 @@ class TestProjectFilesDialog:
         # Кнопка должна быть отключена без выбора
         assert not dialog.btn_relink.isEnabled()
         assert not dialog.btn_regenerate_text.isEnabled()
+        assert not dialog.btn_delete_episode.isEnabled()
 
     def test_regenerate_button_enabled_for_text_item(self, app, test_data):
         """Кнопка пересоздания активна для рабочего текста"""
@@ -291,6 +312,89 @@ class TestProjectFilesDialog:
 
         assert parent.calls == [("2", new_source_path)]
         assert data["episodes"]["2"] == new_source_path
+
+    def test_create_all_missing_texts_calls_parent_for_found_sources(self, app, test_data):
+        """Массовое создание рабочих текстов передаёт найденные исходники родителю."""
+        data, test_dir = test_data
+        data["episode_texts"] = {}
+
+        class Parent(QWidget):
+            def __init__(self):
+                super().__init__()
+                self.calls = []
+                self.files_changed = False
+
+            def create_missing_working_texts(self, episodes):
+                self.calls.append(list(episodes))
+                return (len(episodes), 0)
+
+            def _on_files_changed(self):
+                self.files_changed = True
+
+        parent = Parent()
+        dialog = ProjectFilesDialog(data, parent)
+        dialog._create_all_missing_texts()
+
+        assert parent.calls == [["1"]]
+        assert parent.files_changed
+
+    def test_delete_episode_removes_all_project_entries(
+        self,
+        app,
+        test_data,
+        monkeypatch
+    ):
+        """Удаление серии из менеджера файлов чистит все связанные записи."""
+        data, _ = test_data
+        data["loaded_episodes"] = {"2": [{"char": "Lost"}]}
+        data["episode_actor_map"] = {"2": {"Char": "actor1"}}
+
+        monkeypatch.setattr(
+            "ui.dialogs.project_files.QMessageBox.question",
+            lambda *args, **kwargs: QMessageBox.Yes
+        )
+
+        dialog = ProjectFilesDialog(data)
+        root_item = dialog.file_tree.topLevelItem(1)
+        dialog.file_tree.setCurrentItem(root_item)
+
+        assert dialog.btn_delete_episode.isEnabled()
+
+        dialog._delete_selected_episode()
+
+        assert "2" not in data["episodes"]
+        assert "2" not in data["video_paths"]
+        assert "2" not in data["episode_texts"]
+        assert "2" not in data["loaded_episodes"]
+        assert "2" not in data["episode_actor_map"]
+
+    def test_delete_orphan_episode_from_child_item(
+        self,
+        app,
+        test_data,
+        monkeypatch
+    ):
+        """Старый хвост без исходной серии тоже можно удалить."""
+        data, _ = test_data
+        data["episodes"].pop("2")
+        data["episode_texts"].pop("2")
+        data["video_paths"]["2"] = "/nonexistent/video.mp4"
+        data["episode_actor_map"] = {"2": {"Char": "actor1"}}
+
+        monkeypatch.setattr(
+            "ui.dialogs.project_files.QMessageBox.question",
+            lambda *args, **kwargs: QMessageBox.Yes
+        )
+
+        dialog = ProjectFilesDialog(data)
+        root_item = dialog.file_tree.topLevelItem(1)
+        video_item = root_item.child(0)
+        dialog.file_tree.setCurrentItem(video_item)
+        dialog._delete_selected_episode()
+
+        assert "2" not in data["video_paths"]
+        assert "2" not in data["episode_actor_map"]
+        assert dialog.file_tree.topLevelItemCount() == 1
 
     def test_tree_expanded(self, app, test_data):
         """Дерево развёрнуто"""
@@ -369,3 +473,21 @@ class TestProjectFilesDialogWithOnlyVideo:
         
         # Проверяем, что есть элементы
         assert dialog.file_tree.topLevelItemCount() > 0
+
+    def test_relative_video_path_uses_project_folder(self, app, test_data):
+        """Относительное видео считается найденным от папки проекта."""
+        data, test_dir = test_data
+        video_dir = os.path.join(test_dir, "Video")
+        os.makedirs(video_dir)
+        video_path = os.path.join(video_dir, "Episode_03.mp4")
+        with open(video_path, "w") as f:
+            f.write("test")
+        data["episodes"] = {}
+        data["episode_texts"] = {}
+        data["video_paths"] = {"3": "Video/Episode_03.mp4"}
+
+        dialog = ProjectFilesDialog(data)
+        root_item = dialog.file_tree.topLevelItem(0)
+        video_item = root_item.child(0)
+
+        assert video_item.text(2) == "✓ Найден"

@@ -12,6 +12,7 @@ import logging
 
 from services import EpisodeService
 from config.constants import DEFAULT_REPLICA_MERGE_CONFIG
+from utils.helpers import natural_sort_key
 from utils.i18n import translate_source
 
 logger = logging.getLogger(__name__)
@@ -220,6 +221,8 @@ class EpisodeController:
         episodes = self.data_ref.get("episodes", {})
         video_paths = self.data_ref.get("video_paths", {})
         loaded_episodes = self.data_ref.get("loaded_episodes", {})
+        episode_texts = self.data_ref.get("episode_texts", {})
+        episode_actor_map = self.data_ref.get("episode_actor_map", {})
 
         if ep_num not in episodes:
             return False
@@ -227,6 +230,8 @@ class EpisodeController:
         episodes.pop(ep_num, None)
         video_paths.pop(ep_num, None)
         loaded_episodes.pop(ep_num, None)
+        episode_texts.pop(ep_num, None)
+        episode_actor_map.pop(ep_num, None)
 
         self._mark_dirty()
         return True
@@ -257,7 +262,7 @@ class EpisodeController:
         """Return episode list."""
         return sorted(
             self.data_ref.get("episodes", {}).keys(),
-            key=lambda x: int(x) if x.isdigit() else 0
+            key=natural_sort_key
         )
 
     def get_current_episode_path(self, ep_num: str) -> Optional[str]:

@@ -67,7 +67,8 @@ from utils.helpers import (
     customize_table,
     wrap_widget,
     log_exception,
-    get_video_fps
+    get_video_fps,
+    natural_sort_key
 )
 from utils.i18n import set_language, tr, translate_source, translate_widget_tree
 from services import (
@@ -607,12 +608,6 @@ class MainWindow(QMainWindow):
         """Init project bar."""
         top: QHBoxLayout = QHBoxLayout()
 
-        self.proj_edit = QLineEdit()
-        self.proj_edit.textChanged.connect(self.on_project_name_changed)
-        self.lbl_project = QLabel()
-        top.addWidget(self.lbl_project)
-        top.addWidget(self.proj_edit)
-
         self.recent_projects_combo = QComboBox()
         self.recent_projects_combo.setMinimumWidth(EPISODE_COMBO_MIN_WIDTH)
         self.recent_projects_combo.activated.connect(
@@ -654,22 +649,7 @@ class MainWindow(QMainWindow):
         self.btn_redo.setEnabled(False)
         top.addWidget(self.btn_redo)
 
-        top.addSpacing(PROJECT_BAR_SPACING)
-
-        self.btn_folder = QPushButton()
-        self.btn_folder.clicked.connect(self.set_project_folder_dialog)
-        top.addWidget(self.btn_folder)
-
-        self.btn_unlink = QPushButton("🔓")
-        self.btn_unlink.setFixedWidth(PROJECT_FOLDER_BTN_WIDTH)
-        self.btn_unlink.clicked.connect(self.clear_project_folder)
-        top.addWidget(self.btn_unlink)
-
         top.addStretch()
-
-        self.btn_files = QPushButton()
-        self.btn_files.clicked.connect(self.open_project_files_dialog)
-        top.addWidget(self.btn_files)
 
         self.btn_health = QPushButton()
         self.btn_health.clicked.connect(self.open_project_health_dialog)
@@ -848,8 +828,12 @@ class MainWindow(QMainWindow):
         bottom_panel = QHBoxLayout()
 
         self.btn_settings = QPushButton()
-        self.btn_settings.clicked.connect(self.open_settings)
+        self.btn_settings.clicked.connect(self.open_global_settings)
         bottom_panel.addWidget(self.btn_settings)
+
+        self.btn_project_settings = QPushButton()
+        self.btn_project_settings.clicked.connect(self.open_project_settings)
+        bottom_panel.addWidget(self.btn_project_settings)
 
         bottom_panel.addStretch()
 
@@ -911,8 +895,7 @@ class MainWindow(QMainWindow):
             self.actor_base_mode.setItemText(1, tr("actor.base.global"))
             self.btn_project_summary.setText(tr("main.summary"))
 
-        if hasattr(self, "lbl_project"):
-            self.lbl_project.setText(tr("main.project"))
+        if hasattr(self, "recent_projects_combo"):
             self._update_recent_projects_combo()
             self.btn_new_project.setToolTip(tr("main.new_project.tooltip"))
             self.btn_load.setToolTip(tr("main.open.tooltip"))
@@ -920,9 +903,6 @@ class MainWindow(QMainWindow):
             self.btn_copy.setToolTip(tr("main.save_copy.tooltip"))
             self.btn_undo.setToolTip(tr("main.undo.tooltip"))
             self.btn_redo.setToolTip(tr("main.redo.tooltip"))
-            self.btn_unlink.setToolTip(tr("main.folder.unlink.tooltip"))
-            self.btn_files.setText(tr("main.project_files"))
-            self.btn_files.setToolTip(tr("main.project_files.tooltip"))
             self.btn_health.setText(tr("main.health"))
             self.btn_health.setToolTip(tr("main.health.tooltip"))
 
@@ -948,6 +928,10 @@ class MainWindow(QMainWindow):
         if hasattr(self, "btn_settings"):
             self.btn_settings.setText(tr("main.settings"))
             self.btn_settings.setToolTip(tr("main.settings.tooltip"))
+            self.btn_project_settings.setText(tr("main.project_settings"))
+            self.btn_project_settings.setToolTip(
+                tr("main.project_settings.tooltip")
+            )
             self.exp_group.setTitle(tr("export.group"))
             self.btn_cfg.setText(tr("export.sheet_view"))
             self.btn_cfg.setToolTip(tr("export.sheet_view.tooltip"))
@@ -1015,10 +999,6 @@ class MainWindow(QMainWindow):
         self.current_ep_stats = []
         self.character_names_changed = {}
         self.text_changes = {}
-
-        self.proj_edit.blockSignals(True)
-        self.proj_edit.setText(self.project_service.get_project_name(self.data))
-        self.proj_edit.blockSignals(False)
 
         self.refresh_actor_list()
         self.update_ep_list()
@@ -1166,6 +1146,11 @@ class MainWindow(QMainWindow):
         ep = self.ep_combo.currentData()
         if not ep or new_name == old_name or not new_name:
             return False
+        if not self.ensure_working_text_for_episode(
+            ep,
+            "переименовать персонажа в тексте серии"
+        ):
+            return False
 
         command = RenameCharacterCommand(
             self.data["global_map"],
@@ -1259,7 +1244,7 @@ class MainWindow(QMainWindow):
 
         for ep in sorted(
             self.data.get("episodes", {}).keys(),
-            key=lambda value: int(value) if str(value).isdigit() else 0
+            key=natural_sort_key
         ):
             lines = self.get_episode_lines(str(ep))
             if not lines:
@@ -1426,10 +1411,6 @@ class MainWindow(QMainWindow):
             if self.actor_controller:
                 self.actor_controller.data_ref = self.data
 
-            self.proj_edit.blockSignals(True)
-            self.proj_edit.setText(self.project_service.get_project_name(self.data))
-            self.proj_edit.blockSignals(False)
-
             logger.info(f"Project loaded from {path}")
             logger.info(f"Actors count: {len(self.data.get('actors', {}))}")
             logger.info(f"Global map count: {len(self.data.get('global_map', {}))}")
@@ -1459,6 +1440,8 @@ class MainWindow(QMainWindow):
 
     def _update_project_folder_button(self) -> None:
         """Update project folder button."""
+        if not hasattr(self, "btn_folder"):
+            return
         folder = self.project_folder_service.get_project_folder(self.data)
         if folder:
             folder_name = os.path.basename(folder)
@@ -1538,28 +1521,19 @@ class MainWindow(QMainWindow):
         return os.path.splitext(path or "")[1].lower() in {'.ass', '.srt', '.docx'}
 
     def _prompt_working_text_migration(self) -> None:
-        """Prompt working text migration."""
+        """Tell the user that old projects need working texts."""
         missing_episodes = self._episodes_needing_working_texts()
         if not missing_episodes:
             return
 
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Рабочие тексты")
-        msg.setIcon(QMessageBox.Question)
-        msg.setText(
+        QMessageBox.information(
+            self,
+            "Рабочие тексты",
             "Этот проект использует старый формат текстов.\n\n"
-            "Можно создать рабочие тексты из найденных ASS/SRT/DOCX-файлов сейчас. "
-            "Если часть файлов была перенесена, их можно будет найти позже через менеджер файлов проекта."
+            "В новой версии редактирование реплик выполняется через рабочие JSON. "
+            "Откройте «Файлы проекта» и создайте рабочие тексты для нужных серий. "
+            "Там же можно создать их массово для всех найденных источников."
         )
-        create_button = msg.addButton(
-            "Создать для найденных серий",
-            QMessageBox.AcceptRole
-        )
-        msg.addButton("Позже", QMessageBox.RejectRole)
-        msg.exec()
-
-        if msg.clickedButton() == create_button:
-            self.create_missing_working_texts(missing_episodes)
 
     def create_missing_working_texts(
         self,
@@ -1596,6 +1570,39 @@ class MainWindow(QMainWindow):
             f"Пропущено: {skipped_count}"
         )
         return created_count, skipped_count
+
+    def ensure_working_text_for_episode(
+        self,
+        ep: str,
+        action_label: str = "выполнить это действие"
+    ) -> bool:
+        """Ensure an episode has a working JSON before editable actions."""
+        ep = str(ep)
+        if self._episode_text_exists(ep):
+            return True
+
+        source_path = self.data.get("episodes", {}).get(ep, "")
+        if not source_path or not self._is_text_source_path(source_path):
+            QMessageBox.warning(
+                self,
+                "Рабочий текст не найден",
+                f"Чтобы {action_label}, нужно создать рабочий JSON для этой серии.\n\n"
+                "Откройте «Файлы проекта», привяжите исходный ASS/SRT/DOCX и создайте рабочий текст."
+            )
+            return False
+
+        reply = QMessageBox.question(
+            self,
+            "Рабочий текст не найден",
+            f"Чтобы {action_label}, нужно создать рабочий JSON для этой серии.\n\n"
+            "Создать его сейчас?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        if reply != QMessageBox.Yes:
+            return False
+
+        return self.regenerate_episode_text(ep, source_path, show_result=False)
 
     def set_project_folder_dialog(self) -> None:
         """Set project folder dialog."""
@@ -2982,7 +2989,8 @@ class MainWindow(QMainWindow):
             self.data.get("video_paths", {}),
             self.data.get("loaded_episodes", {}),
             ep,
-            self.data.get("episode_actor_map", {})
+            self.data.get("episode_actor_map", {}),
+            self.data.get("episode_texts", {})
         )
         self.undo_stack.push(command)
 
@@ -3004,7 +3012,7 @@ class MainWindow(QMainWindow):
         ep: str
         for ep in sorted(
             self.data["episodes"].keys(),
-            key=lambda x: int(x) if x.isdigit() else 0
+            key=natural_sort_key
         ):
             self.ep_combo.addItem(str(ep), ep)
 
@@ -3174,15 +3182,23 @@ class MainWindow(QMainWindow):
             lines = [l for l in lines if l['char'] == char]
         
         vp = self.data.get("video_paths", {}).get(ep)
+        resolved_vp = self.project_folder_service.resolve_project_path(
+            self.data,
+            vp
+        )
         
-        if not vp or not os.path.exists(vp):
+        if not resolved_vp or not os.path.exists(resolved_vp):
             self.set_episode_video()
             vp = self.data.get("video_paths", {}).get(ep)
+            resolved_vp = self.project_folder_service.resolve_project_path(
+                self.data,
+                vp
+            )
         
-        if vp:
+        if resolved_vp:
             from .video import VideoPreviewWindow
 
-            VideoPreviewWindow(vp, lines, ep, self).exec()
+            VideoPreviewWindow(resolved_vp, lines, ep, self).exec()
     
     def get_episode_lines(self, ep: str) -> List[Dict[str, Any]]:
         """Return episode lines, loading them when needed."""
@@ -3219,7 +3235,8 @@ class MainWindow(QMainWindow):
     def regenerate_episode_text(
         self,
         ep: str,
-        source_path: Optional[str] = None
+        source_path: Optional[str] = None,
+        show_result: bool = True
     ) -> bool:
         """Regenerate episode text."""
         path = source_path or self.data.get("episodes", {}).get(ep, "")
@@ -3243,11 +3260,12 @@ class MainWindow(QMainWindow):
         self.get_episode_lines(ep)
         self.set_dirty(True)
 
-        QMessageBox.information(
-            self,
-            "Готово",
-            f"Рабочий текст серии {ep} пересоздан."
-        )
+        if show_result:
+            QMessageBox.information(
+                self,
+                "Готово",
+                f"Рабочий текст серии {ep} пересоздан."
+            )
         return True
 
     def _build_working_text_from_source(self, ep: str, path: str) -> bool:
@@ -3354,27 +3372,18 @@ class MainWindow(QMainWindow):
 
     def open_export_settings(self) -> None:
         """Open export settings."""
-        self.open_settings(initial_tab="export")
+        self.open_project_settings(initial_tab="export")
 
-    def open_settings(self, initial_tab: str = "export") -> None:
-        """Open settings."""
-        dialog = SettingsDialog(self.data, self, initial_tab=initial_tab)
+    def open_global_settings(self, initial_tab: str = "interface") -> None:
+        """Open global application settings."""
+        dialog = SettingsDialog(
+            self.data,
+            self,
+            initial_tab=initial_tab,
+            settings_scope="global",
+        )
         if dialog.exec():
             settings = dialog.get_settings()
-
-            self.data["export_config"] = settings["export_config"]
-            self.data["replica_merge_config"] = settings["replica_merge_config"]
-            self.data["prompter_config"] = settings["prompter_config"]
-            self.data["docx_import_config"] = settings["docx_import_config"]
-
-            self.global_settings["export_config"] = self.data["export_config"]
-            self.global_settings["replica_merge_config"] = (
-                self.data["replica_merge_config"]
-            )
-            self.global_settings["prompter_config"] = self.data["prompter_config"]
-            self.global_settings["docx_import_config"] = (
-                self.data["docx_import_config"]
-            )
             old_language = self.global_settings.get("language", "ru")
             self.global_settings["language"] = settings.get("language", old_language)
             self.global_settings_service.save_settings(self.global_settings)
@@ -3382,6 +3391,24 @@ class MainWindow(QMainWindow):
             if self.global_settings["language"] != old_language:
                 set_language(self.global_settings["language"])
                 self.retranslate_ui()
+
+    def open_project_settings(self, initial_tab: str = "project") -> None:
+        """Open project-specific settings."""
+        dialog = SettingsDialog(
+            self.data,
+            self,
+            initial_tab=initial_tab,
+            settings_scope="project",
+        )
+        if dialog.exec():
+            settings = dialog.get_settings()
+
+            self.data["project_name"] = settings["project_name"]
+            self.data.setdefault("metadata", {}).update(settings["metadata"])
+            self.data["export_config"] = settings["export_config"]
+            self.data["replica_merge_config"] = settings["replica_merge_config"]
+            self.data["prompter_config"] = settings["prompter_config"]
+            self.data["docx_import_config"] = settings["docx_import_config"]
 
             self.episode_service.set_merge_gap_from_config(
                 self.data["replica_merge_config"]
@@ -3416,13 +3443,13 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Инфо", "Выберите серию.")
             return
 
+        if not self.ensure_working_text_for_episode(
+            ep,
+            "открыть телесуфлёр"
+        ):
+            return
+
         if not self.get_episode_lines(ep):
-            QMessageBox.warning(
-                self,
-                "Рабочий текст не найден",
-                "Для этой серии нет рабочего текста.\n\n"
-                "Откройте «Файлы проекта» и создайте рабочий текст из субтитров."
-            )
             return
 
         if self.teleprompter_window is not None:
@@ -3433,7 +3460,6 @@ class MainWindow(QMainWindow):
 
     def _apply_global_settings_to_project(self) -> None:
         """Apply global settings to project."""
-        self._apply_global_settings_to_project_data(self.data)
         self.episode_service.set_merge_gap_from_config(
             self.data["replica_merge_config"]
         )
@@ -3442,35 +3468,15 @@ class MainWindow(QMainWindow):
         self,
         project_data: Dict[str, Any]
     ) -> None:
-        """Apply global settings to a project data dictionary."""
-        if self.global_settings.get('export_config'):
-            project_data["export_config"].update(
-                self.global_settings['export_config']
-            )
-        
-        if self.global_settings.get('prompter_config'):
-            project_data["prompter_config"].update(
-                self.global_settings['prompter_config']
-            )
-        
-        if self.global_settings.get('replica_merge_config'):
-            project_data["replica_merge_config"].update(
-                self.global_settings['replica_merge_config']
-            )
-
-        if self.global_settings.get('docx_import_config'):
-            project_data.setdefault(
-                "docx_import_config",
-                deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
-            )
-            project_data["docx_import_config"].update(
-                self.global_settings['docx_import_config']
-            )
+        """Keep new projects independent from global project settings."""
+        project_data.setdefault(
+            "docx_import_config",
+            deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
+        )
 
     def save_global_prompter_settings(self, config: Dict[str, Any]) -> None:
-        """Save global prompter settings."""
-        self.global_settings_service.update_prompter_config(config)
-        self.global_settings_service.save_settings(self.global_settings)
+        """Compatibility shim for teleprompter callers; settings are project-local."""
+        self.data["prompter_config"] = config
 
     def export_to_reaper_rpp(self) -> None:
         """Export to reaper rpp."""
@@ -3481,21 +3487,17 @@ class MainWindow(QMainWindow):
 
         lines = self.get_episode_lines(ep_num)
         if not lines:
-            QMessageBox.warning(
-                self,
-                "Рабочий текст не найден",
-                "Для этой серии нет рабочего текста.\n\n"
-                "Откройте «Файлы проекта» и создайте рабочий текст из субтитров."
-            )
+            self.ensure_working_text_for_episode(ep_num, "экспортировать RPP")
             return
 
-        video_path = self.data["video_paths"].get(ep_num)
+        video_path = self.project_folder_service.resolve_project_path(
+            self.data,
+            self.data["video_paths"].get(ep_num)
+        )
         export_service = ExportService(self.data)
 
         def make_preview(use_video: bool, use_regions: bool) -> Dict[str, Any]:
             preview_video_path = video_path
-            if use_video and preview_video_path:
-                preview_video_path = os.path.abspath(preview_video_path)
             return export_service.get_reaper_rpp_preview(
                 ep_num,
                 lines,
@@ -3515,9 +3517,6 @@ class MainWindow(QMainWindow):
             return
 
         use_video, use_regions = dialog.get_options()
-
-        if use_video and video_path:
-            video_path = os.path.abspath(video_path)
 
         default_name = (
             f"{self.data.get('project_name', 'Project')} - "

@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Set
 from collections import defaultdict
 
+from utils.helpers import natural_sort_key
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,6 +51,34 @@ class ProjectFolderService:
     def get_project_folder(self, data: Dict) -> Optional[str]:
         """Return the project folder path."""
         return data.get("project_folder")
+
+    def resolve_project_path(
+        self,
+        data: Dict,
+        path: Optional[str]
+    ) -> Optional[str]:
+        """Return an absolute path, resolving relative paths from project_folder."""
+        if not path:
+            return path
+
+        expanded_path = os.path.expanduser(path)
+        if os.path.isabs(expanded_path):
+            return expanded_path
+
+        folder_path = self.get_project_folder(data)
+        if not folder_path:
+            return expanded_path
+
+        return os.path.abspath(os.path.join(folder_path, expanded_path))
+
+    def project_path_exists(
+        self,
+        data: Dict,
+        path: Optional[str]
+    ) -> bool:
+        """Return whether a project path exists after relative resolution."""
+        resolved_path = self.resolve_project_path(data, path)
+        return bool(resolved_path and os.path.exists(resolved_path))
 
     def find_all_media_files(
         self,
@@ -138,6 +168,59 @@ class ProjectFolderService:
 
         return None
 
+    def _normalize_episode_key(self, episode_num: str) -> str:
+        """Return a normalized key for matching episode numbers."""
+        value = str(episode_num).strip()
+        return str(int(value)) if value.isdigit() else value.lower()
+
+    def _find_replacement_path(
+        self,
+        found_files: Dict[str, str],
+        episode_num: str,
+        old_path: Optional[str]
+    ) -> Optional[str]:
+        """Find a replacement path by episode number or old filename."""
+        if episode_num in found_files:
+            return found_files[episode_num]
+
+        normalized_episode = self._normalize_episode_key(episode_num)
+        for found_episode, path in found_files.items():
+            if self._normalize_episode_key(found_episode) == normalized_episode:
+                return path
+
+        old_name = os.path.basename(old_path or "")
+        if old_name:
+            for path in found_files.values():
+                if os.path.basename(path) == old_name:
+                    return path
+
+        return None
+
+    def _find_file_by_basename(
+        self,
+        folder_path: str,
+        old_path: Optional[str],
+        extensions: Set[str]
+    ) -> Optional[str]:
+        """Find a file in the project folder by the old path basename."""
+        old_name = os.path.basename(old_path or "")
+        if not old_name:
+            return None
+
+        old_ext = os.path.splitext(old_name)[1].lower()
+        if old_ext not in extensions:
+            return None
+
+        for root, dirs, files in os.walk(folder_path):
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            for filename in files:
+                if filename.startswith('.'):
+                    continue
+                if filename == old_name:
+                    return os.path.join(root, filename)
+
+        return None
+
     def scan_and_link_files(
         self,
         data: Dict,
@@ -157,10 +240,13 @@ class ProjectFolderService:
 
         # Update subtitle paths only for existing episodes
         for ep_num, old_path in data.get("episodes", {}).items():
-            if os.path.exists(old_path):
+            if self.project_path_exists(data, old_path):
                 continue
 
-            path = found["ass"].get(ep_num)
+            path = (
+                self._find_replacement_path(found["ass"], ep_num, old_path) or
+                self._find_file_by_basename(folder_path, old_path, self.ASS_EXTENSIONS)
+            )
             if path:
                 data["episodes"][ep_num] = path
                 ass_count += 1
@@ -171,10 +257,13 @@ class ProjectFolderService:
             data["video_paths"] = {}
 
         for ep_num, old_path in data.get("video_paths", {}).items():
-            if os.path.exists(old_path):
+            if self.project_path_exists(data, old_path):
                 continue
 
-            path = found["video"].get(ep_num)
+            path = (
+                self._find_replacement_path(found["video"], ep_num, old_path) or
+                self._find_file_by_basename(folder_path, old_path, self.VIDEO_EXTENSIONS)
+            )
             if path:
                 data["video_paths"][ep_num] = path
                 video_count += 1
@@ -185,10 +274,13 @@ class ProjectFolderService:
 
         text_count = 0
         for ep_num, old_path in data.get("episode_texts", {}).items():
-            if os.path.exists(old_path):
+            if self.project_path_exists(data, old_path):
                 continue
 
-            path = found["text"].get(ep_num)
+            path = (
+                self._find_replacement_path(found["text"], ep_num, old_path) or
+                self._find_file_by_basename(folder_path, old_path, self.TEXT_EXTENSIONS)
+            )
             if path:
                 data["episode_texts"][ep_num] = path
                 text_count += 1
@@ -246,7 +338,7 @@ class ProjectFolderService:
                 set(found["ass"].keys()) |
                 set(found["video"].keys()) |
                 set(found["text"].keys()),
-                key=lambda x: int(x) if x.isdigit() else 0
+                key=natural_sort_key
             )
         }
 

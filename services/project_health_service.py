@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from services.assignment_service import get_actor_for_character
+from services.project_folder_service import ProjectFolderService
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,9 @@ class ProjectHealthService:
     SEVERITY_ERROR = "error"
     SEVERITY_WARNING = "warning"
     SEVERITY_INFO = "info"
+
+    def __init__(self) -> None:
+        self.project_folder_service = ProjectFolderService()
 
     def check_project(self, project_data: Dict[str, Any]) -> List[ProjectHealthIssue]:
         """Return project health issues."""
@@ -52,9 +56,21 @@ class ProjectHealthService:
             text_path = episode_texts.get(ep_num)
             video_path = video_paths.get(ep_num)
 
-            self._check_source_file(issues, ep_num, source_path, text_path)
-            lines = self._check_working_text(issues, ep_num, text_path, source_path)
-            self._check_video_file(issues, ep_num, video_path)
+            self._check_source_file(
+                issues,
+                project_data,
+                ep_num,
+                source_path,
+                text_path
+            )
+            lines = self._check_working_text(
+                issues,
+                project_data,
+                ep_num,
+                text_path,
+                source_path
+            )
+            self._check_video_file(issues, project_data, ep_num, video_path)
 
             if lines:
                 self._check_lines(issues, project_data, ep_num, lines)
@@ -73,6 +89,7 @@ class ProjectHealthService:
     def _check_source_file(
         self,
         issues: List[ProjectHealthIssue],
+        project_data: Dict[str, Any],
         ep_num: str,
         source_path: Optional[str],
         text_path: Optional[str]
@@ -87,7 +104,10 @@ class ProjectHealthService:
                 ))
             return
 
-        if not os.path.exists(source_path):
+        if not self.project_folder_service.project_path_exists(
+            project_data,
+            source_path
+        ):
             severity = self.SEVERITY_WARNING if text_path else self.SEVERITY_ERROR
             issues.append(ProjectHealthIssue(
                 severity,
@@ -100,6 +120,7 @@ class ProjectHealthService:
     def _check_working_text(
         self,
         issues: List[ProjectHealthIssue],
+        project_data: Dict[str, Any],
         ep_num: str,
         text_path: Optional[str],
         source_path: Optional[str]
@@ -115,7 +136,11 @@ class ProjectHealthService:
                 ))
             return []
 
-        if not os.path.exists(text_path):
+        resolved_text_path = self.project_folder_service.resolve_project_path(
+            project_data,
+            text_path
+        )
+        if not resolved_text_path or not os.path.exists(resolved_text_path):
             issues.append(ProjectHealthIssue(
                 self.SEVERITY_ERROR,
                 "Рабочий текст",
@@ -126,7 +151,7 @@ class ProjectHealthService:
             return []
 
         try:
-            with open(text_path, 'r', encoding='utf-8') as f:
+            with open(resolved_text_path, 'r', encoding='utf-8') as f:
                 payload = json.load(f)
         except (OSError, json.JSONDecodeError) as exc:
             issues.append(ProjectHealthIssue(
@@ -163,10 +188,14 @@ class ProjectHealthService:
     def _check_video_file(
         self,
         issues: List[ProjectHealthIssue],
+        project_data: Dict[str, Any],
         ep_num: str,
         video_path: Optional[str]
     ) -> None:
-        if video_path and not os.path.exists(video_path):
+        if video_path and not self.project_folder_service.project_path_exists(
+            project_data,
+            video_path
+        ):
             issues.append(ProjectHealthIssue(
                 self.SEVERITY_WARNING,
                 "Видео",

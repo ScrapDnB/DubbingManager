@@ -256,8 +256,8 @@ class TestProjectFileStructure:
         loaded_data = self.project_service.load_project(project_path)
         assert loaded_data["project_folder"] is None
 
-    def test_loaded_episodes_preservation(self):
-        """Проверка сохранения загруженных эпизодов"""
+    def test_loaded_episodes_not_saved(self):
+        """Загруженные эпизоды являются runtime-кэшем и не сохраняются."""
         data = self.project_service.create_new_project("Test Project")
         data["loaded_episodes"] = {
             "1": [
@@ -269,8 +269,7 @@ class TestProjectFileStructure:
         self.project_service.save_project(data, project_path)
         
         loaded_data = self.project_service.load_project(project_path)
-        assert "loaded_episodes" in loaded_data
-        assert len(loaded_data["loaded_episodes"]["1"]) == 1
+        assert "loaded_episodes" not in loaded_data
 
 
 class TestBackwardCompatibility:
