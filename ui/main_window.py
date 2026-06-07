@@ -11,7 +11,9 @@ from PySide6.QtWidgets import (
     QDialogButtonBox, QTextEdit, QDialog, QProgressDialog, QApplication,
     QStyledItemDelegate, QStyle
 )
-from PySide6.QtGui import QColor, QFont, QAction, QKeySequence, QPen, QBrush
+from PySide6.QtGui import (
+    QColor, QFont, QAction, QKeySequence, QPen, QBrush, QDesktopServices
+)
 from PySide6.QtCore import (
     Qt, QUrl, QTimer, Signal, QRectF, QEvent, Slot, QPersistentModelIndex,
     QAbstractTableModel, QModelIndex
@@ -80,6 +82,7 @@ from services import (
     ProjectFolderService,
     ScriptTextService,
     AssignmentTransferService,
+    UpdateService,
     ASSIGNMENT_SCOPE_GLOBAL,
     ASSIGNMENT_SCOPE_EPISODE,
     LOCAL_UNASSIGNED_ACTOR_ID,
@@ -443,6 +446,7 @@ class MainWindow(QMainWindow):
         self.project_folder_service = ProjectFolderService()
         self.script_text_service = ScriptTextService()
         self.assignment_transfer_service = AssignmentTransferService()
+        self.update_service = UpdateService()
         self.episode_service = EpisodeService()
 
         self.actor_controller: Optional[ActorController] = None
@@ -3599,23 +3603,137 @@ class MainWindow(QMainWindow):
 
     def show_about(self) -> None:
         """Show about."""
-        QMessageBox.about(
-            self,
-            "О программе",
+        dialog = QDialog(self)
+        dialog.setWindowTitle("О программе")
+        dialog.setMinimumWidth(420)
+
+        layout = QVBoxLayout(dialog)
+        about_text = QLabel(
             "<h2>Dubbing Manager</h2>"
             "<p>Приложение для управления проектами дубляжа и озвучивания.</p>"
-            "<p><b>Версия:</b> {}</p>"
-            "<p><b>GitHub:</b> <a href='https://github.com/ScrapDnB/DubbingManager/'>ScrapDnB/DubbingManager</a></p>"
-            "<p><b>Python:</b> {}.{}.{}</p>"
-            "<p><b>PySide6:</b> {}</p>"
-            "<p>© 2026 Юрий Романов</p>".format(
-                APP_VERSION,
-                sys.version_info.major,
-                sys.version_info.minor,
-                sys.version_info.micro,
-                "6.10.2"
-            )
+            f"<p><b>Версия:</b> {APP_VERSION}</p>"
+            "<p><b>GitHub:</b> "
+            "<a href='https://github.com/ScrapDnB/DubbingManager/'>"
+            "ScrapDnB/DubbingManager</a></p>"
+            f"<p><b>Python:</b> "
+            f"{sys.version_info.major}.{sys.version_info.minor}."
+            f"{sys.version_info.micro}</p>"
+            "<p><b>PySide6:</b> 6.10.2</p>"
+            "<p>© 2026 Юрий Романов</p>"
         )
+        about_text.setOpenExternalLinks(True)
+        about_text.setWordWrap(True)
+        layout.addWidget(about_text)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        btn_updates = buttons.addButton(
+            tr("main.check_updates"),
+            QDialogButtonBox.ActionRole
+        )
+        btn_updates.clicked.connect(
+            lambda: self.check_for_updates(button=btn_updates)
+        )
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        dialog.exec()
+
+    def check_for_updates(self, button: Optional[QPushButton] = None) -> None:
+        """Check GitHub Releases for a newer application version."""
+        if button is not None:
+            button.setEnabled(False)
+        try:
+            update_info = self.update_service.check_for_updates(APP_VERSION)
+        except Exception as e:
+            log_exception(logger, "Error checking updates", e)
+            QMessageBox.warning(
+                self,
+                "Проверка обновлений",
+                "Не удалось проверить обновления.\n\n"
+                "Проверьте подключение к интернету или откройте страницу "
+                "релизов вручную."
+            )
+            return
+        finally:
+            if button is not None:
+                button.setEnabled(True)
+
+        if update_info.is_update_available:
+            reply = QMessageBox.question(
+                self,
+                "Доступно обновление",
+                f"Доступна версия {update_info.latest_version}.\n"
+                f"Установленная версия: {update_info.current_version}.\n\n"
+                "Установить обновление автоматически?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply == QMessageBox.Yes:
+                self.install_update(update_info)
+            else:
+                QDesktopServices.openUrl(QUrl(update_info.release_url))
+            return
+
+        QMessageBox.information(
+            self,
+            "Проверка обновлений",
+            f"Установлена актуальная версия {update_info.current_version}."
+        )
+
+    def install_update(self, update_info) -> None:
+        """Install an available update for source or packaged app modes."""
+        try:
+            if self.update_service.is_source_checkout(os.getcwd()):
+                output = self.update_service.install_source_update(os.getcwd())
+                QMessageBox.information(
+                    self,
+                    "Обновление установлено",
+                    "Исходники обновлены из GitHub.\n\n"
+                    f"{output or 'Репозиторий уже актуален.'}\n\n"
+                    "Перезапустите приложение, чтобы запустить новую версию."
+                )
+                return
+
+            if not getattr(sys, "frozen", False):
+                QMessageBox.warning(
+                    self,
+                    "Автообновление недоступно",
+                    "Приложение запущено из Python, но рядом не найден git-репозиторий. "
+                    "Открою страницу релиза."
+                )
+                QDesktopServices.openUrl(QUrl(update_info.release_url))
+                return
+
+            asset = self.update_service.find_platform_asset(update_info)
+            if asset is None:
+                QMessageBox.warning(
+                    self,
+                    "Обновление недоступно",
+                    "Для вашей платформы не найден готовый установочный файл. "
+                    "Открою страницу релиза."
+                )
+                QDesktopServices.openUrl(QUrl(update_info.release_url))
+                return
+
+            asset_path = self.update_service.download_asset(asset)
+            self.update_service.start_binary_update(asset_path)
+            QMessageBox.information(
+                self,
+                "Обновление запускается",
+                "Обновление скачано. Приложение сейчас закроется, "
+                "внешний updater заменит файлы и запустит новую версию."
+            )
+            QApplication.quit()
+        except Exception as e:
+            log_exception(logger, "Error installing update", e)
+            QMessageBox.warning(
+                self,
+                "Ошибка обновления",
+                "Не удалось установить обновление автоматически.\n\n"
+                f"{e}\n\n"
+                "Открою страницу релиза, чтобы можно было обновиться вручную."
+            )
+            QDesktopServices.openUrl(QUrl(update_info.release_url))
 
     def open_project_files_dialog(self) -> None:
         """Open project files dialog."""

@@ -36,6 +36,7 @@
   "export.sheet_view": "⚙ Sheet View",
   "export.sheet_view.tooltip": "Quick script sheet settings",
   "main.about": "About Dubbing Manager",
+  "main.check_updates": "⬆ Updates",
   "main.folder": "📁 Folder",
   "main.folder.linked": "📁 Folder ✓",
   "main.folder.set.tooltip": "Set project folder",

@@ -1,6 +1,8 @@
 import pytest
-from PySide6.QtWidgets import QApplication
+from unittest.mock import Mock, patch
+from PySide6.QtWidgets import QApplication, QPushButton
 
+from services.update_service import UpdateInfo
 from ui.main_window import MainWindow
 
 
@@ -34,6 +36,19 @@ def test_update_ep_list_clears_main_table_when_project_has_no_episodes(window):
 
     assert window.current_ep_stats == []
     assert window.main_table_model.rowCount() == 0
+
+
+def test_update_check_can_run_from_about_button(window):
+    button = QPushButton()
+    window.update_service.check_for_updates = Mock(
+        return_value=UpdateInfo("1.4.3", "1.4.3", "https://example.test", False)
+    )
+
+    with patch("ui.main_window.QMessageBox.information") as information:
+        window.check_for_updates(button=button)
+
+    assert button.isEnabled()
+    information.assert_called_once()
 
 
 def test_global_actor_mode_shows_global_actor_base(window):

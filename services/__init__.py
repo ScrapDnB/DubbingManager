@@ -10,6 +10,7 @@ from .project_health_service import ProjectHealthIssue, ProjectHealthService
 from .docx_import_service import DocxImportService
 from .script_text_service import ScriptTextService
 from .assignment_transfer_service import AssignmentTransferService
+from .update_service import UpdateInfo, UpdateService
 from .assignment_service import (
     ASSIGNMENT_SCOPE_GLOBAL,
     ASSIGNMENT_SCOPE_EPISODE,
@@ -39,6 +40,8 @@ __all__ = [
     'DocxImportService',
     'ScriptTextService',
     'AssignmentTransferService',
+    'UpdateInfo',
+    'UpdateService',
     'ASSIGNMENT_SCOPE_GLOBAL',
     'ASSIGNMENT_SCOPE_EPISODE',
     'LOCAL_UNASSIGNED_ACTOR_ID',
