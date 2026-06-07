@@ -434,6 +434,37 @@ class TestEpisodeService:
         char2_stats = next(s for s in stats if s["name"] == "Персонаж 2")
         assert char2_stats["lines"] == 1
 
+    def test_parse_ass_file_splits_semicolon_characters(self, tmp_path):
+        """ASS строки с несколькими персонажами дублируются."""
+        ass_content = """[Script Info]
+Title: Test Episode
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:02.00,Default,Герой; Злодей,0,0,0,,Общая реплика
+Dialogue: 0,0:00:03.00,0:00:04.00,Default,Герой; Друг,0,0,0,,
+"""
+        ass_file = tmp_path / "multi_actor.ass"
+        ass_file.write_text(ass_content, encoding="utf-8")
+
+        service = EpisodeService()
+        stats, lines = service.parse_ass_file(str(ass_file))
+
+        assert [line["char"] for line in lines] == [
+            "Герой",
+            "Злодей",
+            "Герой",
+            "Друг",
+        ]
+        assert lines[0]["text"] == "Общая реплика"
+        assert lines[1]["text"] == "Общая реплика"
+        assert lines[2]["text"] == ""
+        assert {stat["name"]: stat["lines"] for stat in stats} == {
+            "Герой": 2,
+            "Злодей": 1,
+            "Друг": 1,
+        }
+
     def test_load_episode(self, temp_ass_file):
         """Загрузка эпизода"""
         service = EpisodeService()
@@ -444,6 +475,29 @@ class TestEpisodeService:
         assert len(lines) == 3
         assert lines[0]["char"] == "Персонаж 1"
         assert lines[0]["text"] == "Привет, как дела?"
+
+    def test_load_episode_splits_semicolon_characters(self, tmp_path):
+        """Загрузка ASS разворачивает несколько персонажей в отдельные строки."""
+        ass_content = """[Script Info]
+Title: Test Episode
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:02.00,Default,Герой; Злодей,0,0,0,,Общая реплика
+"""
+        ass_file = tmp_path / "multi_actor.ass"
+        ass_file.write_text(ass_content, encoding="utf-8")
+
+        service = EpisodeService()
+        lines = service.load_episode("1", {"1": str(ass_file)})
+
+        assert len(lines) == 2
+        assert lines[0]["id"] == 0
+        assert lines[0]["char"] == "Герой"
+        assert lines[0]["text"] == "Общая реплика"
+        assert lines[1]["id"] == 1
+        assert lines[1]["char"] == "Злодей"
+        assert lines[1]["text"] == "Общая реплика"
 
     def test_episode_caching(self, temp_ass_file):
         """Кэширование загруженных эпизодов"""

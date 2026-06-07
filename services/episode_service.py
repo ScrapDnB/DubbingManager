@@ -31,6 +31,28 @@ class EpisodeService:
         """Set the frame rate."""
         self.fps = fps
 
+    def _split_ass_characters(self, raw_character: str) -> List[str]:
+        """Return one or more ASS Name/Actor values split by semicolon."""
+        characters = [
+            part.strip()
+            for part in str(raw_character or "").split(";")
+            if part.strip()
+        ]
+        return characters or [str(raw_character or "").strip()]
+
+    def _expand_ass_line_by_characters(
+        self,
+        line_data: Dict[str, Any],
+        raw_character: str
+    ) -> List[Dict[str, Any]]:
+        """Duplicate ASS line data for each semicolon-separated character."""
+        expanded = []
+        for character in self._split_ass_characters(raw_character):
+            character_line = line_data.copy()
+            character_line["char"] = character
+            expanded.append(character_line)
+        return expanded
+
     def parse_ass_file(self, path: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Parse ass file."""
         char_data: Dict[str, Dict[str, Any]] = defaultdict(
@@ -50,18 +72,24 @@ class EpisodeService:
                         char = parts[4].strip()
                         text = re.sub(r'\{.*?\}', '', parts[9]).strip()
 
-                        if text:
-                            line_data = {
-                                's': ass_time_to_seconds(parts[1]),
-                                'e': ass_time_to_seconds(parts[2]),
-                                'char': char,
-                                'text': text,
-                                's_raw': parts[1]
-                            }
-                            lines_list.append(line_data)
+                        if not text and not char:
+                            continue
 
-                            char_data[char]["lines"] += 1
-                            char_data[char]["raw"].append(line_data)
+                        line_data = {
+                            's': ass_time_to_seconds(parts[1]),
+                            'e': ass_time_to_seconds(parts[2]),
+                            'text': text,
+                            's_raw': parts[1]
+                        }
+
+                        for character_line in self._expand_ass_line_by_characters(
+                            line_data,
+                            char
+                        ):
+                            lines_list.append(character_line)
+                            character = character_line["char"]
+                            char_data[character]["lines"] += 1
+                            char_data[character]["raw"].append(character_line)
 
                 # Calculate statistics
                 # Convert merge_gap from frames to seconds
@@ -231,15 +259,19 @@ class EpisodeService:
                     if line.startswith("Dialogue:"):
                         parts = line.split(',', 9)
                         if len(parts) >= 10:
-                            lines.append({
-                                'id': idx,
+                            line_data = {
                                 's': ass_time_to_seconds(parts[1]),
                                 'e': ass_time_to_seconds(parts[2]),
-                                'char': parts[4].strip(),
                                 'text': re.sub(r'\{.*?\}', '', parts[9]).strip(),
                                 's_raw': parts[1]
-                            })
-                            idx += 1
+                            }
+                            for character_line in self._expand_ass_line_by_characters(
+                                line_data,
+                                parts[4].strip()
+                            ):
+                                character_line['id'] = idx
+                                lines.append(character_line)
+                                idx += 1
 
                 self._loaded_episodes[ep_num] = lines
                 # Store the cache timestamp

@@ -662,6 +662,12 @@ class TeleprompterWindow(QDialog):
 
         self.toolbar.addSeparator()
 
+        self.btn_refresh_cast = QPushButton("🔄 Обновить каст")
+        self.btn_refresh_cast.clicked.connect(self.refresh_cast_assignments)
+        self.toolbar.addWidget(self.btn_refresh_cast)
+
+        self.toolbar.addSeparator()
+
         self.btn_go_prev = QPushButton("⏮ Предыдущая реплика")
         self.btn_go_prev.setMinimumWidth(PROMPTER_NAV_BUTTON_MIN_WIDTH)
         self.btn_go_prev.clicked.connect(
@@ -1835,6 +1841,25 @@ class TeleprompterWindow(QDialog):
             self.build_prompter_content()
         except Exception as e:
             log_exception(logger, "Error refreshing episode data", e)
+
+    def refresh_cast_assignments(self) -> None:
+        """Refresh actor assignments without reopening the teleprompter."""
+        current_time = self.last_known_time
+        vertical_scroll = self.prompter_view.verticalScrollBar().value()
+        horizontal_scroll = self.prompter_view.horizontalScrollBar().value()
+        manual_scroll_override = self._manual_scroll_override
+
+        try:
+            self.build_prompter_content()
+            if current_time > 0:
+                self.update_view_position_by_time(current_time)
+            if manual_scroll_override:
+                self._manual_scroll_override = True
+                self.cancel_pending_prompter_scroll()
+                self.prompter_view.verticalScrollBar().setValue(vertical_scroll)
+                self.prompter_view.horizontalScrollBar().setValue(horizontal_scroll)
+        except Exception as e:
+            log_exception(logger, "Error refreshing cast assignments", e)
 
     def closeEvent(self, event) -> None:
         """Closeevent."""

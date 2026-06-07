@@ -19,7 +19,8 @@ class MainAppStub:
     def __init__(self):
         self.data = {
             "actors": {
-                "actor-1": {"name": "Actor", "color": "#ffffff"}
+                "actor-1": {"name": "Actor", "color": "#ffffff"},
+                "actor-2": {"name": "Fresh Actor", "color": "#ffcc00"},
             },
             "global_map": {"Hero": "actor-1"},
             "episodes": {"1": "/tmp/ep1.ass", "2": "/tmp/ep2.ass"},
@@ -126,5 +127,23 @@ def test_manual_scroll_override_ignores_reaper_until_explicit_jump(app):
 
     assert calls == [1.0]
     assert window._manual_scroll_override is False
+
+    window.close()
+
+
+def test_refresh_cast_assignments_rebuilds_actor_names(app):
+    main_app = MainAppStub()
+    window = TeleprompterWindow(main_app, "1")
+
+    main_app.data["global_map"]["Hero"] = "actor-2"
+    window.btn_refresh_cast.click()
+
+    scene_text = "\n".join(
+        item.toPlainText()
+        for item in window.prompter_scene.items()
+        if hasattr(item, "toPlainText")
+    )
+    assert "(Fresh Actor)" in scene_text
+    assert window.ep_num == "1"
 
     window.close()
