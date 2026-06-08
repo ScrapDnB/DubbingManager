@@ -8,7 +8,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import requests
 
@@ -107,19 +107,28 @@ class UpdateService:
     def download_asset(
         self,
         asset: ReleaseAsset,
-        destination_dir: Optional[str] = None
+        destination_dir: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> str:
         """Download a release asset and return the local path."""
         target_dir = Path(destination_dir or tempfile.gettempdir())
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / asset.name
+        downloaded = 0
 
         with requests.get(asset.url, stream=True, timeout=self.timeout) as response:
             response.raise_for_status()
+            total = int(response.headers.get("content-length") or asset.size or 0)
             with open(target_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=1024 * 1024):
                     if chunk:
                         f.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_callback:
+                            progress_callback(downloaded, total)
+
+        if progress_callback:
+            progress_callback(downloaded, downloaded or asset.size)
 
         return str(target_path)
 
@@ -250,6 +259,7 @@ class UpdateService:
         mount_root = Path(tempfile.gettempdir()) / "dubbing_manager_update_mount"
         script = f"""#!/bin/sh
 set -e
+osascript -e 'display notification "Файлы приложения будут заменены после закрытия Dubbing Manager." with title "Dubbing Manager" subtitle "Обновление началось"' >/dev/null 2>&1 || true
 while kill -0 {pid} 2>/dev/null; do
   sleep 1
 done
@@ -259,6 +269,7 @@ hdiutil attach "{dmg_path}" -mountpoint "{mount_root}" -nobrowse -quiet
 trap 'hdiutil detach "{mount_root}" -quiet || true' EXIT
 ditto "{mount_root}/{app_name}" "{app_path}"
 hdiutil detach "{mount_root}" -quiet || true
+osascript -e 'display notification "Новая версия установлена и сейчас будет запущена." with title "Dubbing Manager" subtitle "Обновление готово"' >/dev/null 2>&1 || true
 open "{app_path}"
 """
         script_path.write_text(script, encoding="utf-8")
@@ -277,6 +288,14 @@ open "{app_path}"
         extract_dir = Path(tempfile.gettempdir()) / "dubbing_manager_update_extract"
         script = f"""
 $ErrorActionPreference = "Stop"
+[void][System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
+[void][System.Reflection.Assembly]::LoadWithPartialName("System.Drawing")
+$notify = New-Object System.Windows.Forms.NotifyIcon
+$notify.Icon = [System.Drawing.SystemIcons]::Information
+$notify.BalloonTipTitle = "Dubbing Manager"
+$notify.BalloonTipText = "Файлы приложения будут заменены после закрытия."
+$notify.Visible = $true
+$notify.ShowBalloonTip(3000)
 Wait-Process -Id {pid} -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath "{extract_dir}" -Recurse -Force -ErrorAction SilentlyContinue
 Expand-Archive -LiteralPath "{zip_path}" -DestinationPath "{extract_dir}" -Force
@@ -285,6 +304,8 @@ if (!(Test-Path -LiteralPath $source)) {{
   $source = "{extract_dir}"
 }}
 Copy-Item -Path (Join-Path $source "*") -Destination "{app_dir}" -Recurse -Force
+$notify.BalloonTipText = "Новая версия установлена и сейчас будет запущена."
+$notify.ShowBalloonTip(3000)
 Start-Process -FilePath "{executable_path}"
 """
         script_path.write_text(script.strip() + "\n", encoding="utf-8")

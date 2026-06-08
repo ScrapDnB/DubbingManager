@@ -111,6 +111,7 @@ def test_create_macos_update_script_contains_expected_paths(tmp_path):
     content = open(script, encoding="utf-8").read()
     assert "hdiutil attach" in content
     assert "ditto" in content
+    assert "display notification" in content
     assert "/Applications/Dubbing Manager.app" in content
 
 
@@ -126,4 +127,28 @@ def test_create_windows_update_script_contains_expected_paths(tmp_path):
     content = open(script, encoding="utf-8").read()
     assert "Expand-Archive" in content
     assert "Copy-Item -Path" in content
+    assert "NotifyIcon" in content
     assert "Start-Process" in content
+
+
+def test_download_asset_reports_progress(tmp_path):
+    response = Mock()
+    response.headers = {"content-length": "6"}
+    response.iter_content.return_value = [b"ab", b"cd", b"ef"]
+    response.raise_for_status.return_value = None
+    response.__enter__ = Mock(return_value=response)
+    response.__exit__ = Mock(return_value=None)
+    progress = []
+
+    with patch("services.update_service.requests.get", return_value=response):
+        path = UpdateService().download_asset(
+            ReleaseAsset("update.bin", "https://example.test/update.bin", 6),
+            destination_dir=str(tmp_path),
+            progress_callback=lambda downloaded, total: progress.append(
+                (downloaded, total)
+            )
+        )
+
+    assert open(path, "rb").read() == b"abcdef"
+    assert progress[-1] == (6, 6)
+    assert (2, 6) in progress

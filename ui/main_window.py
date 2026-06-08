@@ -3740,13 +3740,27 @@ class MainWindow(QMainWindow):
                 QDesktopServices.openUrl(QUrl(update_info.release_url))
                 return
 
-            asset_path = self.update_service.download_asset(asset)
+            asset_path = self._download_update_asset(asset)
+            replace_progress = QProgressDialog(
+                "Готовлю замену файлов приложения...",
+                None,
+                0,
+                0,
+                self
+            )
+            replace_progress.setWindowTitle("Обновление")
+            replace_progress.setWindowModality(Qt.WindowModal)
+            replace_progress.setMinimumDuration(0)
+            replace_progress.show()
+            QApplication.processEvents()
             self.update_service.start_binary_update(asset_path)
+            replace_progress.close()
             QMessageBox.information(
                 self,
                 "Обновление запускается",
                 "Обновление скачано. Приложение сейчас закроется, "
-                "внешний updater заменит файлы и запустит новую версию."
+                "внешний updater заменит файлы и запустит новую версию.\n\n"
+                "О ходе замены появятся системные уведомления."
             )
             QApplication.quit()
         except Exception as e:
@@ -3759,6 +3773,38 @@ class MainWindow(QMainWindow):
                 "Открою страницу релиза, чтобы можно было обновиться вручную."
             )
             QDesktopServices.openUrl(QUrl(update_info.release_url))
+
+    def _download_update_asset(self, asset) -> str:
+        """Download an update asset with visible progress."""
+        progress = QProgressDialog(
+            f"Скачиваю обновление: {asset.name}",
+            "Отмена",
+            0,
+            int(asset.size or 0),
+            self
+        )
+        progress.setWindowTitle("Скачивание обновления")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        if not asset.size:
+            progress.setRange(0, 0)
+
+        def on_progress(downloaded: int, total: int) -> None:
+            if total > 0 and progress.maximum() != total:
+                progress.setRange(0, total)
+            if total > 0:
+                progress.setValue(min(downloaded, total))
+            QApplication.processEvents()
+            if progress.wasCanceled():
+                raise RuntimeError("Скачивание обновления отменено.")
+
+        try:
+            return self.update_service.download_asset(
+                asset,
+                progress_callback=on_progress
+            )
+        finally:
+            progress.close()
 
     def open_project_files_dialog(self) -> None:
         """Open project files dialog."""
