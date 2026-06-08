@@ -150,11 +150,11 @@ class HtmlLivePreview(QDialog):
             self.chk_col_char,
             self.chk_col_actor,
             self.chk_col_text,
-            self.chk_round_time,
         ]:
             columns_layout.addWidget(checkbox)
         columns_layout.addWidget(QLabel("Тайминг:"))
         columns_layout.addWidget(self.combo_time_display)
+        columns_layout.addWidget(self.chk_round_time)
         sp_layout.addWidget(columns_group)
         
         font_group = QGroupBox("Размеры шрифтов")

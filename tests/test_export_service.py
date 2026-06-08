@@ -224,6 +224,32 @@ class TestExportService:
         assert "line-container" in html
         assert "Character1" in html
 
+    def test_generate_html_scenario_respects_time_options(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: сценарная разметка учитывает округление и режим тайминга."""
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        export_config.update({
+            "round_time": True,
+            "time_display": "start",
+        })
+
+        html = service.generate_html(
+            ep="1",
+            processed=processed,
+            cfg=export_config,
+            layout_type="Сценарий",
+            is_editable=False
+        )
+
+        assert "[0:00:00]" in html
+        assert "0:00:02" not in html
+        assert "0:00:00.00" not in html
+
     def test_generate_html_with_highlight(
         self,
         sample_project_data: Dict[str, Any],
@@ -323,8 +349,31 @@ class TestExportService:
         assert "<th>Время</th><th>Текст</th>" in html
         assert "<th>Персонаж</th>" not in html
         assert "<th>Актер</th>" not in html
-        assert "0:00:00-0:00:02" in html
+        assert "0:00:00<span class='time-sep'>-</span>0:00:02" in html
         assert "0:00:00.00" not in html
+
+    def test_generate_html_table_uses_compact_column_layout(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: HTML-таблица отдаёт больше места реплике."""
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {"merge": False})
+
+        html = service.generate_html(
+            ep="1",
+            processed=processed,
+            cfg=export_config,
+            layout_type="Таблица",
+            is_editable=False
+        )
+
+        assert "<colgroup><col class='col-t'><col class='col-c'><col class='col-a'><col class='col-txt'></colgroup>" in html
+        assert ".col-t {\n            width: clamp(7.5rem, 10vw, 9.5rem);" in html
+        assert ".col-c {\n            width: clamp(9rem, 16vw, 16rem);" in html
+        assert ".col-a {\n            width: clamp(8rem, 14vw, 14rem);" in html
 
     def test_generate_html_table_can_show_start_time_only(
         self,
@@ -350,7 +399,7 @@ class TestExportService:
         )
 
         assert "0:00:00</td>" in html
-        assert "0:00:00-0:00:02" not in html
+        assert "<span class='time-sep'>-</span>" not in html
 
     def test_process_merge_logic_keeps_working_text_lines(self) -> None:
         """Тест: рабочие тексты не объединяются повторно"""
@@ -698,6 +747,30 @@ class TestExportServiceExcel:
         assert wb is not None
         assert len(wb.sheetnames) >= 1
         assert 'Сводка' in wb.sheetnames or any('серия' in name for name in wb.sheetnames)
+
+    def test_create_excel_book_uses_readable_table_column_widths(
+        self,
+        sample_project_data: Dict[str, Any]
+    ) -> None:
+        """Тест: Excel-таблица даёт больше ширины тексту реплики."""
+        service = ExportService(sample_project_data)
+        wb = service.create_excel_book({
+            "1": [{
+                "id": 1,
+                "s": 0.0,
+                "e": 2.0,
+                "char": "Character1",
+                "text": "Hello",
+                "s_raw": "0:00:00.00"
+            }]
+        })
+
+        ws = wb["серия (1)"]
+
+        assert ws.column_dimensions["B"].width == 10.5
+        assert ws.column_dimensions["C"].width == 18.0
+        assert ws.column_dimensions["D"].width == 18.0
+        assert ws.column_dimensions["E"].width == 118.0
 
     def test_create_excel_book_multiple_episodes(
         self,

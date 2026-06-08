@@ -4,7 +4,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
-from ui.dialogs.roles import ActorRolesDialog
+from ui.dialogs.roles import ActorRolesDialog, ProjectRolesDialog
 from ui.main_window import MainWindow
 
 
@@ -58,3 +58,108 @@ def test_actor_role_stats_uses_working_lines():
         {"name": "Hero", "rings": 2, "words": 3},
         {"name": "Villain", "rings": 1, "words": 3},
     ]
+
+
+def test_project_roles_dialog_collects_roles_and_episode_numbers(app):
+    project_data = {
+        "actors": {
+            "actor-1": {"name": "Actor One", "color": "#ff0000"},
+        },
+        "episodes": {"1": "/tmp/one.ass", "2": "/tmp/two.ass"},
+        "global_map": {"Hero": "actor-1", "Mapped Only": "actor-1"},
+        "episode_actor_map": {"2": {"Guest": "actor-1"}},
+    }
+    lines_by_ep = {
+        "1": [{"char": "Hero", "text": "hello"}],
+        "2": [{"char": "Hero", "text": "again"}, {"char": "Guest", "text": "hi"}],
+    }
+
+    dialog = ProjectRolesDialog(
+        project_data,
+        get_episode_lines=lambda ep: lines_by_ep.get(str(ep), []),
+    )
+
+    rows = {
+        dialog._table.item(row, 0).text(): dialog._table.item(row, 2).text()
+        for row in range(dialog._table.rowCount())
+    }
+
+    assert rows["Hero"] == "1, 2"
+    assert rows["Guest"] == "2"
+    assert rows["Mapped Only"] == "—"
+
+
+def test_project_roles_dialog_reassigns_role_and_clears_episode_override(app):
+    project_data = {
+        "actors": {
+            "actor-1": {"name": "Actor One", "color": "#ff0000"},
+            "actor-2": {"name": "Actor Two", "color": "#00ff00"},
+        },
+        "episodes": {"1": "/tmp/one.ass"},
+        "global_map": {"Hero": "actor-1"},
+        "episode_actor_map": {"1": {"Hero": "actor-2"}},
+    }
+    changed = []
+
+    dialog = ProjectRolesDialog(
+        project_data,
+        get_episode_lines=lambda ep: [{"char": "Hero", "text": "hello"}],
+        on_changed=lambda: changed.append(True),
+    )
+
+    dialog._assign_role("Hero", "actor-2")
+
+    assert project_data["global_map"]["Hero"] == "actor-2"
+    assert "Hero" not in project_data["episode_actor_map"]["1"]
+    assert changed
+
+
+def test_project_roles_dialog_filters_by_role_and_actor(app):
+    project_data = {
+        "actors": {
+            "actor-1": {"name": "Alice Voice", "color": "#ff0000"},
+            "actor-2": {"name": "Bob Voice", "color": "#00ff00"},
+        },
+        "episodes": {"1": "/tmp/one.ass"},
+        "global_map": {"Hero": "actor-1", "Villain": "actor-2"},
+        "episode_actor_map": {},
+    }
+    dialog = ProjectRolesDialog(
+        project_data,
+        get_episode_lines=lambda ep: [
+            {"char": "Hero", "text": "hello"},
+            {"char": "Villain", "text": "boo"},
+        ],
+    )
+
+    dialog._search_edit.setText("hero")
+
+    visible_by_role = [
+        dialog._table.item(row, 0).text()
+        for row in range(dialog._table.rowCount())
+        if not dialog._table.isRowHidden(row)
+    ]
+    assert visible_by_role == ["Hero"]
+
+    dialog._search_edit.setText("bob")
+
+    visible_by_actor = [
+        dialog._table.item(row, 0).text()
+        for row in range(dialog._table.rowCount())
+        if not dialog._table.isRowHidden(row)
+    ]
+    assert visible_by_actor == ["Villain"]
+
+
+def test_project_roles_dialog_resets_role_assignments(app):
+    project_data = {
+        "actors": {"actor-1": {"name": "Actor One", "color": "#ff0000"}},
+        "episodes": {},
+        "global_map": {"Hero": "actor-1"},
+        "episode_actor_map": {"1": {"Hero": "actor-1"}},
+    }
+    dialog = ProjectRolesDialog(project_data)
+    dialog._reset_role_assignment("Hero")
+
+    assert "Hero" not in project_data["global_map"]
+    assert "Hero" not in project_data["episode_actor_map"]["1"]

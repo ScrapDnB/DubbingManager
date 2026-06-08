@@ -203,7 +203,7 @@ class ExportService:
                 )
             else:
                 html += self._build_scenario_row(
-                    line, actor, text_html, bg_color, border_col, h_class
+                    line, actor, text_html, bg_color, border_col, h_class, cfg
                 )
 
         return html + "</body></html>"
@@ -219,40 +219,75 @@ class ExportService:
         return f"""<html><head><meta charset='utf-8'>{js}<style>
         body {{
             font-family: 'Segoe UI', sans-serif;
-            padding: 50px 10%;
-            background: #fdfdfd;
+            padding: 36px clamp(18px, 4vw, 64px);
+            background: #f6f7f8;
+            color: #202124;
+        }}
+        h1 {{
+            margin: 0 0 24px;
+            font-size: 24px;
+            font-weight: 650;
+            line-height: 1.25;
         }}
         table {{
             width: 100%;
             border-collapse: collapse;
             table-layout: fixed;
             background: white;
+            border: 1px solid #d8dde3;
         }}
         td, th {{
-            border: 1px solid #ddd;
-            padding: 12px;
+            border: 1px solid #d8dde3;
+            padding: 8px 10px;
             vertical-align: top;
             overflow-wrap: break-word;
+            word-break: normal;
+        }}
+        th {{
+            background: #eef1f4;
+            color: #4f5965;
+            font-size: 12px;
+            font-weight: 650;
+            text-align: left;
+            padding: 7px 10px;
+        }}
+        .col-t {{
+            width: clamp(7.5rem, 10vw, 9.5rem);
+        }}
+        .col-c {{
+            width: clamp(9rem, 16vw, 16rem);
+        }}
+        .col-a {{
+            width: clamp(8rem, 14vw, 14rem);
+        }}
+        .col-txt {{
+            width: auto;
         }}
         .t {{
-            width: 90px;
             font-family: monospace;
             font-size: {cfg.get('f_time', 12)}px;
+            line-height: 1.25;
             color: #666;
+            white-space: normal;
         }}
         .c {{
-            width: 160px;
             font-weight: bold;
             font-size: {cfg.get('f_char', 14)}px;
+            line-height: 1.25;
         }}
         .a {{
-            width: 160px;
             font-style: italic;
             font-size: {cfg.get('f_actor', 14)}px;
+            line-height: 1.25;
         }}
         .txt {{
             font-size: {cfg.get('f_text', 16)}px;
-            line-height: 1.5;
+            line-height: 1.45;
+        }}
+        .time-sep {{
+            display: block;
+            line-height: 0.9;
+            opacity: 0.75;
         }}
         .line-container {{
             margin-bottom: 30px;
@@ -363,6 +398,39 @@ class ExportService:
 
         return text_html
 
+    def _format_timing_html(self, line: Dict[str, Any], cfg: Dict[str, Any]) -> str:
+        """Format timing for table HTML, allowing ranges to wrap cleanly."""
+        start_tc, end_tc = self._format_timing_parts(line, cfg)
+        if cfg.get('time_display', 'range') == 'start':
+            return escape(start_tc)
+
+        return (
+            f"{escape(start_tc)}"
+            "<span class='time-sep'>-</span>"
+            f"{escape(end_tc)}"
+        )
+
+    def _format_timing_parts(
+        self,
+        line: Dict[str, Any],
+        cfg: Dict[str, Any]
+    ) -> Tuple[str, str]:
+        """Return formatted start and end timing strings."""
+        start = float(line.get('s', 0.0))
+        end = float(line.get('e', 0.0))
+
+        if cfg.get('round_time', False):
+            return format_seconds_to_tc(start), format_seconds_to_tc(end)
+
+        return format_seconds_to_full_tc(start), format_seconds_to_full_tc(end)
+
+    def _format_timing_text(self, line: Dict[str, Any], cfg: Dict[str, Any]) -> str:
+        """Format timing as plain text for scenario HTML."""
+        start_tc, end_tc = self._format_timing_parts(line, cfg)
+        if cfg.get('time_display', 'range') == 'start':
+            return start_tc
+        return f"{start_tc}-{end_tc}"
+
     def _build_table_row(
         self,
         line: Dict[str, Any],
@@ -377,8 +445,8 @@ class ExportService:
         """Build one table export row."""
         columns = []
         if cfg.get('col_tc', True):
-            timing = self._format_export_timing(line, cfg)
-            columns.append((translate_source("Время"), "t", escape(str(timing))))
+            timing = self._format_timing_html(line, cfg)
+            columns.append((translate_source("Время"), "t", timing))
         if cfg.get('col_char', True):
             columns.append((translate_source("Персонаж"), "c", escape(str(line.get('char', '')))))
         if cfg.get('col_actor', True):
@@ -401,12 +469,16 @@ class ExportService:
         )
 
         if is_first:
+            colgroup = "".join(
+                f"<col class='col-{css_class}'>"
+                for _header, css_class, _value in columns
+            )
             headers = "".join(
                 f"<th>{header}</th>"
                 for header, _css_class, _value in columns
             )
             header = (
-                "<table><thead><tr>"
+                f"<table><colgroup>{colgroup}</colgroup><thead><tr>"
                 f"{headers}"
                 "</tr></thead><tbody>"
             )
@@ -424,11 +496,12 @@ class ExportService:
         text_html: str,
         bg_color: str,
         border_col: str,
-        h_class: str
+        h_class: str,
+        cfg: Dict[str, Any]
     ) -> str:
         """Build scenario row."""
         char = escape(str(line.get('char', '')))
-        s_raw = escape(str(line.get('s_raw', '')))
+        timing = escape(self._format_timing_text(line, cfg))
         actor_name = escape(str(actor.get('name', '-')))
         return (
             f"<div class='line-container {h_class}' "
@@ -436,7 +509,7 @@ class ExportService:
             f"border-left-color:{border_col}'>"
             f"<div class='meta'>"
             f"<span class='c'><b>{char}</b></span>"
-            f" <span class='t'>[{s_raw}]</span>"
+            f" <span class='t'>[{timing}]</span>"
             f" <span class='a'><i>({actor_name})</i></span>"
             f"</div>"
             f"<div class='txt'>{text_html}</div></div>"
@@ -659,11 +732,11 @@ class ExportService:
 
         # Column widths
         col_widths = {
-            'Номер': 8.66,
-            'Таймкод': 13.0,  # Reduced so timing wraps to two lines
-            'Персонаж': 28.83,
-            'Актёр': 29.5,
-            'Реплика': 92.33
+            'Номер': 6.5,
+            'Таймкод': 10.5,
+            'Персонаж': 18.0,
+            'Актёр': 18.0,
+            'Реплика': 118.0
         }
         for col_idx, header in enumerate(headers, 1):
             col_letter = openpyxl.utils.get_column_letter(col_idx)

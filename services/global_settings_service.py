@@ -103,7 +103,7 @@ class GlobalSettingsService:
             with open(self._settings_file, 'w', encoding='utf-8') as f:
                 json.dump(data_to_save, f, ensure_ascii=False, indent=2)
 
-            self.settings = settings
+            self.settings = data_to_save
             logger.info(f"Global settings saved to {self._settings_file}")
             return True
 
@@ -231,7 +231,7 @@ class GlobalSettingsService:
     def add_global_actor(
         self,
         name: str,
-        color: str,
+        color: str = "",
         actor_id: Optional[str] = None,
         gender: str = ""
     ) -> str:
@@ -252,7 +252,6 @@ class GlobalSettingsService:
 
         actor_base[target_id] = {
             "name": normalized_name,
-            "color": color or "#FFFFFF",
             "gender": self._normalize_actor_gender(gender),
         }
         self.settings['global_actor_base'] = actor_base
@@ -300,7 +299,6 @@ class GlobalSettingsService:
                 target_id = f"{target_id}_imported"
             actor_base[target_id] = {
                 "name": name,
-                "color": str(actor.get("color", "#FFFFFF") or "#FFFFFF"),
                 "gender": self._normalize_actor_gender(
                     str(actor.get("gender", ""))
                 ),
@@ -395,7 +393,6 @@ class GlobalSettingsService:
                 continue
             result[str(actor_id)] = {
                 "name": name,
-                "color": str(actor.get("color", "#FFFFFF") or "#FFFFFF"),
                 "gender": self._normalize_actor_gender(
                     str(actor.get("gender", ""))
                 ),

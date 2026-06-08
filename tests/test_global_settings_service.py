@@ -175,9 +175,11 @@ class TestGlobalSettingsService:
         assert stats == {"added": 1, "matched": 0}
         assert other.get_global_actor_base()[actor_id] == {
             "name": "Actor One",
-            "color": "#123456",
             "gender": "М",
         }
+
+        exported = json.loads(export_path.read_text(encoding="utf-8"))
+        assert "color" not in exported["actors"][actor_id]
 
     def test_global_actor_base_deduplicates_by_name(self, service, tmp_path):
         """Тест сопоставления актёров глобальной базы по имени."""
@@ -215,14 +217,43 @@ class TestGlobalSettingsService:
         }
         assert actor_base["actor2"] == {
             "name": "Actor Two",
-            "color": "#654321",
             "gender": "Ж",
         }
         assert actor_base["global1"] == {
             "name": "Actor One",
-            "color": "#111111",
             "gender": "",
         }
+
+    def test_global_actor_base_strips_legacy_colors_on_load_and_save(
+        self,
+        service,
+        temp_settings_file
+    ):
+        """Legacy global actor colors are removed from loaded and saved data."""
+        temp_settings_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_settings_file.write_text(
+            json.dumps({
+                "global_actor_base": {
+                    "actor1": {
+                        "name": "Actor One",
+                        "color": "#123456",
+                        "gender": "F",
+                    }
+                }
+            }),
+            encoding="utf-8",
+        )
+
+        settings = service.load_settings()
+
+        assert settings["global_actor_base"]["actor1"] == {
+            "name": "Actor One",
+            "gender": "Ж",
+        }
+
+        assert service.save_settings(settings) is True
+        saved = json.loads(temp_settings_file.read_text(encoding="utf-8"))
+        assert "color" not in saved["global_actor_base"]["actor1"]
 
     def test_remove_global_actor(self, service):
         """Тест удаления актёра из глобальной базы."""

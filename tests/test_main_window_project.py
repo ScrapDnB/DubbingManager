@@ -80,8 +80,9 @@ def test_global_actor_mode_shows_global_actor_base(window):
     )
 
     assert window.actor_table.rowCount() == 1
+    assert window.actor_table.columnCount() == 3
     assert window.actor_table.item(0, 0).text() == "Global Actor"
-    assert window.actor_table.item(0, 3).text() == "Ж"
+    assert window.actor_table.item(0, 2).text() == "Ж"
     assert window.btn_add_actor.isEnabled()
     assert window.btn_add_project_actors_to_global.text() == "В проект"
 
@@ -127,7 +128,7 @@ def test_global_actor_gender_can_be_edited_in_table(window):
         window.actor_base_mode.findData("global")
     )
 
-    gender_item = window.actor_table.item(0, 3)
+    gender_item = window.actor_table.item(0, 2)
     gender_item.setText("F")
 
     assert window.global_settings_service.get_global_actor_base()["global1"]["gender"] == "Ж"
@@ -152,7 +153,7 @@ def test_selected_global_actor_can_be_added_to_project(window):
     actors = list(window.data["actors"].values())
     assert len(actors) == 1
     assert actors[0]["name"] == "Global Actor"
-    assert actors[0]["color"] == "#123456"
+    assert actors[0]["color"] != "#123456"
     assert actors[0]["gender"] == "М"
     rows = {
         window.actor_table.item(row, 0).text(): window.actor_table.item(row, 1).text()
@@ -186,7 +187,7 @@ def test_project_actors_sync_with_global_base_by_name(window):
     assert changed == 1
     assert "project1" not in window.data["actors"]
     assert window.data["actors"]["global1"]["gender"] == "Ж"
-    assert window.data["actors"]["global1"]["color"] == "#123456"
+    assert window.data["actors"]["global1"]["color"] == "#FFFFFF"
     assert window.data["global_map"]["Hero"] == "global1"
     assert window.data["episode_actor_map"]["1"]["Hero"] == "global1"
     assert window.data["export_config"]["highlight_ids_export"] == ["global1"]

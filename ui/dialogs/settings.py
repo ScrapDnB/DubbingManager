@@ -601,6 +601,19 @@ class SettingsDialog(QDialog):
         files_layout.addWidget(self.btn_project_files)
         layout.addWidget(files_group)
 
+        roles_group = QGroupBox("Роли проекта")
+        roles_layout = QVBoxLayout(roles_group)
+        roles_layout.addWidget(self._hint(
+            "Список ролей собирается из назначений и текстов серий. В нём "
+            "можно увидеть серии, удалить роль из распределения или назначить "
+            "ей другого актёра."
+        ))
+        self.btn_project_roles = QPushButton("Роли проекта...")
+        self.btn_project_roles.clicked.connect(self._open_project_roles)
+        self.btn_project_roles.setEnabled(self._has_project_roles_dialog())
+        roles_layout.addWidget(self.btn_project_roles)
+        layout.addWidget(roles_group)
+
         self._refresh_project_info()
         layout.addStretch()
         return tab
@@ -641,13 +654,24 @@ class SettingsDialog(QDialog):
             self.main_window.open_project_files_dialog()
             self._refresh_project_info()
 
+    def _has_project_roles_dialog(self) -> bool:
+        return bool(
+            self.main_window is not None and
+            hasattr(self.main_window, "open_project_roles_dialog")
+        )
+
+    def _open_project_roles(self) -> None:
+        if self._has_project_roles_dialog():
+            self.main_window.open_project_roles_dialog()
+            self._refresh_project_info()
+
     def _build_actor_bases_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
         if self.settings_scope == "global":
             layout.addWidget(self._hint(
-                "Глобальная база хранит актёров, их цвет и пол отдельно от "
+                "Глобальная база хранит имена актёров и пол отдельно от "
                 "проектов. Её можно перенести на другой компьютер или "
                 "импортировать в другую установку Dubbing Manager."
             ))
@@ -662,9 +686,9 @@ class SettingsDialog(QDialog):
             actor_base_group = QGroupBox("Глобальная база актёров")
             actor_base_layout = QVBoxLayout(actor_base_group)
             actor_base_layout.addWidget(self._hint(
-                "Используйте этот JSON как общую адресную книгу актёров. Его "
-                "можно перенести на другой компьютер или импортировать в другую "
-                "установку Dubbing Manager."
+                "Используйте этот JSON как общую адресную книгу актёров. "
+                "Цвета в глобальной базе не хранятся: они остаются настройкой "
+                "конкретного проекта."
             ))
             actor_buttons = QHBoxLayout()
             btn_export_actor_base = QPushButton("Экспорт...")
@@ -884,7 +908,6 @@ class SettingsDialog(QDialog):
             for actor_id, actor in self.main_window.data.get("actors", {}).items():
                 self.main_window.global_settings_service.add_global_actor(
                     actor.get("name", actor_id),
-                    actor.get("color", "#FFFFFF"),
                     gender=actor.get("gender", "")
                 )
             self.main_window.global_settings["global_actor_base"] = (

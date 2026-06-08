@@ -182,6 +182,7 @@ class ActorController:
 
     def _set_headers(self) -> None:
         """Apply localized table headers."""
+        self.actor_table.setColumnCount(4)
         self.actor_table.setHorizontalHeaderLabels([
             tr("actor.table.actor"),
             tr("actor.table.roles"),

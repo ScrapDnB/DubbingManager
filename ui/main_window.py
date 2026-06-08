@@ -104,6 +104,7 @@ from .dialogs import (
     CustomColorDialog,
     ReaperExportDialog,
     ActorRolesDialog,
+    ProjectRolesDialog,
     GlobalSearchDialog,
     SummaryDialog,
     ProjectFilesDialog,
@@ -1091,7 +1092,6 @@ class MainWindow(QMainWindow):
             for actor_id, actor in self.data.get("actors", {}).items():
                 self.global_settings_service.add_global_actor(
                     actor.get("name", actor_id),
-                    actor.get("color", "#FFFFFF"),
                     gender=actor.get("gender", "")
                 )
             self.global_settings["global_actor_base"] = (
@@ -1737,11 +1737,11 @@ class MainWindow(QMainWindow):
         """Refresh the global actor-base view."""
         self.actor_table.blockSignals(True)
         self.actor_table.setSortingEnabled(False)
+        self.actor_table.setColumnCount(3)
         self.actor_table.setRowCount(0)
         self.actor_table.setHorizontalHeaderLabels([
             tr("actor.table.actor"),
             tr("actor.table.status"),
-            tr("actor.table.color"),
             tr("actor.table.gender"),
         ])
         actor_base = self.global_settings_service.get_global_actor_base()
@@ -1771,16 +1771,11 @@ class MainWindow(QMainWindow):
             roles_item.setFlags(roles_item.flags() & ~Qt.ItemIsEditable)
             self.actor_table.setItem(row, 1, roles_item)
 
-            color_item = QTableWidgetItem()
-            color_item.setFlags(color_item.flags() & ~Qt.ItemIsEditable)
-            color_item.setBackground(QColor(info.get("color", "#FFFFFF")))
-            self.actor_table.setItem(row, 2, color_item)
-
             gender_item = QTableWidgetItem(info.get("gender", ""))
             gender_item.setData(Qt.UserRole, actor_id)
             gender_item.setToolTip("Введите М или Ж")
             gender_item.setFlags(gender_item.flags() | Qt.ItemIsEditable)
-            self.actor_table.setItem(row, 3, gender_item)
+            self.actor_table.setItem(row, 2, gender_item)
 
         self.actor_table.setSortingEnabled(True)
         self.actor_table.blockSignals(False)
@@ -1812,10 +1807,6 @@ class MainWindow(QMainWindow):
         if not ok or not name.strip():
             return
 
-        dialog = CustomColorDialog(self)
-        if not dialog.exec() or not dialog.selected_color:
-            return
-
         gender, gender_ok = QInputDialog.getItem(
             self,
             "Пол актёра",
@@ -1838,7 +1829,6 @@ class MainWindow(QMainWindow):
 
         self.global_settings_service.add_global_actor(
             name,
-            dialog.selected_color,
             gender=gender
         )
         self.global_settings["global_actor_base"] = (
@@ -1893,7 +1883,7 @@ class MainWindow(QMainWindow):
 
         self._add_actor_to_project(
             actor.get("name", actor_name),
-            actor.get("color", "#FFFFFF"),
+            self.actor_service._get_next_color(self.data.get("actors", {})),
             actor.get("gender", "")
         )
         if self._is_global_actor_mode():
@@ -1973,7 +1963,6 @@ class MainWindow(QMainWindow):
         merged_actor = old_actor.copy()
         merged_actor.update({
             "name": global_actor.get("name", old_actor.get("name", "")),
-            "color": global_actor.get("color", old_actor.get("color", "#FFFFFF")),
             "gender": global_actor.get("gender", old_actor.get("gender", "")),
         })
 
@@ -2176,7 +2165,9 @@ class MainWindow(QMainWindow):
                     if info.get("name") == choice:
                         self._add_actor_to_project(
                             info.get("name", choice),
-                            info.get("color", "#FFFFFF"),
+                            self.actor_service._get_next_color(
+                                self.data.get("actors", {})
+                            ),
                             info.get("gender", "")
                         )
                         return
@@ -2229,7 +2220,7 @@ class MainWindow(QMainWindow):
             gender
         )
         self.undo_stack.push(command)
-        self.global_settings_service.add_global_actor(actor_name, color, gender=gender)
+        self.global_settings_service.add_global_actor(actor_name, gender=gender)
         self.global_settings["global_actor_base"] = (
             self.global_settings_service.get_global_actor_base()
         )
@@ -2274,7 +2265,7 @@ class MainWindow(QMainWindow):
 
     def _update_global_actor_from_table_item(self, item: QTableWidgetItem) -> None:
         """Update global actor-base data from an edited table item."""
-        if item.column() not in (0, 3):
+        if item.column() not in (0, 2):
             return
 
         actor_id = item.data(Qt.UserRole)
@@ -2310,18 +2301,6 @@ class MainWindow(QMainWindow):
     def on_actor_color_clicked(self, aid: str) -> None:
         """Handle actor color click."""
         if self._is_global_actor_mode():
-            actor_base = self.global_settings_service.get_global_actor_base()
-            if aid not in actor_base:
-                return
-            dialog = CustomColorDialog(self)
-            if dialog.exec() and dialog.selected_color:
-                actor_base[aid]["color"] = dialog.selected_color
-                self.global_settings_service.set_global_actor_base(actor_base)
-                self.global_settings["global_actor_base"] = (
-                    self.global_settings_service.get_global_actor_base()
-                )
-                self.global_settings_service.save_settings(self.global_settings)
-                self.refresh_global_actor_table()
             return
 
         if self.actor_controller:
@@ -2905,6 +2884,7 @@ class MainWindow(QMainWindow):
             logger.warning("refresh_actor_list: actor_controller is None, using fallback")
             self.actor_table.blockSignals(True)
             self.actor_table.setSortingEnabled(False)
+            self.actor_table.setColumnCount(4)
             self.actor_table.setHorizontalHeaderLabels(
                 [
                     tr("actor.table.actor"),
@@ -3332,6 +3312,22 @@ class MainWindow(QMainWindow):
         """Edit roles."""
         role_stats = self._get_actor_role_stats(aid, roles)
         ActorRolesDialog(name, roles, self, role_stats).exec()
+
+    def open_project_roles_dialog(self) -> None:
+        """Open project-wide roles dialog."""
+        dialog = ProjectRolesDialog(
+            self.data,
+            self,
+            get_episode_lines=self.get_episode_lines,
+            on_changed=self._on_project_roles_changed,
+        )
+        dialog.exec()
+
+    def _on_project_roles_changed(self) -> None:
+        """Refresh UI after project role assignments change."""
+        self.refresh_actor_list()
+        self.refresh_main_table()
+        self.set_dirty(True)
 
     def _get_actor_role_stats(
         self,
