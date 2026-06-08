@@ -1,4 +1,4 @@
-# Dubbing Manager <img width="64" height="64" alt="Dubbing Manager icon" src="https://github.com/user-attachments/assets/9e226534-92b0-4bd9-b64e-5e082ba229fd" />
+# <img width="64" height="64" alt="Dubbing Manager icon" src="https://github.com/user-attachments/assets/9e226534-92b0-4bd9-b64e-5e082ba229fd" /> Dubbing Manager
 
 **Dubbing Manager** — приложение для подготовки дубляжных проектов: импорт сценариев, рабочие монтажные тексты, распределение ролей по актёрам, телесуфлёр, видео, отчёты и экспорт монтажных листов.
 
