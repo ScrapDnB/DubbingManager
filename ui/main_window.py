@@ -3631,14 +3631,25 @@ class MainWindow(QMainWindow):
             QDialogButtonBox.ActionRole
         )
         btn_updates.clicked.connect(
-            lambda: self.check_for_updates(button=btn_updates)
+            lambda: self.check_for_updates(
+                button=btn_updates,
+                force_install=self._is_force_update_modifier_pressed()
+            )
         )
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
 
         dialog.exec()
 
-    def check_for_updates(self, button: Optional[QPushButton] = None) -> None:
+    def _is_force_update_modifier_pressed(self) -> bool:
+        """Return whether the update button was clicked with Option/Alt."""
+        return bool(QApplication.keyboardModifiers() & Qt.AltModifier)
+
+    def check_for_updates(
+        self,
+        button: Optional[QPushButton] = None,
+        force_install: bool = False
+    ) -> None:
         """Check GitHub Releases for a newer application version."""
         if button is not None:
             button.setEnabled(False)
@@ -3658,13 +3669,27 @@ class MainWindow(QMainWindow):
             if button is not None:
                 button.setEnabled(True)
 
-        if update_info.is_update_available:
+        if update_info.is_update_available or force_install:
+            title = (
+                "Принудительное обновление"
+                if force_install and not update_info.is_update_available
+                else "Доступно обновление"
+            )
+            message = (
+                f"Будет переустановлена текущая версия "
+                f"{update_info.current_version}.\n\n"
+                "Установить обновление автоматически?"
+                if force_install and not update_info.is_update_available
+                else (
+                    f"Доступна версия {update_info.latest_version}.\n"
+                    f"Установленная версия: {update_info.current_version}.\n\n"
+                    "Установить обновление автоматически?"
+                )
+            )
             reply = QMessageBox.question(
                 self,
-                "Доступно обновление",
-                f"Доступна версия {update_info.latest_version}.\n"
-                f"Установленная версия: {update_info.current_version}.\n\n"
-                "Установить обновление автоматически?",
+                title,
+                message,
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
             )

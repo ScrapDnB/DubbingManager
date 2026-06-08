@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import Mock, patch
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 
 from services.update_service import UpdateInfo
 from ui.main_window import MainWindow
@@ -49,6 +49,20 @@ def test_update_check_can_run_from_about_button(window):
 
     assert button.isEnabled()
     information.assert_called_once()
+
+
+def test_force_update_installs_even_when_version_is_current(window):
+    update_info = UpdateInfo("1.4.3", "1.4.3", "https://example.test", False)
+    window.update_service.check_for_updates = Mock(return_value=update_info)
+    window.install_update = Mock()
+
+    with patch(
+        "ui.main_window.QMessageBox.question",
+        return_value=QMessageBox.Yes
+    ):
+        window.check_for_updates(force_install=True)
+
+    window.install_update.assert_called_once_with(update_info)
 
 
 def test_global_actor_mode_shows_global_actor_base(window):
