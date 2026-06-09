@@ -19,6 +19,29 @@ from utils.i18n import translate_source
 logger = logging.getLogger(__name__)
 
 try:
+    from docx import Document
+    from docx.enum.section import WD_ORIENT
+    from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Cm, Pt, RGBColor
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+    Document = None
+    WD_ORIENT = None
+    WD_CELL_VERTICAL_ALIGNMENT = None
+    WD_TABLE_ALIGNMENT = None
+    WD_ALIGN_PARAGRAPH = None
+    OxmlElement = None
+    qn = None
+    Cm = None
+    Pt = None
+    RGBColor = None
+    logger.warning("python-docx not available - DOCX export disabled")
+
+try:
     import openpyxl
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
@@ -70,6 +93,54 @@ class ExportService:
             return format_seconds_to_full_tc(start)
 
         return format_timing_range(start, end)
+
+    def _format_table_timing_text(
+        self,
+        line: Dict[str, Any],
+        cfg: Dict[str, Any]
+    ) -> str:
+        """Format timing for table-like exports."""
+        timing = self._format_export_timing(line, cfg)
+        if cfg.get('time_display', 'range') == 'start':
+            return timing
+        return timing.replace('-', '\n')
+
+    def _table_column_width_rem(self, cfg: Dict[str, Any], key: str) -> float:
+        """Return a sane table column width in rem units."""
+        defaults = {
+            'table_width_time': 7.0,
+            'table_width_char': 10.0,
+            'table_width_actor': 8.5,
+        }
+        try:
+            value = float(cfg.get(key, defaults[key]))
+        except (TypeError, ValueError):
+            value = defaults[key]
+        return max(4.0, min(24.0, value))
+
+    def _table_column_width_css(self, cfg: Dict[str, Any], key: str) -> str:
+        """Return responsive CSS width for a metadata table column."""
+        width = self._table_column_width_rem(cfg, key)
+        min_width = max(4.0, width * 0.72)
+        vw_width = max(5.0, width * 1.05)
+        return f"clamp({min_width:.2f}rem, {vw_width:.2f}vw, {width:.2f}rem)"
+
+    def _table_column_width_cm(self, cfg: Dict[str, Any], key: str) -> float:
+        """Return DOCX column width matching table preview proportions."""
+        return self._table_column_width_rem(cfg, key) * 0.18
+
+    def _docx_font_size_from_cfg(
+        self,
+        cfg: Dict[str, Any],
+        key: str,
+        default: float
+    ) -> float:
+        """Map preview pixel font settings to readable DOCX point sizes."""
+        try:
+            value = float(cfg.get(key, default))
+        except (TypeError, ValueError):
+            value = default
+        return max(7.0, min(18.0, value * 0.5))
 
     def process_merge_logic(
         self,
@@ -171,6 +242,7 @@ class ExportService:
             else set(highlight_ids)
         )
         use_color = cfg.get('use_color', True)
+        soften_colors = cfg.get('soften_colors', True)
 
         for idx, line in enumerate(processed):
             # Validate replica data
@@ -191,19 +263,25 @@ class ExportService:
             h_class = "highlighted-block" if is_highlighted else ""
 
             bg_color, border_col = self._get_colors(
-                use_color, is_highlighted, actor
+                use_color, is_highlighted, actor, soften_colors
+            )
+            text_color = self._negative_text_color(
+                aid,
+                cfg,
+                is_highlighted
             )
 
             text_html = self._format_text_html(line, is_editable)
 
             if layout_type == "Таблица":
                 html += self._build_table_row(
-                    line, actor, text_html, bg_color, h_class, cfg,
+                    line, actor, text_html, bg_color, text_color, h_class, cfg,
                     is_first=idx == 0, is_last=idx == len(processed) - 1
                 )
             else:
                 html += self._build_scenario_row(
-                    line, actor, text_html, bg_color, border_col, h_class, cfg
+                    line, actor, text_html, bg_color, border_col, text_color,
+                    h_class, cfg
                 )
 
         return html + "</body></html>"
@@ -216,6 +294,9 @@ class ExportService:
 
     def _get_html_header(self, js: str, cfg: Dict[str, Any]) -> str:
         """Return the HTML document header."""
+        time_width = self._table_column_width_css(cfg, 'table_width_time')
+        char_width = self._table_column_width_css(cfg, 'table_width_char')
+        actor_width = self._table_column_width_css(cfg, 'table_width_actor')
         return f"""<html><head><meta charset='utf-8'>{js}<style>
         body {{
             font-family: 'Segoe UI', sans-serif;
@@ -252,13 +333,13 @@ class ExportService:
             padding: 7px 10px;
         }}
         .col-t {{
-            width: clamp(7.5rem, 10vw, 9.5rem);
+            width: {time_width};
         }}
         .col-c {{
-            width: clamp(9rem, 16vw, 16rem);
+            width: {char_width};
         }}
         .col-a {{
-            width: clamp(8rem, 14vw, 14rem);
+            width: {actor_width};
         }}
         .col-txt {{
             width: auto;
@@ -267,7 +348,7 @@ class ExportService:
             font-family: monospace;
             font-size: {cfg.get('f_time', 12)}px;
             line-height: 1.25;
-            color: #666;
+            color: inherit;
             white-space: normal;
         }}
         .c {{
@@ -356,16 +437,36 @@ class ExportService:
         self,
         use_color: bool,
         is_highlighted: bool,
-        actor: Dict[str, Any]
+        actor: Dict[str, Any],
+        soften_colors: bool = True
     ) -> tuple:
         """Return colors for an export row."""
         if use_color and is_highlighted:
-            bg_color = hex_to_rgba_string(actor['color'], 0.22)
-            border_col = actor['color']
+            actor_color = actor.get('color', '#ffffff')
+            bg_color = (
+                hex_to_rgba_string(actor_color, 0.22)
+                if soften_colors
+                else actor_color
+            )
+            border_col = actor_color
         else:
             bg_color = "#ffffff"
             border_col = "#eee"
         return bg_color, border_col
+
+    def _negative_text_color(
+        self,
+        actor_id: Optional[str],
+        cfg: Dict[str, Any],
+        is_highlighted: bool
+    ) -> Optional[str]:
+        """Return white text when actor highlight is marked as negative."""
+        if not actor_id or not is_highlighted:
+            return None
+        negative_ids = set(cfg.get('highlight_negative_ids_export') or [])
+        if actor_id in negative_ids:
+            return "#ffffff"
+        return None
 
     def _format_text_html(
         self,
@@ -437,6 +538,7 @@ class ExportService:
         actor: Dict[str, Any],
         text_html: str,
         bg_color: str,
+        text_color: Optional[str],
         h_class: str,
         cfg: Dict[str, Any],
         is_first: bool,
@@ -462,8 +564,9 @@ class ExportService:
             f"<td class='{css_class}'>{value}</td>"
             for _header, css_class, value in columns
         )
+        color_style = f"; color:{text_color or '#000000'}"
         row = (
-            f"<tr style='background-color:{bg_color}' "
+            f"<tr style='background-color:{bg_color}{color_style}' "
             f"class='{h_class}'>"
             f"{cells}</tr>"
         )
@@ -496,23 +599,35 @@ class ExportService:
         text_html: str,
         bg_color: str,
         border_col: str,
+        text_color: Optional[str],
         h_class: str,
         cfg: Dict[str, Any]
     ) -> str:
         """Build scenario row."""
-        char = escape(str(line.get('char', '')))
-        timing = escape(self._format_timing_text(line, cfg))
-        actor_name = escape(str(actor.get('name', '-')))
+        meta_parts = []
+        if cfg.get('col_char', True):
+            char = escape(str(line.get('char', '')))
+            meta_parts.append(f"<span class='c'><b>{char}</b></span>")
+        if cfg.get('col_tc', True):
+            timing = escape(self._format_timing_text(line, cfg))
+            meta_parts.append(f"<span class='t'>[{timing}]</span>")
+        if cfg.get('col_actor', True):
+            actor_name = escape(str(actor.get('name', '-')))
+            meta_parts.append(f"<span class='a'><i>({actor_name})</i></span>")
+
+        meta_html = " ".join(meta_parts)
+        text_block = (
+            f"<div class='txt'>{text_html}</div>"
+            if cfg.get('col_text', True)
+            else ""
+        )
+        color_style = f"; color:{text_color or '#000000'}"
         return (
             f"<div class='line-container {h_class}' "
             f"style='background-color:{bg_color}; "
-            f"border-left-color:{border_col}'>"
-            f"<div class='meta'>"
-            f"<span class='c'><b>{char}</b></span>"
-            f" <span class='t'>[{timing}]</span>"
-            f" <span class='a'><i>({actor_name})</i></span>"
-            f"</div>"
-            f"<div class='txt'>{text_html}</div></div>"
+            f"border-left-color:{border_col}{color_style}'>"
+            f"<div class='meta'>{meta_html}</div>"
+            f"{text_block}</div>"
         )
 
     def _episode_sort_key(self, ep_num: Any) -> Tuple[Any, ...]:
@@ -528,9 +643,22 @@ class ExportService:
     # Excel export
     # ==========================================================================
 
-    def _get_times_font(self, size: float = 14.0, bold: bool = False, italic: bool = False) -> Font:
+    def _get_times_font(
+        self,
+        size: float = 14.0,
+        bold: bool = False,
+        italic: bool = False,
+        color: Optional[str] = None
+    ) -> Font:
         """Return times font."""
-        return Font(name='Times New Roman', size=size, bold=bold, italic=italic, charset=204)
+        return Font(
+            name='Times New Roman',
+            size=size,
+            bold=bold,
+            italic=italic,
+            charset=204,
+            color=color
+        )
 
     def _get_thin_border(self) -> Border:
         """Return thin border."""
@@ -551,10 +679,16 @@ class ExportService:
         font_size: float = 14.0,
         wrap_text: bool = False,
         fill_color: Optional[str] = None,
+        text_color: Optional[str] = None,
         border: Optional[Border] = None
     ):
         """Apply cell styling."""
-        cell.font = self._get_times_font(size=font_size)
+        font_color = None
+        if text_color:
+            font_color = text_color.replace('#', '')
+            if len(font_color) == 6:
+                font_color = 'FF' + font_color
+        cell.font = self._get_times_font(size=font_size, color=font_color)
         cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=wrap_text)
         if border:
             cell.border = border
@@ -581,6 +715,7 @@ class ExportService:
 
         actors = self.project_data.get('actors', {})
         effective_filter = self._get_effective_highlight_filter(cfg)
+        soften_colors = cfg.get('soften_colors', True)
 
         # Sort episode numbers for the correct column order
         sorted_ep_keys = sorted(episodes_data.keys(), key=self._episode_sort_key)
@@ -653,14 +788,25 @@ class ExportService:
                 actor_id in effective_filter
             )
             if is_highlighted:
-                color_hex = stats['color'].replace('#', '')
-                fill_color = color_hex if color_hex else 'FFFFFF'
+                actor_color = stats['color']
+                fill_color = (
+                    self._docx_soft_fill_color(actor_color)
+                    if soften_colors
+                    else actor_color.replace('#', '')
+                )
             else:
                 fill_color = 'FFFFFF'
+            text_color = self._negative_text_color(actor_id, cfg, is_highlighted)
 
             # Actor-name cell
             name_cell = ws.cell(row=row_num, column=1, value=actor_name)
-            self._apply_cell_styling(name_cell, font_size=14.0, fill_color=fill_color, border=thin_border)
+            self._apply_cell_styling(
+                name_cell,
+                font_size=14.0,
+                fill_color=fill_color,
+                text_color=text_color,
+                border=thin_border
+            )
 
             # Character cell
             roles_cell = ws.cell(row=row_num, column=2, value=roles_str)
@@ -695,6 +841,7 @@ class ExportService:
 
         actors = self.project_data.get('actors', {})
         use_color = cfg.get('use_color', True)
+        soften_colors = cfg.get('soften_colors', True)
         effective_filter = self._get_effective_highlight_filter(cfg)
 
         # Choose columns from settings
@@ -760,9 +907,19 @@ class ExportService:
                 actor_id in effective_filter
             )
             if use_color and actor_id and is_highlighted:
-                color_hex = actor.get('color', '#FFFFFF').replace('#', '')
+                actor_color = actor.get('color', '#FFFFFF')
+                color_hex = (
+                    self._docx_soft_fill_color(actor_color)
+                    if soften_colors
+                    else actor_color.replace('#', '')
+                )
             else:
                 color_hex = 'FFFFFF'
+            text_color = self._negative_text_color(
+                actor_id,
+                cfg,
+                is_highlighted
+            )
 
             timing = self._format_export_timing(line, cfg)
 
@@ -791,6 +948,7 @@ class ExportService:
                     font_size=font_size,
                     wrap_text=wrap_text,
                     fill_color=color_hex,
+                    text_color=text_color,
                     border=thin_border
                 )
 
@@ -828,6 +986,280 @@ class ExportService:
             self._create_episode_sheet(wb, ep_num, lines, cfg)
 
         return wb
+
+    def _set_docx_cell_shading(self, cell: Any, color_hex: str) -> None:
+        """Set a table cell background color."""
+        tc_pr = cell._tc.get_or_add_tcPr()
+        shading = tc_pr.find(qn('w:shd'))
+        if shading is None:
+            shading = OxmlElement('w:shd')
+            tc_pr.append(shading)
+        shading.set(qn('w:fill'), color_hex.replace('#', '').upper())
+
+    def _set_docx_cell_width(self, cell: Any, width_cm: float) -> None:
+        """Set a table cell width in twentieths of a point."""
+        tc_pr = cell._tc.get_or_add_tcPr()
+        width = tc_pr.find(qn('w:tcW'))
+        if width is None:
+            width = OxmlElement('w:tcW')
+            tc_pr.append(width)
+        width.set(qn('w:w'), str(int(width_cm * 567)))
+        width.set(qn('w:type'), 'dxa')
+
+    def _cm_to_twips(self, width_cm: float) -> int:
+        """Convert centimeters to Word twips."""
+        return int(width_cm * 567)
+
+    def _set_docx_table_grid(
+        self,
+        table: Any,
+        column_widths: List[float]
+    ) -> None:
+        """Set fixed DOCX table layout and grid for better Pages support."""
+        table_width = sum(column_widths)
+        table_pr = table._tbl.tblPr
+
+        layout = table_pr.find(qn('w:tblLayout'))
+        if layout is None:
+            layout = OxmlElement('w:tblLayout')
+            table_pr.append(layout)
+        layout.set(qn('w:type'), 'fixed')
+
+        width = table_pr.find(qn('w:tblW'))
+        if width is None:
+            width = OxmlElement('w:tblW')
+            table_pr.append(width)
+        width.set(qn('w:w'), str(self._cm_to_twips(table_width)))
+        width.set(qn('w:type'), 'dxa')
+
+        existing_grid = table._tbl.tblGrid
+        if existing_grid is not None:
+            table._tbl.remove(existing_grid)
+        grid = OxmlElement('w:tblGrid')
+        for column_width in column_widths:
+            grid_col = OxmlElement('w:gridCol')
+            grid_col.set(qn('w:w'), str(self._cm_to_twips(column_width)))
+            grid.append(grid_col)
+        table._tbl.insert(0, grid)
+
+    def _docx_soft_fill_color(self, color_hex: str, alpha: float = 0.22) -> str:
+        """Return a light color similar to transparent HTML row highlight."""
+        value = str(color_hex or "").strip().lstrip("#")
+        if len(value) != 6:
+            return "FFFFFF"
+        try:
+            red = int(value[0:2], 16)
+            green = int(value[2:4], 16)
+            blue = int(value[4:6], 16)
+        except ValueError:
+            return "FFFFFF"
+        red = round(255 - (255 - red) * alpha)
+        green = round(255 - (255 - green) * alpha)
+        blue = round(255 - (255 - blue) * alpha)
+        return f"{red:02X}{green:02X}{blue:02X}"
+
+    def _set_docx_cell_text(
+        self,
+        cell: Any,
+        text: Any,
+        font_size: float,
+        bold: bool = False,
+        align: Any = WD_ALIGN_PARAGRAPH.LEFT,
+        fill_color: Optional[str] = None,
+        text_color: Optional[str] = None
+    ) -> None:
+        """Fill a DOCX table cell with styled text."""
+        cell.text = ""
+        paragraph = cell.paragraphs[0]
+        paragraph.alignment = align
+        paragraph.paragraph_format.space_after = Pt(0)
+        paragraph.paragraph_format.space_before = Pt(0)
+        run = paragraph.add_run(str(text or ""))
+        run.bold = bold
+        run.font.name = "Segoe UI"
+        run._element.rPr.rFonts.set(qn('w:eastAsia'), "Segoe UI")
+        run.font.size = Pt(font_size)
+        if text_color:
+            clean_color = text_color.strip().lstrip("#")
+            if len(clean_color) == 6:
+                run.font.color.rgb = RGBColor.from_string(clean_color.upper())
+        cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+        if fill_color:
+            self._set_docx_cell_shading(cell, fill_color)
+
+    def _create_docx_episode_table(
+        self,
+        document: Any,
+        ep_num: str,
+        processed: List[Dict[str, Any]],
+        cfg: Dict[str, Any]
+    ) -> None:
+        """Create a DOCX table for one episode."""
+        actors = self.project_data.get('actors', {})
+        use_color = cfg.get('use_color', True)
+        soften_colors = cfg.get('soften_colors', True)
+        effective_filter = self._get_effective_highlight_filter(cfg)
+
+        columns: List[Tuple[str, str, float, float]] = []
+        if cfg.get('col_tc', True):
+            columns.append((
+                translate_source('Время'),
+                'time',
+                self._table_column_width_cm(cfg, 'table_width_time'),
+                self._docx_font_size_from_cfg(cfg, 'f_time', 21),
+            ))
+        if cfg.get('col_char', True):
+            columns.append((
+                translate_source('Персонаж'),
+                'char',
+                self._table_column_width_cm(cfg, 'table_width_char'),
+                self._docx_font_size_from_cfg(cfg, 'f_char', 20),
+            ))
+        if cfg.get('col_actor', True):
+            columns.append((
+                translate_source('Актёр'),
+                'actor',
+                self._table_column_width_cm(cfg, 'table_width_actor'),
+                self._docx_font_size_from_cfg(cfg, 'f_actor', 14),
+            ))
+        if cfg.get('col_text', True):
+            metadata_width = sum(column[2] for column in columns)
+            columns.append((
+                translate_source('Реплика'),
+                'text',
+                max(7.0, 18.0 - metadata_width),
+                self._docx_font_size_from_cfg(cfg, 'f_text', 30),
+            ))
+        if not columns:
+            columns.append((translate_source('Реплика'), 'text', 18.0, 11.0))
+
+        if len(document.paragraphs) > 1 or document.tables:
+            document.add_page_break()
+        heading = document.add_heading(
+            f"{self.project_data.get('project_name', 'Project')} - "
+            f"{translate_source('Серия')} {ep_num}",
+            level=1
+        )
+        heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+        table = document.add_table(rows=1, cols=len(columns))
+        table.alignment = WD_TABLE_ALIGNMENT.LEFT
+        table.autofit = False
+        table.style = 'Table Grid'
+        self._set_docx_table_grid(
+            table,
+            [width for _title, _key, width, _size in columns]
+        )
+
+        header_cells = table.rows[0].cells
+        for cell, (title, _key, width, _size) in zip(header_cells, columns):
+            self._set_docx_cell_width(cell, width)
+            self._set_docx_cell_text(
+                cell,
+                title,
+                font_size=9.0,
+                bold=True,
+                fill_color='EAEAEA'
+            )
+
+        for line in processed:
+            row_cells = table.add_row().cells
+            char_name = line.get('char', '')
+            actor_id = get_actor_for_character(
+                self.project_data, char_name, ep_num
+            )
+            actor = actors.get(actor_id, {}) if actor_id else {}
+            actor_name = actor.get('name', '-') if actor else '-'
+
+            is_highlighted = (
+                effective_filter is None or
+                actor_id in effective_filter
+            )
+            fill_color = None
+            if use_color and actor_id and is_highlighted:
+                actor_color = actor.get('color', '#FFFFFF')
+                fill_color = (
+                    self._docx_soft_fill_color(actor_color)
+                    if soften_colors
+                    else actor_color.replace('#', '')
+                )
+            text_color = self._negative_text_color(
+                actor_id,
+                cfg,
+                is_highlighted
+            )
+
+            values = {
+                'time': self._format_table_timing_text(line, cfg),
+                'char': char_name,
+                'actor': actor_name,
+                'text': line.get('text', ''),
+            }
+            for cell, (_title, key, width, font_size) in zip(row_cells, columns):
+                self._set_docx_cell_width(cell, width)
+                self._set_docx_cell_text(
+                    cell,
+                    values.get(key, ''),
+                    font_size=font_size,
+                    fill_color=fill_color,
+                    text_color=text_color
+                )
+
+    def create_docx_document(
+        self,
+        episodes_data: Dict[str, List[Dict[str, Any]]],
+        cfg: Optional[Dict[str, Any]] = None
+    ) -> Any:
+        """Create a DOCX document with one table per episode."""
+        if not DOCX_AVAILABLE:
+            raise ImportError("python-docx not available")
+
+        if cfg is None:
+            cfg = self.project_data.get("export_config", {})
+
+        document = Document()
+        section = document.sections[0]
+        section.orientation = WD_ORIENT.PORTRAIT
+        section.left_margin = Cm(1.2)
+        section.right_margin = Cm(1.2)
+        section.top_margin = Cm(1.2)
+        section.bottom_margin = Cm(1.2)
+
+        for ep_num in sorted(episodes_data.keys(), key=self._episode_sort_key):
+            self._create_docx_episode_table(
+                document,
+                ep_num,
+                episodes_data[ep_num],
+                cfg
+            )
+
+        return document
+
+    def export_to_docx(
+        self,
+        ep: str,
+        lines: List[Dict[str, Any]],
+        cfg: Dict[str, Any],
+        save_path: str,
+        all_episodes: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        merge_cfg: Optional[Dict[str, Any]] = None
+    ) -> Tuple[bool, str]:
+        """Export data to a DOCX table document."""
+        if not DOCX_AVAILABLE:
+            return False, translate_source("python-docx не установлен")
+
+        try:
+            episodes_data = all_episodes if all_episodes else {ep: lines}
+            if merge_cfg and not all_episodes:
+                episodes_data = {
+                    ep: self.process_merge_logic(lines, merge_cfg)
+                }
+            document = self.create_docx_document(episodes_data, cfg)
+            document.save(save_path)
+            return True, f"{translate_source('Экспортировано в')} {save_path}"
+        except Exception as e:
+            logger.error(f"DOCX export error: {e}")
+            return False, f"{translate_source('Ошибка экспорта DOCX:')} {e}"
 
     def export_to_excel(
         self,
@@ -1053,6 +1485,7 @@ class ExportService:
         get_lines_callback,
         do_html: bool = True,
         do_xls: bool = False,
+        do_docx: bool = False,
         folder: str = None,
         progress_callback: Optional[Callable[[int, int, str], None]] = None
     ) -> Tuple[bool, str]:
@@ -1073,7 +1506,10 @@ class ExportService:
                 for ep, path in episodes.items():
                     lines = get_lines_callback(ep)
                     if lines:
-                        all_episodes_data[ep] = lines
+                        all_episodes_data[ep] = self.process_merge_logic(
+                            lines,
+                            merge_cfg
+                        )
 
             for idx, (ep, path) in enumerate(episodes.items(), 1):
                 lines = get_lines_callback(ep)
@@ -1108,6 +1544,18 @@ class ExportService:
                         f.write(html)
                     exported_count += 1
 
+                if do_docx and DOCX_AVAILABLE:
+                    filename = f"{project_name} - Ep{ep}.docx"
+                    filepath = os.path.join(folder, filename)
+                    document = self.create_docx_document(
+                        {
+                            ep: self.process_merge_logic(lines, merge_cfg)
+                        },
+                        cfg
+                    )
+                    document.save(filepath)
+                    exported_count += 1
+
             if do_xls and EXCEL_AVAILABLE and all_episodes_data:
                 filename = f"{project_name} - {translate_source('Все серии')}.xlsx"
                 filepath = os.path.join(folder, filename)
@@ -1125,7 +1573,7 @@ class ExportService:
                 progress_callback(total_episodes, total_episodes, translate_source("Готово!"))
 
             # Open the folder
-            if exported_count > 0:
+            if exported_count > 0 and cfg.get('open_auto', True):
                 if sys.platform == 'darwin':
                     os.system(f'open "{folder}"')
                 else:

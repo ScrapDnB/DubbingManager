@@ -39,12 +39,23 @@ class TestGlobalSettingsService:
         assert 'export_config' not in settings
         assert 'prompter_config' not in settings
         assert 'replica_merge_config' not in settings
+        assert settings['default_export_config'] == DEFAULT_EXPORT_CONFIG
+        assert settings['default_prompter_config'] == DEFAULT_PROMPTER_CONFIG
         assert settings['language'] == 'ru'
 
     def test_load_settings_with_data(self, service, temp_settings_file):
         """Тест загрузки с данными"""
         test_data = {
             'export_config': {'layout_type': 'Сценарий'},
+            'default_export_config': {
+                'layout_type': 'Сценарий',
+                'col_tc': False,
+            },
+            'default_prompter_config': {
+                'f_text': 48,
+                'osc_enabled': True,
+                'sync_in': False,
+            },
             'prompter_config': {'f_tc': 30},
             'replica_merge_config': {'merge_gap': 10},
             'recent_projects': ['/tmp/a.json', '/tmp/a.json', '/tmp/b.json'],
@@ -60,6 +71,14 @@ class TestGlobalSettingsService:
         assert 'export_config' not in settings
         assert 'prompter_config' not in settings
         assert 'replica_merge_config' not in settings
+        assert settings['default_export_config']['layout_type'] == 'Сценарий'
+        assert settings['default_export_config']['col_tc'] is False
+        assert settings['default_export_config']['col_char'] is True
+        assert settings['default_prompter_config']['f_text'] == 48
+        assert settings['default_prompter_config']['osc_enabled'] is True
+        assert settings['default_prompter_config']['sync_in'] is False
+        assert settings['default_prompter_config']['f_tc'] == 20
+        assert settings['prompter_color_presets'] == [None, None, None, None]
         assert settings['recent_projects'] == [
             str(Path('/tmp/a.json').expanduser()),
             str(Path('/tmp/b.json').expanduser()),
@@ -96,7 +115,22 @@ class TestGlobalSettingsService:
         """Тест сохранения настроек"""
         settings = {
             'export_config': {'layout_type': 'Таблица'},
+            'default_export_config': {
+                'layout_type': 'Сценарий',
+                'col_tc': False,
+            },
+            'default_prompter_config': {
+                'f_text': 42,
+                'osc_enabled': True,
+                'sync_out': True,
+            },
             'prompter_config': {'f_tc': 25},
+            'prompter_color_presets': [
+                {'bg': '#111111', 'active_text': '#eeeeee'},
+                None,
+                None,
+                None,
+            ],
             'replica_merge_config': {'merge': True},
             'docx_import_config': {
                 'mapping': {'character': 0, 'text': 2},
@@ -116,6 +150,16 @@ class TestGlobalSettingsService:
         assert 'prompter_config' not in saved_data
         assert 'replica_merge_config' not in saved_data
         assert 'docx_import_config' not in saved_data
+        assert saved_data['default_export_config']['layout_type'] == 'Сценарий'
+        assert saved_data['default_export_config']['col_tc'] is False
+        assert saved_data['default_export_config']['col_char'] is True
+        assert saved_data['default_prompter_config']['f_text'] == 42
+        assert saved_data['default_prompter_config']['osc_enabled'] is True
+        assert saved_data['default_prompter_config']['sync_out'] is True
+        assert saved_data['default_prompter_config']['f_tc'] == 20
+        assert saved_data['prompter_color_presets'][0]['bg'] == '#111111'
+        assert saved_data['prompter_color_presets'][0]['active_text'] == '#eeeeee'
+        assert saved_data['prompter_color_presets'][1] is None
         assert saved_data['recent_projects'] == []
         assert saved_data['language'] == 'ru'
 
@@ -289,6 +333,7 @@ class TestGlobalSettingsService:
         settings = service.get_settings()
         
         assert 'export_config' not in settings
+        assert settings['default_export_config'] == DEFAULT_EXPORT_CONFIG
         assert settings['language'] == 'ru'
 
     def test_get_settings_loaded(self, service):
@@ -301,11 +346,12 @@ class TestGlobalSettingsService:
 
     def test_get_export_config(self, service):
         """Тест получения настроек экспорта"""
-        service.settings = {'export_config': {'col_tc': False}}
+        service.settings = {'default_export_config': {'col_tc': False}}
         
         config = service.get_export_config()
         
         assert config['col_tc'] == False
+        assert config['col_char'] == True
 
     def test_get_export_config_default(self, service):
         """Тест получения настроек экспорта по умолчанию"""
@@ -317,7 +363,7 @@ class TestGlobalSettingsService:
 
     def test_get_prompter_config(self, service):
         """Тест получения настроек суфлёра"""
-        service.settings = {'prompter_config': {'f_tc': 50}}
+        service.settings = {'default_prompter_config': {'f_tc': 50}}
         
         config = service.get_prompter_config()
         
@@ -353,8 +399,9 @@ class TestGlobalSettingsService:
         
         service.update_export_config({'col_tc': False, 'col_char': False})
         
-        assert service.settings['export_config']['col_tc'] == False
-        assert service.settings['export_config']['col_char'] == False
+        assert service.settings['default_export_config']['col_tc'] == False
+        assert service.settings['default_export_config']['col_char'] == False
+        assert 'export_config' not in service.settings
 
     def test_update_prompter_config(self, service):
         """Тест обновления настроек суфлёра"""
@@ -362,7 +409,29 @@ class TestGlobalSettingsService:
         
         service.update_prompter_config({'f_tc': 100})
         
-        assert service.settings['prompter_config']['f_tc'] == 100
+        assert service.settings['default_prompter_config']['f_tc'] == 100
+        assert 'prompter_config' not in service.settings
+
+    def test_prompter_color_presets(self, service):
+        """Тест глобальных пресетов цветовых схем суфлёра."""
+        service.settings = {}
+
+        service.set_prompter_color_preset(1, {
+            'bg': '#222222',
+            'active_text': '#eeeeee',
+        })
+        presets = service.get_prompter_color_presets()
+
+        assert presets[0] is None
+        assert presets[1]['bg'] == '#222222'
+        assert presets[1]['active_text'] == '#eeeeee'
+        assert presets[1]['inactive_text'] == (
+            DEFAULT_PROMPTER_CONFIG['colors']['inactive_text']
+        )
+
+        service.clear_prompter_color_preset(1)
+
+        assert service.get_prompter_color_presets()[1] is None
 
     def test_update_replica_merge_config(self, service):
         """Тест обновления настроек объединения"""
@@ -423,6 +492,7 @@ class TestGlobalSettingsService:
         settings = service.load_settings()
         
         assert 'export_config' not in settings
+        assert settings['default_export_config']['layout_type'] == 'Таблица'
         assert settings['language'] == 'ru'
 
     def test_settings_file_attribute(self, service, temp_settings_file):
@@ -442,6 +512,15 @@ class TestGlobalSettingsServiceIntegration:
             service1 = GlobalSettingsService()
             original_settings = {
                 'export_config': {'layout_type': 'Сценарий', 'use_color': False},
+                'default_export_config': {
+                    'layout_type': 'Сценарий',
+                    'use_color': False,
+                },
+                'default_prompter_config': {
+                    'f_tc': 50,
+                    'f_text': 100,
+                    'osc_enabled': True,
+                },
                 'prompter_config': {'f_tc': 50, 'f_text': 100},
                 'replica_merge_config': {'merge': False, 'merge_gap': 200},
                 'language': 'en',
@@ -457,6 +536,13 @@ class TestGlobalSettingsServiceIntegration:
             assert 'export_config' not in loaded_settings
             assert 'prompter_config' not in loaded_settings
             assert 'replica_merge_config' not in loaded_settings
+            assert loaded_settings['default_export_config']['layout_type'] == 'Сценарий'
+            assert loaded_settings['default_export_config']['use_color'] is False
+            assert loaded_settings['default_export_config']['col_tc'] is True
+            assert loaded_settings['default_prompter_config']['f_tc'] == 50
+            assert loaded_settings['default_prompter_config']['f_text'] == 100
+            assert loaded_settings['default_prompter_config']['osc_enabled'] is True
+            assert loaded_settings['default_prompter_config']['f_char'] == 24
             assert loaded_settings['language'] == 'en'
             assert loaded_settings['recent_projects'] == [
                 str(Path('/tmp/project.json').expanduser())

@@ -50,6 +50,7 @@ class MainAppStub:
         }
         self.dirty = False
         self.selected_episode = None
+        self.prompter_color_presets = [None, None, None, None]
 
     def get_episode_lines(self, ep_num):
         start = 1.0 if str(ep_num) == "1" else 11.0
@@ -67,6 +68,33 @@ class MainAppStub:
 
     def set_dirty(self, dirty=True):
         self.dirty = dirty
+
+    def get_prompter_color_presets(self):
+        return self.prompter_color_presets
+
+    def save_prompter_color_preset(self, index, colors):
+        self.prompter_color_presets[index] = colors
+        return True
+
+
+class DummySignal:
+    def connect(self, callback):
+        self.callback = callback
+
+
+class DummyOscWorker:
+    def __init__(self, port):
+        self.port = port
+        self.time_changed = DummySignal()
+        self.navigation_requested = DummySignal()
+        self.started = False
+        self.stopped = False
+
+    def start(self):
+        self.started = True
+
+    def stop(self):
+        self.stopped = True
 
 
 def test_switch_episode_keeps_filter_and_sync_settings(app):
@@ -86,6 +114,52 @@ def test_switch_episode_keeps_filter_and_sync_settings(app):
     assert window.btn_osc.isChecked()
     assert window.list_of_replicas.item(0).text().endswith("Hero")
     assert window.last_known_time == 11.0
+
+    window.close()
+
+
+def test_osc_connection_state_is_saved_to_project(app, monkeypatch):
+    monkeypatch.setattr("ui.teleprompter.OscWorker", DummyOscWorker)
+    main_app = MainAppStub()
+    main_app.data["prompter_config"]["osc_enabled"] = False
+    window = TeleprompterWindow(main_app, "1")
+
+    window.toggle_osc_connection_status(True)
+
+    assert main_app.data["prompter_config"]["osc_enabled"] is True
+    assert main_app.dirty is True
+    assert window.btn_osc.text() == "OSC Связь: Активна"
+
+    main_app.dirty = False
+    window.toggle_osc_connection_status(False)
+
+    assert main_app.data["prompter_config"]["osc_enabled"] is False
+    assert main_app.dirty is True
+
+    window.close()
+
+
+def test_color_preset_button_saves_and_applies_colors(app):
+    main_app = MainAppStub()
+    window = TeleprompterWindow(main_app, "1")
+    current_bg = window.cfg["colors"]["bg"]
+    current_text = window.cfg["colors"]["active_text"]
+
+    window.apply_or_save_color_preset(0)
+
+    assert main_app.prompter_color_presets[0]["bg"] == current_bg
+    assert main_app.prompter_color_presets[0]["active_text"] == current_text
+
+    main_app.prompter_color_presets[1] = {
+        **window.cfg["colors"],
+        "bg": "#123456",
+        "active_text": "#abcdef",
+    }
+    window.apply_or_save_color_preset(1)
+
+    assert main_app.data["prompter_config"]["colors"]["bg"] == "#123456"
+    assert main_app.data["prompter_config"]["colors"]["active_text"] == "#abcdef"
+    assert main_app.dirty is True
 
     window.close()
 

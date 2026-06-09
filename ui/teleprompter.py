@@ -9,10 +9,11 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QAbstractItemView, QMessageBox,
     QDoubleSpinBox, QSizePolicy, QWidget, QFormLayout,
     QGroupBox, QTextEdit, QDialogButtonBox, QGraphicsView,
-    QGraphicsScene, QGraphicsTextItem, QApplication, QComboBox
+    QGraphicsScene, QGraphicsTextItem, QApplication, QComboBox,
+    QMenu
 )
 from PySide6.QtGui import (
-    QColor, QFont, QPainter, QPen, QBrush, QCursor
+    QColor, QFont, QPainter, QPen, QBrush, QCursor, QAction
 )
 from PySide6.QtCore import (
     Qt, QTimer, Signal, Slot, QRectF, QEvent, QProcess
@@ -595,6 +596,7 @@ class TeleprompterWindow(QDialog):
         self._init_ui()
         translate_widget_tree(self)
         self.build_prompter_content()
+        self._apply_saved_osc_state()
 
         self._initializing = False
 
@@ -610,6 +612,10 @@ class TeleprompterWindow(QDialog):
 
         self.cfg: Dict[str, Any] = self.main_app.data["prompter_config"]
 
+        for key, value in DEFAULT_PROMPTER_CONFIG.items():
+            if key != "colors" and key not in self.cfg:
+                self.cfg[key] = deepcopy(value)
+
         if "colors" not in self.cfg or not isinstance(self.cfg["colors"], dict):
             self.cfg["colors"] = DEFAULT_PROMPTER_CONFIG["colors"].copy()
         else:
@@ -618,6 +624,86 @@ class TeleprompterWindow(QDialog):
             for color_key, color_value in DEFAULT_PROMPTER_CONFIG["colors"].items():
                 if color_key not in self.cfg["colors"]:
                     self.cfg["colors"][color_key] = color_value
+
+    def _apply_saved_osc_state(self) -> None:
+        """Apply saved OSC connection state after UI setup."""
+        self._sync_osc_connection_to_config()
+
+    def _sync_osc_connection_to_config(self) -> None:
+        """Match live OSC connection to the saved config state."""
+        desired = bool(self.cfg.get("osc_enabled", False))
+        active = self.osc_thread is not None
+        if desired == active:
+            return
+
+        was_initializing = self._initializing
+        self._initializing = True
+        try:
+            self.toggle_osc_connection_status(desired)
+        finally:
+            self._initializing = was_initializing
+
+    def sync_config_controls(self) -> None:
+        """Refresh settings controls from the current config."""
+        if not hasattr(self, "spin_font_tc"):
+            return
+
+        widgets = [
+            self.spin_font_tc,
+            self.spin_font_char,
+            self.spin_font_actor,
+            self.spin_font_text,
+            self.slider_focus_pos,
+            self.slider_scroll_smoothness,
+            self.chk_show_header,
+            self.chk_mirror,
+            self.chk_follow_reaper,
+            self.chk_reaper_follow,
+            self.chk_offset,
+            self.spin_offset,
+        ]
+        self._initializing = True
+        try:
+            for widget in widgets:
+                widget.blockSignals(True)
+            self.spin_font_tc.setValue(self.cfg.get("f_tc", 20))
+            self.spin_font_char.setValue(self.cfg.get("f_char", 24))
+            self.spin_font_actor.setValue(self.cfg.get("f_actor", 18))
+            self.spin_font_text.setValue(self.cfg.get("f_text", 36))
+            self.slider_focus_pos.setValue(
+                int(self.cfg.get("focus_ratio", 0.5) * 100)
+            )
+            self.slider_scroll_smoothness.setValue(
+                int(self.cfg.get("scroll_smoothness_slider", 18))
+            )
+            self.chk_show_header.setChecked(
+                self.cfg.get("show_header", False)
+            )
+            self.chk_mirror.setChecked(
+                self.cfg.get("is_mirrored", False)
+            )
+            self.chk_follow_reaper.setChecked(
+                self.cfg.get("sync_in", True)
+            )
+            self.chk_reaper_follow.setChecked(
+                self.cfg.get("sync_out", False)
+            )
+            self.chk_offset.setChecked(
+                self.cfg.get("reaper_offset_enabled", False)
+            )
+            self.spin_offset.setValue(
+                self.cfg.get("reaper_offset_seconds", -2.0)
+            )
+            self.btn_osc.setChecked(
+                self.cfg.get("osc_enabled", False)
+            )
+            self.header_panel.setVisible(self.cfg.get("show_header", False))
+            self.apply_mirror_transform()
+        finally:
+            for widget in widgets:
+                widget.blockSignals(False)
+            self._initializing = False
+        self._sync_osc_connection_to_config()
 
     def _init_ui(self) -> None:
         """Init ui."""
@@ -993,6 +1079,25 @@ class TeleprompterWindow(QDialog):
         
         btn_colors = QPushButton("🎨 Настроить цвета телесуфлёра...")
         btn_colors.clicked.connect(self.open_color_settings_dialog)
+        self.color_preset_buttons = []
+        presets_layout = QHBoxLayout()
+        presets_layout.setContentsMargins(0, 0, 0, 0)
+        presets_layout.setSpacing(6)
+        for index in range(4):
+            button = QPushButton(str(index + 1))
+            button.setFixedHeight(28)
+            button.setContextMenuPolicy(Qt.CustomContextMenu)
+            button.clicked.connect(
+                lambda checked=False, idx=index: (
+                    self.apply_or_save_color_preset(idx)
+                )
+            )
+            button.customContextMenuRequested.connect(
+                lambda point, idx=index: self.show_color_preset_menu(idx)
+            )
+            self.color_preset_buttons.append(button)
+            presets_layout.addWidget(button)
+        self.update_color_preset_buttons()
         
         self.chk_show_header = QCheckBox(
             "Показать таймкод Reaper сверху",
@@ -1007,6 +1112,7 @@ class TeleprompterWindow(QDialog):
         self.chk_mirror.toggled.connect(self.toggle_mirror_mode)
         
         view_lay.addWidget(btn_colors)
+        view_lay.addLayout(presets_layout)
         view_lay.addWidget(self.chk_show_header)
         view_lay.addWidget(self.chk_mirror)
         view_section.addLayout(view_lay)
@@ -1035,6 +1141,7 @@ class TeleprompterWindow(QDialog):
         
         self.btn_osc = QPushButton("Включить OSC связь")
         self.btn_osc.setCheckable(True)
+        self.btn_osc.setChecked(self.cfg.get("osc_enabled", False))
         self.btn_osc.clicked.connect(self.toggle_osc_connection_status)
         
         osc_layout.addWidget(self.chk_follow_reaper)
@@ -1255,6 +1362,105 @@ class TeleprompterWindow(QDialog):
             
             self.main_app.set_dirty(True)
             self.build_prompter_content()
+
+    def get_color_presets(self) -> List[Optional[Dict[str, str]]]:
+        """Return global color presets when the main app provides them."""
+        if hasattr(self.main_app, "get_prompter_color_presets"):
+            return self.main_app.get_prompter_color_presets()
+        return [None, None, None, None]
+
+    def update_color_preset_buttons(self) -> None:
+        """Refresh color preset button previews."""
+        if not hasattr(self, "color_preset_buttons"):
+            return
+
+        presets = self.get_color_presets()
+        for index, button in enumerate(self.color_preset_buttons):
+            preset = presets[index] if index < len(presets) else None
+            if preset:
+                bg = preset.get("bg", "#000000")
+                text = preset.get("active_text", "#ffffff")
+                button.setText(str(index + 1))
+                button.setToolTip(
+                    f"Пресет {index + 1}: фон {bg}, текст {text}."
+                )
+                button.setStyleSheet(
+                    f"background-color: {bg}; color: {text}; "
+                    "border: 1px solid #666; border-radius: 4px;"
+                )
+            else:
+                button.setText(str(index + 1))
+                button.setToolTip(
+                    f"Пустой пресет {index + 1}. Нажмите, чтобы сохранить "
+                    "текущую цветовую схему."
+                )
+                button.setStyleSheet(
+                    "color: #666; border: 1px dashed #999; border-radius: 4px;"
+                )
+
+    def apply_or_save_color_preset(self, index: int) -> None:
+        """Apply a filled preset or save current colors into an empty one."""
+        presets = self.get_color_presets()
+        preset = presets[index] if 0 <= index < len(presets) else None
+        if preset:
+            self.apply_color_preset(index)
+        else:
+            self.save_current_color_preset(index, ask=False)
+
+    def show_color_preset_menu(self, index: int) -> None:
+        """Show actions for one color preset slot."""
+        menu = QMenu(self)
+        apply_action = QAction("Применить", self)
+        save_action = QAction("Сохранить текущую схему", self)
+
+        presets = self.get_color_presets()
+        has_preset = bool(presets[index]) if 0 <= index < len(presets) else False
+        apply_action.setEnabled(has_preset)
+        apply_action.triggered.connect(
+            lambda checked=False, idx=index: self.apply_color_preset(idx)
+        )
+        save_action.triggered.connect(
+            lambda checked=False, idx=index: (
+                self.save_current_color_preset(idx, ask=has_preset)
+            )
+        )
+        menu.addAction(apply_action)
+        menu.addAction(save_action)
+        menu.exec(QCursor.pos())
+
+    def apply_color_preset(self, index: int) -> None:
+        """Apply one global color preset to the current project."""
+        presets = self.get_color_presets()
+        if not (0 <= index < len(presets)) or not presets[index]:
+            return
+
+        self.cfg["colors"] = deepcopy(presets[index])
+        self.main_app.save_global_prompter_settings(self.cfg)
+        self.main_app.set_dirty(True)
+        self.build_prompter_content()
+
+    def save_current_color_preset(self, index: int, ask: bool = True) -> None:
+        """Save current project colors into one global preset slot."""
+        if not hasattr(self.main_app, "save_prompter_color_preset"):
+            return
+
+        if ask:
+            answer = QMessageBox.question(
+                self,
+                "Перезаписать пресет?",
+                f"Пресет {index + 1} будет заменён текущей цветовой схемой. "
+                "Продолжить?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
+
+        if self.main_app.save_prompter_color_preset(
+            index,
+            deepcopy(self.cfg["colors"])
+        ):
+            self.update_color_preset_buttons()
     
     def build_prompter_content(self) -> None:
         """Build prompter content."""
@@ -1582,6 +1788,7 @@ class TeleprompterWindow(QDialog):
         """Save current config to project."""
         self.cfg["sync_in"] = self.chk_follow_reaper.isChecked()
         self.cfg["sync_out"] = self.chk_reaper_follow.isChecked()
+        self.cfg["osc_enabled"] = self.btn_osc.isChecked()
         self.cfg["reaper_offset_enabled"] = self.chk_offset.isChecked()
         self.cfg["reaper_offset_seconds"] = self.spin_offset.value()
         if self.cfg["sync_in"]:
@@ -1593,17 +1800,19 @@ class TeleprompterWindow(QDialog):
     
     def toggle_osc_connection_status(self, checked: bool) -> None:
         """Toggle osc connection status."""
+        self.cfg["osc_enabled"] = bool(checked)
         if checked:
-            self.osc_thread = OscWorker(self.cfg["port_in"])
-            self.osc_thread.time_changed.connect(
-                self.on_osc_time_packet_received
-            )
-            self.osc_thread.navigation_requested.connect(
-                self.navigate_from_osc
-            )
-            self.osc_thread.start()
-            
             try:
+                if self.osc_thread:
+                    self.osc_thread.stop()
+                self.osc_thread = OscWorker(self.cfg["port_in"])
+                self.osc_thread.time_changed.connect(
+                    self.on_osc_time_packet_received
+                )
+                self.osc_thread.navigation_requested.connect(
+                    self.navigate_from_osc
+                )
+                self.osc_thread.start()
                 from pythonosc.udp_client import SimpleUDPClient
                 self.osc_client = SimpleUDPClient(
                     "127.0.0.1", self.cfg["port_out"]
@@ -1611,6 +1820,14 @@ class TeleprompterWindow(QDialog):
                 self.btn_osc.setText(translate_source("OSC Связь: Активна"))
             except Exception as e:
                 logger.error(f"OSC client error: {e}")
+                if self.osc_thread:
+                    self.osc_thread.stop()
+                    self.osc_thread = None
+                self.osc_client = None
+                self.cfg["osc_enabled"] = False
+                self.btn_osc.blockSignals(True)
+                self.btn_osc.setChecked(False)
+                self.btn_osc.blockSignals(False)
                 self.btn_osc.setText(translate_source("Ошибка OSC"))
         else:
             if self.osc_thread:
@@ -1619,6 +1836,10 @@ class TeleprompterWindow(QDialog):
             self.osc_client = None
             self.btn_osc.setText(translate_source("Включить OSC связь"))
             self.btn_osc.setStyleSheet("")
+
+        if not getattr(self, '_initializing', False):
+            self.main_app.save_global_prompter_settings(self.cfg)
+            self.main_app.set_dirty(True)
     
     @Slot(float)
     def on_osc_time_packet_received(self, time_val: float) -> None:
@@ -1660,7 +1881,7 @@ class TeleprompterWindow(QDialog):
         dialog = ActorFilterDialog(
             self.main_app.data["actors"],
             self.highlight_ids or all_ids,
-            self
+            parent=self
         )
         if dialog.exec():
             sel = dialog.get_selected()

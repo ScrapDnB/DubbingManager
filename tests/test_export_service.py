@@ -2,6 +2,7 @@
 
 import pytest
 from typing import Dict, List, Any
+from unittest.mock import Mock
 
 import services.export_service as export_module
 from services.export_service import ExportService
@@ -250,6 +251,30 @@ class TestExportService:
         assert "0:00:02" not in html
         assert "0:00:00.00" not in html
 
+    def test_generate_html_scenario_respects_actor_visibility(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: сценарная разметка скрывает актёра по настройке."""
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        export_config["col_actor"] = False
+
+        html = service.generate_html(
+            ep="1",
+            processed=processed,
+            cfg=export_config,
+            layout_type="Сценарий",
+            is_editable=False
+        )
+
+        assert "Character1" in html
+        assert "Hello, world!" in html
+        assert "Actor1" not in html
+        assert "class='a'" not in html
+
     def test_generate_html_with_highlight(
         self,
         sample_project_data: Dict[str, Any],
@@ -272,6 +297,60 @@ class TestExportService:
         )
         
         assert "highlighted-block" in html
+
+    def test_generate_html_can_use_solid_colors_and_negative_text(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: HTML поддерживает плотную заливку и белый текст."""
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        export_config.update({
+            "soften_colors": False,
+            "highlight_negative_ids_export": ["actor1"],
+        })
+
+        html = service.generate_html(
+            ep="1",
+            processed=processed,
+            cfg=export_config,
+            highlight_ids=["actor1"],
+            layout_type="Таблица",
+            is_editable=False
+        )
+
+        assert "background-color:#FF0000; color:#ffffff" in html
+        assert ".t {\n            font-family: monospace;" in html
+        assert "color: inherit;" in html
+
+    def test_generate_html_scenario_negative_applies_to_timing(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: негатив в сценарной разметке распространяется на таймкод."""
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        export_config.update({
+            "soften_colors": False,
+            "highlight_negative_ids_export": ["actor1"],
+        })
+
+        html = service.generate_html(
+            ep="1",
+            processed=processed,
+            cfg=export_config,
+            highlight_ids=["actor1"],
+            layout_type="Сценарий",
+            is_editable=False
+        )
+
+        assert "border-left-color:#FF0000; color:#ffffff" in html
+        assert "<span class='t'>" in html
+        assert "color: inherit;" in html
 
     def test_generate_html_escapes_user_content(
         self,
@@ -371,9 +450,9 @@ class TestExportService:
         )
 
         assert "<colgroup><col class='col-t'><col class='col-c'><col class='col-a'><col class='col-txt'></colgroup>" in html
-        assert ".col-t {\n            width: clamp(7.5rem, 10vw, 9.5rem);" in html
-        assert ".col-c {\n            width: clamp(9rem, 16vw, 16rem);" in html
-        assert ".col-a {\n            width: clamp(8rem, 14vw, 14rem);" in html
+        assert ".col-t {\n            width: clamp(5.04rem, 7.35vw, 7.00rem);" in html
+        assert ".col-c {\n            width: clamp(7.20rem, 10.50vw, 10.00rem);" in html
+        assert ".col-a {\n            width: clamp(6.12rem, 8.93vw, 8.50rem);" in html
 
     def test_generate_html_table_can_show_start_time_only(
         self,
@@ -436,7 +515,7 @@ class TestExportService:
         actor1_fill = ws.cell(row=2, column=1).fill.start_color.rgb
         actor2_fill = ws.cell(row=3, column=1).fill.start_color.rgb
 
-        assert actor1_fill == "FFFF0000"
+        assert actor1_fill == "FFFFC7C7"
         assert actor2_fill in ("FFFFFFFF", "00FFFFFF")
 
     def test_create_excel_book_accepts_non_numeric_episode_ids(
@@ -486,6 +565,116 @@ class TestExportService:
         assert ws.cell(row=2, column=2).value == "0:00:00"
         assert ws.cell(row=2, column=2).value != "0:00:00-0:00:02"
 
+    def test_create_docx_document_respects_table_columns_and_timing(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: DOCX экспорт создаёт таблицу с выбранными колонками."""
+        pytest.importorskip("docx")
+        export_config.update({
+            "col_char": False,
+            "col_actor": False,
+            "round_time": True,
+            "time_display": "range",
+        })
+
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        document = service.create_docx_document({"1": processed}, export_config)
+        table = document.tables[0]
+
+        headers = [cell.text for cell in table.rows[0].cells]
+        first_row = [cell.text for cell in table.rows[1].cells]
+
+        assert headers == ["Время", "Реплика"]
+        assert first_row[0] == "0:00:00\n0:00:02"
+        assert first_row[1] == "Hello, world!"
+
+    def test_create_docx_document_uses_compact_metadata_columns(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: DOCX оставляет больше места колонке реплики."""
+        pytest.importorskip("docx")
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        document = service.create_docx_document({"1": processed}, export_config)
+        first_row = document.tables[0].rows[1].cells
+
+        widths = [
+            cell._tc.tcPr.tcW.w
+            for cell in first_row
+        ]
+
+        assert widths == [714, 1020, 867, 7603]
+
+        grid_widths = [
+            int(grid_col.get(export_module.qn('w:w')))
+            for grid_col in document.tables[0]._tbl.tblGrid.gridCol_lst
+        ]
+        assert grid_widths == widths
+
+    def test_create_docx_document_uses_portrait_orientation(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: DOCX экспорт использует вертикальную ориентацию листа."""
+        pytest.importorskip("docx")
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        document = service.create_docx_document({"1": processed}, export_config)
+        section = document.sections[0]
+
+        assert section.page_width < section.page_height
+
+    def test_create_docx_document_can_show_start_time_only(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: DOCX экспорт умеет показывать только начало реплики."""
+        pytest.importorskip("docx")
+        export_config.update({
+            "round_time": True,
+            "time_display": "start",
+        })
+
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        document = service.create_docx_document({"1": processed}, export_config)
+
+        assert document.tables[0].rows[1].cells[0].text == "0:00:00"
+
+    def test_create_docx_document_can_use_solid_negative_highlight(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: DOCX поддерживает плотный цвет и белый текст."""
+        pytest.importorskip("docx")
+        export_config.update({
+            "soften_colors": False,
+            "highlight_ids_export": ["actor1"],
+            "highlight_negative_ids_export": ["actor1"],
+        })
+
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        document = service.create_docx_document({"1": processed}, export_config)
+        first_cell = document.tables[0].rows[1].cells[0]
+
+        shading = first_cell._tc.tcPr.find(export_module.qn('w:shd'))
+        assert shading.get(export_module.qn('w:fill')) == "FF0000"
+        assert str(first_cell.paragraphs[0].runs[-1].font.color.rgb) == "FFFFFF"
+
     def test_export_batch_writes_shared_excel_once(
         self,
         sample_project_data: Dict[str, Any],
@@ -531,6 +720,76 @@ class TestExportService:
         assert message == "Экспортировано файлов: 1"
         assert len(calls) == 1
         assert calls[0][2] == ["1", "2", "3"]
+
+    def test_export_batch_writes_docx_per_episode(
+        self,
+        sample_project_data: Dict[str, Any],
+        monkeypatch,
+        tmp_path
+    ) -> None:
+        """Тест: DOCX при пакетном экспорте создаётся по файлу на серию."""
+        pytest.importorskip("docx")
+        sample_project_data["export_config"] = {}
+        sample_project_data["replica_merge_config"] = {"merge": False}
+        service = ExportService(sample_project_data)
+        monkeypatch.setattr(export_module.sys, "platform", "darwin")
+        monkeypatch.setattr(export_module.os, "system", lambda command: 0)
+
+        def get_lines(ep):
+            return [{
+                "id": 1,
+                "s": 0.0,
+                "e": 1.0,
+                "char": "Character1",
+                "text": f"Line {ep}",
+                "s_raw": "0:00:00.00"
+            }]
+
+        success, message = service.export_batch(
+            episodes={"1": "one.ass", "2": "two.ass"},
+            get_lines_callback=get_lines,
+            do_html=False,
+            do_docx=True,
+            folder=str(tmp_path)
+        )
+
+        assert success is True
+        assert message == "Экспортировано файлов: 2"
+        assert (tmp_path / "Test Project - Ep1.docx").exists()
+        assert (tmp_path / "Test Project - Ep2.docx").exists()
+        assert not (tmp_path / "Test Project - Все серии.docx").exists()
+
+    def test_export_batch_respects_open_auto(
+        self,
+        sample_project_data: Dict[str, Any],
+        monkeypatch,
+        tmp_path
+    ) -> None:
+        """Тест: пакетный экспорт не открывает папку при open_auto=False."""
+        sample_project_data["export_config"] = {"open_auto": False}
+        sample_project_data["replica_merge_config"] = {"merge": False}
+        service = ExportService(sample_project_data)
+        system_open = Mock()
+        monkeypatch.setattr(export_module.sys, "platform", "darwin")
+        monkeypatch.setattr(export_module.os, "system", system_open)
+
+        success, message = service.export_batch(
+            episodes={"1": "one.ass"},
+            get_lines_callback=lambda ep: [{
+                "id": 1,
+                "s": 0.0,
+                "e": 1.0,
+                "char": "Character1",
+                "text": "Line",
+                "s_raw": "0:00:00.00"
+            }],
+            do_html=True,
+            folder=str(tmp_path)
+        )
+
+        assert success is True
+        assert message == "Экспортировано файлов: 1"
+        system_open.assert_not_called()
 
     def test_generate_reaper_rpp_uses_shared_generator_and_merge_config(
         self,

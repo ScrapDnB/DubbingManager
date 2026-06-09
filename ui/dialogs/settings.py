@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -56,14 +57,16 @@ class SettingsDialog(QDialog):
         self.project_data = project_data
         self.main_window = parent
         self.initial_tab = initial_tab
-        self.export_config = deepcopy(
-            project_data.get("export_config", DEFAULT_EXPORT_CONFIG)
-        )
+        self.export_config = self._load_initial_export_config(project_data)
         self.highlight_ids_export = self.export_config.get(
             "highlight_ids_export"
         )
+        self.highlight_negative_ids_export = self.export_config.get(
+            "highlight_negative_ids_export",
+            []
+        )
         self.prompter_config = deepcopy(
-            project_data.get("prompter_config", DEFAULT_PROMPTER_CONFIG)
+            self._load_initial_prompter_config(project_data)
         )
         self.merge_config = deepcopy(
             project_data.get(
@@ -82,6 +85,42 @@ class SettingsDialog(QDialog):
 
         self._init_ui()
 
+    def _load_initial_export_config(
+        self,
+        project_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        if (
+            self.settings_scope == "global" and
+            self.main_window is not None and
+            hasattr(self.main_window, "global_settings_service")
+        ):
+            return deepcopy(
+                self.main_window.global_settings_service
+                .get_default_export_config()
+            )
+
+        return deepcopy(
+            project_data.get("export_config", DEFAULT_EXPORT_CONFIG)
+        )
+
+    def _load_initial_prompter_config(
+        self,
+        project_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        if (
+            self.settings_scope == "global" and
+            self.main_window is not None and
+            hasattr(self.main_window, "global_settings_service")
+        ):
+            return deepcopy(
+                self.main_window.global_settings_service
+                .get_default_prompter_config()
+            )
+
+        return deepcopy(
+            project_data.get("prompter_config", DEFAULT_PROMPTER_CONFIG)
+        )
+
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
 
@@ -99,6 +138,12 @@ class SettingsDialog(QDialog):
                 tr("settings.tab.actor_bases"),
             )
         else:
+            self._add_tab("export", self._build_export_tab(), tr("settings.tab.export"))
+            self._add_tab(
+                "prompter",
+                self._build_prompter_tab(),
+                tr("settings.tab.prompter")
+            )
             self._add_tab(
                 "actor_bases",
                 self._build_actor_bases_tab(),
@@ -108,6 +153,43 @@ class SettingsDialog(QDialog):
         layout.addWidget(self.tabs)
         self._select_initial_tab()
 
+        footer_layout = QHBoxLayout()
+        if self.settings_scope == "project":
+            self._init_export_default_buttons()
+            self._init_prompter_default_buttons()
+            footer_layout.addWidget(self.btn_apply_export_defaults)
+            footer_layout.addWidget(self.btn_save_export_defaults)
+            footer_layout.addWidget(self.btn_apply_prompter_defaults)
+            footer_layout.addWidget(self.btn_save_prompter_defaults)
+        elif self.settings_scope == "global":
+            self.btn_apply_global_export_to_project = QPushButton(
+                "Перенести в проект"
+            )
+            self.btn_apply_global_export_to_project.setToolTip(
+                "Применить эти настройки монтажного листа к открытому проекту."
+            )
+            self.btn_apply_global_export_to_project.setEnabled(
+                self._has_export_apply_service()
+            )
+            self.btn_apply_global_export_to_project.clicked.connect(
+                self._apply_global_export_to_project
+            )
+            footer_layout.addWidget(self.btn_apply_global_export_to_project)
+            self.btn_apply_global_prompter_to_project = QPushButton(
+                "Перенести в проект"
+            )
+            self.btn_apply_global_prompter_to_project.setToolTip(
+                "Применить эти настройки телесуфлёра к открытому проекту."
+            )
+            self.btn_apply_global_prompter_to_project.setEnabled(
+                self._has_prompter_apply_service()
+            )
+            self.btn_apply_global_prompter_to_project.clicked.connect(
+                self._apply_global_prompter_to_project
+            )
+            footer_layout.addWidget(self.btn_apply_global_prompter_to_project)
+        footer_layout.addStretch()
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.Save | QDialogButtonBox.Cancel
         )
@@ -115,7 +197,10 @@ class SettingsDialog(QDialog):
         buttons.button(QDialogButtonBox.Cancel).setText(tr("common.cancel"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        footer_layout.addWidget(buttons)
+        layout.addLayout(footer_layout)
+        self.tabs.currentChanged.connect(self._update_footer_action_visibility)
+        self._update_footer_action_visibility()
         translate_widget_tree(self)
 
     def _add_tab(self, key: str, widget: QWidget, title: str) -> None:
@@ -140,6 +225,9 @@ class SettingsDialog(QDialog):
             self.export_config.get("layout_type", "Таблица")
         )
         self.export_layout_type.setCurrentIndex(layout_index if layout_index >= 0 else 0)
+        self.export_layout_type.currentIndexChanged.connect(
+            self._update_table_width_controls_visibility
+        )
         self.export_layout_type.setToolTip(
             "Таблица удобна для сверки и записи. Сценарий делает лист "
             "похожим на читабельный текст с репликами."
@@ -149,6 +237,8 @@ class SettingsDialog(QDialog):
 
         columns = QGroupBox("Элементы в листе")
         columns_layout = QVBoxLayout(columns)
+        columns_top_layout = QHBoxLayout()
+        column_checks_layout = QVBoxLayout()
         self.export_col_tc = self._check_box(
             "Таймкоды", self.export_config.get("col_tc", True)
         )
@@ -180,7 +270,44 @@ class SettingsDialog(QDialog):
             self.export_col_actor,
             self.export_col_text,
         ]:
-            columns_layout.addWidget(checkbox)
+            column_checks_layout.addWidget(checkbox)
+        column_checks_layout.addStretch()
+        columns_top_layout.addLayout(column_checks_layout)
+        self.table_widths_group = QGroupBox("Ширина колонок таблицы")
+        widths_layout = QFormLayout(self.table_widths_group)
+        self.export_table_width_time = self._double_spin(
+            4.0,
+            24.0,
+            self.export_config.get("table_width_time", 7.0),
+            step=0.5,
+        )
+        self.export_table_width_char = self._double_spin(
+            4.0,
+            24.0,
+            self.export_config.get("table_width_char", 10.0),
+            step=0.5,
+        )
+        self.export_table_width_actor = self._double_spin(
+            4.0,
+            24.0,
+            self.export_config.get("table_width_actor", 8.5),
+            step=0.5,
+        )
+        for spin in [
+            self.export_table_width_time,
+            self.export_table_width_char,
+            self.export_table_width_actor,
+        ]:
+            spin.setSuffix(" ед.")
+            spin.setToolTip(
+                "Ширина служебной колонки в табличной разметке. "
+                "Колонка реплики занимает оставшееся место."
+            )
+        widths_layout.addRow("Тайминг:", self.export_table_width_time)
+        widths_layout.addRow("Персонаж:", self.export_table_width_char)
+        widths_layout.addRow("Актёр:", self.export_table_width_actor)
+        columns_top_layout.addWidget(self.table_widths_group)
+        columns_layout.addLayout(columns_top_layout)
         columns_layout.addWidget(self._hint(
             "Отключайте лишние элементы, если нужен компактный лист для "
             "печати или раздачи актёрам."
@@ -206,6 +333,7 @@ class SettingsDialog(QDialog):
             "меньшие размеры делают таблицу плотнее."
         ))
         layout.addWidget(fonts)
+        self._update_table_width_controls_visibility()
 
         self.export_use_color = self._check_box(
             "Использовать цвета актёров",
@@ -214,6 +342,13 @@ class SettingsDialog(QDialog):
         self.export_use_color.setToolTip(
             "Подсвечивает строки или имена цветами актёров, чтобы роли легче "
             "читались в листе."
+        )
+        self.export_soften_colors = self._check_box(
+            "Смягчить цвета",
+            self.export_config.get("soften_colors", True)
+        )
+        self.export_soften_colors.setToolTip(
+            "Использует мягкую заливку вместо плотного цвета актёра."
         )
         self.btn_export_actor_filter = QPushButton(
             "Выбрать актёров для подсветки..."
@@ -264,19 +399,89 @@ class SettingsDialog(QDialog):
         )
         for checkbox in [
             self.export_use_color,
+            self.export_soften_colors,
             self.export_allow_edit,
-            self.export_round_time,
             self.export_open_auto,
         ]:
             layout.addWidget(checkbox)
         time_display_form = QFormLayout()
         time_display_form.addRow("Тайминг:", self.export_time_display)
         layout.addLayout(time_display_form)
+        layout.addWidget(self.export_round_time)
         layout.addWidget(self.btn_export_actor_filter)
         layout.addWidget(self.export_actor_filter_summary)
 
         layout.addStretch()
         return tab
+
+    def _init_export_default_buttons(self) -> None:
+        self.btn_apply_export_defaults = QPushButton("Сделать по умолчанию")
+        self.btn_apply_export_defaults.setToolTip(
+            "Заменить настройки монтажного листа в текущем проекте "
+            "сохранёнными настройками по умолчанию."
+        )
+        self.btn_save_export_defaults = QPushButton("Сохранить по умолчанию")
+        self.btn_save_export_defaults.setToolTip(
+            "Использовать текущие настройки монтажного листа для новых "
+            "проектов."
+        )
+        self.btn_apply_export_defaults.clicked.connect(
+            self._apply_export_defaults_to_project
+        )
+        self.btn_save_export_defaults.clicked.connect(
+            self._save_export_defaults
+        )
+        defaults_enabled = self._has_export_defaults_service()
+        self.btn_apply_export_defaults.setEnabled(defaults_enabled)
+        self.btn_save_export_defaults.setEnabled(defaults_enabled)
+
+    def _init_prompter_default_buttons(self) -> None:
+        self.btn_apply_prompter_defaults = QPushButton("Сделать по умолчанию")
+        self.btn_apply_prompter_defaults.setToolTip(
+            "Заменить настройки телесуфлёра в текущем проекте сохранёнными "
+            "настройками по умолчанию."
+        )
+        self.btn_save_prompter_defaults = QPushButton("Сохранить по умолчанию")
+        self.btn_save_prompter_defaults.setToolTip(
+            "Использовать текущие настройки телесуфлёра для новых проектов."
+        )
+        self.btn_apply_prompter_defaults.clicked.connect(
+            self._apply_prompter_defaults_to_project
+        )
+        self.btn_save_prompter_defaults.clicked.connect(
+            self._save_prompter_defaults
+        )
+        defaults_enabled = self._has_prompter_defaults_service()
+        self.btn_apply_prompter_defaults.setEnabled(defaults_enabled)
+        self.btn_save_prompter_defaults.setEnabled(defaults_enabled)
+
+    def _current_tab_key(self) -> str:
+        current_index = self.tabs.currentIndex()
+        for key, index in self._tab_indexes.items():
+            if index == current_index:
+                return key
+        return ""
+
+    def _update_footer_action_visibility(self) -> None:
+        current_key = self._current_tab_key()
+        if self.settings_scope == "project":
+            if hasattr(self, "btn_apply_export_defaults"):
+                export_visible = current_key == "export"
+                self.btn_apply_export_defaults.setVisible(export_visible)
+                self.btn_save_export_defaults.setVisible(export_visible)
+            if hasattr(self, "btn_apply_prompter_defaults"):
+                prompter_visible = current_key == "prompter"
+                self.btn_apply_prompter_defaults.setVisible(prompter_visible)
+                self.btn_save_prompter_defaults.setVisible(prompter_visible)
+        elif self.settings_scope == "global":
+            if hasattr(self, "btn_apply_global_export_to_project"):
+                self.btn_apply_global_export_to_project.setVisible(
+                    current_key == "export"
+                )
+            if hasattr(self, "btn_apply_global_prompter_to_project"):
+                self.btn_apply_global_prompter_to_project.setVisible(
+                    current_key == "prompter"
+                )
 
     def _build_interface_tab(self) -> QWidget:
         tab = QWidget()
@@ -381,9 +586,13 @@ class SettingsDialog(QDialog):
     def _build_prompter_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        grid = QGridLayout()
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
 
         fonts = QGroupBox("Шрифты")
         fonts_layout = QFormLayout(fonts)
+        fonts_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.prompter_f_tc = self._spin(
             8, 96, self.prompter_config.get("f_tc", 20)
         )
@@ -400,10 +609,11 @@ class SettingsDialog(QDialog):
         fonts_layout.addRow("Персонаж:", self.prompter_f_char)
         fonts_layout.addRow("Актёр:", self.prompter_f_actor)
         fonts_layout.addRow("Текст:", self.prompter_f_text)
-        layout.addWidget(fonts)
+        grid.addWidget(fonts, 0, 0)
 
         behavior = QGroupBox("Поведение")
         behavior_layout = QFormLayout(behavior)
+        behavior_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.prompter_focus_ratio = self._double_spin(
             0.1,
             0.9,
@@ -442,15 +652,20 @@ class SettingsDialog(QDialog):
         behavior_layout.addRow("Плавность скролла:", self.prompter_smoothness)
         behavior_layout.addRow(self.prompter_mirrored)
         behavior_layout.addRow(self.prompter_show_header)
-        layout.addWidget(behavior)
+        grid.addWidget(behavior, 0, 1)
 
         osc = QGroupBox("Reaper / OSC")
         osc_layout = QFormLayout(osc)
+        osc_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.prompter_port_in = self._spin(
             1, 65535, self.prompter_config.get("port_in", 8000)
         )
         self.prompter_port_out = self._spin(
             1, 65535, self.prompter_config.get("port_out", 9000)
+        )
+        self.prompter_osc_enabled = self._check_box(
+            "Включать OSC связь",
+            self.prompter_config.get("osc_enabled", False)
         )
         self.prompter_sync_in = self._check_box(
             "Принимать синхронизацию из Reaper",
@@ -477,6 +692,10 @@ class SettingsDialog(QDialog):
         self.prompter_port_out.setToolTip(
             "Порт, на который приложение отправляет OSC-сообщения в Reaper."
         )
+        self.prompter_osc_enabled.setToolTip(
+            "Запоминает, должна ли OSC-связь с Reaper включаться при "
+            "открытии телесуфлёра."
+        )
         self.prompter_sync_in.setToolTip(
             "Позволяет Reaper вести телесуфлёр по текущей позиции проекта."
         )
@@ -494,11 +713,13 @@ class SettingsDialog(QDialog):
         )
         osc_layout.addRow("OSC вход:", self.prompter_port_in)
         osc_layout.addRow("OSC выход:", self.prompter_port_out)
+        osc_layout.addRow(self.prompter_osc_enabled)
         osc_layout.addRow(self.prompter_sync_in)
         osc_layout.addRow(self.prompter_sync_out)
         osc_layout.addRow(self.prompter_offset_enabled)
         osc_layout.addRow("Offset, сек:", self.prompter_offset_seconds)
-        layout.addWidget(osc)
+        grid.addWidget(osc, 1, 0, 1, 2)
+        layout.addLayout(grid)
 
         offset_note = QLabel(
             "Offset применяется только к телесуфлёру и не влияет на экспорт "
@@ -514,9 +735,38 @@ class SettingsDialog(QDialog):
         btn_colors.clicked.connect(self._open_prompter_colors)
         colors_row.addWidget(btn_colors)
         layout.addLayout(colors_row)
+        if self.settings_scope == "global":
+            layout.addWidget(self._build_prompter_color_presets_group())
 
         layout.addStretch()
         return tab
+
+    def _build_prompter_color_presets_group(self) -> QWidget:
+        group = QGroupBox("Пресеты цветовых схем")
+        grid = QGridLayout(group)
+        grid.setColumnStretch(1, 1)
+        self.prompter_preset_preview_buttons = []
+        self.prompter_preset_reset_buttons = []
+
+        for index in range(4):
+            label = QLabel(f"{index + 1}:")
+            preview = QPushButton()
+            preview.setEnabled(False)
+            preview.setMinimumHeight(26)
+            reset = QPushButton("Сбросить")
+            reset.clicked.connect(
+                lambda checked=False, idx=index: (
+                    self._clear_prompter_color_preset(idx)
+                )
+            )
+            self.prompter_preset_preview_buttons.append(preview)
+            self.prompter_preset_reset_buttons.append(reset)
+            grid.addWidget(label, index, 0)
+            grid.addWidget(preview, index, 1)
+            grid.addWidget(reset, index, 2)
+
+        self._update_prompter_color_preset_controls()
+        return group
 
     def _build_docx_tab(self) -> QWidget:
         tab = QWidget()
@@ -948,13 +1198,91 @@ class SettingsDialog(QDialog):
         if dialog.exec():
             self.prompter_colors = dialog.get_final_colors()
 
-    def get_settings(self) -> Dict[str, Dict[str, Any]]:
-        """Return settings."""
-        if self.settings_scope == "global":
-            return {
-                "language": self.language_combo.currentData(),
-            }
+    def _get_prompter_color_presets(self) -> List[Optional[Dict[str, str]]]:
+        if (
+            self.main_window is not None and
+            hasattr(self.main_window, "get_prompter_color_presets")
+        ):
+            return self.main_window.get_prompter_color_presets()
+        return [None, None, None, None]
 
+    def _update_prompter_color_preset_controls(self) -> None:
+        if not hasattr(self, "prompter_preset_preview_buttons"):
+            return
+
+        presets = self._get_prompter_color_presets()
+        for index, preview in enumerate(self.prompter_preset_preview_buttons):
+            preset = presets[index] if index < len(presets) else None
+            reset = self.prompter_preset_reset_buttons[index]
+            if preset:
+                bg = preset.get("bg", "#000000")
+                text = preset.get("active_text", "#ffffff")
+                preview.setText(f"Фон {bg} / Текст {text}")
+                preview.setStyleSheet(
+                    f"background-color: {bg}; color: {text}; "
+                    "border: 1px solid #777; border-radius: 4px;"
+                )
+                reset.setEnabled(True)
+            else:
+                preview.setText("Пусто")
+                preview.setStyleSheet(
+                    "color: #666; border: 1px dashed #999; border-radius: 4px;"
+                )
+                reset.setEnabled(False)
+
+    def _clear_prompter_color_preset(self, index: int) -> None:
+        if (
+            self.main_window is None or
+            not hasattr(self.main_window, "clear_prompter_color_preset")
+        ):
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Сбросить пресет?",
+            f"Пресет цветовой схемы {index + 1} будет очищен. Продолжить?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        if self.main_window.clear_prompter_color_preset(index):
+            self._update_prompter_color_preset_controls()
+
+    def _has_export_defaults_service(self) -> bool:
+        return (
+            self.main_window is not None and
+            hasattr(self.main_window, "save_default_export_config") and
+            hasattr(self.main_window, "apply_default_export_config_to_project")
+        )
+
+    def _has_export_apply_service(self) -> bool:
+        return (
+            self.main_window is not None and
+            hasattr(self.main_window, "apply_export_config_to_project")
+        )
+
+    def _has_prompter_defaults_service(self) -> bool:
+        return (
+            self.main_window is not None and
+            hasattr(self.main_window, "save_default_prompter_config") and
+            hasattr(self.main_window, "apply_default_prompter_config_to_project")
+        )
+
+    def _has_prompter_apply_service(self) -> bool:
+        return (
+            self.main_window is not None and
+            hasattr(self.main_window, "apply_prompter_config_to_project")
+        )
+
+    def _update_table_width_controls_visibility(self) -> None:
+        if hasattr(self, "table_widths_group"):
+            self.table_widths_group.setVisible(
+                self.export_layout_type.currentData() == "Таблица"
+            )
+
+    def _current_export_config(self) -> Dict[str, Any]:
         export_config = deepcopy(self.export_config)
         export_config.update({
             "layout_type": self.export_layout_type.currentData(),
@@ -966,24 +1294,74 @@ class SettingsDialog(QDialog):
             "f_char": self.export_f_char.value(),
             "f_actor": self.export_f_actor.value(),
             "f_text": self.export_f_text.value(),
+            "table_width_time": self.export_table_width_time.value(),
+            "table_width_char": self.export_table_width_char.value(),
+            "table_width_actor": self.export_table_width_actor.value(),
             "use_color": self.export_use_color.isChecked(),
+            "soften_colors": self.export_soften_colors.isChecked(),
             "allow_edit": self.export_allow_edit.isChecked(),
             "round_time": self.export_round_time.isChecked(),
             "time_display": self.export_time_display.currentData(),
             "open_auto": self.export_open_auto.isChecked(),
-            "highlight_ids_export": self.highlight_ids_export,
+            "highlight_ids_export": deepcopy(self.highlight_ids_export or []),
+            "highlight_negative_ids_export": deepcopy(
+                self.highlight_negative_ids_export or []
+            ),
         })
+        return export_config
 
-        fps = self.merge_fps.value()
-        merge_config = deepcopy(self.merge_config)
-        merge_config.update({
-            "merge": self.merge_enabled.isChecked(),
-            "merge_gap": int(self.merge_gap.value() * fps),
-            "fps": fps,
-            "p_short": self.merge_p_short.value(),
-            "p_long": self.merge_p_long.value(),
-        })
+    def _set_export_config_controls(self, config: Dict[str, Any]) -> None:
+        export_config = deepcopy(DEFAULT_EXPORT_CONFIG)
+        export_config.update(config or {})
+        self.export_config = export_config
 
+        layout_index = self.export_layout_type.findData(
+            export_config.get("layout_type", "Таблица")
+        )
+        self.export_layout_type.setCurrentIndex(
+            layout_index if layout_index >= 0 else 0
+        )
+        self.export_col_tc.setChecked(export_config.get("col_tc", True))
+        self.export_col_char.setChecked(export_config.get("col_char", True))
+        self.export_col_actor.setChecked(export_config.get("col_actor", True))
+        self.export_col_text.setChecked(export_config.get("col_text", True))
+        self.export_f_time.setValue(export_config.get("f_time", 21))
+        self.export_f_char.setValue(export_config.get("f_char", 20))
+        self.export_f_actor.setValue(export_config.get("f_actor", 14))
+        self.export_f_text.setValue(export_config.get("f_text", 30))
+        self.export_table_width_time.setValue(
+            export_config.get("table_width_time", 7.0)
+        )
+        self.export_table_width_char.setValue(
+            export_config.get("table_width_char", 10.0)
+        )
+        self.export_table_width_actor.setValue(
+            export_config.get("table_width_actor", 8.5)
+        )
+        self.export_use_color.setChecked(export_config.get("use_color", True))
+        self.export_soften_colors.setChecked(
+            export_config.get("soften_colors", True)
+        )
+        self.export_allow_edit.setChecked(export_config.get("allow_edit", True))
+        self.export_round_time.setChecked(export_config.get("round_time", False))
+        self.export_open_auto.setChecked(export_config.get("open_auto", True))
+
+        time_display_index = self.export_time_display.findData(
+            export_config.get("time_display", "range")
+        )
+        self.export_time_display.setCurrentIndex(
+            time_display_index if time_display_index >= 0 else 0
+        )
+        self.highlight_ids_export = deepcopy(
+            export_config.get("highlight_ids_export", [])
+        )
+        self.highlight_negative_ids_export = deepcopy(
+            export_config.get("highlight_negative_ids_export", [])
+        )
+        self._update_table_width_controls_visibility()
+        self._update_export_actor_filter_summary()
+
+    def _current_prompter_config(self) -> Dict[str, Any]:
         prompter_config = deepcopy(self.prompter_config)
         prompter_config.update({
             "f_tc": self.prompter_f_tc.value(),
@@ -995,6 +1373,7 @@ class SettingsDialog(QDialog):
             "show_header": self.prompter_show_header.isChecked(),
             "port_in": self.prompter_port_in.value(),
             "port_out": self.prompter_port_out.value(),
+            "osc_enabled": self.prompter_osc_enabled.isChecked(),
             "sync_in": self.prompter_sync_in.isChecked(),
             "sync_out": self.prompter_sync_out.isChecked(),
             "reaper_offset_enabled": self.prompter_offset_enabled.isChecked(),
@@ -1002,6 +1381,233 @@ class SettingsDialog(QDialog):
             "scroll_smoothness_slider": self.prompter_smoothness.value(),
             "colors": deepcopy(self.prompter_colors),
         })
+        return prompter_config
+
+    def _set_prompter_config_controls(self, config: Dict[str, Any]) -> None:
+        prompter_config = deepcopy(DEFAULT_PROMPTER_CONFIG)
+        prompter_config.update(config or {})
+        prompter_colors = deepcopy(DEFAULT_PROMPTER_CONFIG["colors"])
+        prompter_colors.update(prompter_config.get("colors", {}))
+        prompter_config["colors"] = prompter_colors
+        self.prompter_config = prompter_config
+        self.prompter_colors = prompter_colors
+
+        self.prompter_f_tc.setValue(prompter_config.get("f_tc", 20))
+        self.prompter_f_char.setValue(prompter_config.get("f_char", 24))
+        self.prompter_f_actor.setValue(prompter_config.get("f_actor", 18))
+        self.prompter_f_text.setValue(prompter_config.get("f_text", 36))
+        self.prompter_focus_ratio.setValue(
+            prompter_config.get("focus_ratio", 0.5)
+        )
+        self.prompter_smoothness.setValue(
+            prompter_config.get("scroll_smoothness_slider", 18)
+        )
+        self.prompter_mirrored.setChecked(
+            prompter_config.get("is_mirrored", False)
+        )
+        self.prompter_show_header.setChecked(
+            prompter_config.get("show_header", False)
+        )
+        self.prompter_port_in.setValue(prompter_config.get("port_in", 8000))
+        self.prompter_port_out.setValue(prompter_config.get("port_out", 9000))
+        self.prompter_osc_enabled.setChecked(
+            prompter_config.get("osc_enabled", False)
+        )
+        self.prompter_sync_in.setChecked(
+            prompter_config.get("sync_in", True)
+        )
+        self.prompter_sync_out.setChecked(
+            prompter_config.get("sync_out", False)
+        )
+        self.prompter_offset_enabled.setChecked(
+            prompter_config.get("reaper_offset_enabled", False)
+        )
+        self.prompter_offset_seconds.setValue(
+            prompter_config.get("reaper_offset_seconds", -2.0)
+        )
+
+    def _save_export_defaults(self) -> None:
+        if not self._has_export_defaults_service():
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Сохранить по умолчанию?",
+            "Текущие настройки монтажного листа будут использоваться для "
+            "новых проектов. Старые проекты сохранят свои настройки. "
+            "Продолжить?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        if self.main_window.save_default_export_config(
+            self._current_export_config()
+        ):
+            QMessageBox.information(
+                self,
+                "Готово",
+                "Настройки монтажного листа сохранены по умолчанию."
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Не удалось сохранить",
+                "Настройки по умолчанию не были записаны."
+            )
+
+    def _apply_export_defaults_to_project(self) -> None:
+        if not self._has_export_defaults_service():
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Сделать по умолчанию?",
+            "Настройки монтажного листа текущего проекта будут заменены "
+            "сохранёнными настройками по умолчанию. Продолжить?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        export_config = self.main_window.apply_default_export_config_to_project()
+        self._set_export_config_controls(export_config)
+        QMessageBox.information(
+            self,
+            "Готово",
+            "К текущему проекту применены настройки монтажного листа по "
+            "умолчанию."
+        )
+
+    def _apply_global_export_to_project(self) -> None:
+        if not self._has_export_apply_service():
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Перенести настройки?",
+            "Настройки монтажного листа из глобальных настроек будут "
+            "применены к текущему проекту. Продолжить?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        export_config = self.main_window.apply_export_config_to_project(
+            self._current_export_config()
+        )
+        self._set_export_config_controls(export_config)
+        QMessageBox.information(
+            self,
+            "Готово",
+            "Настройки монтажного листа применены к текущему проекту."
+        )
+
+    def _save_prompter_defaults(self) -> None:
+        if not self._has_prompter_defaults_service():
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Сохранить по умолчанию?",
+            "Текущие настройки телесуфлёра будут использоваться для новых "
+            "проектов. Старые проекты сохранят свои настройки. Продолжить?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        if self.main_window.save_default_prompter_config(
+            self._current_prompter_config()
+        ):
+            QMessageBox.information(
+                self,
+                "Готово",
+                "Настройки телесуфлёра сохранены по умолчанию."
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Не удалось сохранить",
+                "Настройки по умолчанию не были записаны."
+            )
+
+    def _apply_prompter_defaults_to_project(self) -> None:
+        if not self._has_prompter_defaults_service():
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Сделать по умолчанию?",
+            "Настройки телесуфлёра текущего проекта будут заменены "
+            "сохранёнными настройками по умолчанию. Продолжить?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        prompter_config = (
+            self.main_window.apply_default_prompter_config_to_project()
+        )
+        self._set_prompter_config_controls(prompter_config)
+        QMessageBox.information(
+            self,
+            "Готово",
+            "К текущему проекту применены настройки телесуфлёра по умолчанию."
+        )
+
+    def _apply_global_prompter_to_project(self) -> None:
+        if not self._has_prompter_apply_service():
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Перенести настройки?",
+            "Настройки телесуфлёра из глобальных настроек будут применены к "
+            "текущему проекту. Продолжить?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        prompter_config = self.main_window.apply_prompter_config_to_project(
+            self._current_prompter_config()
+        )
+        self._set_prompter_config_controls(prompter_config)
+        QMessageBox.information(
+            self,
+            "Готово",
+            "Настройки телесуфлёра применены к текущему проекту."
+        )
+
+    def get_settings(self) -> Dict[str, Dict[str, Any]]:
+        """Return settings."""
+        if self.settings_scope == "global":
+            return {
+                "language": self.language_combo.currentData(),
+                "default_export_config": self._current_export_config(),
+                "default_prompter_config": self._current_prompter_config(),
+            }
+
+        export_config = self._current_export_config()
+
+        fps = self.merge_fps.value()
+        merge_config = deepcopy(self.merge_config)
+        merge_config.update({
+            "merge": self.merge_enabled.isChecked(),
+            "merge_gap": int(self.merge_gap.value() * fps),
+            "fps": fps,
+            "p_short": self.merge_p_short.value(),
+            "p_long": self.merge_p_long.value(),
+        })
+
+        prompter_config = self._current_prompter_config()
 
         docx_config = deepcopy(self.docx_config)
         docx_config["time_separators"] = self._parse_separators(
@@ -1050,9 +1656,15 @@ class SettingsDialog(QDialog):
             else all_actor_ids
         )
 
-        dialog = ActorFilterDialog(actors, current_selection, self)
+        dialog = ActorFilterDialog(
+            actors,
+            current_selection,
+            self.highlight_negative_ids_export,
+            self
+        )
         if dialog.exec():
             selected = dialog.get_selected()
+            self.highlight_negative_ids_export = dialog.get_negative_selected()
             if len(selected) == len(all_actor_ids) or len(selected) == 0:
                 self.highlight_ids_export = None
             else:
@@ -1071,6 +1683,12 @@ class SettingsDialog(QDialog):
                 for actor_id in self.highlight_ids_export
             ]
             text = "Подсветка выбрана для: " + ", ".join(selected_names)
+        if self.highlight_negative_ids_export:
+            negative_names = [
+                actors.get(actor_id, {}).get("name", actor_id)
+                for actor_id in self.highlight_negative_ids_export
+            ]
+            text += "\nНегатив: " + ", ".join(negative_names)
         self.export_actor_filter_summary.setText(text)
 
     def _hint(self, text: str) -> QLabel:

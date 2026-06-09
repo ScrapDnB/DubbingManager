@@ -69,6 +69,25 @@ class GlobalSettingsService:
                     loaded.get('global_actor_base', {})
                 )
 
+            if 'default_export_config' in loaded:
+                settings['default_export_config'] = self._normalize_export_config(
+                    loaded.get('default_export_config', {})
+                )
+
+            if 'default_prompter_config' in loaded:
+                settings['default_prompter_config'] = (
+                    self._normalize_prompter_config(
+                        loaded.get('default_prompter_config', {})
+                    )
+                )
+
+            if 'prompter_color_presets' in loaded:
+                settings['prompter_color_presets'] = (
+                    self._normalize_prompter_color_presets(
+                        loaded.get('prompter_color_presets', [])
+                    )
+                )
+
             settings['language'] = self._normalize_language(
                 loaded.get('language', DEFAULT_LANGUAGE)
             )
@@ -94,6 +113,17 @@ class GlobalSettingsService:
                 ),
                 'global_actor_base': self._normalize_actor_base(
                     settings.get('global_actor_base', {})
+                ),
+                'default_export_config': self._normalize_export_config(
+                    settings.get('default_export_config', {})
+                ),
+                'default_prompter_config': self._normalize_prompter_config(
+                    settings.get('default_prompter_config', {})
+                ),
+                'prompter_color_presets': (
+                    self._normalize_prompter_color_presets(
+                        settings.get('prompter_color_presets', [])
+                    )
                 ),
                 'language': self._normalize_language(
                     settings.get('language', DEFAULT_LANGUAGE)
@@ -128,6 +158,9 @@ class GlobalSettingsService:
         return {
             'recent_projects': [],
             'global_actor_base': {},
+            'default_export_config': deepcopy(DEFAULT_EXPORT_CONFIG),
+            'default_prompter_config': deepcopy(DEFAULT_PROMPTER_CONFIG),
+            'prompter_color_presets': [None, None, None, None],
             'language': DEFAULT_GLOBAL_SETTINGS.get('language', DEFAULT_LANGUAGE),
         }
 
@@ -139,14 +172,56 @@ class GlobalSettingsService:
 
     def get_export_config(self) -> Dict[str, Any]:
         """Return export settings."""
-        return self.settings.get('export_config', deepcopy(DEFAULT_EXPORT_CONFIG))
+        return self.get_default_export_config()
+
+    def get_default_export_config(self) -> Dict[str, Any]:
+        """Return default export settings for new projects."""
+        return self._normalize_export_config(
+            self.settings.get('default_export_config', {})
+        )
+
+    def set_default_export_config(self, config: Dict[str, Any]) -> None:
+        """Set default export settings for new projects."""
+        self.settings['default_export_config'] = self._normalize_export_config(
+            config
+        )
 
     def get_prompter_config(self) -> Dict[str, Any]:
         """Return teleprompter settings."""
-        return self.settings.get(
-            'prompter_config',
-            deepcopy(DEFAULT_PROMPTER_CONFIG)
+        return self.get_default_prompter_config()
+
+    def get_default_prompter_config(self) -> Dict[str, Any]:
+        """Return default teleprompter settings for new projects."""
+        return self._normalize_prompter_config(
+            self.settings.get('default_prompter_config', {})
         )
+
+    def set_default_prompter_config(self, config: Dict[str, Any]) -> None:
+        """Set default teleprompter settings for new projects."""
+        self.settings['default_prompter_config'] = (
+            self._normalize_prompter_config(config)
+        )
+
+    def get_prompter_color_presets(self) -> List[Optional[Dict[str, str]]]:
+        """Return global teleprompter color presets."""
+        return self._normalize_prompter_color_presets(
+            self.settings.get('prompter_color_presets', [])
+        )
+
+    def set_prompter_color_preset(
+        self,
+        index: int,
+        colors: Optional[Dict[str, str]]
+    ) -> None:
+        """Set one global teleprompter color preset."""
+        presets = self.get_prompter_color_presets()
+        if 0 <= index < len(presets):
+            presets[index] = self._normalize_prompter_colors(colors)
+            self.settings['prompter_color_presets'] = presets
+
+    def clear_prompter_color_preset(self, index: int) -> None:
+        """Clear one global teleprompter color preset."""
+        self.set_prompter_color_preset(index, None)
 
     def get_replica_merge_config(self) -> Dict[str, Any]:
         """Return replica merge settings."""
@@ -164,15 +239,15 @@ class GlobalSettingsService:
 
     def update_export_config(self, config: Dict[str, Any]) -> None:
         """Update export settings."""
-        if 'export_config' not in self.settings:
-            self.settings['export_config'] = {}
-        self.settings['export_config'].update(config)
+        default_config = self.get_default_export_config()
+        default_config.update(config)
+        self.set_default_export_config(default_config)
 
     def update_prompter_config(self, config: Dict[str, Any]) -> None:
         """Update teleprompter settings."""
-        if 'prompter_config' not in self.settings:
-            self.settings['prompter_config'] = {}
-        self.settings['prompter_config'].update(config)
+        default_config = self.get_default_prompter_config()
+        default_config.update(config)
+        self.set_default_prompter_config(default_config)
 
     def update_replica_merge_config(self, config: Dict[str, Any]) -> None:
         """Update replica merge settings."""
@@ -397,6 +472,58 @@ class GlobalSettingsService:
                     str(actor.get("gender", ""))
                 ),
             }
+        return result
+
+    def _normalize_export_config(self, config: Any) -> Dict[str, Any]:
+        """Return sanitized default export settings."""
+        result = deepcopy(DEFAULT_EXPORT_CONFIG)
+        if isinstance(config, dict):
+            for key in DEFAULT_EXPORT_CONFIG:
+                if key in config:
+                    result[key] = deepcopy(config[key])
+        return result
+
+    def _normalize_prompter_config(self, config: Any) -> Dict[str, Any]:
+        """Return sanitized default teleprompter settings."""
+        result = deepcopy(DEFAULT_PROMPTER_CONFIG)
+        if isinstance(config, dict):
+            for key in DEFAULT_PROMPTER_CONFIG:
+                if key == "colors":
+                    continue
+                if key in config:
+                    result[key] = deepcopy(config[key])
+            normalized_colors = self._normalize_prompter_colors(
+                config.get("colors")
+            )
+            if normalized_colors is not None:
+                result["colors"] = normalized_colors
+        return result
+
+    def _normalize_prompter_colors(
+        self,
+        colors: Any
+    ) -> Optional[Dict[str, str]]:
+        """Return sanitized teleprompter colors."""
+        if not isinstance(colors, dict):
+            return None
+
+        result = deepcopy(DEFAULT_PROMPTER_CONFIG["colors"])
+        for color_key in DEFAULT_PROMPTER_CONFIG["colors"]:
+            if color_key in colors:
+                result[color_key] = str(colors[color_key])
+        return result
+
+    def _normalize_prompter_color_presets(
+        self,
+        presets: Any
+    ) -> List[Optional[Dict[str, str]]]:
+        """Return four sanitized teleprompter color preset slots."""
+        result: List[Optional[Dict[str, str]]] = [None, None, None, None]
+        if not isinstance(presets, list):
+            return result
+
+        for index, colors in enumerate(presets[:4]):
+            result[index] = self._normalize_prompter_colors(colors)
         return result
 
     def _normalize_actor_gender(self, gender: str) -> str:

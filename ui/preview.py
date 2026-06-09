@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QComboBox, QSpinBox, QGroupBox, QFormLayout,
+    QLabel, QComboBox, QDoubleSpinBox, QSpinBox, QGroupBox, QFormLayout,
     QFrame, QCheckBox
 )
 from PySide6.QtCore import Qt
@@ -51,7 +51,8 @@ class HtmlLivePreview(QDialog):
         )
         self.resize(PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT)
 
-        self.highlight_ids = None
+        self.highlight_ids = self._get_export_highlight_ids()
+        self.highlight_negative_ids = self._get_export_negative_ids()
         self._has_text_changes: bool = False
 
         self._init_ui()
@@ -193,9 +194,31 @@ class HtmlLivePreview(QDialog):
         fg_layout.addRow("Актер:", self.s_actor)
         fg_layout.addRow("Текст:", self.s_text)
         sp_layout.addWidget(font_group)
+
+        self.table_widths_group = QGroupBox("Ширина колонок таблицы")
+        widths_layout = QFormLayout(self.table_widths_group)
+        self.s_width_time = self._width_spin(
+            cfg.get("table_width_time", 7.0)
+        )
+        self.s_width_char = self._width_spin(
+            cfg.get("table_width_char", 10.0)
+        )
+        self.s_width_actor = self._width_spin(
+            cfg.get("table_width_actor", 8.5)
+        )
+        widths_layout.addRow("Тайминг:", self.s_width_time)
+        widths_layout.addRow("Персонаж:", self.s_width_char)
+        widths_layout.addRow("Актер:", self.s_width_actor)
+        sp_layout.addWidget(self.table_widths_group)
+        self._update_table_width_controls_visibility()
         
         filter_group = QGroupBox("Подсветка")
         f_lay = QVBoxLayout(filter_group)
+        self.chk_soften_colors = self._preview_check_box(
+            "Смягчить цвета",
+            cfg.get("soften_colors", True)
+        )
+        f_lay.addWidget(self.chk_soften_colors)
         btn_filter = QPushButton("Выбрать актеров...")
         btn_filter.clicked.connect(self.open_actor_filter)
         f_lay.addWidget(btn_filter)
@@ -219,6 +242,80 @@ class HtmlLivePreview(QDialog):
         checkbox.setChecked(bool(checked))
         checkbox.toggled.connect(self.on_setting_change)
         return checkbox
+
+    def _width_spin(self, value: Any) -> QDoubleSpinBox:
+        """Create a table column width control."""
+        spin = QDoubleSpinBox()
+        spin.setRange(4.0, 24.0)
+        spin.setSingleStep(0.5)
+        spin.setDecimals(1)
+        spin.setSuffix(" ед.")
+        spin.setValue(float(value))
+        spin.valueChanged.connect(self.on_setting_change)
+        return spin
+
+    def _update_table_width_controls_visibility(self) -> None:
+        if hasattr(self, "table_widths_group"):
+            self.table_widths_group.setVisible(
+                self.combo_layout.currentData() == "Таблица"
+            )
+
+    def sync_export_settings(self, update_preview: bool = True) -> None:
+        """Sync preview controls from the project's export settings."""
+        cfg = self.main_app.data["export_config"]
+        widgets = [
+            self.combo_layout,
+            self.chk_col_tc,
+            self.chk_col_char,
+            self.chk_col_actor,
+            self.chk_col_text,
+            self.chk_round_time,
+            self.combo_time_display,
+            self.s_time,
+            self.s_char,
+            self.s_actor,
+            self.s_text,
+            self.s_width_time,
+            self.s_width_char,
+            self.s_width_actor,
+            self.chk_soften_colors,
+        ]
+        for widget in widgets:
+            widget.blockSignals(True)
+
+        layout_index = self.combo_layout.findData(
+            cfg.get("layout_type", "Таблица")
+        )
+        self.combo_layout.setCurrentIndex(layout_index if layout_index >= 0 else 0)
+        self.chk_col_tc.setChecked(cfg.get("col_tc", True))
+        self.chk_col_char.setChecked(cfg.get("col_char", True))
+        self.chk_col_actor.setChecked(cfg.get("col_actor", True))
+        self.chk_col_text.setChecked(cfg.get("col_text", True))
+        self.chk_round_time.setChecked(cfg.get("round_time", False))
+        time_display_index = self.combo_time_display.findData(
+            cfg.get("time_display", "range")
+        )
+        self.combo_time_display.setCurrentIndex(
+            time_display_index if time_display_index >= 0 else 0
+        )
+        self.s_time.setValue(cfg.get("f_time", 12))
+        self.s_char.setValue(cfg.get("f_char", 14))
+        self.s_actor.setValue(cfg.get("f_actor", 14))
+        self.s_text.setValue(cfg.get("f_text", 16))
+        self.s_width_time.setValue(cfg.get("table_width_time", 7.0))
+        self.s_width_char.setValue(cfg.get("table_width_char", 10.0))
+        self.s_width_actor.setValue(cfg.get("table_width_actor", 8.5))
+        self.chk_soften_colors.setChecked(cfg.get("soften_colors", True))
+
+        for widget in widgets:
+            widget.blockSignals(False)
+
+        self.highlight_ids = self._get_export_highlight_ids()
+        self.highlight_negative_ids = self._get_export_negative_ids()
+        self._update_table_width_controls_visibility()
+
+        if update_preview:
+            self.update_preview()
     
     def on_page_loaded(self, ok: bool) -> None:
         """Handle page loaded."""
@@ -297,8 +394,28 @@ class HtmlLivePreview(QDialog):
         cfg["f_char"] = self.s_char.value()
         cfg["f_actor"] = self.s_actor.value()
         cfg["f_text"] = self.s_text.value()
+        cfg["table_width_time"] = self.s_width_time.value()
+        cfg["table_width_char"] = self.s_width_char.value()
+        cfg["table_width_actor"] = self.s_width_actor.value()
+        cfg["soften_colors"] = self.chk_soften_colors.isChecked()
+        self._update_table_width_controls_visibility()
         self._save_export_settings()
         self.update_preview()
+
+    def _get_export_highlight_ids(self) -> Optional[List[str]]:
+        """Return the current actor highlight filter from export settings."""
+        return self.main_app.data.get("export_config", {}).get(
+            "highlight_ids_export"
+        )
+
+    def _get_export_negative_ids(self) -> List[str]:
+        """Return actors that use white text over highlight color."""
+        return list(
+            self.main_app.data.get("export_config", {}).get(
+                "highlight_negative_ids_export",
+                []
+            ) or []
+        )
 
     def _save_export_settings(self) -> None:
         """Mark project-local preview export settings as changed."""
@@ -317,15 +434,21 @@ class HtmlLivePreview(QDialog):
         dialog = ActorFilterDialog(
             self.main_app.data["actors"], 
             current_selection, 
+            self.highlight_negative_ids,
             self
         )
         
         if dialog.exec():
             selected = dialog.get_selected()
+            self.highlight_negative_ids = dialog.get_negative_selected()
+            cfg = self.main_app.data["export_config"]
             if len(selected) == len(all_aids) or len(selected) == 0:
                 self.highlight_ids = None
             else:
                 self.highlight_ids = selected
+            cfg["highlight_ids_export"] = self.highlight_ids
+            cfg["highlight_negative_ids_export"] = self.highlight_negative_ids
+            self._save_export_settings()
             self.update_preview()
     
     def keyPressEvent(self, event) -> None:

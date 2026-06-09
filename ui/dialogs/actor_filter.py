@@ -16,17 +16,24 @@ class ActorFilterDialog(QDialog):
         self,
         actors_data: Dict[str, Dict],
         selected_ids: Optional[List[str]] = None,
+        negative_ids: Optional[List[str]] = None,
         parent: Optional[QDialog] = None
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Выбор подсветки")
-        self.resize(300, 400)
+        self.resize(420, 520)
 
         self.actors_data: Dict[str, Dict] = actors_data
         self.selected_ids: Set[str] = set(selected_ids) if selected_ids else set()
+        self.negative_ids: Set[str] = (
+            set(negative_ids)
+            if negative_ids
+            else set()
+        )
 
         self._checks_layout: QVBoxLayout
         self._checkboxes: Dict[str, QCheckBox]
+        self._negative_checkboxes: Dict[str, QCheckBox]
         self._init_ui()
         translate_widget_tree(self)
 
@@ -48,14 +55,27 @@ class ActorFilterDialog(QDialog):
         self._checks_layout = QVBoxLayout(content)
 
         self._checkboxes = {}
+        self._negative_checkboxes = {}
         aid: str
         info: Dict
         for aid, info in self.actors_data.items():
+            row = QHBoxLayout()
             chk: QCheckBox = QCheckBox(info["name"])
             if not self.selected_ids or aid in self.selected_ids:
                 chk.setChecked(True)
+            negative_chk = QPushButton("◐")
+            negative_chk.setCheckable(True)
+            negative_chk.setChecked(aid in self.negative_ids)
+            negative_chk.setFixedWidth(32)
+            negative_chk.setToolTip(
+                "Белый текст поверх выделения этого актёра."
+            )
             self._checkboxes[aid] = chk
-            self._checks_layout.addWidget(chk)
+            self._negative_checkboxes[aid] = negative_chk
+            row.addWidget(chk)
+            row.addStretch()
+            row.addWidget(negative_chk)
+            self._checks_layout.addLayout(row)
 
         self._checks_layout.addStretch()
         scroll.setWidget(content)
@@ -78,3 +98,11 @@ class ActorFilterDialog(QDialog):
     def get_selected(self) -> List[str]:
         """Return selected."""
         return [aid for aid, chk in self._checkboxes.items() if chk.isChecked()]
+
+    def get_negative_selected(self) -> List[str]:
+        """Return actors that should use negative text color."""
+        return [
+            aid
+            for aid, chk in self._negative_checkboxes.items()
+            if chk.isChecked()
+        ]

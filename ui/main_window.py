@@ -862,6 +862,7 @@ class MainWindow(QMainWindow):
         self.chk_exp_html.setChecked(True)
 
         self.chk_exp_xls = QCheckBox("Excel")
+        self.chk_exp_docx = QCheckBox("DOCX")
 
         self.radio_cur = QRadioButton()
         self.radio_cur.setChecked(True)
@@ -873,6 +874,7 @@ class MainWindow(QMainWindow):
 
         exp_lay.addWidget(self.chk_exp_html)
         exp_lay.addWidget(self.chk_exp_xls)
+        exp_lay.addWidget(self.chk_exp_docx)
         exp_lay.addSpacing(EXPORT_PANEL_SPACING)
         exp_lay.addWidget(self.radio_cur)
         exp_lay.addWidget(self.radio_all)
@@ -942,6 +944,7 @@ class MainWindow(QMainWindow):
             self.btn_cfg.setToolTip(tr("export.sheet_view.tooltip"))
             self.btn_preview.setText(tr("export.preview"))
             self.chk_exp_html.setText(tr("export.html"))
+            self.chk_exp_docx.setText("DOCX")
             self.radio_cur.setText(tr("episode.current"))
             self.radio_all.setText(tr("common.all"))
             self.btn_run_export.setText(tr("export.run"))
@@ -2404,6 +2407,7 @@ class MainWindow(QMainWindow):
             self._recalculate_episode_stats(lines)
             self._display_episode_lines(lines)
             self.table_stack.setCurrentIndex(0)
+            self._update_actor_filter_combo()
             self.refresh_main_table()
             self.update_save_ass_button()
             return
@@ -2858,8 +2862,14 @@ class MainWindow(QMainWindow):
         self.actor_filter_combo.clear()
         self.actor_filter_combo.addItem(tr("common.all"), None)
 
+        episode_actor_ids = self._get_current_episode_actor_ids()
+        actors = self.data.get("actors", {})
         for actor_id, info in sorted(
-            self.data.get("actors", {}).items(),
+            (
+                (actor_id, actors[actor_id])
+                for actor_id in episode_actor_ids
+                if actor_id in actors
+            ),
             key=lambda item: item[1].get("name", "").lower()
         ):
             self.actor_filter_combo.addItem(info.get("name", actor_id), actor_id)
@@ -2867,6 +2877,16 @@ class MainWindow(QMainWindow):
         index = self.actor_filter_combo.findData(current)
         self.actor_filter_combo.setCurrentIndex(index if index >= 0 else 0)
         self.actor_filter_combo.blockSignals(False)
+
+    def _get_current_episode_actor_ids(self) -> Set[str]:
+        """Return actor ids that appear in the current episode."""
+        ep = self.ep_combo.currentData() if hasattr(self, "ep_combo") else None
+        actor_ids: Set[str] = set()
+        for stat in self.current_ep_stats:
+            actor_id = get_actor_for_character(self.data, stat["name"], ep)
+            if actor_id:
+                actor_ids.add(actor_id)
+        return actor_ids
 
     def refresh_actor_list(self) -> None:
         """Refresh actor list."""
@@ -3019,8 +3039,9 @@ class MainWindow(QMainWindow):
         """Run unified export."""
         do_html: bool = self.chk_exp_html.isChecked()
         do_xls: bool = self.chk_exp_xls.isChecked()
+        do_docx: bool = self.chk_exp_docx.isChecked()
 
-        if not (do_html or do_xls):
+        if not (do_html or do_xls or do_docx):
             return
 
         is_all: bool = self.radio_all.isChecked()
@@ -3035,26 +3056,30 @@ class MainWindow(QMainWindow):
         if not episodes or None in episodes.values():
             return
 
-        if is_all or (do_html and do_xls):
+        selected_count = sum([do_html, do_xls, do_docx])
+        if is_all or selected_count > 1:
             dest = QFileDialog.getExistingDirectory(
                 self, "Выберите папку"
             )
             if dest:
                 self._execute_batch_export(
-                    episodes, do_html, do_xls, dest
+                    episodes, do_html, do_xls, do_docx, dest
                 )
         else:
             ep = list(episodes.keys())[0]
             if do_html:
                 self.export_to_html(ep)
-            else:
+            elif do_xls:
                 self.export_to_excel(ep)
+            else:
+                self.export_to_docx(ep)
 
     def _execute_batch_export(
         self,
         episodes: Dict[str, str],
         do_html: bool,
         do_xls: bool,
+        do_docx: bool,
         folder: str
     ) -> None:
         """Execute batch export."""
@@ -3080,6 +3105,7 @@ class MainWindow(QMainWindow):
             get_lines_callback=self.get_episode_lines,
             do_html=do_html,
             do_xls=do_xls,
+            do_docx=do_docx,
             folder=folder,
             progress_callback=progress_callback
         )
@@ -3102,6 +3128,17 @@ class MainWindow(QMainWindow):
         export_service = ExportService(self.data)
         return export_service.create_excel_book(ep, processed, cfg)
 
+    def _open_exported_file_if_needed(self, path: str) -> None:
+        """Open an exported file when export settings allow it."""
+        if not self.data.get("export_config", {}).get("open_auto", True):
+            return
+        if sys.platform == 'win32':
+            os.startfile(path)
+        elif sys.platform == 'darwin':
+            os.system(f'open "{path}"')
+        else:
+            os.system(f'xdg-open "{path}"')
+
     def export_to_excel(self, ep: str) -> None:
         """Export data to an Excel file."""
         if not self.export_controller:
@@ -3114,10 +3151,23 @@ class MainWindow(QMainWindow):
         if path:
             success, message = self.export_controller.export_to_excel(ep, path)
             if success:
-                if sys.platform == 'win32':
-                    os.startfile(path)
-                else:
-                    os.system(f'open "{path}"')
+                self._open_exported_file_if_needed(path)
+            else:
+                QMessageBox.warning(self, "Ошибка", message)
+
+    def export_to_docx(self, ep: str) -> None:
+        """Export data to a DOCX file."""
+        if not self.export_controller:
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save DOCX", f"Script_{ep}.docx", "*.docx"
+        )
+
+        if path:
+            success, message = self.export_controller.export_to_docx(ep, path)
+            if success:
+                self._open_exported_file_if_needed(path)
             else:
                 QMessageBox.warning(self, "Ошибка", message)
 
@@ -3133,10 +3183,7 @@ class MainWindow(QMainWindow):
         if path:
             success, message = self.export_controller.export_to_html(ep, path)
             if success:
-                if sys.platform == 'win32':
-                    os.startfile(path)
-                else:
-                    os.system(f'open "{path}"')
+                self._open_exported_file_if_needed(path)
             else:
                 QMessageBox.warning(self, "Ошибка", message)
 
@@ -3374,7 +3421,7 @@ class MainWindow(QMainWindow):
         """Open export settings."""
         self.open_project_settings(initial_tab="export")
 
-    def open_global_settings(self, initial_tab: str = "interface") -> None:
+    def open_global_settings(self, initial_tab: str = "export") -> None:
         """Open global application settings."""
         dialog = SettingsDialog(
             self.data,
@@ -3386,7 +3433,20 @@ class MainWindow(QMainWindow):
             settings = dialog.get_settings()
             old_language = self.global_settings.get("language", "ru")
             self.global_settings["language"] = settings.get("language", old_language)
+            if "default_export_config" in settings:
+                self.global_settings["default_export_config"] = (
+                    settings["default_export_config"]
+                )
+            if "default_prompter_config" in settings:
+                self.global_settings["default_prompter_config"] = (
+                    settings["default_prompter_config"]
+                )
             self.global_settings_service.save_settings(self.global_settings)
+            self.global_settings = self.global_settings_service.get_settings()
+            if "default_prompter_config" in settings:
+                self.apply_prompter_reaper_ports_to_project(
+                    settings["default_prompter_config"]
+                )
 
             if self.global_settings["language"] != old_language:
                 set_language(self.global_settings["language"])
@@ -3415,7 +3475,17 @@ class MainWindow(QMainWindow):
             )
 
             self.change_episode()
+            self._sync_preview_export_settings()
             self.set_dirty()
+
+    def _sync_preview_export_settings(self) -> None:
+        """Refresh open preview controls after export settings change."""
+        if not getattr(self, "preview_window", None):
+            return
+        if hasattr(self.preview_window, "sync_export_settings"):
+            self.preview_window.sync_export_settings(update_preview=True)
+        else:
+            self.preview_window.update_preview()
 
     def open_global_search(self) -> None:
         """Open global search."""
@@ -3468,11 +3538,118 @@ class MainWindow(QMainWindow):
         self,
         project_data: Dict[str, Any]
     ) -> None:
-        """Keep new projects independent from global project settings."""
+        """Apply global defaults that are intended for new projects."""
+        project_data["export_config"] = (
+            self.global_settings_service.get_default_export_config()
+        )
+        project_data["prompter_config"] = (
+            self.global_settings_service.get_default_prompter_config()
+        )
         project_data.setdefault(
             "docx_import_config",
             deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
         )
+
+    def save_default_export_config(self, config: Dict[str, Any]) -> bool:
+        """Save default export settings for future projects."""
+        self.global_settings_service.set_default_export_config(config)
+        self.global_settings["default_export_config"] = (
+            self.global_settings_service.get_default_export_config()
+        )
+        return self.global_settings_service.save_settings(self.global_settings)
+
+    def apply_default_export_config_to_project(self) -> Dict[str, Any]:
+        """Apply default export settings to the current project."""
+        return self.apply_export_config_to_project(
+            self.global_settings_service.get_default_export_config()
+        )
+
+    def apply_export_config_to_project(
+        self,
+        config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Apply export settings to the current project."""
+        self.data["export_config"] = deepcopy(config)
+        self._sync_preview_export_settings()
+        self.set_dirty(True)
+        return deepcopy(self.data["export_config"])
+
+    def save_default_prompter_config(self, config: Dict[str, Any]) -> bool:
+        """Save default teleprompter settings for future projects."""
+        self.global_settings_service.set_default_prompter_config(config)
+        self.global_settings["default_prompter_config"] = (
+            self.global_settings_service.get_default_prompter_config()
+        )
+        return self.global_settings_service.save_settings(self.global_settings)
+
+    def apply_default_prompter_config_to_project(self) -> Dict[str, Any]:
+        """Apply default teleprompter settings to the current project."""
+        return self.apply_prompter_config_to_project(
+            self.global_settings_service.get_default_prompter_config()
+        )
+
+    def apply_prompter_config_to_project(
+        self,
+        config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Apply teleprompter settings to the current project."""
+        self.data["prompter_config"] = deepcopy(config)
+        self._sync_teleprompter_settings()
+        self.set_dirty(True)
+        return deepcopy(self.data["prompter_config"])
+
+    def apply_prompter_reaper_ports_to_project(
+        self,
+        config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Apply Reaper sync ports to the current project."""
+        prompter_config = deepcopy(
+            self.data.get("prompter_config") or DEFAULT_PROMPTER_CONFIG
+        )
+        changed = False
+        for key in ("port_in", "port_out"):
+            if key in config and prompter_config.get(key) != config[key]:
+                prompter_config[key] = config[key]
+                changed = True
+
+        if changed:
+            self.data["prompter_config"] = prompter_config
+            self._sync_teleprompter_settings()
+            self.set_dirty(True)
+        return deepcopy(prompter_config)
+
+    def _sync_teleprompter_settings(self) -> None:
+        """Refresh an open teleprompter after settings change."""
+        if not getattr(self, "teleprompter_window", None):
+            return
+        self.teleprompter_window.cfg = self.data["prompter_config"]
+        if hasattr(self.teleprompter_window, "sync_config_controls"):
+            self.teleprompter_window.sync_config_controls()
+        self.teleprompter_window.build_prompter_content()
+
+    def get_prompter_color_presets(self) -> List[Optional[Dict[str, str]]]:
+        """Return global teleprompter color presets."""
+        return self.global_settings_service.get_prompter_color_presets()
+
+    def save_prompter_color_preset(
+        self,
+        index: int,
+        colors: Dict[str, str]
+    ) -> bool:
+        """Save one global teleprompter color preset."""
+        self.global_settings_service.set_prompter_color_preset(index, colors)
+        self.global_settings["prompter_color_presets"] = (
+            self.global_settings_service.get_prompter_color_presets()
+        )
+        return self.global_settings_service.save_settings(self.global_settings)
+
+    def clear_prompter_color_preset(self, index: int) -> bool:
+        """Clear one global teleprompter color preset."""
+        self.global_settings_service.clear_prompter_color_preset(index)
+        self.global_settings["prompter_color_presets"] = (
+            self.global_settings_service.get_prompter_color_presets()
+        )
+        return self.global_settings_service.save_settings(self.global_settings)
 
     def save_global_prompter_settings(self, config: Dict[str, Any]) -> None:
         """Compatibility shim for teleprompter callers; settings are project-local."""
@@ -3629,7 +3806,8 @@ class MainWindow(QMainWindow):
         btn_updates.clicked.connect(
             lambda: self.check_for_updates(
                 button=btn_updates,
-                force_install=self._is_force_update_modifier_pressed()
+                force_install=self._is_force_update_modifier_pressed(),
+                source_dialog=dialog,
             )
         )
         buttons.rejected.connect(dialog.reject)
@@ -3644,7 +3822,8 @@ class MainWindow(QMainWindow):
     def check_for_updates(
         self,
         button: Optional[QPushButton] = None,
-        force_install: bool = False
+        force_install: bool = False,
+        source_dialog: Optional[QDialog] = None,
     ) -> None:
         """Check GitHub Releases for a newer application version."""
         if button is not None:
@@ -3690,6 +3869,9 @@ class MainWindow(QMainWindow):
                 QMessageBox.Yes
             )
             if reply == QMessageBox.Yes:
+                if source_dialog is not None:
+                    source_dialog.close()
+                    QApplication.processEvents()
                 self.install_update(update_info)
             else:
                 QDesktopServices.openUrl(QUrl(update_info.release_url))

@@ -152,6 +152,7 @@ DEFAULT_PROMPTER_CONFIG = {
     "show_header": False,
     "port_in": 8000,
     "port_out": 9000,
+    "osc_enabled": False,
     "sync_in": True,
     "sync_out": False,
     "reaper_offset_enabled": False,
@@ -180,11 +181,16 @@ DEFAULT_EXPORT_CONFIG = {
     'f_char': 20,
     'f_actor': 14,
     'f_text': 30,
+    'table_width_time': 7.0,
+    'table_width_char': 10.0,
+    'table_width_actor': 8.5,
     'use_color': True,
+    'soften_colors': True,
     'open_auto': True,
     'round_time': False,
     'time_display': 'range',
-    'allow_edit': True
+    'allow_edit': True,
+    'highlight_negative_ids_export': [],
 }
 
 DEFAULT_REPLICA_MERGE_CONFIG = {
@@ -210,7 +216,7 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Application version shown in the UI and build metadata.
-APP_VERSION = "1.4.6"
+APP_VERSION = "1.5.0"
 
 # Project file format version used for compatibility migrations.
 PROJECT_VERSION = "1.3"
