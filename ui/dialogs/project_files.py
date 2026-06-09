@@ -3,7 +3,8 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTreeWidget, QTreeWidgetItem, QMessageBox, QFileDialog,
-    QHeaderView, QDialogButtonBox
+    QHeaderView, QDialogButtonBox, QTabWidget, QWidget, QTableWidget,
+    QTableWidgetItem
 )
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtCore import Qt
@@ -11,7 +12,7 @@ from typing import Dict, List, Any, Optional, Tuple
 import os
 
 from core.commands import DeleteEpisodeCommand
-from services import ProjectFolderService
+from services import ProjectFolderService, ProjectHealthService
 from utils.helpers import natural_sort_key
 from utils.i18n import translate_source, translate_widget_tree
 
@@ -22,11 +23,14 @@ class ProjectFilesDialog(QDialog):
     def __init__(
         self,
         data: Dict[str, Any],
-        parent=None
+        parent=None,
+        initial_tab: str = "files",
     ):
         super().__init__(parent)
         self.data = data
         self.folder_service = ProjectFolderService()
+        self.health_service = ProjectHealthService()
+        self.initial_tab = initial_tab
         
         self.setWindowTitle("Файлы проекта")
         self.resize(800, 600)
@@ -34,6 +38,7 @@ class ProjectFilesDialog(QDialog):
         self._init_ui()
         translate_widget_tree(self)
         self._populate_tree()
+        self._refresh_health()
 
     def _init_ui(self) -> None:
         """Init ui."""
@@ -42,6 +47,10 @@ class ProjectFilesDialog(QDialog):
         header_label = QLabel("Структура файлов проекта")
         header_label.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout.addWidget(header_label)
+
+        self.tabs = QTabWidget()
+        files_tab = QWidget()
+        files_layout = QVBoxLayout(files_tab)
         
         self.file_tree = QTreeWidget()
         self.file_tree.setHeaderLabels([
@@ -60,11 +69,11 @@ class ProjectFilesDialog(QDialog):
             3, QHeaderView.Stretch
         )
         self.file_tree.setAlternatingRowColors(True)
-        layout.addWidget(self.file_tree)
+        files_layout.addWidget(self.file_tree)
         
         self.lbl_stats = QLabel("")
         self.lbl_stats.setStyleSheet("color: #666;")
-        layout.addWidget(self.lbl_stats)
+        files_layout.addWidget(self.lbl_stats)
         
         btn_layout = QHBoxLayout()
         
@@ -105,7 +114,45 @@ class ProjectFilesDialog(QDialog):
         self.btn_close.clicked.connect(self.accept)
         btn_layout.addWidget(self.btn_close)
         
-        layout.addLayout(btn_layout)
+        files_layout.addLayout(btn_layout)
+        self.tabs.addTab(files_tab, "Файлы")
+
+        health_tab = QWidget()
+        health_layout = QVBoxLayout(health_tab)
+        self.lbl_health_summary = QLabel("")
+        self.lbl_health_summary.setStyleSheet("color: #666;")
+        health_layout.addWidget(self.lbl_health_summary)
+        self.health_table = QTableWidget(0, 5)
+        self.health_table.setHorizontalHeaderLabels([
+            "Уровень", "Серия", "Категория", "Сообщение", "Путь"
+        ])
+        self.health_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeToContents
+        )
+        self.health_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeToContents
+        )
+        self.health_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeToContents
+        )
+        self.health_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.Stretch
+        )
+        self.health_table.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.Stretch
+        )
+        self.health_table.setAlternatingRowColors(True)
+        health_layout.addWidget(self.health_table)
+        health_buttons = QHBoxLayout()
+        health_buttons.addStretch()
+        self.btn_refresh_health = QPushButton("Обновить проверку")
+        self.btn_refresh_health.clicked.connect(self._refresh_health)
+        health_buttons.addWidget(self.btn_refresh_health)
+        health_layout.addLayout(health_buttons)
+        self.tabs.addTab(health_tab, "Проверка")
+
+        layout.addWidget(self.tabs)
+        self.tabs.setCurrentIndex(1 if self.initial_tab == "health" else 0)
         
         self.file_tree.itemSelectionChanged.connect(
             self._on_selection_changed
@@ -298,6 +345,52 @@ class ProjectFilesDialog(QDialog):
         
         self.file_tree.expandAll()
 
+    def _refresh_health(self) -> None:
+        """Refresh the project health tab."""
+        if not hasattr(self, "health_table"):
+            return
+
+        issues = self.health_service.check_project(self.data)
+        summary = self.health_service.get_summary(issues)
+        if summary["total"] == 0:
+            self.lbl_health_summary.setText(translate_source("Проблем не найдено."))
+        else:
+            self.lbl_health_summary.setText(
+                f"{translate_source('Ошибки:')} {summary['errors']} | "
+                f"{translate_source('Предупреждения:')} {summary['warnings']} | "
+                f"{translate_source('Инфо:')} {summary['info']}"
+            )
+
+        severity_labels = {
+            ProjectHealthService.SEVERITY_ERROR: "Ошибка",
+            ProjectHealthService.SEVERITY_WARNING: "Предупреждение",
+            ProjectHealthService.SEVERITY_INFO: "Инфо",
+        }
+        severity_colors = {
+            ProjectHealthService.SEVERITY_ERROR: QColor("#dc3545"),
+            ProjectHealthService.SEVERITY_WARNING: QColor("#e0a800"),
+            ProjectHealthService.SEVERITY_INFO: QColor("#0d6efd"),
+        }
+        self.health_table.setRowCount(len(issues))
+        for row, issue in enumerate(issues):
+            values = [
+                translate_source(severity_labels.get(issue.severity, issue.severity)),
+                issue.episode or "",
+                translate_source(issue.category),
+                translate_source(issue.message),
+                issue.path or "",
+            ]
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(value)
+                if column == 0:
+                    color = severity_colors.get(issue.severity)
+                    if color:
+                        item.setForeground(color)
+                if column in {0, 1, 2}:
+                    item.setTextAlignment(Qt.AlignCenter)
+                self.health_table.setItem(row, column, item)
+
     def _missing_source_episodes(self) -> List[str]:
         """Return episodes that can generate a missing working text."""
         episodes = self.data.get("episodes", {})
@@ -399,6 +492,7 @@ class ProjectFilesDialog(QDialog):
                 self.data["video_paths"][ep_num] = path
             
             self._populate_tree()
+            self._refresh_health()
             
             self.parent()._on_files_changed() if hasattr(self.parent(), '_on_files_changed') else None
 
@@ -446,6 +540,7 @@ class ProjectFilesDialog(QDialog):
 
         if parent.regenerate_episode_text(ep_num, source_path):
             self._populate_tree()
+            self._refresh_health()
             if hasattr(parent, '_on_files_changed'):
                 parent._on_files_changed()
 
@@ -492,6 +587,7 @@ class ProjectFilesDialog(QDialog):
             parent.episode_service.invalidate_episode(ep_num)
 
         self._populate_tree()
+        self._refresh_health()
         if parent and hasattr(parent, '_on_files_changed'):
             parent._on_files_changed()
         elif parent and hasattr(parent, "set_dirty"):
@@ -519,9 +615,11 @@ class ProjectFilesDialog(QDialog):
 
         parent.create_missing_working_texts(episodes)
         self._populate_tree()
+        self._refresh_health()
         if hasattr(parent, '_on_files_changed'):
             parent._on_files_changed()
 
     def _refresh(self) -> None:
         """Refresh."""
         self._populate_tree()
+        self._refresh_health()

@@ -3,7 +3,7 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QComboBox, QDoubleSpinBox, QSpinBox, QGroupBox, QFormLayout,
-    QFrame, QCheckBox
+    QFrame, QCheckBox, QFileDialog, QMessageBox, QRadioButton
 )
 from PySide6.QtCore import Qt
 from PySide6.QtWebChannel import QWebChannel
@@ -23,7 +23,7 @@ from config.constants import (
     PREVIEW_WINDOW_HEIGHT,
     PREVIEW_SETTINGS_PANEL_WIDTH,
 )
-from utils.helpers import hex_to_rgba_string, log_exception
+from utils.helpers import hex_to_rgba_string, log_exception, natural_sort_key
 from utils.i18n import translate_source, translate_widget_tree
 from utils.web_bridge import WebBridge
 from services import ExportService
@@ -45,10 +45,7 @@ class HtmlLivePreview(QDialog):
         super().__init__(None)
         self.main_app: Any = main_app
         self.ep_num: str = ep_num
-        self.setWindowTitle(
-            f"{translate_source('Предпросмотр монтажного листа:')} "
-            f"{translate_source('Серия')} {ep_num}"
-        )
+        self._update_window_title()
         self.resize(PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT)
 
         self.highlight_ids = self._get_export_highlight_ids()
@@ -91,6 +88,11 @@ class HtmlLivePreview(QDialog):
         self.btn_toggle_sidebar.clicked.connect(self.toggle_sidebar)
 
         self.nav_panel.addWidget(self.btn_toggle_sidebar)
+        self.nav_panel.addWidget(QLabel("Серия:"))
+        self.combo_episode = QComboBox()
+        self._populate_episode_combo()
+        self.combo_episode.currentIndexChanged.connect(self.on_episode_change)
+        self.nav_panel.addWidget(self.combo_episode)
         self.nav_panel.addStretch()
 
         self.root_layout.addLayout(self.nav_panel)
@@ -223,6 +225,31 @@ class HtmlLivePreview(QDialog):
         btn_filter.clicked.connect(self.open_actor_filter)
         f_lay.addWidget(btn_filter)
         sp_layout.addWidget(filter_group)
+
+        export_group = QGroupBox("Экспорт")
+        export_layout = QVBoxLayout(export_group)
+        formats_layout = QHBoxLayout()
+        self.chk_exp_html = QCheckBox("HTML")
+        self.chk_exp_html.setChecked(True)
+        self.chk_exp_xls = QCheckBox("XLSX")
+        self.chk_exp_docx = QCheckBox("DOCX")
+        formats_layout.addWidget(self.chk_exp_html)
+        formats_layout.addWidget(self.chk_exp_xls)
+        formats_layout.addWidget(self.chk_exp_docx)
+        export_layout.addLayout(formats_layout)
+
+        scope_layout = QHBoxLayout()
+        self.radio_current_episode = QRadioButton("Текущая серия")
+        self.radio_current_episode.setChecked(True)
+        self.radio_all_episodes = QRadioButton("Все серии")
+        scope_layout.addWidget(self.radio_current_episode)
+        scope_layout.addWidget(self.radio_all_episodes)
+        export_layout.addLayout(scope_layout)
+
+        self.btn_export = QPushButton("Экспортировать")
+        self.btn_export.clicked.connect(self.run_export)
+        export_layout.addWidget(self.btn_export)
+        sp_layout.addWidget(export_group)
         sp_layout.addStretch()
         
         btn_close = QPushButton("Закрыть")
@@ -235,6 +262,88 @@ class HtmlLivePreview(QDialog):
         if not WEB_ENGINE_AVAILABLE:
             self.browser.setOpenExternalLinks(False)
         self.content_layout.addWidget(self.browser)
+
+    def _update_window_title(self) -> None:
+        self.setWindowTitle(
+            f"{translate_source('Монтажный лист:')} "
+            f"{translate_source('Серия')} {self.ep_num}"
+        )
+
+    def _populate_episode_combo(self) -> None:
+        """Populate the preview episode selector."""
+        episodes = self.main_app.data.get("episodes", {})
+        episode_numbers = sorted(
+            {str(ep) for ep in episodes.keys()} | {str(self.ep_num)},
+            key=natural_sort_key,
+        )
+        self.combo_episode.blockSignals(True)
+        self.combo_episode.clear()
+        for ep in episode_numbers:
+            self.combo_episode.addItem(f"Серия {ep}", ep)
+        index = self.combo_episode.findData(str(self.ep_num))
+        self.combo_episode.setCurrentIndex(index if index >= 0 else 0)
+        self.combo_episode.blockSignals(False)
+
+    def on_episode_change(self) -> None:
+        """Switch the montage sheet preview to another episode."""
+        ep = self.combo_episode.currentData()
+        if not ep or str(ep) == str(self.ep_num):
+            return
+        self.ep_num = str(ep)
+        self._update_window_title()
+        if hasattr(self.main_app, "switch_to_episode"):
+            self.main_app.switch_to_episode(self.ep_num)
+        self.update_preview()
+
+    def run_export(self) -> None:
+        """Export the montage sheet from this window."""
+        do_html = self.chk_exp_html.isChecked()
+        do_xls = self.chk_exp_xls.isChecked()
+        do_docx = self.chk_exp_docx.isChecked()
+        if not (do_html or do_xls or do_docx):
+            QMessageBox.information(
+                self,
+                "Экспорт",
+                "Выберите хотя бы один формат."
+            )
+            return
+
+        if self.radio_all_episodes.isChecked():
+            episodes = self.main_app.data.get("episodes", {})
+        else:
+            episodes = {
+                self.ep_num: self.main_app.data.get("episodes", {}).get(
+                    self.ep_num
+                )
+            }
+
+        if not episodes or None in episodes.values():
+            QMessageBox.warning(self, "Экспорт", "Нет серий для экспорта.")
+            return
+
+        selected_count = sum([do_html, do_xls, do_docx])
+        if self.radio_all_episodes.isChecked() or selected_count > 1:
+            folder = QFileDialog.getExistingDirectory(
+                self,
+                "Выберите папку"
+            )
+            if folder:
+                self.main_app._execute_batch_export(
+                    episodes,
+                    do_html,
+                    do_xls,
+                    do_docx,
+                    folder
+                )
+            return
+
+        ep = next(iter(episodes.keys()))
+        if do_html:
+            self.main_app.export_to_html(ep)
+        elif do_xls:
+            self.main_app.export_to_excel(ep)
+        else:
+            self.main_app.export_to_docx(ep)
 
     def _preview_check_box(self, text: str, checked: bool) -> QCheckBox:
         """Create a preview settings checkbox."""

@@ -127,18 +127,23 @@ class SettingsDialog(QDialog):
         self.tabs = QTabWidget()
         self._tab_indexes: Dict[str, int] = {}
         if self.settings_scope == "project":
-            self._add_tab("project", self._build_project_tab(), tr("settings.tab.project"))
-            self._add_tab("export", self._build_export_tab(), tr("settings.tab.export"))
-            self._add_tab("merge", self._build_merge_tab(), tr("settings.tab.merge"))
+            self._add_tab("project", self._build_project_tab(), "Проект")
+            self._add_tab(
+                "series_files",
+                self._build_series_files_tab(),
+                "Серии и файлы"
+            )
+            self._add_tab("roles", self._build_roles_tab(), "Роли")
+            self._add_tab("export", self._build_export_tab(), "Монтажный лист")
+            self._add_tab("merge", self._build_merge_tab(), "Реплики")
             self._add_tab("prompter", self._build_prompter_tab(), tr("settings.tab.prompter"))
-            self._add_tab("docx", self._build_docx_tab(), tr("settings.tab.docx"))
             self._add_tab(
                 "actor_bases",
                 self._build_actor_bases_tab(),
-                tr("settings.tab.actor_bases"),
+                "Перенос",
             )
         else:
-            self._add_tab("export", self._build_export_tab(), tr("settings.tab.export"))
+            self._add_tab("export", self._build_export_tab(), "Монтажный лист")
             self._add_tab(
                 "prompter",
                 self._build_prompter_tab(),
@@ -147,7 +152,7 @@ class SettingsDialog(QDialog):
             self._add_tab(
                 "actor_bases",
                 self._build_actor_bases_tab(),
-                tr("settings.tab.actor_bases"),
+                "Актёры",
             )
             self._add_tab("interface", self._build_interface_tab(), tr("settings.interface"))
         layout.addWidget(self.tabs)
@@ -841,30 +846,53 @@ class SettingsDialog(QDialog):
         folder_layout.addLayout(folder_buttons)
         layout.addWidget(folder_group)
 
-        files_group = QGroupBox("Файлы проекта")
+        self._refresh_project_info()
+        layout.addStretch()
+        return tab
+
+    def _build_series_files_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        files_group = QGroupBox("Файлы и рабочие тексты")
         files_layout = QVBoxLayout(files_group)
         files_layout.addWidget(self._hint(
-            "Здесь можно проверить привязанные файлы, перепривязать потерянные пути и создать рабочие JSON."
+            "Здесь можно проверить привязанные файлы, перепривязать потерянные "
+            "пути, создать рабочие JSON и посмотреть проблемы проекта."
         ))
-        self.btn_project_files = QPushButton("Открыть файлы проекта...")
+        files_buttons = QHBoxLayout()
+        self.btn_project_files = QPushButton("Файлы проекта...")
         self.btn_project_files.clicked.connect(self._open_project_files)
-        files_layout.addWidget(self.btn_project_files)
+        files_buttons.addWidget(self.btn_project_files)
+        self.btn_project_health = QPushButton("Проверка проекта...")
+        self.btn_project_health.clicked.connect(self._open_project_health)
+        files_buttons.addWidget(self.btn_project_health)
+        files_buttons.addStretch()
+        files_layout.addLayout(files_buttons)
         layout.addWidget(files_group)
 
+        docx_group = QGroupBox("Импорт DOCX")
+        docx_layout = QVBoxLayout(docx_group)
+        docx_layout.addWidget(self._build_docx_tab())
+        layout.addWidget(docx_group)
+        layout.addStretch()
+        return tab
+
+    def _build_roles_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
         roles_group = QGroupBox("Роли проекта")
         roles_layout = QVBoxLayout(roles_group)
         roles_layout.addWidget(self._hint(
             "Список ролей собирается из назначений и текстов серий. В нём "
-            "можно увидеть серии, удалить роль из распределения или назначить "
-            "ей другого актёра."
+            "можно найти роль, увидеть серии появления, сбросить привязку к "
+            "актёру или назначить другого актёра."
         ))
-        self.btn_project_roles = QPushButton("Роли проекта...")
+        self.btn_project_roles = QPushButton("Открыть роли проекта...")
         self.btn_project_roles.clicked.connect(self._open_project_roles)
         self.btn_project_roles.setEnabled(self._has_project_roles_dialog())
         roles_layout.addWidget(self.btn_project_roles)
         layout.addWidget(roles_group)
-
-        self._refresh_project_info()
         layout.addStretch()
         return tab
 
@@ -903,6 +931,10 @@ class SettingsDialog(QDialog):
         if self.main_window and hasattr(self.main_window, "open_project_files_dialog"):
             self.main_window.open_project_files_dialog()
             self._refresh_project_info()
+
+    def _open_project_health(self) -> None:
+        if self.main_window and hasattr(self.main_window, "open_project_health_dialog"):
+            self.main_window.open_project_health_dialog()
 
     def _has_project_roles_dialog(self) -> bool:
         return bool(
@@ -1637,7 +1669,14 @@ class SettingsDialog(QDialog):
         )
 
     def _select_initial_tab(self) -> None:
-        self.tabs.setCurrentIndex(self._tab_indexes.get(self.initial_tab, 0))
+        aliases = {
+            "docx": "series_files",
+            "files": "series_files",
+            "health": "series_files",
+            "project_roles": "roles",
+        }
+        key = aliases.get(self.initial_tab, self.initial_tab)
+        self.tabs.setCurrentIndex(self._tab_indexes.get(key, 0))
 
     def _open_export_actor_filter(self) -> None:
         actors = self.project_data.get("actors", {})

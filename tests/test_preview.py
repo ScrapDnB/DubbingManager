@@ -28,6 +28,11 @@ class MainAppStub:
                 "actor-1": {"name": "Actor", "color": "#ffffff"},
             },
             "global_map": {"Hero": "actor-1"},
+            "episodes": {
+                "1": "/tmp/episode-1.ass",
+                "2": "/tmp/episode-2.ass",
+                "10": "/tmp/episode-10.ass",
+            },
             "replica_merge_config": {"merge": False},
             "export_config": {
                 "layout_type": "Таблица",
@@ -46,6 +51,7 @@ class MainAppStub:
             }
         }
         self.dirty = False
+        self.switched_to = []
 
     def get_episode_lines(self, ep_num):
         return [{
@@ -58,6 +64,9 @@ class MainAppStub:
 
     def set_dirty(self, dirty=True):
         self.dirty = dirty
+
+    def switch_to_episode(self, ep_num):
+        self.switched_to.append(ep_num)
 
 
 def _spin(value):
@@ -248,4 +257,22 @@ def test_preview_places_round_time_checkbox_below_timing_dropdown(monkeypatch):
     round_index = columns_layout.indexOf(preview.chk_round_time)
 
     assert round_index == timing_index + 1
+    preview.close()
+
+
+def test_preview_episode_selector_switches_current_episode(monkeypatch):
+    _app()
+    monkeypatch.setattr(preview_module, "WEB_ENGINE_AVAILABLE", False)
+    monkeypatch.setattr(preview_module, "QWebEngineView", QTextBrowser)
+    main_app = MainAppStub()
+    preview = HtmlLivePreview(main_app, "1")
+    calls = []
+    preview.update_preview = lambda: calls.append(preview.ep_num)
+
+    preview.combo_episode.setCurrentIndex(preview.combo_episode.findData("2"))
+
+    assert preview.ep_num == "2"
+    assert main_app.switched_to == ["2"]
+    assert calls == ["2"]
+    assert "2" in preview.windowTitle()
     preview.close()

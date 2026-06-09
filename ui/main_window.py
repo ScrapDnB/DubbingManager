@@ -108,7 +108,6 @@ from .dialogs import (
     GlobalSearchDialog,
     SummaryDialog,
     ProjectFilesDialog,
-    ProjectHealthDialog,
     SettingsDialog,
     DocxImportDialog,
 )
@@ -792,7 +791,7 @@ class MainWindow(QMainWindow):
         tools_sidebar_layout.addWidget(self.lbl_tools)
         
         self.btn_all_v = QPushButton()
-        self.btn_all_v.clicked.connect(lambda: self.open_preview(None))
+        self.btn_all_v.clicked.connect(self.open_live_preview)
         tools_sidebar_layout.addWidget(self.btn_all_v)
 
         self.btn_prompter = QPushButton()
@@ -882,6 +881,7 @@ class MainWindow(QMainWindow):
         exp_lay.addWidget(self.btn_run_export)
 
         bottom_panel.addWidget(self.exp_group)
+        self.exp_group.setVisible(False)
         layout.addLayout(bottom_panel)
         self.retranslate_ui()
     
@@ -925,11 +925,11 @@ class MainWindow(QMainWindow):
             self.btn_relink.setText(tr("main.relink"))
 
         if hasattr(self, "lbl_tools"):
-            self.lbl_tools.setText(tr("tools.header"))
-            self.btn_all_v.setText(tr("tools.episode_preview"))
-            self.btn_prompter.setText(tr("tools.prompter"))
-            self.btn_reaper.setText(tr("tools.reaper"))
-            self.btn_ep_sum.setText(tr("tools.episode_report"))
+            self.lbl_tools.setText("Сценарии")
+            self.btn_all_v.setText("Монтажный лист")
+            self.btn_prompter.setText("Телесуфлёр")
+            self.btn_reaper.setText("Reaper")
+            self.btn_ep_sum.setText("Отчёт серии")
             self.character_stats_group.setTitle(tr("stats.group"))
 
         if hasattr(self, "btn_settings"):
@@ -3991,7 +3991,7 @@ class MainWindow(QMainWindow):
 
     def open_project_health_dialog(self) -> None:
         """Open project health dialog."""
-        dialog = ProjectHealthDialog(self.data, self)
+        dialog = ProjectFilesDialog(self.data, self, initial_tab="health")
         dialog.exec()
 
     def _on_files_changed(self) -> None:

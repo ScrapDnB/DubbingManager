@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QComboBox, QPushButton, QTableWidget,
     QTableWidgetItem, QFileDialog, QMessageBox,
-    QHeaderView, QWidget, QFrame, QLineEdit
+    QHeaderView, QWidget, QFrame, QLineEdit, QTabWidget
 )
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QFont
@@ -71,14 +71,20 @@ class DocxImportDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        top_panel = self._create_top_panel()
-        layout.addLayout(top_panel)
+        self.steps = QTabWidget()
+
+        file_step = QWidget()
+        file_layout = QVBoxLayout(file_step)
+        file_layout.addLayout(self._create_top_panel())
+        file_layout.addStretch()
+        self.steps.addTab(file_step, "1. Файл")
 
         mapping_widget = self._create_mapping_panel()
-        layout.addWidget(mapping_widget)
+        self.steps.addTab(mapping_widget, "2. Колонки")
 
         preview_widget = self._create_preview_panel()
-        layout.addWidget(preview_widget)
+        self.steps.addTab(preview_widget, "3. Предпросмотр")
+        layout.addWidget(self.steps)
 
         bottom_panel = self._create_bottom_panel()
         layout.addLayout(bottom_panel)
@@ -271,6 +277,7 @@ class DocxImportDialog(QDialog):
 
             self.file_label.setText(f"📄 {path.split('/')[-1]}")
             self.import_btn.setEnabled(True)
+            self.steps.setCurrentIndex(1)
 
             self.available_columns = self.docx_service.get_available_columns(self.current_rows)
 
@@ -399,6 +406,8 @@ class DocxImportDialog(QDialog):
         self.mapping_hint.setText(translate_source("Колонки определены автоматически."))
 
         self._update_preview()
+        if self.current_rows:
+            self.steps.setCurrentIndex(2)
 
     @Slot()
     def _on_mapping_changed(self) -> None:

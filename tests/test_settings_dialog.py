@@ -141,8 +141,11 @@ def test_settings_dialog_creation(app, project_data):
 
     assert dialog.windowTitle() == "Настройки проекта"
     assert dialog.tabs.currentIndex() == 0
-    assert dialog.tabs.tabText(0) == "Главные"
-    assert dialog.tabs.tabText(5) == "Базы актёров"
+    assert dialog.tabs.tabText(0) == "Проект"
+    assert dialog.tabs.tabText(1) == "Серии и файлы"
+    assert dialog.tabs.tabText(2) == "Роли"
+    assert dialog.tabs.tabText(3) == "Монтажный лист"
+    assert dialog.tabs.tabText(6) == "Перенос"
     assert dialog.export_layout_type.currentText() == "Таблица"
     assert dialog.project_name_edit.text() == "Test"
     assert dialog.project_created_by_edit.text() == "Producer"
@@ -328,13 +331,13 @@ def test_settings_dialog_falls_back_to_default_docx_separator(app, project_data)
 def test_settings_dialog_opens_requested_tab(app, project_data):
     dialog = SettingsDialog(project_data, initial_tab="prompter")
 
-    assert dialog.tabs.currentIndex() == 3
+    assert dialog.tabs.currentIndex() == 5
 
 
 def test_settings_dialog_opens_actor_bases_tab(app, project_data):
     dialog = SettingsDialog(project_data, initial_tab="actor_bases")
 
-    assert dialog.tabs.currentIndex() == 5
+    assert dialog.tabs.currentIndex() == 6
 
 
 def test_global_settings_dialog_contains_only_global_tabs(app, project_data):
@@ -342,9 +345,9 @@ def test_global_settings_dialog_contains_only_global_tabs(app, project_data):
 
     assert dialog.windowTitle() == "Настройки"
     assert dialog.tabs.count() == 4
-    assert dialog.tabs.tabText(0) == "Экспорт"
+    assert dialog.tabs.tabText(0) == "Монтажный лист"
     assert dialog.tabs.tabText(1) == "Телесуфлёр"
-    assert dialog.tabs.tabText(2) == "Базы актёров"
+    assert dialog.tabs.tabText(2) == "Актёры"
     assert dialog.tabs.tabText(3) == "Интерфейс"
     settings = dialog.get_settings()
     assert set(settings.keys()) == {
