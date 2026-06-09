@@ -135,6 +135,108 @@ SCOPE_ROLE = Qt.UserRole + 1
 ACTOR_ID_ROLE = Qt.UserRole + 2
 
 
+class QuickSubtitleDropZone(QFrame):
+    """Drop zone for quick subtitle-to-montage conversion."""
+
+    filesDropped = Signal(list, bool)
+
+    SUPPORTED_EXTENSIONS = {".ass", ".srt"}
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setMinimumHeight(92)
+        self.setFrameShape(QFrame.StyledPanel)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(
+            "Зажмите Option/Alt при перетаскивании, чтобы сначала открыть превью."
+        )
+        self.setStyleSheet(
+            """
+            QuickSubtitleDropZone {
+                border: 1px dashed #9aa3ad;
+                border-radius: 6px;
+                background: #f7f8fa;
+            }
+            QuickSubtitleDropZone[dragActive="true"] {
+                border: 2px solid #4f8edc;
+                background: #eef5ff;
+            }
+            QLabel {
+                color: #4f5965;
+            }
+            """
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(4)
+
+        title = QLabel("Быстрый конвертер")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-weight: 600; color: #202124;")
+        layout.addWidget(title)
+
+        hint = QLabel("Перетащите ASS или SRT\nМонтажные листы появятся рядом")
+        hint.setAlignment(Qt.AlignCenter)
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+    def _set_drag_active(self, active: bool) -> None:
+        """Update drop zone visual state."""
+        self.setProperty("dragActive", active)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def _supported_files(self, event) -> List[str]:
+        """Return supported local files from a drag event."""
+        if not event.mimeData().hasUrls():
+            return []
+
+        files = []
+        for url in event.mimeData().urls():
+            path = url.toLocalFile()
+            if self.is_supported_path(path):
+                files.append(path)
+        return files
+
+    @classmethod
+    def is_supported_path(cls, path: str) -> bool:
+        """Return True if path is a supported subtitle source."""
+        return os.path.splitext(path)[1].lower() in cls.SUPPORTED_EXTENSIONS
+
+    def dragEnterEvent(self, event) -> None:
+        """Accept ASS/SRT files."""
+        if self._supported_files(event):
+            self._set_drag_active(True)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:
+        """Keep drag accepted while hovering."""
+        if self._supported_files(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event) -> None:
+        """Reset visual state when drag leaves."""
+        self._set_drag_active(False)
+        event.accept()
+
+    def dropEvent(self, event) -> None:
+        """Emit dropped subtitle files."""
+        files = self._supported_files(event)
+        self._set_drag_active(False)
+        if files:
+            event.acceptProposedAction()
+            preview_first = bool(event.keyboardModifiers() & Qt.AltModifier)
+            self.filesDropped.emit(files, preview_first)
+        else:
+            event.ignore()
+
+
 class ScopeComboDelegate(QStyledItemDelegate):
     """Scope Combo Delegate class."""
 
@@ -468,6 +570,7 @@ class MainWindow(QMainWindow):
         set_language(self.global_settings.get("language", "ru"))
 
         self.data = self.project_service.create_new_project("Новый проект")
+        self._apply_global_settings_to_project_data(self.data)
 
         self._init_controllers()
 
@@ -806,6 +909,12 @@ class MainWindow(QMainWindow):
         self.btn_ep_sum.clicked.connect(self.show_episode_summary)
         tools_sidebar_layout.addWidget(self.btn_ep_sum)
 
+        self.quick_converter_drop_zone = QuickSubtitleDropZone()
+        self.quick_converter_drop_zone.filesDropped.connect(
+            self.convert_dropped_subtitles
+        )
+        tools_sidebar_layout.addWidget(self.quick_converter_drop_zone)
+
         tools_sidebar_layout.addStretch()
 
         self.character_stats_group = QGroupBox()
@@ -857,11 +966,17 @@ class MainWindow(QMainWindow):
 
         exp_lay.addSpacing(EXPORT_PANEL_SPACING)
 
+        export_config = self.data.get("export_config", DEFAULT_EXPORT_CONFIG)
         self.chk_exp_html = QCheckBox()
-        self.chk_exp_html.setChecked(True)
+        self.chk_exp_html.setChecked(export_config.get("format_html", True))
 
         self.chk_exp_xls = QCheckBox("Excel")
+        self.chk_exp_xls.setChecked(export_config.get("format_xls", False))
         self.chk_exp_docx = QCheckBox("DOCX")
+        self.chk_exp_docx.setChecked(export_config.get("format_docx", False))
+        self.chk_exp_html.toggled.connect(self._update_export_format_config)
+        self.chk_exp_xls.toggled.connect(self._update_export_format_config)
+        self.chk_exp_docx.toggled.connect(self._update_export_format_config)
 
         self.radio_cur = QRadioButton()
         self.radio_cur.setChecked(True)
@@ -1011,6 +1126,7 @@ class MainWindow(QMainWindow):
         self.refresh_actor_list()
         self.update_ep_list()
         self.refresh_main_table()
+        self._sync_export_format_controls_from_config()
         self._update_project_folder_button()
         self.update_window_title()
         self._update_new_project_button()
@@ -1429,6 +1545,7 @@ class MainWindow(QMainWindow):
             self._sync_project_actors_with_global_base()
             self.refresh_actor_list()
             self.update_ep_list()
+            self._sync_export_format_controls_from_config()
 
         except Exception as e:
             log_exception(logger, "Load failed", e)
@@ -3074,6 +3191,43 @@ class MainWindow(QMainWindow):
             else:
                 self.export_to_docx(ep)
 
+    def _update_export_format_config(self) -> None:
+        """Persist selected export formats in project settings."""
+        if not hasattr(self, "chk_exp_html"):
+            return
+
+        export_config = self.data.setdefault(
+            "export_config",
+            deepcopy(DEFAULT_EXPORT_CONFIG)
+        )
+        export_config["format_html"] = self.chk_exp_html.isChecked()
+        export_config["format_xls"] = self.chk_exp_xls.isChecked()
+        export_config["format_docx"] = self.chk_exp_docx.isChecked()
+
+        if hasattr(self, "preview_window") and self.preview_window:
+            self.preview_window.sync_export_format_controls()
+        if hasattr(self, "set_dirty"):
+            self.set_dirty(True)
+
+    def _sync_export_format_controls_from_config(self) -> None:
+        """Update main export format checkboxes from project settings."""
+        if not hasattr(self, "chk_exp_html"):
+            return
+
+        cfg = self.data.get("export_config", DEFAULT_EXPORT_CONFIG)
+        controls = [
+            (self.chk_exp_html, cfg.get("format_html", True)),
+            (self.chk_exp_xls, cfg.get("format_xls", False)),
+            (self.chk_exp_docx, cfg.get("format_docx", False)),
+        ]
+        for checkbox, checked in controls:
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(checked))
+            checkbox.blockSignals(False)
+
+        if hasattr(self, "preview_window") and self.preview_window:
+            self.preview_window.sync_export_format_controls()
+
     def _execute_batch_export(
         self,
         episodes: Dict[str, str],
@@ -3475,6 +3629,7 @@ class MainWindow(QMainWindow):
             )
 
             self.change_episode()
+            self._sync_export_format_controls_from_config()
             self._sync_preview_export_settings()
             self.set_dirty()
 
@@ -3569,7 +3724,10 @@ class MainWindow(QMainWindow):
         config: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Apply export settings to the current project."""
-        self.data["export_config"] = deepcopy(config)
+        export_config = deepcopy(DEFAULT_EXPORT_CONFIG)
+        export_config.update(deepcopy(config))
+        self.data["export_config"] = export_config
+        self._sync_export_format_controls_from_config()
         self._sync_preview_export_settings()
         self.set_dirty(True)
         return deepcopy(self.data["export_config"])
@@ -3673,7 +3831,11 @@ class MainWindow(QMainWindow):
         )
         export_service = ExportService(self.data)
 
-        def make_preview(use_video: bool, use_regions: bool) -> Dict[str, Any]:
+        def make_preview(
+            use_video: bool,
+            use_regions: bool,
+            transliterate_actor_names: bool
+        ) -> Dict[str, Any]:
             preview_video_path = video_path
             return export_service.get_reaper_rpp_preview(
                 ep_num,
@@ -3681,7 +3843,8 @@ class MainWindow(QMainWindow):
                 merge_cfg=self.data.get("replica_merge_config", {}),
                 video_path=preview_video_path,
                 use_video=use_video,
-                use_regions=use_regions
+                use_regions=use_regions,
+                transliterate_actor_names=transliterate_actor_names
             )
 
         dialog = ReaperExportDialog(
@@ -3693,7 +3856,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.Accepted:
             return
 
-        use_video, use_regions = dialog.get_options()
+        use_video, use_regions, transliterate_actor_names = dialog.get_options()
 
         default_name = (
             f"{self.data.get('project_name', 'Project')} - "
@@ -3711,7 +3874,8 @@ class MainWindow(QMainWindow):
             merge_cfg=self.data.get("replica_merge_config", {}),
             video_path=video_path,
             use_video=use_video,
-            use_regions=use_regions
+            use_regions=use_regions,
+            transliterate_actor_names=transliterate_actor_names
         )
         
         try:
@@ -3742,6 +3906,228 @@ class MainWindow(QMainWindow):
         index = self.ep_combo.findData(ep_num)
         if index >= 0:
             self.ep_combo.setCurrentIndex(index)
+
+    # === Quick subtitle converter ===
+
+    def convert_dropped_subtitles(
+        self,
+        paths: List[str],
+        preview_first: bool = False
+    ) -> None:
+        """Convert dropped ASS/SRT files to selected montage formats."""
+        files = [
+            path for path in paths
+            if os.path.isfile(path) and
+            QuickSubtitleDropZone.is_supported_path(path)
+        ]
+        if not files:
+            QMessageBox.warning(
+                self,
+                "Быстрый конвертер",
+                "Перетащите файлы ASS или SRT."
+            )
+            return
+
+        if preview_first:
+            self._preview_dropped_subtitle_conversion(files)
+            return
+
+        if not self._quick_montage_should_export_html() and not (
+            self._quick_montage_should_export_docx()
+        ):
+            QMessageBox.information(
+                self,
+                "Быстрый конвертер",
+                "Выберите HTML или DOCX в настройках экспорта."
+            )
+            return
+
+        progress = QProgressDialog(
+            "Конвертация субтитров...",
+            "Отмена",
+            0,
+            len(files),
+            self
+        )
+        progress.setWindowTitle("Быстрый конвертер")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+
+        exported: List[str] = []
+        errors: List[str] = []
+
+        for idx, path in enumerate(files, 1):
+            if progress.wasCanceled():
+                break
+
+            progress.setLabelText(
+                f"Конвертация {idx} из {len(files)}:\n"
+                f"{os.path.basename(path)}"
+            )
+            progress.setValue(idx - 1)
+            QApplication.processEvents()
+
+            try:
+                exported.extend(self._export_quick_subtitle_montage(path))
+            except Exception as exc:
+                log_exception(logger, "Quick subtitle conversion failed", exc)
+                errors.append(f"{os.path.basename(path)}: {exc}")
+
+        progress.setValue(len(files))
+
+        if exported:
+            shown_paths = "\n".join(exported[:5])
+            extra_count = len(exported) - 5
+            if extra_count > 0:
+                shown_paths += f"\n...и ещё {extra_count}"
+            QMessageBox.information(
+                self,
+                "Быстрый конвертер",
+                f"Готово. Экспортировано файлов: {len(exported)}\n\n"
+                f"{shown_paths}"
+            )
+
+        if errors:
+            QMessageBox.warning(
+                self,
+                "Быстрый конвертер",
+                "Не удалось конвертировать некоторые файлы:\n\n" +
+                "\n".join(errors[:8])
+            )
+
+    def _preview_dropped_subtitle_conversion(self, files: List[str]) -> None:
+        """Open quick preview for the first dropped subtitle, then convert all."""
+        first_path = files[0]
+        try:
+            _stats, lines = self._parse_quick_subtitle_file(first_path)
+            if not lines:
+                raise ValueError("в файле нет реплик")
+            lines = self._normalize_quick_subtitle_lines(lines)
+        except Exception as exc:
+            log_exception(logger, "Quick subtitle preview failed", exc)
+            QMessageBox.warning(
+                self,
+                "Быстрый конвертер",
+                f"Не удалось открыть превью: {exc}"
+            )
+            return
+
+        from .preview import HtmlLivePreview
+
+        preview = HtmlLivePreview(
+            self,
+            "1",
+            override_lines=lines,
+            source_title=os.path.basename(first_path),
+            register_preview=False
+        )
+        preview.exec()
+        self.convert_dropped_subtitles(files, preview_first=False)
+
+    def _export_quick_subtitle_montage(self, path: str) -> List[str]:
+        """Export one subtitle file to montage files next to it."""
+        _stats, lines = self._parse_quick_subtitle_file(path)
+        if not lines:
+            raise ValueError("в файле нет реплик")
+        lines = self._normalize_quick_subtitle_lines(lines)
+
+        cfg = self._quick_montage_export_config()
+        project_data = {
+            "project_name": os.path.splitext(os.path.basename(path))[0],
+            "actors": {},
+            "global_map": {},
+            "episode_actor_map": {},
+            "export_config": cfg,
+            "replica_merge_config": deepcopy(
+                self.data.get("replica_merge_config", {})
+            ),
+        }
+        export_service = ExportService(project_data)
+        processed = export_service.process_merge_logic(
+            lines,
+            project_data["replica_merge_config"]
+        )
+        exported: List[str] = []
+
+        if self._quick_montage_should_export_html():
+            html_path = self._quick_montage_output_path(path, ".html")
+            html = export_service.generate_html(
+                "1",
+                processed,
+                cfg,
+                highlight_ids=[],
+                layout_type=cfg.get("layout_type", "Таблица"),
+                is_editable=False
+            )
+            with open(html_path, "w", encoding="utf-8") as file:
+                file.write(html)
+            exported.append(html_path)
+
+        if self._quick_montage_should_export_docx():
+            docx_path = self._quick_montage_output_path(path, ".docx")
+            document = export_service.create_docx_document({"1": processed}, cfg)
+            document.save(docx_path)
+            exported.append(docx_path)
+
+        return exported
+
+    def _parse_quick_subtitle_file(
+        self,
+        path: str
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Parse a subtitle file for quick conversion."""
+        extension = os.path.splitext(path)[1].lower()
+        if extension == ".srt":
+            return self.episode_service.parse_srt_file(path)
+        if extension == ".ass":
+            return self.episode_service.parse_ass_file(path)
+        raise ValueError("поддерживаются только ASS и SRT")
+
+    def _normalize_quick_subtitle_lines(
+        self,
+        lines: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Ensure quick-converted subtitle lines have stable ids."""
+        normalized = []
+        for idx, line in enumerate(lines):
+            line_data = line.copy()
+            line_data.setdefault("id", idx)
+            normalized.append(line_data)
+        return normalized
+
+    def _quick_montage_export_config(self) -> Dict[str, Any]:
+        """Return current export config without actor color highlighting."""
+        cfg = deepcopy(DEFAULT_EXPORT_CONFIG)
+        cfg.update(deepcopy(self.data.get("export_config", {})))
+        cfg["use_color"] = False
+        cfg["highlight_ids_export"] = []
+        cfg["highlight_negative_ids_export"] = []
+        cfg["allow_edit"] = False
+        return cfg
+
+    def _quick_montage_should_export_html(self) -> bool:
+        """Return True when HTML is enabled in current export controls."""
+        return hasattr(self, "chk_exp_html") and self.chk_exp_html.isChecked()
+
+    def _quick_montage_should_export_docx(self) -> bool:
+        """Return True when DOCX is enabled in current export controls."""
+        return hasattr(self, "chk_exp_docx") and self.chk_exp_docx.isChecked()
+
+    def _quick_montage_output_path(
+        self,
+        source_path: str,
+        extension: str
+    ) -> str:
+        """Return a unique montage path next to the source subtitle file."""
+        folder = os.path.dirname(source_path)
+        stem = os.path.splitext(os.path.basename(source_path))[0]
+        base = os.path.join(folder, stem)
+        candidate = f"{base}{extension}"
+        counter = 2
+        while os.path.exists(candidate):
+            candidate = f"{base} ({counter}){extension}"
+            counter += 1
+        return candidate
     
     # === Drag & Drop ===
     

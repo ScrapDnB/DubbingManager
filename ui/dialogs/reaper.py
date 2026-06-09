@@ -3,7 +3,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QCheckBox,
-    QDialogButtonBox, QFrame
+    QDialogButtonBox, QFrame, QSizePolicy
 )
 import os
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -17,7 +17,9 @@ class ReaperExportDialog(QDialog):
         self,
         video_path: Optional[str],
         parent: Optional[QDialog] = None,
-        preview_provider: Optional[Callable[[bool, bool], Dict[str, Any]]] = None,
+        preview_provider: Optional[
+            Callable[[bool, bool, bool], Dict[str, Any]]
+        ] = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Настройки проекта Reaper")
@@ -26,6 +28,7 @@ class ReaperExportDialog(QDialog):
 
         self._chk_video: QCheckBox
         self._chk_regions: QCheckBox
+        self._chk_transliterate: QCheckBox
         self._preview_label: QLabel
         self._button_box: QDialogButtonBox
         self._init_ui(video_path)
@@ -38,6 +41,13 @@ class ReaperExportDialog(QDialog):
 
         self._chk_video = QCheckBox("Добавить дорожку с видео")
         self._chk_regions = QCheckBox("Создать регионы (реплики с текстом)")
+        self._chk_transliterate = QCheckBox(
+            "Транслитерировать имена актёров"
+        )
+        self._chk_transliterate.setToolTip(
+            "Имена дорожек актёров в RPP будут записаны латиницей. "
+            "Имена персонажей и текст регионов не меняются."
+        )
 
         has_video: bool = bool(video_path and os.path.exists(video_path))
         if has_video:
@@ -54,23 +64,36 @@ class ReaperExportDialog(QDialog):
 
         layout.addWidget(self._chk_video)
         layout.addWidget(self._chk_regions)
+        layout.addWidget(self._chk_transliterate)
 
         preview_frame = QFrame()
         preview_frame.setFrameShape(QFrame.StyledPanel)
+        preview_frame.setMinimumHeight(190)
+        preview_frame.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Expanding
+        )
         preview_layout = QVBoxLayout(preview_frame)
         preview_layout.addWidget(QLabel("Предпросмотр:"))
 
         self._preview_label = QLabel()
         self._preview_label.setWordWrap(True)
+        self._preview_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self._preview_label.setMinimumHeight(145)
+        self._preview_label.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Expanding
+        )
         self._preview_label.setTextInteractionFlags(
             self._preview_label.textInteractionFlags() |
             Qt.TextSelectableByMouse
         )
-        preview_layout.addWidget(self._preview_label)
-        layout.addWidget(preview_frame)
+        preview_layout.addWidget(self._preview_label, 1)
+        layout.addWidget(preview_frame, 1)
 
         self._chk_video.toggled.connect(self._update_preview)
         self._chk_regions.toggled.connect(self._update_preview)
+        self._chk_transliterate.toggled.connect(self._update_preview)
         self._update_preview()
 
         self._button_box = QDialogButtonBox(
@@ -80,9 +103,13 @@ class ReaperExportDialog(QDialog):
         self._button_box.rejected.connect(self.reject)
         layout.addWidget(self._button_box)
 
-    def get_options(self) -> Tuple[bool, bool]:
+    def get_options(self) -> Tuple[bool, bool, bool]:
         """Return options."""
-        return self._chk_video.isChecked(), self._chk_regions.isChecked()
+        return (
+            self._chk_video.isChecked(),
+            self._chk_regions.isChecked(),
+            self._chk_transliterate.isChecked(),
+        )
 
     def _update_preview(self) -> None:
         """Refresh the RPP preview summary."""
@@ -92,7 +119,8 @@ class ReaperExportDialog(QDialog):
 
         preview = self._preview_provider(
             self._chk_video.isChecked(),
-            self._chk_regions.isChecked()
+            self._chk_regions.isChecked(),
+            self._chk_transliterate.isChecked()
         )
         self._preview_label.setText(self._format_preview(preview))
 

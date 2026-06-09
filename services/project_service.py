@@ -303,6 +303,11 @@ class ProjectService:
             data["episode_texts"] = {}
         if "export_config" not in data:
             data["export_config"] = deepcopy(DEFAULT_EXPORT_CONFIG)
+        else:
+            export_config = deepcopy(DEFAULT_EXPORT_CONFIG)
+            if isinstance(data["export_config"], dict):
+                export_config.update(data["export_config"])
+            data["export_config"] = export_config
         if "prompter_config" not in data:
             data["prompter_config"] = deepcopy(DEFAULT_PROMPTER_CONFIG)
         if "global_map" not in data:

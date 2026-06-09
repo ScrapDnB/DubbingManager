@@ -193,7 +193,7 @@ class TestProjectFileStructure:
         data = self.project_service.create_new_project("Test Project")
         
         # Изменяем конфигурации
-        data["export_config"]["layout_type"] = "Сценарий"
+        data["export_config"]["layout_type"] = "Сценарий 1"
         data["export_config"]["use_color"] = False
         data["prompter_config"]["f_tc"] = 30
         data["prompter_config"]["is_mirrored"] = True
@@ -205,7 +205,7 @@ class TestProjectFileStructure:
         
         loaded_data = self.project_service.load_project(project_path)
         
-        assert loaded_data["export_config"]["layout_type"] == "Сценарий"
+        assert loaded_data["export_config"]["layout_type"] == "Сценарий 1"
         assert loaded_data["export_config"]["use_color"] is False
         assert loaded_data["prompter_config"]["f_tc"] == 30
         assert loaded_data["prompter_config"]["is_mirrored"] is True

@@ -211,19 +211,65 @@ class TestExportService:
         sample_lines: List[Dict[str, Any]],
         export_config: Dict[str, Any]
     ) -> None:
-        """Тест: генерация HTML с layout 'Сценарий'"""
+        """Тест: генерация HTML с layout 'Сценарий 1'"""
         service = ExportService(sample_project_data)
         processed = service.process_merge_logic(sample_lines, {'merge': False})
         html = service.generate_html(
             ep="1",
             processed=processed,
             cfg=export_config,
-            layout_type="Сценарий",
+            layout_type="Сценарий 1",
             is_editable=False
         )
         
         assert "line-container" in html
         assert "Character1" in html
+
+    def test_generate_html_scenario2_layout(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: генерация HTML с layout 'Сценарий 2'."""
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        html = service.generate_html(
+            ep="1",
+            processed=processed,
+            cfg=export_config,
+            layout_type="Сценарий 2",
+            is_editable=False
+        )
+
+        assert "script2-container" in html
+        assert "script2-time" in html
+        assert "script2-char" in html
+        assert "Character1" in html
+        assert "Hello, world!" in html
+
+    def test_generate_html_scenario3_layout(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: генерация HTML с layout 'Сценарий 3'."""
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        html = service.generate_html(
+            ep="1",
+            processed=processed,
+            cfg=export_config,
+            layout_type="Сценарий 3",
+            is_editable=False
+        )
+
+        assert "script3-table" in html
+        assert "script3-meta-cell" in html
+        assert "script3-text-cell" in html
+        assert "Character1" in html
+        assert "Hello, world!" in html
 
     def test_generate_html_scenario_respects_time_options(
         self,
@@ -243,7 +289,7 @@ class TestExportService:
             ep="1",
             processed=processed,
             cfg=export_config,
-            layout_type="Сценарий",
+            layout_type="Сценарий 1",
             is_editable=False
         )
 
@@ -266,7 +312,7 @@ class TestExportService:
             ep="1",
             processed=processed,
             cfg=export_config,
-            layout_type="Сценарий",
+            layout_type="Сценарий 1",
             is_editable=False
         )
 
@@ -344,7 +390,7 @@ class TestExportService:
             processed=processed,
             cfg=export_config,
             highlight_ids=["actor1"],
-            layout_type="Сценарий",
+            layout_type="Сценарий 1",
             is_editable=False
         )
 
@@ -675,6 +721,77 @@ class TestExportService:
         assert shading.get(export_module.qn('w:fill')) == "FF0000"
         assert str(first_cell.paragraphs[0].runs[-1].font.color.rgb) == "FFFFFF"
 
+    def test_create_docx_document_can_use_scenario1_layout(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: DOCX поддерживает сценарную разметку 1."""
+        pytest.importorskip("docx")
+        export_config["layout_type"] = "Сценарий 1"
+
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        document = service.create_docx_document({"1": processed}, export_config)
+        first_block = document.tables[0]
+        first_cell = first_block.rows[0].cells[0]
+
+        assert len(first_block.rows) == 1
+        assert "Character1" in first_cell.text
+        assert "[0:00:00,000 - 0:00:02,500]" in first_cell.text
+        assert "(Actor One)" in first_cell.text
+        assert "Hello, world!" in first_cell.text
+
+    def test_create_docx_document_can_use_scenario2_layout(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: DOCX поддерживает сценарную разметку 2."""
+        pytest.importorskip("docx")
+        export_config.update({
+            "layout_type": "Сценарий 2",
+            "round_time": True,
+        })
+
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        document = service.create_docx_document({"1": processed}, export_config)
+        first_cell = document.tables[0].rows[0].cells[0]
+
+        assert "0:00:00\n0:00:02" in first_cell.text
+        assert "CHARACTER1" in first_cell.text
+        assert "Actor One" in first_cell.text
+        assert "Hello, world!" in first_cell.text
+
+    def test_create_docx_document_can_use_scenario3_layout(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Тест: DOCX поддерживает двухколоночную сценарную разметку."""
+        pytest.importorskip("docx")
+        export_config.update({
+            "layout_type": "Сценарий 3",
+            "round_time": True,
+        })
+
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        document = service.create_docx_document({"1": processed}, export_config)
+        table = document.tables[0]
+
+        assert [cell.text for cell in table.rows[0].cells] == [
+            "Кто / когда", "Реплика"
+        ]
+        assert "0:00:00\n0:00:02" in table.rows[1].cells[0].text
+        assert "CHARACTER1" in table.rows[1].cells[0].text
+        assert "Actor One" in table.rows[1].cells[0].text
+        assert table.rows[1].cells[1].text == "Hello, world!"
+
     def test_export_batch_writes_shared_excel_once(
         self,
         sample_project_data: Dict[str, Any],
@@ -859,6 +976,33 @@ class TestExportService:
         assert 'NAME "VIDEO"' in rpp
         assert 'FILE "/tmp/video file.mov"' in rpp
 
+    def test_generate_reaper_rpp_can_transliterate_actor_track_names(
+        self,
+        sample_project_data: Dict[str, Any]
+    ) -> None:
+        """Тест: RPP умеет транслитерировать имена дорожек актёров."""
+        sample_project_data["actors"]["actor1"]["name"] = "Иван Ёжиков"
+        service = ExportService(sample_project_data)
+        lines = [{
+            "id": 1,
+            "s": 0.0,
+            "e": 1.0,
+            "char": "Character1",
+            "text": "Line",
+            "s_raw": "0:00:00.00"
+        }]
+
+        rpp = service.generate_reaper_rpp(
+            "1",
+            lines,
+            merge_cfg={"merge": False},
+            transliterate_actor_names=True
+        )
+
+        assert 'NAME "Ivan Yozhikov"' in rpp
+        assert 'NAME "Иван Ёжиков"' not in rpp
+        assert 'MARKER 1 0.0000 "Character1: Line" 1 16777471' in rpp
+
     def test_save_reaper_rpp_writes_utf8_bom_for_cyrillic(
         self,
         sample_project_data: Dict[str, Any],
@@ -915,6 +1059,31 @@ class TestExportService:
         assert preview["video"] is True
         assert preview["invalid_lines"] == 1
         assert "Character1: First" in preview["sample_regions"][0]
+
+    def test_get_reaper_rpp_preview_can_transliterate_actor_names(
+        self,
+        sample_project_data: Dict[str, Any]
+    ) -> None:
+        """Тест: предпросмотр RPP показывает транслитерированные имена."""
+        sample_project_data["actors"]["actor1"]["name"] = "Пётр Петров"
+        service = ExportService(sample_project_data)
+        lines = [{
+            "id": 1,
+            "s": 0.0,
+            "e": 1.0,
+            "char": "Character1",
+            "text": "Line",
+            "s_raw": "0:00:00.00"
+        }]
+
+        preview = service.get_reaper_rpp_preview(
+            "1",
+            lines,
+            merge_cfg={"merge": False},
+            transliterate_actor_names=True
+        )
+
+        assert preview["actors"] == ["Pyotr Petrov"]
 
     def test_count_words(self) -> None:
         """Тест: подсчёт количества слов"""

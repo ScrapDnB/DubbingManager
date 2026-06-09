@@ -174,8 +174,14 @@ class ExportConfig:
 
     def __post_init__(self) -> None:
         """Post init."""
-        if self.layout_type not in ['Таблица', 'Сценарий']:
-            raise ValueError(f"layout_type must be 'Таблица' or 'Сценарий', got {self.layout_type}")
+        if self.layout_type == 'Сценарий':
+            self.layout_type = 'Сценарий 1'
+        valid_layouts = ['Таблица', 'Сценарий 1', 'Сценарий 2', 'Сценарий 3']
+        if self.layout_type not in valid_layouts:
+            raise ValueError(
+                "layout_type must be 'Таблица', 'Сценарий 1', "
+                f"'Сценарий 2' or 'Сценарий 3', got {self.layout_type}"
+            )
         if self.time_display not in ['range', 'start']:
             raise ValueError(f"time_display must be 'range' or 'start', got {self.time_display}")
         if not 10 <= self.f_time <= 150:

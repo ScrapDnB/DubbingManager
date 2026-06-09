@@ -172,6 +172,9 @@ DEFAULT_PROMPTER_CONFIG = {
 }
 
 DEFAULT_EXPORT_CONFIG = {
+    'format_html': True,
+    'format_xls': False,
+    'format_docx': False,
     'layout_type': 'Таблица',
     'col_tc': True,
     'col_char': True,

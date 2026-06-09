@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtWebChannel import QWebChannel
 from typing import Dict, List, Any, Optional, Set
+from copy import deepcopy
 import logging
 import sys
 
@@ -41,10 +42,20 @@ class HtmlLivePreview(QDialog):
     highlight_ids: Optional[List[str]]
     _has_text_changes: bool
 
-    def __init__(self, main_app: Any, ep_num: str) -> None:
+    def __init__(
+        self,
+        main_app: Any,
+        ep_num: str,
+        override_lines: Optional[List[Dict[str, Any]]] = None,
+        source_title: Optional[str] = None,
+        register_preview: bool = True
+    ) -> None:
         super().__init__(None)
         self.main_app: Any = main_app
         self.ep_num: str = ep_num
+        self.override_lines = override_lines
+        self.source_title = source_title
+        self.register_preview = register_preview
         self._update_window_title()
         self.resize(PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT)
 
@@ -60,7 +71,8 @@ class HtmlLivePreview(QDialog):
         except Exception as e:
             logger.error(f"Failed to connect loadFinished signal: {e}")
         
-        self.main_app.preview_window = self
+        if self.register_preview:
+            self.main_app.preview_window = self
 
         if WEB_ENGINE_AVAILABLE:
             try:
@@ -109,10 +121,14 @@ class HtmlLivePreview(QDialog):
 
         self.combo_layout = QComboBox()
         self.combo_layout.addItem(translate_source("Таблица"), "Таблица")
-        self.combo_layout.addItem(translate_source("Сценарий"), "Сценарий")
+        self.combo_layout.addItem("Сценарий 1", "Сценарий 1")
+        self.combo_layout.addItem("Сценарий 2", "Сценарий 2")
+        self.combo_layout.addItem("Сценарий 3", "Сценарий 3")
         current_type: str = self.main_app.data["export_config"].get(
             "layout_type", "Таблица"
         )
+        if current_type == "Сценарий":
+            current_type = "Сценарий 1"
         index = self.combo_layout.findData(current_type)
         self.combo_layout.setCurrentIndex(index if index >= 0 else 0)
         self.combo_layout.currentIndexChanged.connect(self.on_setting_change)
@@ -230,9 +246,14 @@ class HtmlLivePreview(QDialog):
         export_layout = QVBoxLayout(export_group)
         formats_layout = QHBoxLayout()
         self.chk_exp_html = QCheckBox("HTML")
-        self.chk_exp_html.setChecked(True)
+        self.chk_exp_html.setChecked(cfg.get("format_html", True))
         self.chk_exp_xls = QCheckBox("XLSX")
+        self.chk_exp_xls.setChecked(cfg.get("format_xls", False))
         self.chk_exp_docx = QCheckBox("DOCX")
+        self.chk_exp_docx.setChecked(cfg.get("format_docx", False))
+        self.chk_exp_html.toggled.connect(self._update_export_format_config)
+        self.chk_exp_xls.toggled.connect(self._update_export_format_config)
+        self.chk_exp_docx.toggled.connect(self._update_export_format_config)
         formats_layout.addWidget(self.chk_exp_html)
         formats_layout.addWidget(self.chk_exp_xls)
         formats_layout.addWidget(self.chk_exp_docx)
@@ -249,6 +270,10 @@ class HtmlLivePreview(QDialog):
         self.btn_export = QPushButton("Экспортировать")
         self.btn_export.clicked.connect(self.run_export)
         export_layout.addWidget(self.btn_export)
+        if self.override_lines is not None:
+            self.radio_current_episode.hide()
+            self.radio_all_episodes.hide()
+            self.btn_export.hide()
         sp_layout.addWidget(export_group)
         sp_layout.addStretch()
         
@@ -264,6 +289,10 @@ class HtmlLivePreview(QDialog):
         self.content_layout.addWidget(self.browser)
 
     def _update_window_title(self) -> None:
+        if self.override_lines is not None:
+            title = self.source_title or translate_source("Быстрый конвертер")
+            self.setWindowTitle(f"{translate_source('Монтажный лист:')} {title}")
+            return
         self.setWindowTitle(
             f"{translate_source('Монтажный лист:')} "
             f"{translate_source('Серия')} {self.ep_num}"
@@ -271,6 +300,17 @@ class HtmlLivePreview(QDialog):
 
     def _populate_episode_combo(self) -> None:
         """Populate the preview episode selector."""
+        if self.override_lines is not None:
+            self.combo_episode.blockSignals(True)
+            self.combo_episode.clear()
+            self.combo_episode.addItem(
+                self.source_title or translate_source("Файл"),
+                self.ep_num
+            )
+            self.combo_episode.setEnabled(False)
+            self.combo_episode.blockSignals(False)
+            return
+
         episodes = self.main_app.data.get("episodes", {})
         episode_numbers = sorted(
             {str(ep) for ep in episodes.keys()} | {str(self.ep_num)},
@@ -286,6 +326,8 @@ class HtmlLivePreview(QDialog):
 
     def on_episode_change(self) -> None:
         """Switch the montage sheet preview to another episode."""
+        if self.override_lines is not None:
+            return
         ep = self.combo_episode.currentData()
         if not ep or str(ep) == str(self.ep_num):
             return
@@ -369,6 +411,31 @@ class HtmlLivePreview(QDialog):
                 self.combo_layout.currentData() == "Таблица"
             )
 
+    def _update_export_format_config(self) -> None:
+        """Persist selected export formats and sync main controls."""
+        cfg = self.main_app.data.setdefault("export_config", {})
+        cfg["format_html"] = self.chk_exp_html.isChecked()
+        cfg["format_xls"] = self.chk_exp_xls.isChecked()
+        cfg["format_docx"] = self.chk_exp_docx.isChecked()
+        if hasattr(self.main_app, "_sync_export_format_controls_from_config"):
+            self.main_app._sync_export_format_controls_from_config()
+        self._save_export_settings()
+
+    def sync_export_format_controls(self) -> None:
+        """Sync export format controls from the project settings."""
+        if not hasattr(self, "chk_exp_html"):
+            return
+        cfg = self.main_app.data.get("export_config", {})
+        controls = [
+            (self.chk_exp_html, cfg.get("format_html", True)),
+            (self.chk_exp_xls, cfg.get("format_xls", False)),
+            (self.chk_exp_docx, cfg.get("format_docx", False)),
+        ]
+        for checkbox, checked in controls:
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(checked))
+            checkbox.blockSignals(False)
+
     def sync_export_settings(self, update_preview: bool = True) -> None:
         """Sync preview controls from the project's export settings."""
         cfg = self.main_app.data["export_config"]
@@ -389,12 +456,20 @@ class HtmlLivePreview(QDialog):
             self.s_width_actor,
             self.chk_soften_colors,
         ]
+        if hasattr(self, "chk_exp_html"):
+            widgets.extend([
+                self.chk_exp_html,
+                self.chk_exp_xls,
+                self.chk_exp_docx,
+            ])
         for widget in widgets:
             widget.blockSignals(True)
 
         layout_index = self.combo_layout.findData(
             cfg.get("layout_type", "Таблица")
         )
+        if layout_index < 0 and cfg.get("layout_type") == "Сценарий":
+            layout_index = self.combo_layout.findData("Сценарий 1")
         self.combo_layout.setCurrentIndex(layout_index if layout_index >= 0 else 0)
         self.chk_col_tc.setChecked(cfg.get("col_tc", True))
         self.chk_col_char.setChecked(cfg.get("col_char", True))
@@ -415,6 +490,10 @@ class HtmlLivePreview(QDialog):
         self.s_width_char.setValue(cfg.get("table_width_char", 10.0))
         self.s_width_actor.setValue(cfg.get("table_width_actor", 8.5))
         self.chk_soften_colors.setChecked(cfg.get("soften_colors", True))
+        if hasattr(self, "chk_exp_html"):
+            self.chk_exp_html.setChecked(cfg.get("format_html", True))
+            self.chk_exp_xls.setChecked(cfg.get("format_xls", False))
+            self.chk_exp_docx.setChecked(cfg.get("format_docx", False))
 
         for widget in widgets:
             widget.blockSignals(False)
@@ -434,8 +513,8 @@ class HtmlLivePreview(QDialog):
         """Update preview."""
         try:
             logger.info(f"update_preview: ep={self.ep_num}")
-            
-            lines = self.main_app.get_episode_lines(self.ep_num)
+
+            lines = self._get_preview_lines()
             logger.info(f"update_preview: lines={len(lines) if lines else 0}")
             
             if not lines:
@@ -449,13 +528,14 @@ class HtmlLivePreview(QDialog):
 
             self.browser.loadFinished.connect(self.on_page_loaded)
 
-            cfg = self.main_app.data["export_config"]
-            merge_cfg = self.main_app.data.get("replica_merge_config", {})
+            preview_data = self._get_preview_project_data()
+            cfg = preview_data["export_config"]
+            merge_cfg = preview_data.get("replica_merge_config", {})
             local_layout = self.combo_layout.currentData()
 
             logger.info(f"update_preview: generating HTML with layout={local_layout}")
 
-            export_service = ExportService(self.main_app.data)
+            export_service = ExportService(preview_data)
             processed = export_service.process_merge_logic(lines, merge_cfg)
             logger.info(f"update_preview: processed={len(processed)} replicas")
 
@@ -474,6 +554,28 @@ class HtmlLivePreview(QDialog):
         except Exception as e:
             logger.error(f"update_preview failed: {e}", exc_info=True)
             self.browser.setHtml(f"<h3>{translate_source('Ошибка')}: {e}</h3>")
+
+    def _get_preview_lines(self) -> List[Dict[str, Any]]:
+        """Return lines for regular or temporary quick-converter preview."""
+        if self.override_lines is not None:
+            return self.override_lines
+        return self.main_app.get_episode_lines(self.ep_num)
+
+    def _get_preview_project_data(self) -> Dict[str, Any]:
+        """Return project data to use for rendering the preview."""
+        if self.override_lines is None:
+            return self.main_app.data
+
+        data = deepcopy(self.main_app.data)
+        data["actors"] = {}
+        data["global_map"] = {}
+        data["episode_actor_map"] = {}
+        cfg = deepcopy(data.get("export_config", {}))
+        cfg["use_color"] = False
+        cfg["highlight_ids_export"] = []
+        cfg["highlight_negative_ids_export"] = []
+        data["export_config"] = cfg
+        return data
     
     def toggle_sidebar(self) -> None:
         """Toggle sidebar."""
