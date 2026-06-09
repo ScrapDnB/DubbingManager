@@ -13,6 +13,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from unittest.mock import Mock
 
 # Импорты сервисов
 from services.project_service import ProjectService, MAX_BACKUPS
@@ -526,12 +527,13 @@ Dialogue: 0,0:00:00.00,0:00:02.00,Default,Герой; Злодей,0,0,0,,Общ
         # Проверка, что кэш очищен
         assert "1" not in service._loaded_episodes
 
-    def test_save_episode_to_ass(self, temp_ass_file):
-        """Сохранение эпизода в ASS"""
+    def test_save_episode_to_ass_is_disabled(self, temp_ass_file):
+        """Исходный ASS не перезаписывается."""
         service = EpisodeService()
         episodes = {"1": temp_ass_file}
+        with open(temp_ass_file, 'r', encoding='utf-8') as f:
+            original_content = f.read()
         
-        # Изменённые реплики
         mem_lines = [
             {
                 'id': 0,
@@ -545,14 +547,13 @@ Dialogue: 0,0:00:00.00,0:00:02.00,Default,Герой; Злодей,0,0,0,,Общ
         
         success, message = service.save_episode_to_ass("1", episodes, mem_lines)
         
-        assert success == True
+        assert success is False
+        assert "ASS/SRT отключена" in message
         
-        # Проверка сохранённых данных
         with open(temp_ass_file, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        assert 'Новый Персонаж' in content
-        assert 'Новый текст' in content
+        assert content == original_content
 
 
 # =============================================================================
@@ -789,6 +790,7 @@ class TestExportService:
     def test_export_batch(self, sample_project_data, temp_ass_file):
         """Пакетный экспорт"""
         service = ExportService(sample_project_data)
+        service._open_path = Mock()
 
         episodes = {"1": temp_ass_file}
 
@@ -808,6 +810,7 @@ class TestExportService:
 
             assert success == True
             assert os.path.exists(os.path.join(temp_dir, "Тестовый проект - Ep1.html"))
+            service._open_path.assert_called_once_with(temp_dir)
 
 
 # =============================================================================

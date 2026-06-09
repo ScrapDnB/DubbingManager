@@ -4,6 +4,7 @@ import os
 import sys
 import logging
 import re
+import subprocess
 from typing import Dict, List, Any, Optional, Set, Tuple, Callable
 
 from services.assignment_service import get_actor_for_character
@@ -40,6 +41,15 @@ class ExportService(ExportLayoutMixin):
 
     def __init__(self, project_data: Dict[str, Any]):
         self.project_data = project_data
+
+    def _open_path(self, path: str) -> None:
+        """Open a local path without going through a shell."""
+        if sys.platform == 'win32':
+            os.startfile(path)
+        elif sys.platform == 'darwin':
+            subprocess.run(["open", path], check=False)
+        else:
+            subprocess.run(["xdg-open", path], check=False)
 
     def _get_effective_highlight_filter(
         self,
@@ -901,10 +911,7 @@ class ExportService(ExportLayoutMixin):
 
             # Open the folder
             if exported_count > 0 and cfg.get('open_auto', True):
-                if sys.platform == 'darwin':
-                    os.system(f'open "{folder}"')
-                else:
-                    os.startfile(folder)
+                self._open_path(folder)
 
             return True, f"{translate_source('Экспортировано файлов:')} {exported_count}"
 

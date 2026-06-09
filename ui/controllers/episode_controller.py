@@ -154,8 +154,7 @@ class EpisodeController:
         ep_num: str,
         target_path: Optional[str] = None
     ) -> Tuple[bool, str]:
-        """Save an episode to an ASS file."""
-        episodes = self.data_ref.get("episodes", {})
+        """Handle the legacy save action without writing subtitle sources."""
         loaded_episodes = self.data_ref.get("loaded_episodes", {})
 
         if ep_num not in loaded_episodes:
@@ -163,27 +162,16 @@ class EpisodeController:
 
         memory_lines = loaded_episodes[ep_num]
 
-        if any(line.get("_working_text") for line in memory_lines):
-            if target_path:
-                return (
-                    False,
-                    translate_source(
-                        "Рабочий текст нельзя сохранить как ASS/SRT напрямую. "
-                        "Пересоздайте рабочий текст из субтитров или экспортируйте монтажный лист."
-                    )
-                )
+        if any(line.get("_working_text") for line in memory_lines) and not target_path:
             return True, translate_source("Рабочий текст сохранён")
 
-        # Detect the file type
-        source_path = episodes.get(ep_num, "")
-        if source_path.lower().endswith('.srt'):
-            return self.episode_service.save_episode_to_srt(
-                ep_num, episodes, memory_lines, target_path
+        return (
+            False,
+            translate_source(
+                "Запись изменений обратно в ASS/SRT отключена. "
+                "Редактируйте рабочий текст JSON или экспортируйте монтажный лист."
             )
-        else:
-            return self.episode_service.save_episode_to_ass(
-                ep_num, episodes, memory_lines, target_path
-            )
+        )
 
     def rename_episode(
         self,

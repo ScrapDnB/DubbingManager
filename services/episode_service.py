@@ -334,64 +334,8 @@ class EpisodeService:
         memory_lines: List[Dict[str, Any]],
         target_path: Optional[str] = None
     ) -> Tuple[bool, str]:
-        """Save episode to ass."""
-        if not memory_lines:
-            return False, "Нет данных для сохранения"
-
-        source_path = episodes.get(ep_num)
-        if not source_path:
-            return False, "Файл не найден"
-
-        # Save DOCX imports to a new ASS file because they do not exist on disk
-        if not os.path.exists(source_path) or source_path.lower().endswith('.docx'):
-            # Save as a new ASS file
-            if target_path is None:
-                target_path = source_path.replace('.docx', '.ass') if source_path.lower().endswith('.docx') else f"{ep_num}.ass"
-            return self.save_episode_to_ass_new(ep_num, memory_lines, target_path)
-
-        save_path = target_path or source_path
-
-        # Detect the file type
-        if source_path.lower().endswith('.srt'):
-            return self.save_episode_to_srt(ep_num, episodes, memory_lines, target_path)
-
-        new_file_content = []
-
-        try:
-            with open(source_path, 'r', encoding='utf-8') as f:
-                dia_idx = 0
-
-                for line in f:
-                    if line.startswith("Dialogue:"):
-                        if dia_idx < len(memory_lines):
-                            current_data = memory_lines[dia_idx]
-                            parts = line.strip().split(',', 9)
-
-                            if len(parts) > 9:
-                                parts[4] = current_data['char']
-                                new_line = (
-                                    f"{','.join(parts[:9])},"
-                                    f"{current_data['text']}\n"
-                                )
-                                new_file_content.append(new_line)
-                            else:
-                                new_file_content.append(line)
-                        else:
-                            new_file_content.append(line)
-
-                        dia_idx += 1
-                    else:
-                        new_file_content.append(line)
-
-            with open(save_path, 'w', encoding='utf-8') as f:
-                f.writelines(new_file_content)
-
-            logger.info(f"ASS saved to {save_path}")
-            return True, f"Серия {ep_num} сохранена"
-
-        except Exception as e:
-            logger.error(f"Error saving ASS: {e}")
-            return False, f"Ошибка записи: {e}"
+        """Reject legacy writes back to subtitle source files."""
+        return False, "Запись изменений обратно в ASS/SRT отключена"
 
     def save_episode_to_ass_new(
         self,
@@ -399,47 +343,8 @@ class EpisodeService:
         memory_lines: List[Dict[str, Any]],
         save_path: str
     ) -> Tuple[bool, str]:
-        """Save episode to ass new."""
-        if not memory_lines:
-            return False, "Нет данных для сохранения"
-
-        # Standard ASS file header
-        ass_header = """[Script Info]
-ScriptType: v4.00+
-PlayResX: 1920
-PlayResY: 1080
-Timer: 100.0000
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-
-        try:
-            with open(save_path, 'w', encoding='utf-8') as f:
-                f.write(ass_header)
-
-                for line in memory_lines:
-                    # Convert seconds back to ASS time format
-                    start_time = self._seconds_to_ass_time(line.get('s', 0))
-                    end_time = self._seconds_to_ass_time(line.get('e', 0))
-                    char = line.get('char', '')
-                    text = line.get('text', '')
-
-                    # ASS format: Dialogue: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-                    # Name (Actor) stores the character name
-                    dialogue_line = f"Dialogue: 0,{start_time},{end_time},,{char},0,0,0,,{text}\n"
-                    f.write(dialogue_line)
-
-            logger.info(f"New ASS saved to {save_path}")
-            return True, f"Серия {ep_num} сохранена в {save_path}"
-
-        except Exception as e:
-            logger.error(f"Error saving new ASS: {e}")
-            return False, f"Ошибка записи: {e}"
+        """Reject legacy ASS creation from imported episode data."""
+        return False, "Создание ASS из рабочего текста отключено"
 
     def _seconds_to_ass_time(self, seconds: float) -> str:
         """Convert seconds to ASS time format."""
@@ -456,67 +361,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         memory_lines: List[Dict[str, Any]],
         target_path: Optional[str] = None
     ) -> Tuple[bool, str]:
-        """Save episode to srt."""
-        if not memory_lines:
-            return False, "Нет данных для сохранения"
-
-        source_path = episodes.get(ep_num)
-        if not source_path or not os.path.exists(source_path):
-            return False, "Файл не найден"
-
-        save_path = target_path or source_path
-
-        try:
-            # Read the original SRT to preserve timings
-            with open(source_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-
-            blocks = re.split(r'\n\s*\n', content.strip())
-            new_file_content = []
-            line_idx = 0
-
-            for block in blocks:
-                block_lines = block.strip().split('\n')
-                if len(block_lines) < 2:
-                    continue
-
-                try:
-                    # The first line is the number
-                    block_num = block_lines[0].strip()
-                    
-                    # The second line is timing
-                    time_line = block_lines[1].strip()
-                    
-                    # If this replica has data
-                    if line_idx < len(memory_lines):
-                        current_data = memory_lines[line_idx]
-                        # Build text as "Name: replica" or just "replica"
-                        if current_data.get('char'):
-                            full_text = f"{current_data['char']}: {current_data['text']}"
-                        else:
-                            full_text = current_data['text']
-                        
-                        new_block = f"{block_num}\n{time_line}\n{full_text}"
-                        new_file_content.append(new_block)
-                        line_idx += 1
-                    else:
-                        # Keep the original block
-                        new_file_content.append(block.strip())
-                        
-                except Exception:
-                    # Keep the original block on errors
-                    new_file_content.append(block.strip())
-
-            # Write the file
-            with open(save_path, 'w', encoding='utf-8') as f:
-                f.write('\n\n'.join(new_file_content) + '\n')
-
-            logger.info(f"SRT saved to {save_path}")
-            return True, f"Серия {ep_num} сохранена"
-
-        except Exception as e:
-            logger.error(f"Error saving SRT: {e}")
-            return False, f"Ошибка записи: {e}"
+        """Reject legacy writes back to subtitle source files."""
+        return False, "Запись изменений обратно в ASS/SRT отключена"
 
     def clear_cache(self, ep_num: Optional[str] = None) -> None:
         """Clear the loaded episode cache."""

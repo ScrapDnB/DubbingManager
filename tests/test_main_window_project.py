@@ -97,20 +97,20 @@ def test_sync_preview_export_settings_calls_open_preview(window):
 def test_open_exported_file_respects_open_auto(window):
     window.data["export_config"] = {"open_auto": False}
 
-    with patch("ui.main_window.os.system") as system_open:
+    with patch("ui.main_window.QDesktopServices.openUrl") as open_url:
         window._open_exported_file_if_needed("/tmp/export.docx")
 
-    system_open.assert_not_called()
+    open_url.assert_not_called()
 
 
 def test_open_exported_file_runs_when_open_auto_enabled(window):
     window.data["export_config"] = {"open_auto": True}
 
-    with patch("ui.main_window.sys.platform", "darwin"):
-        with patch("ui.main_window.os.system") as system_open:
-            window._open_exported_file_if_needed("/tmp/export.docx")
+    with patch("ui.main_window.QDesktopServices.openUrl") as open_url:
+        window._open_exported_file_if_needed("/tmp/export.docx")
 
-    system_open.assert_called_once_with('open "/tmp/export.docx"')
+    open_url.assert_called_once()
+    assert open_url.call_args.args[0].toLocalFile() == "/tmp/export.docx"
 
 
 def test_new_project_uses_default_export_config(window):

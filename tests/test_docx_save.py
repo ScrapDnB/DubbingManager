@@ -19,8 +19,8 @@ class TestDocxSave:
         """Настройка перед каждым тестом"""
         self.service = EpisodeService(merge_gap=5, fps=25.0)
 
-    def test_save_episode_to_ass_new(self):
-        """Тест сохранения нового ASS файла (для DOCX импорта)"""
+    def test_save_episode_to_ass_new_is_disabled(self):
+        """Тест: DOCX импорт не сохраняется обратно в ASS."""
         memory_lines = [
             {'s': 1.0, 'e': 3.0, 'char': 'Иван', 'text': 'Привет!'},
             {'s': 4.0, 'e': 6.0, 'char': 'Мария', 'text': 'Как дела?'},
@@ -38,19 +38,9 @@ class TestDocxSave:
                 "1", memory_lines, temp_path
             )
 
-            assert success == True
-            assert os.path.exists(temp_path)
-
-            # Проверяем содержимое
-            with open(temp_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-
-            assert '[Script Info]' in content
-            assert '[Events]' in content
-            assert 'Dialogue: 0,0:00:01.00,0:00:03.00,,Иван' in content
-            assert 'Привет!' in content
-            assert 'Мария' in content
-            assert 'Как дела?' in content
+            assert success is False
+            assert "ASS" in message
+            assert os.path.getsize(temp_path) == 0
 
         finally:
             if os.path.exists(temp_path):
@@ -70,8 +60,8 @@ class TestDocxSave:
             result = self.service._seconds_to_ass_time(seconds)
             assert result == expected, f"Failed for {seconds}: got {result}, expected {expected}"
 
-    def test_save_with_empty_lines(self):
-        """Тест сохранения с пустыми данными"""
+    def test_save_with_empty_lines_is_disabled(self):
+        """Тест: ASS-сохранение отключено и для пустых данных."""
         temp_file = tempfile.NamedTemporaryFile(
             suffix='.ass', delete=False, mode='w'
         )
@@ -84,14 +74,14 @@ class TestDocxSave:
             )
 
             assert success == False
-            assert "Нет данных" in message
+            assert "ASS" in message
 
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
 
-    def test_save_episode_to_ass_with_docx_path(self):
-        """Тест save_episode_to_ass с DOCX путём"""
+    def test_save_episode_to_ass_with_docx_path_is_disabled(self):
+        """Тест: save_episode_to_ass не создаёт ASS для DOCX."""
         memory_lines = [
             {'s': 1.0, 'e': 3.0, 'char': 'Иван', 'text': 'Привет!'}
         ]
@@ -105,13 +95,13 @@ class TestDocxSave:
         temp_file.close()
 
         try:
-            # DOCX файл не существует, должен создаться новый ASS
             success, message = self.service.save_episode_to_ass(
                 "1", episodes, memory_lines, temp_path
             )
 
-            assert success == True
-            assert os.path.exists(temp_path)
+            assert success is False
+            assert "ASS/SRT отключена" in message
+            assert os.path.getsize(temp_path) == 0
 
         finally:
             if os.path.exists(temp_path):

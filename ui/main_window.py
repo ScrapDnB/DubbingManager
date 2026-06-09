@@ -154,16 +154,16 @@ class QuickSubtitleDropZone(QFrame):
         self.setStyleSheet(
             """
             QuickSubtitleDropZone {
-                border: 1px dashed #9aa3ad;
+                border: 1px dashed palette(placeholder-text);
                 border-radius: 6px;
-                background: #f7f8fa;
+                background: transparent;
             }
             QuickSubtitleDropZone[dragActive="true"] {
-                border: 2px solid #4f8edc;
-                background: #eef5ff;
+                border: 2px solid palette(highlight);
+                background: palette(alternate-base);
             }
             QLabel {
-                color: #4f5965;
+                color: palette(text);
             }
             """
         )
@@ -174,7 +174,7 @@ class QuickSubtitleDropZone(QFrame):
 
         title = QLabel("Быстрый конвертер")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-weight: 600; color: #202124;")
+        title.setStyleSheet("font-weight: 600; color: palette(text);")
         layout.addWidget(title)
 
         hint = QLabel("Перетащите ASS или SRT\nМонтажные листы появятся рядом")
@@ -3272,26 +3272,11 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.critical(self, "Ошибка экспорта", message)
 
-    def _create_excel_book(
-        self,
-        ep: str,
-        processed: List[Dict[str, Any]],
-        cfg: Optional[Dict[str, Any]] = None
-    ) -> Any:
-        """Create an Excel workbook with multiple sheets."""
-        export_service = ExportService(self.data)
-        return export_service.create_excel_book(ep, processed, cfg)
-
     def _open_exported_file_if_needed(self, path: str) -> None:
         """Open an exported file when export settings allow it."""
         if not self.data.get("export_config", {}).get("open_auto", True):
             return
-        if sys.platform == 'win32':
-            os.startfile(path)
-        elif sys.platform == 'darwin':
-            os.system(f'open "{path}"')
-        else:
-            os.system(f'xdg-open "{path}"')
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def export_to_excel(self, ep: str) -> None:
         """Export data to an Excel file."""
@@ -3889,12 +3874,7 @@ class MainWindow(QMainWindow):
             )
             
             if reply == QMessageBox.Yes:
-                if sys.platform == 'win32':
-                    os.startfile(save_path)
-                elif sys.platform == 'darwin':
-                    os.system(f'open "{save_path}"')
-                else:
-                    os.system(f'xdg-open "{save_path}"')
+                QDesktopServices.openUrl(QUrl.fromLocalFile(save_path))
         except Exception as e:
             log_exception(logger, "Error saving RPP", e)
             QMessageBox.critical(

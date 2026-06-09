@@ -120,15 +120,16 @@ class TestEpisodeController:
             assert success == True
             assert ".docx" in message
 
-    def test_save_episode_ass(self, controller, episode_service, data_ref):
-        """Тест сохранения эпизода ASS"""
+    def test_save_episode_ass_is_disabled(self, controller, episode_service, data_ref):
+        """Тест: исходный ASS не перезаписывается."""
         data_ref["loaded_episodes"] = {"1": [{"id": 1, "char": "Test", "text": "Hello", "s": 0, "e": 1}]}
         data_ref["episodes"] = {"1": "/path/to/ep1.ass"}
         
         success, message = controller.save_episode("1")
         
-        assert success == True
-        episode_service.save_episode_to_ass.assert_called()
+        assert success == False
+        assert "ASS/SRT отключена" in message
+        episode_service.save_episode_to_ass.assert_not_called()
 
     def test_save_episode_working_text_does_not_write_ass(
         self,
@@ -171,18 +172,19 @@ class TestEpisodeController:
         success, message = controller.save_episode("1", "/tmp/copy.ass")
 
         assert success == False
-        assert "нельзя сохранить" in message
+        assert "ASS/SRT отключена" in message
         episode_service.save_episode_to_ass.assert_not_called()
 
-    def test_save_episode_srt(self, controller, episode_service, data_ref):
-        """Тест сохранения SRT эпизода"""
+    def test_save_episode_srt_is_disabled(self, controller, episode_service, data_ref):
+        """Тест: исходный SRT не перезаписывается."""
         data_ref["loaded_episodes"] = {"1": [{"id": 1, "char": "Test", "text": "Hello", "s": 0, "e": 1}]}
         data_ref["episodes"] = {"1": "/path/to/ep1.srt"}
         
         success, message = controller.save_episode("1")
         
-        assert success == True
-        episode_service.save_episode_to_srt.assert_called()
+        assert success == False
+        assert "ASS/SRT отключена" in message
+        episode_service.save_episode_to_srt.assert_not_called()
 
     def test_save_episode_not_loaded(self, controller):
         """Тест сохранения незагруженного эпизода"""

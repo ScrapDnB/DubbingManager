@@ -812,8 +812,7 @@ class TestExportService:
             return True, "ok"
 
         monkeypatch.setattr(service, "export_to_excel", fake_export_to_excel)
-        monkeypatch.setattr(export_module.sys, "platform", "darwin")
-        monkeypatch.setattr(export_module.os, "system", lambda command: 0)
+        monkeypatch.setattr(service, "_open_path", lambda path: None)
 
         def get_lines(ep):
             return [{
@@ -849,8 +848,7 @@ class TestExportService:
         sample_project_data["export_config"] = {}
         sample_project_data["replica_merge_config"] = {"merge": False}
         service = ExportService(sample_project_data)
-        monkeypatch.setattr(export_module.sys, "platform", "darwin")
-        monkeypatch.setattr(export_module.os, "system", lambda command: 0)
+        monkeypatch.setattr(service, "_open_path", lambda path: None)
 
         def get_lines(ep):
             return [{
@@ -886,9 +884,8 @@ class TestExportService:
         sample_project_data["export_config"] = {"open_auto": False}
         sample_project_data["replica_merge_config"] = {"merge": False}
         service = ExportService(sample_project_data)
-        system_open = Mock()
-        monkeypatch.setattr(export_module.sys, "platform", "darwin")
-        monkeypatch.setattr(export_module.os, "system", system_open)
+        open_path = Mock()
+        monkeypatch.setattr(service, "_open_path", open_path)
 
         success, message = service.export_batch(
             episodes={"1": "one.ass"},
@@ -906,7 +903,37 @@ class TestExportService:
 
         assert success is True
         assert message == "Экспортировано файлов: 1"
-        system_open.assert_not_called()
+        open_path.assert_not_called()
+
+    def test_open_path_uses_subprocess_on_macos(
+        self,
+        sample_project_data: Dict[str, Any],
+        monkeypatch
+    ) -> None:
+        """Тест: открытие пути на macOS не использует shell."""
+        service = ExportService(sample_project_data)
+        run = Mock()
+        monkeypatch.setattr(export_module.sys, "platform", "darwin")
+        monkeypatch.setattr(export_module.subprocess, "run", run)
+
+        service._open_path('/tmp/export "quoted".html')
+
+        run.assert_called_once_with(["open", '/tmp/export "quoted".html'], check=False)
+
+    def test_open_path_uses_subprocess_on_linux(
+        self,
+        sample_project_data: Dict[str, Any],
+        monkeypatch
+    ) -> None:
+        """Тест: открытие пути на Linux не использует shell."""
+        service = ExportService(sample_project_data)
+        run = Mock()
+        monkeypatch.setattr(export_module.sys, "platform", "linux")
+        monkeypatch.setattr(export_module.subprocess, "run", run)
+
+        service._open_path('/tmp/export $(bad).html')
+
+        run.assert_called_once_with(["xdg-open", '/tmp/export $(bad).html'], check=False)
 
     def test_generate_reaper_rpp_uses_shared_generator_and_merge_config(
         self,

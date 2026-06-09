@@ -1355,13 +1355,16 @@ class TeleprompterWindow(QDialog):
         from .dialogs.colors import PrompterColorDialog
 
         dialog = PrompterColorDialog(self.cfg["colors"], self)
-        if dialog.exec():
-            self.cfg["colors"] = dialog.get_final_colors()
-            
-            self.main_app.save_global_prompter_settings(self.cfg)
-            
-            self.main_app.set_dirty(True)
-            self.build_prompter_content()
+        try:
+            if dialog.exec():
+                self.cfg["colors"] = dialog.get_final_colors()
+
+                self.main_app.save_global_prompter_settings(self.cfg)
+
+                self.main_app.set_dirty(True)
+                self.build_prompter_content()
+        finally:
+            self._restore_after_color_preset_action()
 
     def get_color_presets(self) -> List[Optional[Dict[str, str]]]:
         """Return global color presets when the main app provides them."""
@@ -1427,6 +1430,7 @@ class TeleprompterWindow(QDialog):
         menu.addAction(apply_action)
         menu.addAction(save_action)
         menu.exec(QCursor.pos())
+        self._restore_after_color_preset_action()
 
     def apply_color_preset(self, index: int) -> None:
         """Apply one global color preset to the current project."""
@@ -1438,29 +1442,50 @@ class TeleprompterWindow(QDialog):
         self.main_app.save_global_prompter_settings(self.cfg)
         self.main_app.set_dirty(True)
         self.build_prompter_content()
+        self._restore_after_color_preset_action()
 
     def save_current_color_preset(self, index: int, ask: bool = True) -> None:
         """Save current project colors into one global preset slot."""
-        if not hasattr(self.main_app, "save_prompter_color_preset"):
-            return
-
-        if ask:
-            answer = QMessageBox.question(
-                self,
-                "Перезаписать пресет?",
-                f"Пресет {index + 1} будет заменён текущей цветовой схемой. "
-                "Продолжить?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if answer != QMessageBox.Yes:
+        try:
+            if not hasattr(self.main_app, "save_prompter_color_preset"):
                 return
 
-        if self.main_app.save_prompter_color_preset(
-            index,
-            deepcopy(self.cfg["colors"])
-        ):
-            self.update_color_preset_buttons()
+            if ask:
+                answer = QMessageBox.question(
+                    self,
+                    "Перезаписать пресет?",
+                    f"Пресет {index + 1} будет заменён текущей цветовой схемой. "
+                    "Продолжить?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if answer != QMessageBox.Yes:
+                    return
+
+            if self.main_app.save_prompter_color_preset(
+                index,
+                deepcopy(self.cfg["colors"])
+            ):
+                self.update_color_preset_buttons()
+        finally:
+            self._restore_after_color_preset_action()
+
+    def _restore_after_color_preset_action(self) -> None:
+        """Bring the teleprompter back after popup menu/dialog actions."""
+        QTimer.singleShot(0, self._activate_after_color_preset_action)
+        QTimer.singleShot(100, self._activate_after_color_preset_action)
+
+    def _activate_after_color_preset_action(self) -> None:
+        """Raise and activate the teleprompter window."""
+        if not self.isVisible():
+            return
+        self.show()
+        self.setWindowState(
+            (self.windowState() & ~Qt.WindowMinimized) | Qt.WindowActive
+        )
+        self.raise_()
+        self.activateWindow()
+        QApplication.setActiveWindow(self)
     
     def build_prompter_content(self) -> None:
         """Build prompter content."""
