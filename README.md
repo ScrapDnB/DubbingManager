@@ -4,7 +4,7 @@
 
 Программа помогает собрать в одном месте то, что обычно разъезжается по субтитрам, таблицам, заметкам и проектам Reaper: кто говорит, кто озвучивает, в какой серии появляется роль, сколько у актёра текста и какие файлы нужны для записи.
 
-<img width="1592" height="990" alt="Dubbing Manager screenshot" src="https://github.com/user-attachments/assets/457a64dd-0cab-41ed-b7ed-c6f413a54745" />
+<img width="1592" height="990" alt="Dubbing Manager screenshot" src="https://github.com/ScrapDnB/DubbingManager/blob/master/Screenshot.png" />
 
 ## Скачать
 
