@@ -33,6 +33,13 @@ from config.constants import (
 from utils.i18n import available_languages, tr, translate_source, translate_widget_tree
 from .actor_filter import ActorFilterDialog
 from .colors import PrompterColorDialog
+from .settings_helpers import (
+    check_box,
+    double_spin,
+    hint_label,
+    int_spin,
+    parse_separators,
+)
 
 
 class SettingsDialog(QDialog):
@@ -1705,14 +1712,7 @@ class SettingsDialog(QDialog):
         }
 
     def _parse_separators(self, text: str) -> List[str]:
-        separators = [
-            item.strip()
-            for item in text.split(",")
-            if item.strip()
-        ]
-        return separators or deepcopy(
-            DEFAULT_DOCX_IMPORT_CONFIG["time_separators"]
-        )
+        return parse_separators(text)
 
     def _select_initial_tab(self) -> None:
         aliases = {
@@ -1777,21 +1777,13 @@ class SettingsDialog(QDialog):
         self.export_actor_filter_summary.setText(text)
 
     def _hint(self, text: str) -> QLabel:
-        label = QLabel(text)
-        label.setWordWrap(True)
-        label.setStyleSheet("color: #666; font-size: 11px;")
-        return label
+        return hint_label(text)
 
     def _check_box(self, text: str, checked: bool) -> QCheckBox:
-        checkbox = QCheckBox(text)
-        checkbox.setChecked(bool(checked))
-        return checkbox
+        return check_box(text, checked)
 
     def _spin(self, minimum: int, maximum: int, value: Any) -> QSpinBox:
-        spin = QSpinBox()
-        spin.setRange(minimum, maximum)
-        spin.setValue(int(value))
-        return spin
+        return int_spin(minimum, maximum, value)
 
     def _double_spin(
         self,
@@ -1801,9 +1793,4 @@ class SettingsDialog(QDialog):
         step: float = 1.0,
         decimals: int = 1
     ) -> QDoubleSpinBox:
-        spin = QDoubleSpinBox()
-        spin.setRange(minimum, maximum)
-        spin.setSingleStep(step)
-        spin.setDecimals(decimals)
-        spin.setValue(float(value))
-        return spin
+        return double_spin(minimum, maximum, value, step, decimals)

@@ -7,8 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtWebChannel import QWebChannel
-from typing import Dict, List, Any, Optional, Set
-from copy import deepcopy
+from typing import Dict, List, Any, Optional
 import logging
 import sys
 
@@ -28,6 +27,12 @@ from utils.helpers import hex_to_rgba_string, log_exception, natural_sort_key
 from utils.i18n import translate_source, translate_widget_tree
 from utils.web_bridge import WebBridge
 from services import ExportService
+from .preview_helpers import (
+    apply_preview_settings,
+    build_preview_project_data,
+    get_export_highlight_ids,
+    get_export_negative_ids,
+)
 from .dialogs.actor_filter import ActorFilterDialog
 
 logger = logging.getLogger(__name__)
@@ -563,19 +568,10 @@ class HtmlLivePreview(QDialog):
 
     def _get_preview_project_data(self) -> Dict[str, Any]:
         """Return project data to use for rendering the preview."""
-        if self.override_lines is None:
-            return self.main_app.data
-
-        data = deepcopy(self.main_app.data)
-        data["actors"] = {}
-        data["global_map"] = {}
-        data["episode_actor_map"] = {}
-        cfg = deepcopy(data.get("export_config", {}))
-        cfg["use_color"] = False
-        cfg["highlight_ids_export"] = []
-        cfg["highlight_negative_ids_export"] = []
-        data["export_config"] = cfg
-        return data
+        return build_preview_project_data(
+            self.main_app.data,
+            self.override_lines is not None
+        )
     
     def toggle_sidebar(self) -> None:
         """Toggle sidebar."""
@@ -594,39 +590,34 @@ class HtmlLivePreview(QDialog):
     def on_setting_change(self) -> None:
         """Handle setting change."""
         cfg = self.main_app.data["export_config"]
-        cfg["layout_type"] = self.combo_layout.currentData()
-        cfg["col_tc"] = self.chk_col_tc.isChecked()
-        cfg["col_char"] = self.chk_col_char.isChecked()
-        cfg["col_actor"] = self.chk_col_actor.isChecked()
-        cfg["col_text"] = self.chk_col_text.isChecked()
-        cfg["round_time"] = self.chk_round_time.isChecked()
-        cfg["time_display"] = self.combo_time_display.currentData()
-        cfg["f_time"] = self.s_time.value()
-        cfg["f_char"] = self.s_char.value()
-        cfg["f_actor"] = self.s_actor.value()
-        cfg["f_text"] = self.s_text.value()
-        cfg["table_width_time"] = self.s_width_time.value()
-        cfg["table_width_char"] = self.s_width_char.value()
-        cfg["table_width_actor"] = self.s_width_actor.value()
-        cfg["soften_colors"] = self.chk_soften_colors.isChecked()
+        apply_preview_settings(cfg, {
+            "layout_type": self.combo_layout.currentData(),
+            "col_tc": self.chk_col_tc.isChecked(),
+            "col_char": self.chk_col_char.isChecked(),
+            "col_actor": self.chk_col_actor.isChecked(),
+            "col_text": self.chk_col_text.isChecked(),
+            "round_time": self.chk_round_time.isChecked(),
+            "time_display": self.combo_time_display.currentData(),
+            "f_time": self.s_time.value(),
+            "f_char": self.s_char.value(),
+            "f_actor": self.s_actor.value(),
+            "f_text": self.s_text.value(),
+            "table_width_time": self.s_width_time.value(),
+            "table_width_char": self.s_width_char.value(),
+            "table_width_actor": self.s_width_actor.value(),
+            "soften_colors": self.chk_soften_colors.isChecked(),
+        })
         self._update_table_width_controls_visibility()
         self._save_export_settings()
         self.update_preview()
 
     def _get_export_highlight_ids(self) -> Optional[List[str]]:
         """Return the current actor highlight filter from export settings."""
-        return self.main_app.data.get("export_config", {}).get(
-            "highlight_ids_export"
-        )
+        return get_export_highlight_ids(self.main_app.data)
 
     def _get_export_negative_ids(self) -> List[str]:
         """Return actors that use white text over highlight color."""
-        return list(
-            self.main_app.data.get("export_config", {}).get(
-                "highlight_negative_ids_export",
-                []
-            ) or []
-        )
+        return get_export_negative_ids(self.main_app.data)
 
     def _save_export_settings(self) -> None:
         """Mark project-local preview export settings as changed."""

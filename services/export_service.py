@@ -9,6 +9,8 @@ from typing import Dict, List, Any, Optional, Set, Tuple, Callable
 
 from services.assignment_service import get_actor_for_character
 from services.export_layouts import ExportLayoutMixin
+from services.replica_merge_service import ReplicaMergeService
+from services.reaper_rpp_service import ReaperRppService
 from utils.helpers import (
     format_seconds_to_full_tc,
     format_seconds_to_tc,
@@ -41,6 +43,8 @@ class ExportService(ExportLayoutMixin):
 
     def __init__(self, project_data: Dict[str, Any]):
         self.project_data = project_data
+        self.replica_merge_service = ReplicaMergeService()
+        self.reaper_rpp_service = ReaperRppService(project_data)
 
     def _open_path(self, path: str) -> None:
         """Open a local path without going through a shell."""
@@ -105,70 +109,7 @@ class ExportService(ExportLayoutMixin):
         cfg: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """Apply replica merge rules."""
-        if lines and all(line.get("_working_text") for line in lines):
-            return [line.copy() for line in lines]
-
-        p_short = cfg.get('p_short', 0.5)
-        p_long = cfg.get('p_long', 2.0)
-        fps = cfg.get('fps', 25.0)
-        # Convert merge_gap from frames to seconds
-        gap_seconds = cfg.get('merge_gap', 5) / fps
-
-        res = []
-        curr = None
-
-        if lines:
-            curr = lines[0].copy()
-            curr['parts'] = [{
-                'id': lines[0]['id'],
-                'text': lines[0]['text'],
-                'sep': ''
-            }]
-
-            for i in range(1, len(lines)):
-                nxt = lines[i]
-                diff = nxt['s'] - curr['e']
-
-                if (
-                    cfg.get('merge', True) and
-                    nxt['char'] == curr['char'] and
-                    diff < gap_seconds
-                ):
-                    if diff >= p_long:
-                        sep = " //  "
-                    elif diff >= p_short:
-                        sep = " /  "
-                    else:
-                        sep = "  "
-
-                    curr['parts'].append({
-                        'id': nxt['id'],
-                        'text': nxt['text'],
-                        'sep': sep
-                    })
-                    curr['text'] += sep + nxt['text']
-                    curr['e'] = nxt['e']
-                else:
-                    res.append(curr)
-                    curr = nxt.copy()
-                    curr['parts'] = [{
-                        'id': nxt['id'],
-                        'text': nxt['text'],
-                        'sep': ''
-                    }]
-
-            res.append(curr)
-
-        # Add source_ids and source_texts
-        for item in res:
-            if 'parts' in item:
-                item['source_ids'] = [p['id'] for p in item['parts']]
-                item['source_texts'] = [p['text'] for p in item['parts']]
-            else:
-                item['source_ids'] = [item.get('id')]
-                item['source_texts'] = [item.get('text', '')]
-
-        return res
+        return self.replica_merge_service.process(lines, cfg)
 
     def _episode_sort_key(self, ep_num: Any) -> Tuple[Any, ...]:
         """Return a natural sort key for episode identifiers."""
@@ -594,54 +535,15 @@ class ExportService(ExportLayoutMixin):
 
     def _hex_to_reaper_color(self, hex_color: str) -> int:
         """Hex to reaper color."""
-        if not hex_color or not isinstance(hex_color, str):
-            return 0
-
-        value = hex_color.strip().lstrip('#')
-        if len(value) != 6:
-            return 0
-
-        try:
-            red = int(value[0:2], 16)
-            green = int(value[2:4], 16)
-            blue = int(value[4:6], 16)
-        except ValueError:
-            return 0
-
-        return 0x01000000 | (blue << 16) | (green << 8) | red
+        return self.reaper_rpp_service._hex_to_reaper_color(hex_color)
 
     def _escape_rpp_text(self, text: Any) -> str:
         """Escape rpp text."""
-        return (
-            str(text)
-            .replace('"', "' ")
-            .replace('\r', ' ')
-            .replace('\n', ' ')
-            .strip()
-        )
+        return self.reaper_rpp_service._escape_rpp_text(text)
 
     def _transliterate_cyrillic(self, text: Any) -> str:
         """Transliterate Cyrillic text to Latin for DAW-friendly track names."""
-        mapping = {
-            "а": "a", "б": "b", "в": "v", "г": "g", "д": "d",
-            "е": "e", "ё": "yo", "ж": "zh", "з": "z", "и": "i",
-            "й": "y", "к": "k", "л": "l", "м": "m", "н": "n",
-            "о": "o", "п": "p", "р": "r", "с": "s", "т": "t",
-            "у": "u", "ф": "f", "х": "kh", "ц": "ts", "ч": "ch",
-            "ш": "sh", "щ": "shch", "ъ": "", "ы": "y", "ь": "",
-            "э": "e", "ю": "yu", "я": "ya",
-        }
-        result = []
-        for char in str(text):
-            lower = char.lower()
-            replacement = mapping.get(lower)
-            if replacement is None:
-                result.append(char)
-            elif char.isupper():
-                result.append(replacement[:1].upper() + replacement[1:])
-            else:
-                result.append(replacement)
-        return "".join(result)
+        return self.reaper_rpp_service._transliterate_cyrillic(text)
 
     def _reaper_actor_name(
         self,
@@ -649,15 +551,14 @@ class ExportService(ExportLayoutMixin):
         transliterate_actor_names: bool = False
     ) -> str:
         """Return actor name prepared for Reaper track display."""
-        name = actor.get("name", "")
-        if transliterate_actor_names:
-            return self._transliterate_cyrillic(name)
-        return str(name)
+        return self.reaper_rpp_service._reaper_actor_name(
+            actor,
+            transliterate_actor_names
+        )
 
     def save_reaper_rpp(self, save_path: str, rpp_content: str) -> None:
         """Save an RPP file with an encoding Reaper reads reliably."""
-        with open(save_path, 'w', encoding='utf-8-sig') as f:
-            f.write(rpp_content)
+        self.reaper_rpp_service.save(save_path, rpp_content)
 
     def generate_reaper_rpp(
         self,
@@ -670,90 +571,15 @@ class ExportService(ExportLayoutMixin):
         transliterate_actor_names: bool = False
     ) -> str:
         """Generate a Reaper RPP project from episode lines."""
-        if merge_cfg is None:
-            merge_cfg = self.project_data.get("replica_merge_config", {})
-
-        processed_lines = self.process_merge_logic(lines, merge_cfg)
-        actors = self.project_data.get("actors", {})
-
-        active_actor_ids: Set[str] = set()
-        for line in processed_lines:
-            actor_id = get_actor_for_character(
-                self.project_data,
-                line.get('char', ''),
-                ep
-            )
-            if actor_id:
-                active_actor_ids.add(actor_id)
-
-        max_time = 600.0
-        if processed_lines:
-            max_time = max(float(line.get('e', 0.0)) for line in processed_lines)
-            max_time += 600.0
-
-        rpp = ['<REAPER_PROJECT 0.1 "7.0"']
-
-        if use_regions:
-            for i, line in enumerate(processed_lines):
-                start = float(line.get('s', 0.0))
-                end = float(line.get('e', 0.0))
-
-                char = line.get('char', '')
-                label = (
-                    f"{self._escape_rpp_text(char)}: "
-                    f"{self._escape_rpp_text(line.get('text', ''))}"
-                )
-
-                actor_id = get_actor_for_character(self.project_data, char, ep)
-                actor = actors.get(actor_id, {}) if actor_id else {}
-                color_int = self._hex_to_reaper_color(actor.get("color", ""))
-
-                rpp.append(
-                    f'  MARKER {i + 1} {start:.4f} "{label}" 1 {color_int}'
-                )
-                rpp.append(
-                    f'  MARKER {i + 1} {end:.4f} "" 1 {color_int}'
-                )
-
-        if use_video and video_path:
-            rpp.append('   <TRACK')
-            rpp.append('    NAME "VIDEO"')
-            rpp.append('     <ITEM')
-            rpp.append('      POSITION 0.0')
-            rpp.append('      LOOP 0')
-            rpp.append(f'      LENGTH {max_time:.4f}')
-            rpp.append('       <SOURCE VIDEO')
-            rpp.append(f'        FILE "{self._escape_rpp_text(video_path)}"')
-            rpp.append('       >')
-            rpp.append('     >')
-            rpp.append('   >')
-
-        sorted_actors = sorted(
-            (
-                actors[actor_id]
-                for actor_id in active_actor_ids
-                if actor_id in actors
-            ),
-            key=lambda actor: self._reaper_actor_name(
-                actor, transliterate_actor_names
-            ).lower()
+        return self.reaper_rpp_service.generate(
+            ep,
+            lines,
+            merge_cfg,
+            video_path,
+            use_video,
+            use_regions,
+            transliterate_actor_names
         )
-
-        for actor in sorted_actors:
-            color_int = self._hex_to_reaper_color(actor.get('color', ''))
-            actor_name = self._reaper_actor_name(
-                actor,
-                transliterate_actor_names
-            )
-            rpp.append('   <TRACK')
-            rpp.append(f'    NAME "{self._escape_rpp_text(actor_name)}"')
-            rpp.append(f'    PEAKCOL {color_int}')
-            rpp.append('    REC 0')
-            rpp.append('    SHOWINMIX 1')
-            rpp.append('   >')
-
-        rpp.append('>')
-        return '\n'.join(rpp)
 
     def get_reaper_rpp_preview(
         self,
@@ -766,51 +592,15 @@ class ExportService(ExportLayoutMixin):
         transliterate_actor_names: bool = False
     ) -> Dict[str, Any]:
         """Return a user-facing preview summary for RPP export."""
-        if merge_cfg is None:
-            merge_cfg = self.project_data.get("replica_merge_config", {})
-
-        processed_lines = self.process_merge_logic(lines, merge_cfg)
-        actors = self.project_data.get("actors", {})
-
-        active_actor_ids: Set[str] = set()
-        invalid_lines = 0
-        sample_regions: List[str] = []
-
-        for line in processed_lines:
-            start = float(line.get('s', 0.0))
-            end = float(line.get('e', 0.0))
-            if end <= start:
-                invalid_lines += 1
-
-            char = line.get('char', '')
-            actor_id = get_actor_for_character(self.project_data, char, ep)
-            if actor_id:
-                active_actor_ids.add(actor_id)
-
-            if use_regions and len(sample_regions) < 5:
-                label = (
-                    f"{self._escape_rpp_text(char)}: "
-                    f"{self._escape_rpp_text(line.get('text', ''))}"
-                )
-                sample_regions.append(f"{start:.2f}-{end:.2f}  {label}")
-
-        active_actor_names = sorted(
-            self._reaper_actor_name(
-                actors.get(actor_id, {"name": actor_id}),
-                transliterate_actor_names
-            )
-            for actor_id in active_actor_ids
+        return self.reaper_rpp_service.preview(
+            ep,
+            lines,
+            merge_cfg,
+            video_path,
+            use_video,
+            use_regions,
+            transliterate_actor_names
         )
-
-        return {
-            "regions": len(processed_lines) if use_regions else 0,
-            "tracks": len(active_actor_ids),
-            "actors": active_actor_names,
-            "video": bool(use_video and video_path),
-            "video_path": video_path if use_video and video_path else None,
-            "invalid_lines": invalid_lines,
-            "sample_regions": sample_regions,
-        }
 
     # ==========================================================================
     # Batch export

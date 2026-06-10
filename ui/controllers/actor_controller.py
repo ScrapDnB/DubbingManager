@@ -6,12 +6,19 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QColor
 from PySide6.QtCore import Qt
+from datetime import datetime
 from typing import Dict, List, Any, Optional, Callable
 
 from services import ActorService
 from services.assignment_service import get_actor_roles
 from utils.helpers import wrap_widget
 from utils.i18n import tr
+from core.commands import (
+    AddActorCommand,
+    DeleteActorCommand,
+    RenameActorCommand,
+    UpdateActorColorCommand,
+)
 
 
 class ActorController:
@@ -211,6 +218,94 @@ class ActorController:
         return self.actor_service.get_unassigned_characters(
             self.data_ref["global_map"], []
         )
+
+    def find_actor_by_name(self, name: str) -> Optional[str]:
+        """Return actor id when a project actor has the given name."""
+        actor_name = name.strip().casefold()
+        for actor_id, actor in self.data_ref.get("actors", {}).items():
+            if actor.get("name", "").strip().casefold() == actor_name:
+                return actor_id
+        return None
+
+    def add_actor(
+        self,
+        undo_stack: Any,
+        name: str,
+        color: str,
+        gender: str = ""
+    ) -> Optional[str]:
+        """Add an actor to project data through the undo stack."""
+        actor_name = name.strip()
+        if not actor_name:
+            return None
+
+        actor_id = str(datetime.now().timestamp())
+        command = AddActorCommand(
+            self.data_ref["actors"],
+            actor_id,
+            actor_name,
+            color,
+            gender
+        )
+        undo_stack.push(command)
+        return actor_id
+
+    def rename_actor_with_undo(
+        self,
+        undo_stack: Any,
+        actor_id: str,
+        new_name: str
+    ) -> bool:
+        """Rename an actor through the undo stack."""
+        old_name = self.data_ref.get("actors", {}).get(actor_id, {}).get(
+            "name",
+            ""
+        )
+        if not new_name or new_name == old_name:
+            return False
+
+        command = RenameActorCommand(
+            self.data_ref["actors"],
+            actor_id,
+            new_name
+        )
+        undo_stack.push(command)
+        return True
+
+    def update_actor_color_with_undo(
+        self,
+        undo_stack: Any,
+        actor_id: str,
+        color: str
+    ) -> bool:
+        """Update an actor color through the undo stack."""
+        if not color:
+            return False
+        command = UpdateActorColorCommand(
+            self.data_ref["actors"],
+            actor_id,
+            color
+        )
+        undo_stack.push(command)
+        return True
+
+    def delete_actor_with_undo(
+        self,
+        undo_stack: Any,
+        actor_id: str
+    ) -> None:
+        """Delete an actor through the undo stack."""
+        command = DeleteActorCommand(
+            self.data_ref["actors"],
+            self.data_ref["global_map"],
+            actor_id,
+            [
+                mapping for mapping in
+                self.data_ref.get("episode_actor_map", {}).values()
+                if isinstance(mapping, dict)
+            ]
+        )
+        undo_stack.push(command)
 
     def _mark_dirty(self) -> None:
         """Mark dirty."""

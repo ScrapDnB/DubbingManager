@@ -155,6 +155,63 @@ class ScriptTextService:
                 found[str(ep_num)] = path
         return found
 
+    def episode_text_exists(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str
+    ) -> bool:
+        """Return whether an episode has an existing working-text file."""
+        text_path = project_data.get("episode_texts", {}).get(str(ep_num))
+        return bool(text_path and os.path.exists(text_path))
+
+    def link_existing_working_texts(
+        self,
+        project_data: Dict[str, Any],
+        project_path: Optional[str] = None
+    ) -> int:
+        """Link already generated working texts into project data."""
+        found = self.find_existing_episode_texts(project_data, project_path)
+        linked_count = 0
+        episode_texts = project_data.setdefault("episode_texts", {})
+
+        for ep_num, text_path in found.items():
+            current_path = episode_texts.get(str(ep_num))
+            if current_path == text_path and os.path.exists(current_path):
+                continue
+            episode_texts[str(ep_num)] = text_path
+            linked_count += 1
+
+        return linked_count
+
+    def episodes_needing_working_texts(
+        self,
+        project_data: Dict[str, Any],
+        project_path: Optional[str] = None
+    ) -> List[str]:
+        """Return episodes that can generate but do not have working texts."""
+        self.link_existing_working_texts(project_data, project_path)
+        episodes = project_data.get("episodes", {})
+        return [
+            str(ep)
+            for ep, path in episodes.items()
+            if (
+                not self.episode_text_exists(project_data, str(ep)) and
+                self.is_text_source_path(path)
+            )
+        ]
+
+    def is_subtitle_source_path(self, path: str) -> bool:
+        """Return whether a path points to a subtitle source."""
+        return os.path.splitext(path or "")[1].lower() in {'.ass', '.srt'}
+
+    def is_text_source_path(self, path: str) -> bool:
+        """Return whether a path can generate a working text."""
+        return os.path.splitext(path or "")[1].lower() in {
+            '.ass',
+            '.srt',
+            '.docx',
+        }
+
     def _candidate_episode_text_paths(
         self,
         project_data: Dict[str, Any],
