@@ -70,6 +70,7 @@ from config.constants import (
 from services import ExportService, ScriptTextService
 from services.assignment_service import get_actor_for_character
 from services.osc_worker import OscWorker, OSC_AVAILABLE
+from services.teleprompter_navigation_service import TeleprompterNavigationService
 from utils.helpers import (
     ass_time_to_seconds,
     format_seconds_to_tc,
@@ -77,485 +78,13 @@ from utils.helpers import (
     natural_sort_key,
 )
 from utils.i18n import translate_source, translate_widget_tree
+from .teleprompter_widgets import (
+    EditableTextItem,
+    SettingsSection,
+    TeleprompterFloatWindow,
+)
 
 logger = logging.getLogger(__name__)
-
-
-class SettingsSection(QFrame):
-    """Settings Section class."""
-
-    def __init__(self, title: str, parent=None):
-        super().__init__(parent)
-        self.setFrameShape(QFrame.StyledPanel)
-        self.setAutoFillBackground(True)
-        self.setStyleSheet(
-            "SettingsSection { border-radius: 4px; }"
-        )
-
-        self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(8, 6, 8, 8)
-        self.main_layout.setSpacing(4)
-
-        title_label = QLabel(title)
-        title_label.setStyleSheet(
-            "font-weight: bold; font-size: 13px;"
-        )
-        self.main_layout.addWidget(title_label)
-
-    def addWidget(self, widget) -> None:
-        self.main_layout.addWidget(widget)
-
-    def addLayout(self, layout) -> None:
-        self.main_layout.addLayout(layout)
-
-
-class EditTextDialog(QDialog):
-    """Edit Text Dialog dialog."""
-    
-    def __init__(self, parent=None, initial_text: str = ""):
-        super().__init__(parent)
-        self.setWindowTitle("Редактирование реплики")
-        self.resize(EDIT_TEXT_DIALOG_WIDTH, EDIT_TEXT_DIALOG_HEIGHT)
-        
-        layout = QVBoxLayout(self)
-        self.text_edit = QTextEdit()
-        self.text_edit.setPlainText(initial_text)
-        layout.addWidget(self.text_edit)
-        
-        btn_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
-        )
-        btn_box.accepted.connect(self.accept)
-        btn_box.rejected.connect(self.reject)
-        layout.addWidget(btn_box)
-
-
-class EditableTextItem(QGraphicsTextItem):
-    """Editable Text Item class."""
-    
-    def __init__(
-        self, 
-        text: str, 
-        window: 'TeleprompterWindow', 
-        line_id: Optional[Union[int, List[int]]] = None
-    ):
-        super().__init__(text)
-        self.window = window
-        self.line_id = line_id
-    
-    def mouseDoubleClickEvent(self, event) -> None:
-        try:
-            initial = self.toPlainText()
-            dialog = EditTextDialog(self.window, initial)
-            if dialog.exec() == QDialog.Accepted:
-                new_text = dialog.text_edit.toPlainText()
-                if new_text != initial:
-                    try:
-                        self.window.handle_text_edited(self.line_id, new_text)
-                    except Exception as e:
-                        log_exception(logger, "Error editing text", e)
-        except Exception as e:
-            log_exception(logger, "Error in mouseDoubleClickEvent", e)
-
-
-class TeleprompterFloatWindow(QDialog):
-    """Teleprompter Float Window class."""
-
-    def __init__(self, teleprompter: 'TeleprompterWindow') -> None:
-        super().__init__(None)
-        self.teleprompter: 'TeleprompterWindow' = teleprompter
-        self._drag_pos = None
-        self._cocoa_window = None  # macOS-specific handling
-
-        # macOS-specific handling
-        if platform.system() == "Darwin":
-            self._init_cocoa_window()
-        else:
-            # Qt-specific handling
-            flags = (
-                Qt.Tool |
-                Qt.WindowStaysOnTopHint |
-                Qt.CustomizeWindowHint |
-                Qt.WindowDoesNotAcceptFocus |
-                Qt.FramelessWindowHint
-            )
-            self.setWindowFlags(flags)
-            self.setAttribute(Qt.WA_ShowWithoutActivating)
-            self.resize(PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT)
-            self._init_qt_ui()
-
-    def _init_cocoa_window(self) -> None:
-        """Init cocoa window."""
-        try:
-            from AppKit import (
-                NSPanel, NSNonactivatingPanelMask, NSUtilityWindowMask,
-                NSFloatingWindowLevel, NSMakeRect, NSButton, NSSmallSquareBezelStyle,
-                NSFont, NSScrollView, NSTextView, NSNoBorder, NSView,
-                NSBezelBorder
-            )
-            import objc
-            
-            self._cocoa_window = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
-                NSMakeRect(100, 100, PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT),
-                NSUtilityWindowMask | NSNonactivatingPanelMask,
-                2,  # NSBackingStoreBuffered
-                False
-            )
-            self._cocoa_window.setLevel_(NSFloatingWindowLevel)
-            self._cocoa_window.setCollectionBehavior_(2)
-            self._cocoa_window.setWorksWhenModal_(True)
-            self._cocoa_window.setTitle_(translate_source("Управление"))
-            self._cocoa_window.setMovableByWindowBackground_(True)
-            
-            content_view = NSView.alloc().initWithFrame_(
-                NSMakeRect(0, 0, PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT)
-            )
-            
-            btn_next = NSButton.alloc().initWithFrame_(
-                NSMakeRect(FLOAT_MARGIN_X, FLOAT_BTN_Y_PREV, FLOAT_BTN_WIDTH, FLOAT_BTN_HEIGHT)
-            )
-            btn_next.setTitle_(translate_source("Вперёд ⏭"))
-            btn_next.setBezelStyle_(NSSmallSquareBezelStyle)
-            btn_next.setTarget_(self)
-            btn_next.setAction_(objc.selector(self.onNextClicked_, signature=b'v@:@'))
-            content_view.addSubview_(btn_next)
-            
-            btn_prev = NSButton.alloc().initWithFrame_(
-                NSMakeRect(FLOAT_MARGIN_X, FLOAT_BTN_Y_NEXT, FLOAT_BTN_WIDTH, FLOAT_BTN_HEIGHT)
-            )
-            btn_prev.setTitle_(translate_source("⏮ Назад"))
-            btn_prev.setBezelStyle_(NSSmallSquareBezelStyle)
-            btn_prev.setTarget_(self)
-            btn_prev.setAction_(objc.selector(self.onPrevClicked_, signature=b'v@:@'))
-            content_view.addSubview_(btn_prev)
-            
-            from AppKit import NSTextField, NSCenterTextAlignment
-            label = NSTextField.alloc().initWithFrame_(
-                NSMakeRect(FLOAT_MARGIN_X, FLOAT_LABEL_Y, FLOAT_BTN_WIDTH, FLOAT_LABEL_HEIGHT)
-            )
-            label.setStringValue_(translate_source("Список реплик:"))
-            label.setEditable_(False)
-            label.setSelectable_(False)
-            label.setBezeled_(False)
-            label.setDrawsBackground_(False)
-            label.setFont_(NSFont.boldSystemFontOfSize_(12))
-            label.setAlignment_(NSCenterTextAlignment)
-            content_view.addSubview_(label)
-            
-            from AppKit import NSTextView, NSScrollView, NSBezelBorder, NSTextViewDidChangeSelectionNotification
-            from Foundation import NSNotificationCenter
-            
-            scroll_view = NSScrollView.alloc().initWithFrame_(
-                NSMakeRect(FLOAT_MARGIN_X, FLOAT_SCROLL_Y, FLOAT_SCROLL_WIDTH, FLOAT_SCROLL_HEIGHT)
-            )
-            scroll_view.setHasVerticalScroller_(True)
-            scroll_view.setBorderType_(NSBezelBorder)
-            scroll_view.setDrawsBackground_(True)
-            
-            text_view = NSTextView.alloc().initWithFrame_(
-                NSMakeRect(0, 0, FLOAT_TEXT_VIEW_WIDTH, FLOAT_SCROLL_HEIGHT)
-            )
-            text_view.setEditable_(False)
-            text_view.setSelectable_(True)
-            text_view.setRichText_(False)
-            text_view.setFont_(NSFont.systemFontOfSize_(11))
-            text_view.setString_("")
-            text_view.setAllowsUndo_(False)
-            scroll_view.setDocumentView_(text_view)
-            content_view.addSubview_(scroll_view)
-            
-            NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
-                self,
-                'onReplicaSelected:',
-                NSTextViewDidChangeSelectionNotification,
-                text_view
-            )
-            
-            # Initialize list
-            self._replica_text_view = text_view
-            self._replica_scroll_view = scroll_view
-            self._replica_items = []
-
-            btn_hide = NSButton.alloc().initWithFrame_(
-                NSMakeRect(FLOAT_BTN_HIDE_X, FLOAT_BTN_HIDE_Y, FLOAT_BTN_HIDE_WIDTH, FLOAT_BTN_HIDE_HEIGHT)
-            )
-            btn_hide.setTitle_(translate_source("Скрыть"))
-            btn_hide.setBezelStyle_(NSSmallSquareBezelStyle)
-            btn_hide.setTarget_(self)
-            btn_hide.setAction_(objc.selector(self.onHideClicked_, signature=b'v@:@'))
-            content_view.addSubview_(btn_hide)
-
-            self._cocoa_window.setContentView_(content_view)
-            self._content_view = content_view
-
-            self._btn_prev = btn_prev
-            self._btn_next = btn_next
-            
-        except Exception as e:
-            logger.debug(f"macOS Cocoa window init error: {e}")
-            # Qt-specific handling
-            flags = (
-                Qt.Tool |
-                Qt.WindowStaysOnTopHint |
-                Qt.CustomizeWindowHint |
-                Qt.WindowDoesNotAcceptFocus |
-                Qt.FramelessWindowHint
-            )
-            self.setWindowFlags(flags)
-            self.setAttribute(Qt.WA_ShowWithoutActivating)
-            self.resize(PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT)
-            self._init_qt_ui()
-
-    # macOS-specific handling
-
-    def _init_qt_ui(self) -> None:
-        """Init qt ui."""
-        layout: QVBoxLayout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(4)
-
-        self.drag_label = QLabel("☰ Управление")
-        self.drag_label.setStyleSheet("""
-            QLabel {
-                background: #444;
-                color: white;
-                padding: 4px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 11px;
-            }
-        """)
-        self.drag_label.setAlignment(Qt.AlignCenter)
-        self.drag_label.setCursor(Qt.OpenHandCursor)
-        layout.addWidget(self.drag_label)
-
-        btn_layout: QHBoxLayout = QHBoxLayout()
-
-        self.btn_prev = QPushButton("⏮ Назад")
-        self.btn_prev.setMinimumHeight(50)
-        self.btn_prev.clicked.connect(
-            lambda: self.teleprompter.navigate_to_replica_in_direction(-1)
-        )
-        btn_layout.addWidget(self.btn_prev)
-
-        self.btn_next = QPushButton("Вперёд ⏭")
-        self.btn_next.setMinimumHeight(50)
-        self.btn_next.clicked.connect(
-            lambda: self.teleprompter.navigate_to_replica_in_direction(1)
-        )
-        btn_layout.addWidget(self.btn_next)
-
-        layout.addLayout(btn_layout)
-
-        layout.addWidget(QLabel("<b>Список реплик:</b>"))
-        self.replica_list = QListWidget()
-        self.replica_list.itemClicked.connect(
-            lambda item: self.teleprompter.jump_to_specific_time(item.data(Qt.UserRole))
-        )
-        layout.addWidget(self.replica_list)
-
-        btn_close = QPushButton("Скрыть")
-        btn_close.clicked.connect(self.hide_window)
-        layout.addWidget(btn_close)
-
-        self.sync_replica_list()
-
-    def onPrevClicked_(self, sender) -> None:
-        """Onprevclicked."""
-        if self.teleprompter:
-            self.teleprompter.navigate_to_replica_in_direction(-1)
-
-    def onNextClicked_(self, sender) -> None:
-        """Onnextclicked."""
-        if self.teleprompter:
-            self.teleprompter.navigate_to_replica_in_direction(1)
-
-    def onHideClicked_(self, sender) -> None:
-        """Onhideclicked."""
-        if self._cocoa_window:
-            self._cocoa_window.orderOut_(None)
-        if hasattr(self, 'teleprompter') and self.teleprompter:
-            self.teleprompter.hide_float_window()
-
-    def show_cocoa_window(self) -> None:
-        """Show cocoa window."""
-        if self._cocoa_window:
-            self.update_cocoa_replica_list()
-            
-            if hasattr(self, 'teleprompter') and self.teleprompter:
-                current_time = self.teleprompter.last_known_time
-                for i, item in enumerate(self._replica_items):
-                    if abs(item['time'] - current_time) < 0.01:
-                        self.update_cocoa_selection(i)
-                        break
-            
-            self._cocoa_window.orderFrontRegardless()
-            self._cocoa_window.makeKeyAndOrderFront_(None)
-
-    def hide_cocoa_window(self) -> None:
-        """Hide cocoa window."""
-        if self._cocoa_window:
-            self._cocoa_window.orderOut_(None)
-
-    def update_cocoa_replica_list(self) -> None:
-        """Update cocoa replica list."""
-        if not self._cocoa_window or not hasattr(self, '_replica_text_view'):
-            logger.debug("Cocoa: окно или текст-вью не найдены")
-            return
-        
-        # Qt-specific handling
-        self._replica_items = []
-        replicas = []
-        
-        for i in range(self.teleprompter.list_of_replicas.count()):
-            item = self.teleprompter.list_of_replicas.item(i)
-            if item:
-                replicas.append(item.text())
-                self._replica_items.append({
-                    'text': item.text(),
-                    'time': item.data(Qt.UserRole)
-                })
-        
-        logger.debug(f"Cocoa: найдено {len(self._replica_items)} реплик")
-        
-        text = '\n'.join(replicas) if replicas else translate_source("Нет реплик")
-        self._replica_text_view.setString_(text)
-        
-        from Foundation import NSMakeRange
-        self._replica_text_view.scrollRangeToVisible_(NSMakeRange(0, 0))
-        logger.debug("Cocoa: текст обновлён")
-
-    def onReplicaSelected_(self, notification) -> None:
-        """Onreplicaselected."""
-        text_view = notification.object()
-        selected_range = text_view.selectedRange()
-        selected_location = selected_range.location
-        
-        if selected_location >= 0 and hasattr(self, '_replica_items'):
-            text = text_view.string()
-            if text:
-                lines = text.split('\n')
-                current_pos = 0
-                
-                for i, line in enumerate(lines):
-                    line_start = current_pos
-                    line_end = current_pos + len(line)
-                    
-                    if line_start <= selected_location <= line_end:
-                        if i < len(self._replica_items):
-                            time_code = self._replica_items[i].get('time')
-                            if time_code:
-                                self.on_replica_clicked(time_code)
-                        break
-                    
-                    current_pos = line_end + 1
-
-    def update_cocoa_selection(self, index: int) -> None:
-        """Update cocoa selection."""
-        if not hasattr(self, '_replica_text_view') or not self._replica_items:
-            return
-        
-        if 0 <= index < len(self._replica_items):
-            text = self._replica_text_view.string()
-            if text:
-                lines = text.split('\n')
-                pos = 0
-                for i in range(index):
-                    pos += len(lines[i]) + 1
-                
-                from Foundation import NSMakeRange
-                line_length = len(lines[index]) if index < len(lines) else 0
-                self._replica_text_view.setSelectedRange_(NSMakeRange(pos, line_length))
-                
-                self._replica_text_view.scrollRangeToVisible_(NSMakeRange(pos, line_length))
-
-    def on_replica_clicked(self, time_code: float) -> None:
-        """Handle replica click."""
-        if self.teleprompter and time_code is not None:
-            self.teleprompter.jump_to_specific_time(time_code)
-
-    # Qt-specific handling
-
-    def showEvent(self, event) -> None:
-        """Showevent."""
-        super().showEvent(event)
-
-    def closeEvent(self, event) -> None:
-        """Closeevent."""
-        self.hide_window()
-        event.ignore()
-
-    def hide_window(self) -> None:
-        """Hide window."""
-        if platform.system() == "Darwin":
-            self.hide_cocoa_window()
-        else:
-            self.hide()
-        if hasattr(self, 'teleprompter') and self.teleprompter:
-            self.teleprompter.hide_float_window()
-
-    def sync_replica_list(self) -> None:
-        """Synchronize replica list."""
-        if platform.system() == "Darwin":
-            self.update_cocoa_replica_list()
-        else:
-            # Qt-specific handling
-            if not self.teleprompter:
-                return
-
-            current_row: int = self.replica_list.currentRow()
-            self.replica_list.blockSignals(True)
-            self.replica_list.clear()
-
-            i: int
-            for i in range(self.teleprompter.list_of_replicas.count()):
-                item: QListWidgetItem = self.teleprompter.list_of_replicas.item(i)
-                new_item: QListWidgetItem = QListWidgetItem(item.text())
-                new_item.setData(Qt.UserRole, item.data(Qt.UserRole))
-                self.replica_list.addItem(new_item)
-
-            if 0 <= current_row < self.replica_list.count():
-                self.replica_list.setCurrentRow(current_row)
-            self.replica_list.blockSignals(False)
-
-    def update_selection(self, index: int) -> None:
-        """Update selection."""
-        if platform.system() == "Darwin":
-            self.update_cocoa_selection(index)
-        else:
-            if 0 <= index < self.replica_list.count():
-                self.replica_list.blockSignals(True)
-                self.replica_list.setCurrentRow(index)
-                self.replica_list.blockSignals(False)
-
-    # Qt-specific handling
-
-    def mousePressEvent(self, event) -> None:
-        """Mousepressevent."""
-        if event.button() == Qt.LeftButton:
-            if event.pos().y() < 30:
-                self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-                self.drag_label.setCursor(Qt.ClosedHandCursor)
-                event.accept()
-                return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event) -> None:
-        """Mousemoveevent."""
-        if self._drag_pos is not None:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event) -> None:
-        """Mousereleaseevent."""
-        if event.button() == Qt.LeftButton:
-            self._drag_pos = None
-            self.drag_label.setCursor(Qt.OpenHandCursor)
-            event.accept()
-            return
-        super().mouseReleaseEvent(event)
 
 
 class TeleprompterWindow(QDialog):
@@ -591,6 +120,7 @@ class TeleprompterWindow(QDialog):
         self._has_text_changes: bool = False
         self._initializing: bool = True
         self._manual_scroll_override: bool = False
+        self.navigation_service = TeleprompterNavigationService()
 
         # UI
         self._init_ui()
@@ -1181,15 +711,7 @@ class TeleprompterWindow(QDialog):
         else:
             s = int(self.cfg.get('scroll_smoothness_slider', 18))
         
-        if s <= 0:
-            return 0.0
-        
-        min_tau = 0.01
-        max_tau = 2.0
-        p = 1.15
-        n = float(s) / 100.0
-        tau = min_tau + (n ** p) * (max_tau - min_tau)
-        return tau
+        return self.navigation_service.compute_scroll_tau(s)
     
     def update_big_timecode_font_size(self) -> None:
         """Update big timecode font size."""
@@ -1355,13 +877,16 @@ class TeleprompterWindow(QDialog):
         from .dialogs.colors import PrompterColorDialog
 
         dialog = PrompterColorDialog(self.cfg["colors"], self)
-        if dialog.exec():
-            self.cfg["colors"] = dialog.get_final_colors()
-            
-            self.main_app.save_global_prompter_settings(self.cfg)
-            
-            self.main_app.set_dirty(True)
-            self.build_prompter_content()
+        try:
+            if dialog.exec():
+                self.cfg["colors"] = dialog.get_final_colors()
+
+                self.main_app.save_global_prompter_settings(self.cfg)
+
+                self.main_app.set_dirty(True)
+                self.build_prompter_content()
+        finally:
+            self._restore_after_color_preset_action()
 
     def get_color_presets(self) -> List[Optional[Dict[str, str]]]:
         """Return global color presets when the main app provides them."""
@@ -1427,6 +952,7 @@ class TeleprompterWindow(QDialog):
         menu.addAction(apply_action)
         menu.addAction(save_action)
         menu.exec(QCursor.pos())
+        self._restore_after_color_preset_action()
 
     def apply_color_preset(self, index: int) -> None:
         """Apply one global color preset to the current project."""
@@ -1438,29 +964,50 @@ class TeleprompterWindow(QDialog):
         self.main_app.save_global_prompter_settings(self.cfg)
         self.main_app.set_dirty(True)
         self.build_prompter_content()
+        self._restore_after_color_preset_action()
 
     def save_current_color_preset(self, index: int, ask: bool = True) -> None:
         """Save current project colors into one global preset slot."""
-        if not hasattr(self.main_app, "save_prompter_color_preset"):
-            return
-
-        if ask:
-            answer = QMessageBox.question(
-                self,
-                "Перезаписать пресет?",
-                f"Пресет {index + 1} будет заменён текущей цветовой схемой. "
-                "Продолжить?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if answer != QMessageBox.Yes:
+        try:
+            if not hasattr(self.main_app, "save_prompter_color_preset"):
                 return
 
-        if self.main_app.save_prompter_color_preset(
-            index,
-            deepcopy(self.cfg["colors"])
-        ):
-            self.update_color_preset_buttons()
+            if ask:
+                answer = QMessageBox.question(
+                    self,
+                    "Перезаписать пресет?",
+                    f"Пресет {index + 1} будет заменён текущей цветовой схемой. "
+                    "Продолжить?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if answer != QMessageBox.Yes:
+                    return
+
+            if self.main_app.save_prompter_color_preset(
+                index,
+                deepcopy(self.cfg["colors"])
+            ):
+                self.update_color_preset_buttons()
+        finally:
+            self._restore_after_color_preset_action()
+
+    def _restore_after_color_preset_action(self) -> None:
+        """Bring the teleprompter back after popup menu/dialog actions."""
+        QTimer.singleShot(0, self._activate_after_color_preset_action)
+        QTimer.singleShot(100, self._activate_after_color_preset_action)
+
+    def _activate_after_color_preset_action(self) -> None:
+        """Raise and activate the teleprompter window."""
+        if not self.isVisible():
+            return
+        self.show()
+        self.setWindowState(
+            (self.windowState() & ~Qt.WindowMinimized) | Qt.WindowActive
+        )
+        self.raise_()
+        self.activateWindow()
+        QApplication.setActiveWindow(self)
     
     def build_prompter_content(self) -> None:
         """Build prompter content."""
@@ -1908,20 +1455,7 @@ class TeleprompterWindow(QDialog):
     
     def _split_merged_text(self, text: str, ids: List[int]) -> List[str]:
         """Split merged text."""
-        if not text or len(ids) < 2:
-            return []
-        
-        parts = []
-        
-        if ' // ' in text:
-            parts = [p.strip() for p in text.split(' // ') if p.strip()]
-        elif ' / ' in text:
-            parts = [p.strip() for p in text.split(' / ') if p.strip()]
-        
-        if len(parts) == len(ids):
-            return parts
-        
-        return []
+        return self.navigation_service.split_merged_text(text, ids)
     
     def handle_text_edited(self, line_id: Any, new_text: str) -> None:
         """Handle text edited."""

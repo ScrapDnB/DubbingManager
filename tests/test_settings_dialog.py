@@ -83,6 +83,9 @@ def project_data():
         "episodes": {"1": "/tmp/episode.ass"},
         "episode_texts": {"1": "/tmp/text.json"},
         "export_config": {
+            "format_html": True,
+            "format_xls": False,
+            "format_docx": True,
             "layout_type": "Таблица",
             "col_tc": True,
             "col_char": True,
@@ -160,7 +163,7 @@ def test_settings_dialog_creation(app, project_data):
 def test_settings_dialog_returns_updated_settings(app, project_data):
     dialog = SettingsDialog(project_data)
 
-    dialog.export_layout_type.setCurrentText("Сценарий")
+    dialog.export_layout_type.setCurrentText("Сценарий 1")
     dialog.export_table_width_time.setValue(6.5)
     dialog.export_table_width_char.setValue(11.5)
     dialog.export_table_width_actor.setValue(9.5)
@@ -181,7 +184,10 @@ def test_settings_dialog_returns_updated_settings(app, project_data):
     assert settings["project_name"] == "Updated Project"
     assert settings["metadata"]["created_by"] == "Editor"
     assert settings["metadata"]["studio"] == "Studio Two"
-    assert settings["export_config"]["layout_type"] == "Сценарий"
+    assert settings["export_config"]["layout_type"] == "Сценарий 1"
+    assert settings["export_config"]["format_html"] is True
+    assert settings["export_config"]["format_xls"] is False
+    assert settings["export_config"]["format_docx"] is True
     assert settings["export_config"]["highlight_ids_export"] == ["actor1"]
     assert settings["export_config"]["table_width_time"] == 6.5
     assert settings["export_config"]["table_width_char"] == 11.5
@@ -204,7 +210,7 @@ def test_settings_dialog_saves_export_defaults_after_confirmation(
 ):
     parent = DummySettingsParent({})
     dialog = SettingsDialog(project_data, parent=parent)
-    dialog.export_layout_type.setCurrentText("Сценарий")
+    dialog.export_layout_type.setCurrentText("Сценарий 1")
     dialog.export_col_tc.setChecked(False)
 
     monkeypatch.setattr(
@@ -216,7 +222,7 @@ def test_settings_dialog_saves_export_defaults_after_confirmation(
 
     dialog._save_export_defaults()
 
-    assert parent.saved_default_export_config["layout_type"] == "Сценарий"
+    assert parent.saved_default_export_config["layout_type"] == "Сценарий 1"
     assert parent.saved_default_export_config["col_tc"] is False
     assert parent.saved_default_export_config["highlight_ids_export"] == ["actor1"]
     assert (
@@ -231,7 +237,7 @@ def test_settings_dialog_applies_export_defaults_after_confirmation(
     monkeypatch,
 ):
     default_export_config = {
-        "layout_type": "Сценарий",
+        "layout_type": "Сценарий 1",
         "col_tc": False,
         "col_actor": False,
         "round_time": True,
@@ -252,7 +258,7 @@ def test_settings_dialog_applies_export_defaults_after_confirmation(
     dialog._apply_export_defaults_to_project()
     settings = dialog.get_settings()
 
-    assert settings["export_config"]["layout_type"] == "Сценарий"
+    assert settings["export_config"]["layout_type"] == "Сценарий 1"
     assert settings["export_config"]["col_tc"] is False
     assert settings["export_config"]["col_actor"] is False
     assert settings["export_config"]["round_time"] is True
@@ -361,9 +367,12 @@ def test_global_settings_dialog_contains_only_global_tabs(app, project_data):
 
 def test_global_settings_dialog_uses_default_export_config(app, project_data):
     default_export_config = {
-        "layout_type": "Сценарий",
+        "layout_type": "Сценарий 1",
         "col_tc": False,
         "time_display": "start",
+        "format_html": False,
+        "format_xls": True,
+        "format_docx": True,
     }
     parent = DummySettingsParent(default_export_config)
     dialog = SettingsDialog(
@@ -374,9 +383,12 @@ def test_global_settings_dialog_uses_default_export_config(app, project_data):
 
     settings = dialog.get_settings()
 
-    assert settings["default_export_config"]["layout_type"] == "Сценарий"
+    assert settings["default_export_config"]["layout_type"] == "Сценарий 1"
     assert settings["default_export_config"]["col_tc"] is False
     assert settings["default_export_config"]["time_display"] == "start"
+    assert settings["default_export_config"]["format_html"] is False
+    assert settings["default_export_config"]["format_xls"] is True
+    assert settings["default_export_config"]["format_docx"] is True
 
 
 def test_global_settings_dialog_uses_default_prompter_config(app, project_data):
@@ -413,7 +425,7 @@ def test_global_settings_dialog_applies_current_export_config_to_project(
         parent=parent,
         settings_scope="global",
     )
-    dialog.export_layout_type.setCurrentText("Сценарий")
+    dialog.export_layout_type.setCurrentText("Сценарий 1")
     dialog.export_col_actor.setChecked(False)
 
     monkeypatch.setattr(
@@ -425,7 +437,7 @@ def test_global_settings_dialog_applies_current_export_config_to_project(
 
     dialog._apply_global_export_to_project()
 
-    assert parent.applied_export_config["layout_type"] == "Сценарий"
+    assert parent.applied_export_config["layout_type"] == "Сценарий 1"
     assert parent.applied_export_config["col_actor"] is False
 
 

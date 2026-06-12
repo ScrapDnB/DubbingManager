@@ -136,7 +136,7 @@ def test_preview_syncs_controls_from_export_config():
 
     preview.combo_layout = QComboBox()
     preview.combo_layout.addItem("Таблица", "Таблица")
-    preview.combo_layout.addItem("Сценарий", "Сценарий")
+    preview.combo_layout.addItem("Сценарий 1", "Сценарий 1")
     preview.chk_col_tc = QCheckBox()
     preview.chk_col_char = QCheckBox()
     preview.chk_col_actor = QCheckBox()
@@ -159,7 +159,7 @@ def test_preview_syncs_controls_from_export_config():
     preview.table_widths_group = QGroupBox()
 
     preview.main_app.data["export_config"].update({
-        "layout_type": "Сценарий",
+        "layout_type": "Сценарий 1",
         "col_tc": False,
         "col_char": False,
         "col_actor": True,
@@ -180,7 +180,7 @@ def test_preview_syncs_controls_from_export_config():
 
     preview.sync_export_settings()
 
-    assert preview.combo_layout.currentData() == "Сценарий"
+    assert preview.combo_layout.currentData() == "Сценарий 1"
     assert preview.chk_col_tc.isChecked() is False
     assert preview.chk_col_char.isChecked() is False
     assert preview.chk_col_actor.isChecked() is True

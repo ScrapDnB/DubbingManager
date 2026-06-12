@@ -33,6 +33,13 @@ from config.constants import (
 from utils.i18n import available_languages, tr, translate_source, translate_widget_tree
 from .actor_filter import ActorFilterDialog
 from .colors import PrompterColorDialog
+from .settings_helpers import (
+    check_box,
+    double_spin,
+    hint_label,
+    int_spin,
+    parse_separators,
+)
 
 
 class SettingsDialog(QDialog):
@@ -222,20 +229,53 @@ class SettingsDialog(QDialog):
             "влияют."
         ))
 
+        formats = QGroupBox("Форматы экспорта")
+        formats_layout = QHBoxLayout(formats)
+        self.export_format_html = self._check_box(
+            "HTML", self.export_config.get("format_html", True)
+        )
+        self.export_format_xls = self._check_box(
+            "Excel", self.export_config.get("format_xls", False)
+        )
+        self.export_format_docx = self._check_box(
+            "DOCX", self.export_config.get("format_docx", False)
+        )
+        self.export_format_html.setToolTip(
+            "Создавать HTML-монтажный лист при экспорте."
+        )
+        self.export_format_xls.setToolTip(
+            "Создавать Excel-файл при экспорте."
+        )
+        self.export_format_docx.setToolTip(
+            "Создавать DOCX-файл при экспорте."
+        )
+        formats_layout.addWidget(self.export_format_html)
+        formats_layout.addWidget(self.export_format_xls)
+        formats_layout.addWidget(self.export_format_docx)
+        formats_layout.addStretch()
+        layout.addWidget(formats)
+
         form = QFormLayout()
         self.export_layout_type = QComboBox()
         self.export_layout_type.addItem(translate_source("Таблица"), "Таблица")
-        self.export_layout_type.addItem(translate_source("Сценарий"), "Сценарий")
+        self.export_layout_type.addItem("Сценарий 1", "Сценарий 1")
+        self.export_layout_type.addItem("Сценарий 2", "Сценарий 2")
+        self.export_layout_type.addItem("Сценарий 3", "Сценарий 3")
+        current_layout_type = self.export_config.get("layout_type", "Таблица")
+        if current_layout_type == "Сценарий":
+            current_layout_type = "Сценарий 1"
         layout_index = self.export_layout_type.findData(
-            self.export_config.get("layout_type", "Таблица")
+            current_layout_type
         )
         self.export_layout_type.setCurrentIndex(layout_index if layout_index >= 0 else 0)
         self.export_layout_type.currentIndexChanged.connect(
             self._update_table_width_controls_visibility
         )
         self.export_layout_type.setToolTip(
-            "Таблица удобна для сверки и записи. Сценарий делает лист "
-            "похожим на читабельный текст с репликами."
+            "Таблица удобна для сверки и записи. Сценарий 1 повторяет "
+            "классическую сценарную разметку, Сценарий 2 делает реплики "
+            "крупными цветными блоками, Сценарий 3 разделяет служебные "
+            "данные и реплику на две колонки."
         )
         form.addRow("Тип разметки:", self.export_layout_type)
         layout.addLayout(form)
@@ -1318,6 +1358,9 @@ class SettingsDialog(QDialog):
         export_config = deepcopy(self.export_config)
         export_config.update({
             "layout_type": self.export_layout_type.currentData(),
+            "format_html": self.export_format_html.isChecked(),
+            "format_xls": self.export_format_xls.isChecked(),
+            "format_docx": self.export_format_docx.isChecked(),
             "col_tc": self.export_col_tc.isChecked(),
             "col_char": self.export_col_char.isChecked(),
             "col_actor": self.export_col_actor.isChecked(),
@@ -1347,11 +1390,21 @@ class SettingsDialog(QDialog):
         export_config.update(config or {})
         self.export_config = export_config
 
-        layout_index = self.export_layout_type.findData(
-            export_config.get("layout_type", "Таблица")
-        )
+        layout_type = export_config.get("layout_type", "Таблица")
+        if layout_type == "Сценарий":
+            layout_type = "Сценарий 1"
+        layout_index = self.export_layout_type.findData(layout_type)
         self.export_layout_type.setCurrentIndex(
             layout_index if layout_index >= 0 else 0
+        )
+        self.export_format_html.setChecked(
+            export_config.get("format_html", True)
+        )
+        self.export_format_xls.setChecked(
+            export_config.get("format_xls", False)
+        )
+        self.export_format_docx.setChecked(
+            export_config.get("format_docx", False)
         )
         self.export_col_tc.setChecked(export_config.get("col_tc", True))
         self.export_col_char.setChecked(export_config.get("col_char", True))
@@ -1659,14 +1712,7 @@ class SettingsDialog(QDialog):
         }
 
     def _parse_separators(self, text: str) -> List[str]:
-        separators = [
-            item.strip()
-            for item in text.split(",")
-            if item.strip()
-        ]
-        return separators or deepcopy(
-            DEFAULT_DOCX_IMPORT_CONFIG["time_separators"]
-        )
+        return parse_separators(text)
 
     def _select_initial_tab(self) -> None:
         aliases = {
@@ -1731,21 +1777,13 @@ class SettingsDialog(QDialog):
         self.export_actor_filter_summary.setText(text)
 
     def _hint(self, text: str) -> QLabel:
-        label = QLabel(text)
-        label.setWordWrap(True)
-        label.setStyleSheet("color: #666; font-size: 11px;")
-        return label
+        return hint_label(text)
 
     def _check_box(self, text: str, checked: bool) -> QCheckBox:
-        checkbox = QCheckBox(text)
-        checkbox.setChecked(bool(checked))
-        return checkbox
+        return check_box(text, checked)
 
     def _spin(self, minimum: int, maximum: int, value: Any) -> QSpinBox:
-        spin = QSpinBox()
-        spin.setRange(minimum, maximum)
-        spin.setValue(int(value))
-        return spin
+        return int_spin(minimum, maximum, value)
 
     def _double_spin(
         self,
@@ -1755,9 +1793,4 @@ class SettingsDialog(QDialog):
         step: float = 1.0,
         decimals: int = 1
     ) -> QDoubleSpinBox:
-        spin = QDoubleSpinBox()
-        spin.setRange(minimum, maximum)
-        spin.setSingleStep(step)
-        spin.setDecimals(decimals)
-        spin.setValue(float(value))
-        return spin
+        return double_spin(minimum, maximum, value, step, decimals)

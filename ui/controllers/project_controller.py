@@ -41,6 +41,19 @@ class ProjectController:
         self.data_ref = self.project_service.create_new_project(name)
         return self.data_ref
 
+    def reset_current_project(
+        self,
+        new_data: Dict[str, Any],
+        clear_undo_callback: Optional[callable] = None
+    ) -> None:
+        """Replace project data with a fresh project."""
+        self.data_ref.clear()
+        self.data_ref.update(new_data)
+        self.project_service.current_project_path = None
+        self.project_service.set_dirty(False)
+        if clear_undo_callback:
+            clear_undo_callback()
+
     def save_project(self, path: Optional[str] = None) -> bool:
         """Save project."""
         result = self.project_service.save_project(self.data_ref, path)
@@ -156,3 +169,51 @@ class ProjectController:
     def set_current_project_path(self, path: str) -> None:
         """Set current project path."""
         self.project_service.current_project_path = path
+
+    def remember_recent_project(
+        self,
+        global_settings: Dict[str, Any],
+        global_settings_service: Any,
+        path: Optional[str]
+    ) -> bool:
+        """Store a project path in global recent projects."""
+        if not path:
+            return False
+        global_settings_service.add_recent_project(path)
+        global_settings["recent_projects"] = (
+            global_settings_service.get_recent_projects()
+        )
+        return global_settings_service.save_settings(global_settings)
+
+    def existing_recent_projects(self, global_settings_service: Any) -> List[str]:
+        """Return recent project paths that still exist."""
+        recent = global_settings_service.get_recent_projects()
+        return [path for path in recent if os.path.exists(path)]
+
+    def clear_recent_projects(
+        self,
+        global_settings: Dict[str, Any],
+        global_settings_service: Any
+    ) -> bool:
+        """Clear global recent projects."""
+        global_settings_service.clear_recent_projects()
+        global_settings["recent_projects"] = []
+        return global_settings_service.save_settings(global_settings)
+
+    def prepare_loaded_project(
+        self,
+        episode_service: Any
+    ) -> None:
+        """Reset transient state after loading project data."""
+        self.data_ref["loaded_episodes"] = {}
+        episode_service.clear_cache()
+
+    def scan_project_folder(
+        self,
+        project_folder_service: Any
+    ) -> tuple[int, int, int]:
+        """Scan linked project folder and update known paths."""
+        folder = project_folder_service.get_project_folder(self.data_ref)
+        if not folder:
+            return 0, 0, 0
+        return project_folder_service.scan_and_link_files(self.data_ref, folder)

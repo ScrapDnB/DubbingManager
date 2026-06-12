@@ -315,7 +315,7 @@ class TestExportConfig:
     def test_from_dict(self):
         """Тест создания из словаря"""
         data = {
-            "layout_type": "Сценарий",
+            "layout_type": "Сценарий 3",
             "col_tc": False,
             "time_display": "start",
             "f_text": 50
@@ -323,7 +323,7 @@ class TestExportConfig:
         
         config = ExportConfig.from_dict(data)
         
-        assert config.layout_type == "Сценарий"
+        assert config.layout_type == "Сценарий 3"
         assert config.col_tc == False
         assert config.time_display == "start"
         assert config.f_text == 50
@@ -336,18 +336,27 @@ class TestExportConfig:
 
     def test_to_dict(self):
         """Тест преобразования в словарь"""
-        config = ExportConfig(layout_type="Сценарий")
+        config = ExportConfig(layout_type="Сценарий 1")
         result = config.to_dict()
         
         assert isinstance(result, dict)
-        assert result["layout_type"] == "Сценарий"
+        assert result["layout_type"] == "Сценарий 1"
+
+    def test_from_dict_legacy_scenario_layout(self):
+        """Тест миграции старого значения сценарной разметки."""
+        config = ExportConfig.from_dict({"layout_type": "Сценарий"})
+
+        assert config.layout_type == "Сценарий 1"
 
     def test_post_init_invalid_layout_type(self):
         """Тест валидации layout_type"""
         with pytest.raises(ValueError) as exc_info:
             ExportConfig(layout_type="Invalid")
         
-        assert "layout_type must be 'Таблица' or 'Сценарий'" in str(exc_info.value)
+        assert (
+            "layout_type must be 'Таблица', 'Сценарий 1', 'Сценарий 2' "
+            "or 'Сценарий 3'"
+        ) in str(exc_info.value)
 
     def test_post_init_invalid_f_time(self):
         """Тест валидации f_time"""

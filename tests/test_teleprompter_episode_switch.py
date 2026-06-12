@@ -164,6 +164,65 @@ def test_color_preset_button_saves_and_applies_colors(app):
     window.close()
 
 
+def test_saving_color_preset_restores_teleprompter_window(app, monkeypatch):
+    main_app = MainAppStub()
+    window = TeleprompterWindow(main_app, "1")
+    calls = []
+
+    monkeypatch.setattr(
+        "ui.teleprompter.QTimer.singleShot",
+        lambda delay, callback: calls.append((delay, callback))
+    )
+
+    window.save_current_color_preset(0, ask=False)
+
+    assert calls == [
+        (0, window._activate_after_color_preset_action),
+        (100, window._activate_after_color_preset_action),
+    ]
+
+    window.close()
+
+
+def test_color_settings_dialog_restores_teleprompter_window(app, monkeypatch):
+    main_app = MainAppStub()
+    window = TeleprompterWindow(main_app, "1")
+    calls = []
+
+    class ColorDialogStub:
+        def __init__(self, colors, parent):
+            self.colors = colors
+            self.parent = parent
+
+        def exec(self):
+            return True
+
+        def get_final_colors(self):
+            return {
+                **window.cfg["colors"],
+                "bg": "#112233",
+            }
+
+    monkeypatch.setattr(
+        "ui.dialogs.colors.PrompterColorDialog",
+        ColorDialogStub
+    )
+    monkeypatch.setattr(
+        "ui.teleprompter.QTimer.singleShot",
+        lambda delay, callback: calls.append((delay, callback))
+    )
+
+    window.open_color_settings_dialog()
+
+    assert main_app.data["prompter_config"]["colors"]["bg"] == "#112233"
+    assert calls == [
+        (0, window._activate_after_color_preset_action),
+        (100, window._activate_after_color_preset_action),
+    ]
+
+    window.close()
+
+
 def test_manual_prompter_scroll_cancels_pending_smooth_scroll(app):
     main_app = MainAppStub()
     window = TeleprompterWindow(main_app, "1")

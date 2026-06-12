@@ -46,9 +46,9 @@ class TestGlobalSettingsService:
     def test_load_settings_with_data(self, service, temp_settings_file):
         """Тест загрузки с данными"""
         test_data = {
-            'export_config': {'layout_type': 'Сценарий'},
+            'export_config': {'layout_type': 'Сценарий 1'},
             'default_export_config': {
-                'layout_type': 'Сценарий',
+                'layout_type': 'Сценарий 1',
                 'col_tc': False,
             },
             'default_prompter_config': {
@@ -71,7 +71,7 @@ class TestGlobalSettingsService:
         assert 'export_config' not in settings
         assert 'prompter_config' not in settings
         assert 'replica_merge_config' not in settings
-        assert settings['default_export_config']['layout_type'] == 'Сценарий'
+        assert settings['default_export_config']['layout_type'] == 'Сценарий 1'
         assert settings['default_export_config']['col_tc'] is False
         assert settings['default_export_config']['col_char'] is True
         assert settings['default_prompter_config']['f_text'] == 48
@@ -116,7 +116,7 @@ class TestGlobalSettingsService:
         settings = {
             'export_config': {'layout_type': 'Таблица'},
             'default_export_config': {
-                'layout_type': 'Сценарий',
+                'layout_type': 'Сценарий 1',
                 'col_tc': False,
             },
             'default_prompter_config': {
@@ -150,7 +150,7 @@ class TestGlobalSettingsService:
         assert 'prompter_config' not in saved_data
         assert 'replica_merge_config' not in saved_data
         assert 'docx_import_config' not in saved_data
-        assert saved_data['default_export_config']['layout_type'] == 'Сценарий'
+        assert saved_data['default_export_config']['layout_type'] == 'Сценарий 1'
         assert saved_data['default_export_config']['col_tc'] is False
         assert saved_data['default_export_config']['col_char'] is True
         assert saved_data['default_prompter_config']['f_text'] == 42
@@ -483,7 +483,7 @@ class TestGlobalSettingsService:
 
     def test_partial_settings_load_ignores_project_settings(self, service, temp_settings_file):
         """Глобальная загрузка игнорирует legacy-настройки проекта."""
-        test_data = {'export_config': {'layout_type': 'Сценарий'}}
+        test_data = {'export_config': {'layout_type': 'Сценарий 1'}}
         
         temp_settings_file.parent.mkdir(parents=True, exist_ok=True)
         with open(temp_settings_file, 'w') as f:
@@ -511,9 +511,9 @@ class TestGlobalSettingsServiceIntegration:
             # Создаём и сохраняем
             service1 = GlobalSettingsService()
             original_settings = {
-                'export_config': {'layout_type': 'Сценарий', 'use_color': False},
+                'export_config': {'layout_type': 'Сценарий 1', 'use_color': False},
                 'default_export_config': {
-                    'layout_type': 'Сценарий',
+                    'layout_type': 'Сценарий 1',
                     'use_color': False,
                 },
                 'default_prompter_config': {
@@ -536,7 +536,7 @@ class TestGlobalSettingsServiceIntegration:
             assert 'export_config' not in loaded_settings
             assert 'prompter_config' not in loaded_settings
             assert 'replica_merge_config' not in loaded_settings
-            assert loaded_settings['default_export_config']['layout_type'] == 'Сценарий'
+            assert loaded_settings['default_export_config']['layout_type'] == 'Сценарий 1'
             assert loaded_settings['default_export_config']['use_color'] is False
             assert loaded_settings['default_export_config']['col_tc'] is True
             assert loaded_settings['default_prompter_config']['f_tc'] == 50

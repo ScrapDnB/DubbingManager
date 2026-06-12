@@ -1,26 +1,21 @@
 """Main application window."""
 
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QFileDialog, QTableWidget, QTableWidgetItem, QTableView,
-    QColorDialog, QComboBox, QLabel, QHeaderView, QInputDialog,
-    QFrame, QSpinBox, QLineEdit, QListWidget, QListWidgetItem,
-    QCheckBox, QGroupBox, QFormLayout, QMessageBox, QSlider,
-    QAbstractItemView, QStackedWidget, QDoubleSpinBox, QRadioButton,
-    QGridLayout, QScrollArea, QSplitter, QSizePolicy, QToolBar,
-    QDialogButtonBox, QTextEdit, QDialog, QProgressDialog, QApplication,
-    QStyledItemDelegate, QStyle
+    QMainWindow, QVBoxLayout,
+    QPushButton, QFileDialog, QTableWidgetItem,
+    QColorDialog, QComboBox, QLabel, QInputDialog,
+    QFrame, QListWidget, QListWidgetItem,
+    QMessageBox, QAbstractItemView,
+    QDialogButtonBox, QDialog, QProgressDialog, QApplication
 )
 from PySide6.QtGui import (
-    QColor, QFont, QAction, QKeySequence, QPen, QBrush, QDesktopServices
+    QColor, QDesktopServices
 )
 from PySide6.QtCore import (
-    Qt, QUrl, QTimer, Signal, QRectF, QEvent, Slot, QPersistentModelIndex,
-    QAbstractTableModel, QModelIndex
+    Qt, QUrl, QTimer, QModelIndex
 )
 from typing import Dict, List, Any, Optional, Set, Tuple, Callable
 import json
-import re
 import os
 import sys
 from copy import deepcopy
@@ -39,34 +34,13 @@ except ImportError:
 
 from config.constants import (
     DEFAULT_DOCX_IMPORT_CONFIG,
-    MY_PALETTE,
-    DEFAULT_PROMPTER_CONFIG,
     DEFAULT_EXPORT_CONFIG,
     MAIN_WINDOW_WIDTH,
     MAIN_WINDOW_HEIGHT,
-    ACTOR_PANEL_WIDTH,
-    TOOLS_SIDEBAR_WIDTH,
-    SEARCH_EDIT_WIDTH,
-    EPISODE_COMBO_MIN_WIDTH,
-    BTN_RENAME_WIDTH,
-    BTN_ICON_WIDTH,
-    BTN_COMPOUND_ICON_WIDTH,
-    BTN_SAVE_ICON_WIDTH,
-    TABLE_ROW_HEIGHT,
-    MAIN_TABLE_COUNT_COL_WIDTH,
-    MAIN_TABLE_SCOPE_COL_WIDTH,
-    MAIN_TABLE_VIDEO_COL_WIDTH,
     AUTOSAVE_INTERVAL_MS,
-    PROJECT_BAR_SPACING,
-    PROJECT_FOLDER_BTN_WIDTH,
-    ABOUT_BTN_WIDTH,
-    EXPORT_PANEL_SPACING,
     APP_VERSION,
 )
 from utils.helpers import (
-    ass_time_to_seconds,
-    format_seconds_to_tc,
-    customize_table,
     wrap_widget,
     log_exception,
     get_video_fps,
@@ -77,9 +51,11 @@ from services import (
     ProjectService,
     EpisodeService,
     ActorService,
+    CharacterStatsService,
     ExportService,
     GlobalSettingsService,
     ProjectFolderService,
+    QuickSubtitleService,
     ScriptTextService,
     AssignmentTransferService,
     UpdateService,
@@ -96,7 +72,11 @@ from ui.controllers import (
     ActorController,
     EpisodeController,
     ExportController,
+    GlobalActorController,
+    ImportController,
     ProjectController,
+    ReaperExportController,
+    SettingsController,
 )
 from .dialogs import (
     ActorFilterDialog,
@@ -111,16 +91,22 @@ from .dialogs import (
     SettingsDialog,
     DocxImportDialog,
 )
+from .models import (
+    ACTOR_ID_ROLE,
+    CHAR_NAME_ROLE,
+    SCOPE_ROLE,
+    ActorComboDelegate,
+    MainTableModel,
+    ScopeComboDelegate,
+)
+from .main_window_ui import MainWindowUiMixin
 from .teleprompter import TeleprompterWindow
+from .widgets import QuickSubtitleDropZone
 from core.commands import (
     UndoStack,
-    AddActorCommand,
-    DeleteActorCommand,
-    RenameActorCommand,
-    UpdateActorColorCommand,
     AssignActorToCharacterCommand,
     RenameCharacterCommand,
-    AddEpisodeCommand,
+    RenameActorCommand,
     RenameEpisodeCommand,
     DeleteEpisodeCommand,
     UpdateProjectNameCommand,
@@ -130,298 +116,7 @@ from core.commands import (
 logger = logging.getLogger(__name__)
 
 
-CHAR_NAME_ROLE = Qt.UserRole
-SCOPE_ROLE = Qt.UserRole + 1
-ACTOR_ID_ROLE = Qt.UserRole + 2
-
-
-class ScopeComboDelegate(QStyledItemDelegate):
-    """Scope Combo Delegate class."""
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._editing_index = QPersistentModelIndex()
-
-    def createEditor(self, parent, option, index):
-        self._editing_index = QPersistentModelIndex(index)
-        combo = QComboBox(parent)
-        combo.addItem(translate_source("Глобально"), ASSIGNMENT_SCOPE_GLOBAL)
-        combo.addItem(translate_source("Серия"), ASSIGNMENT_SCOPE_EPISODE)
-        return combo
-
-    def setEditorData(self, editor, index) -> None:
-        scope = index.data(SCOPE_ROLE) or ASSIGNMENT_SCOPE_GLOBAL
-        found = editor.findData(scope)
-        editor.setCurrentIndex(found if found >= 0 else 0)
-
-    def setModelData(self, editor, model, index) -> None:
-        model.setData(index, editor.currentData(), SCOPE_ROLE)
-        model.setData(index, editor.currentText(), Qt.DisplayRole)
-
-    def updateEditorGeometry(self, editor, option, index) -> None:
-        editor.setGeometry(option.rect)
-
-    def destroyEditor(self, editor, index) -> None:
-        self._editing_index = QPersistentModelIndex()
-        super().destroyEditor(editor, index)
-
-    def paint(self, painter, option, index) -> None:
-        if QPersistentModelIndex(index) == self._editing_index:
-            brush = (
-                option.palette.highlight()
-                if option.state & QStyle.State_Selected
-                else option.palette.base()
-            )
-            painter.fillRect(option.rect, brush)
-            return
-        super().paint(painter, option, index)
-
-
-class ActorComboDelegate(QStyledItemDelegate):
-    """Actor Combo Delegate class."""
-
-    def __init__(self, main_window: "MainWindow") -> None:
-        super().__init__(main_window)
-        self.main_window = main_window
-        self._editing_index = QPersistentModelIndex()
-
-    def createEditor(self, parent, option, index):
-        self._editing_index = QPersistentModelIndex(index)
-        combo = QComboBox(parent)
-        combo.addItem("-", None)
-        for aid, info in self.main_window.data.get("actors", {}).items():
-            combo.addItem(info.get("name", aid), aid)
-        return combo
-
-    def setEditorData(self, editor, index) -> None:
-        actor_id = index.data(ACTOR_ID_ROLE)
-        found = editor.findData(actor_id)
-        editor.setCurrentIndex(found if found >= 0 else 0)
-
-    def setModelData(self, editor, model, index) -> None:
-        model.setData(index, editor.currentData(), ACTOR_ID_ROLE)
-        model.setData(index, editor.currentText(), Qt.DisplayRole)
-
-    def updateEditorGeometry(self, editor, option, index) -> None:
-        editor.setGeometry(option.rect)
-
-    def destroyEditor(self, editor, index) -> None:
-        self._editing_index = QPersistentModelIndex()
-        super().destroyEditor(editor, index)
-
-    def paint(self, painter, option, index) -> None:
-        if QPersistentModelIndex(index) == self._editing_index:
-            brush = (
-                option.palette.highlight()
-                if option.state & QStyle.State_Selected
-                else option.palette.base()
-            )
-            painter.fillRect(option.rect, brush)
-            return
-        super().paint(painter, option, index)
-
-
-class MainTableModel(QAbstractTableModel):
-    """Main Table Model class."""
-
-    HEADER_KEYS = [
-        "table.character",
-        "table.lines",
-        "table.rings",
-        "table.words",
-        "table.scope",
-        "table.actor",
-        None,
-    ]
-
-    def __init__(self, main_window: "MainWindow") -> None:
-        super().__init__(main_window)
-        self.main_window = main_window
-        self.rows: List[Dict[str, Any]] = []
-
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        return 0 if parent.isValid() else len(self.rows)
-
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        return 0 if parent.isValid() else len(self.HEADER_KEYS)
-
-    def headerData(self, section: int, orientation: Qt.Orientation, role: int):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            key = self.HEADER_KEYS[section]
-            return tr(key) if key else "📺"
-        return None
-
-    def flags(self, index: QModelIndex):
-        if not index.isValid():
-            return Qt.NoItemFlags
-
-        flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
-        if index.column() in (0, 4, 5):
-            flags |= Qt.ItemIsEditable
-        return flags
-
-    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
-        if not index.isValid():
-            return None
-
-        row = self.rows[index.row()]
-        column = index.column()
-
-        if role in (Qt.DisplayRole, Qt.EditRole):
-            return self._display_value(row, column)
-
-        if role == Qt.TextAlignmentRole and column == 6:
-            return Qt.AlignCenter
-
-        if role == Qt.ToolTipRole:
-            if column == 5:
-                return self._actor_tooltip(row.get("actor_id"))
-            if column == 6:
-                return translate_source("Открыть предпросмотр персонажа")
-
-        if role == Qt.BackgroundRole and column == 5:
-            return self._actor_brush(row.get("actor_id"))
-
-        if role == CHAR_NAME_ROLE:
-            return row.get("name")
-        if role == SCOPE_ROLE and column == 4:
-            return row.get("scope")
-        if role == ACTOR_ID_ROLE and column == 5:
-            return row.get("actor_id")
-
-        return None
-
-    def setData(self, index: QModelIndex, value: Any, role: int = Qt.EditRole) -> bool:
-        if not index.isValid():
-            return False
-
-        row = self.rows[index.row()]
-        column = index.column()
-
-        if column == 0 and role == Qt.EditRole:
-            old_name = row.get("name", "")
-            new_name = str(value).strip()
-            if not new_name or new_name == old_name:
-                return False
-            if self.main_window.rename_character_from_table(old_name, new_name):
-                row["name"] = new_name
-                self.dataChanged.emit(index, index, [Qt.DisplayRole, CHAR_NAME_ROLE])
-                return True
-            return False
-
-        if column == 4 and role == SCOPE_ROLE:
-            new_scope = value or ASSIGNMENT_SCOPE_GLOBAL
-            if new_scope == row.get("scope"):
-                return False
-            row["scope"] = new_scope
-            self.main_window.update_assignment_scope_value(
-                row["name"], new_scope, row.get("actor_id")
-            )
-            self.dataChanged.emit(
-                self.index(index.row(), 4),
-                self.index(index.row(), 5),
-                [Qt.DisplayRole, SCOPE_ROLE, ACTOR_ID_ROLE, Qt.BackgroundRole],
-            )
-            return True
-
-        if column == 5 and role == ACTOR_ID_ROLE:
-            if value == row.get("actor_id"):
-                return False
-            row["actor_id"] = value
-            self.main_window.update_map_value(
-                row["name"], row.get("actor_id"), row.get("scope")
-            )
-            self.dataChanged.emit(
-                index,
-                index,
-                [Qt.DisplayRole, ACTOR_ID_ROLE, Qt.BackgroundRole, Qt.ToolTipRole],
-            )
-            return True
-
-        if role == Qt.DisplayRole:
-            return True
-
-        return False
-
-    def set_rows(self, rows: List[Dict[str, Any]]) -> None:
-        self.beginResetModel()
-        self.rows = rows
-        self.endResetModel()
-
-    def row_data(self, row: int) -> Optional[Dict[str, Any]]:
-        if 0 <= row < len(self.rows):
-            return self.rows[row]
-        return None
-
-    def update_actor_for_character(self, char_name: str) -> None:
-        for row_idx, row in enumerate(self.rows):
-            if row.get("name") != char_name:
-                continue
-
-            ep = self.main_window.ep_combo.currentData()
-            row["actor_id"] = get_actor_for_character(
-                self.main_window.data, char_name, ep
-            )
-            idx = self.index(row_idx, 5)
-            self.dataChanged.emit(
-                idx,
-                idx,
-                [Qt.DisplayRole, ACTOR_ID_ROLE, Qt.BackgroundRole, Qt.ToolTipRole],
-            )
-            return
-
-    def _display_value(self, row: Dict[str, Any], column: int) -> Any:
-        if column == 0:
-            return row.get("name", "")
-        if column == 1:
-            return row.get("lines", 0)
-        if column == 2:
-            return row.get("rings", 0)
-        if column == 3:
-            return row.get("words", 0)
-        if column == 4:
-            return (
-                translate_source("Серия")
-                if row.get("scope") == ASSIGNMENT_SCOPE_EPISODE
-                else translate_source("Глобально")
-            )
-        if column == 5:
-            return self._actor_name(row.get("actor_id"))
-        if column == 6:
-            return "📺"
-        return None
-
-    def _actor_name(self, actor_id: Optional[str]) -> str:
-        if not actor_id:
-            return "-"
-        return self.main_window.data.get("actors", {}).get(
-            actor_id, {}
-        ).get("name", "-")
-
-    def _actor_tooltip(self, actor_id: Optional[str]) -> str:
-        if not actor_id:
-            return translate_source("Актёр не назначен")
-        actor = self.main_window.data.get("actors", {}).get(actor_id, {})
-        color = QColor(actor.get("color", ""))
-        if color.isValid():
-            return (
-                f"{actor.get('name', actor_id)}\n"
-                f"{translate_source('Цвет актёра:')} {color.name()}"
-            )
-        return actor.get("name", actor_id)
-
-    def _actor_brush(self, actor_id: Optional[str]):
-        if not actor_id:
-            return None
-        actor = self.main_window.data.get("actors", {}).get(actor_id, {})
-        color = QColor(actor.get("color", ""))
-        if not color.isValid():
-            return None
-        color.setAlpha(72)
-        return QBrush(color)
-
-
-class MainWindow(QMainWindow):
+class MainWindow(MainWindowUiMixin, QMainWindow):
     """Main Window class."""
 
     # Class attributes with type hints
@@ -452,7 +147,11 @@ class MainWindow(QMainWindow):
         self.actor_controller: Optional[ActorController] = None
         self.episode_controller: Optional[EpisodeController] = None
         self.export_controller: Optional[ExportController] = None
+        self.global_actor_controller: Optional[GlobalActorController] = None
+        self.import_controller: Optional[ImportController] = None
         self.project_controller: Optional[ProjectController] = None
+        self.reaper_export_controller: Optional[ReaperExportController] = None
+        self.settings_controller: Optional[SettingsController] = None
 
         self.undo_stack = UndoStack()
         self.undo_stack.on_change(self._on_undo_stack_change)
@@ -468,6 +167,12 @@ class MainWindow(QMainWindow):
         set_language(self.global_settings.get("language", "ru"))
 
         self.data = self.project_service.create_new_project("Новый проект")
+        self._apply_global_settings_to_project_data(self.data)
+        self.character_stats_service = CharacterStatsService(self.data)
+        self.quick_subtitle_service = QuickSubtitleService(
+            self.episode_service,
+            self.data
+        )
 
         self._init_controllers()
 
@@ -503,388 +208,43 @@ class MainWindow(QMainWindow):
             undo_stack=self.undo_stack,
             on_dirty_callback=self.set_dirty
         )
+        self.global_actor_controller = GlobalActorController(
+            data_ref=self.data,
+            global_settings_service=self.global_settings_service
+        )
+        self.settings_controller = SettingsController(
+            data_ref=self.data,
+            global_settings=self.global_settings,
+            global_settings_service=self.global_settings_service
+        )
+        self.import_controller = ImportController(
+            data_ref=self.data,
+            episode_service=self.episode_service,
+            script_text_service=self.script_text_service,
+            undo_stack=self.undo_stack,
+            get_current_project_path=lambda: self.current_project_path,
+        )
+        self.reaper_export_controller = ReaperExportController(
+            data_ref=self.data,
+            project_folder_service=self.project_folder_service
+        )
 
     def _on_autosave_timer(self) -> None:
         """Handle autosave timer."""
         if self.project_controller:
             self.project_controller.auto_save()
 
-    def _init_ui(self) -> None:
-        """Init ui."""
-        central: QWidget = QWidget()
-        self.setCentralWidget(central)
-        main_layout: QHBoxLayout = QHBoxLayout(central)
-
-        self._init_actor_panel(main_layout)
-
-        self._init_main_panel(main_layout)
-
-        self._setup_undo_redo_shortcuts()
-
-    def _setup_undo_redo_shortcuts(self) -> None:
-        """Setup undo redo shortcuts."""
-        undo_shortcut = QKeySequence("Ctrl+Z")
-        undo_action = QAction("Undo", self)
-        undo_action.setShortcut(undo_shortcut)
-        undo_action.triggered.connect(self.undo)
-        self.addAction(undo_action)
-
-        redo_shortcut = QKeySequence("Ctrl+Shift+Z")
-        redo_action = QAction("Redo", self)
-        redo_action.setShortcut(redo_shortcut)
-        redo_action.triggered.connect(self.redo)
-        self.addAction(redo_action)
-
-    def _init_actor_panel(self, main_layout: QHBoxLayout) -> None:
-        """Init actor panel."""
-        left_panel: QVBoxLayout = QVBoxLayout()
-        left_widget = QFrame()
-        left_widget.setFixedWidth(ACTOR_PANEL_WIDTH)
-        left_widget.setFrameShape(QFrame.StyledPanel)
-        left_widget.setLayout(left_panel)
-
-        actor_header = QHBoxLayout()
-        self.lbl_actor_header = QLabel()
-        actor_header.addWidget(self.lbl_actor_header)
-        self.actor_base_mode = QComboBox()
-        self.actor_base_mode.addItem("", "project")
-        self.actor_base_mode.addItem("", "global")
-        self.actor_base_mode.currentIndexChanged.connect(
-            self._on_actor_base_mode_changed
-        )
-        actor_header.addWidget(self.actor_base_mode, stretch=1)
-        left_panel.addLayout(actor_header)
-
-        self.actor_table = QTableWidget(0, 4)
-        customize_table(self.actor_table)
-
-        self.actor_controller = ActorController(
-            actor_table=self.actor_table,
-            actor_service=self.actor_service,
-            data_ref=self.data,
-            on_dirty_callback=self.set_dirty,
-            on_edit_roles_callback=self.edit_roles,
-            on_color_click_callback=self.on_actor_color_clicked
-        )
-        self.actor_table.itemChanged.connect(self.on_actor_renamed)
-
-        left_panel.addWidget(self.actor_table)
-
-        btn_layout = QHBoxLayout()
-        
-        self.btn_add_actor = QPushButton()
-        self.btn_add_actor.clicked.connect(self.add_actor_button_clicked)
-        btn_layout.addWidget(self.btn_add_actor)
-        
-        self.btn_delete_actor = QPushButton()
-        self.btn_delete_actor.clicked.connect(self.delete_actor_button_clicked)
-        btn_layout.addWidget(self.btn_delete_actor)
-
-        self.btn_add_project_actors_to_global = QPushButton()
-        self.btn_add_project_actors_to_global.clicked.connect(
-            self.actor_transfer_button_clicked
-        )
-        btn_layout.addWidget(self.btn_add_project_actors_to_global)
-        
-        left_panel.addLayout(btn_layout)
-
-        self.btn_project_summary = QPushButton()
-        self.btn_project_summary.clicked.connect(self.show_project_summary)
-        left_panel.addWidget(self.btn_project_summary)
-
-        main_layout.addWidget(left_widget)
-
-    def _init_main_panel(self, main_layout: QHBoxLayout) -> None:
-        """Init main panel."""
-        right_panel: QVBoxLayout = QVBoxLayout()
-
-        self._init_project_bar(right_panel)
-
-        self._init_episode_controls(right_panel)
-
-        self._init_center_area(right_panel)
-
-        self._init_bottom_panel(right_panel)
-
-        main_layout.addLayout(right_panel)
-
-    def _init_project_bar(self, layout: QHBoxLayout) -> None:
-        """Init project bar."""
-        top: QHBoxLayout = QHBoxLayout()
-
-        self.recent_projects_combo = QComboBox()
-        self.recent_projects_combo.setMinimumWidth(EPISODE_COMBO_MIN_WIDTH)
-        self.recent_projects_combo.activated.connect(
-            self._on_recent_project_activated
-        )
-        top.addWidget(self.recent_projects_combo)
-        self._update_recent_projects_combo()
-
-        self.btn_new_project = QPushButton("📄")
-        self.btn_new_project.setMinimumWidth(BTN_SAVE_ICON_WIDTH)
-        self.btn_new_project.clicked.connect(self.create_new_project)
-        top.addWidget(self.btn_new_project)
-
-        self.btn_load = QPushButton("📂")
-        self.btn_load.setMinimumWidth(BTN_SAVE_ICON_WIDTH)
-        self.btn_load.clicked.connect(self.load_project_dialog)
-        top.addWidget(self.btn_load)
-
-        self.btn_save = QPushButton("💾")
-        self.btn_save.setMinimumWidth(BTN_SAVE_ICON_WIDTH)
-        self.btn_save.clicked.connect(self.save_project)
-        top.addWidget(self.btn_save)
-
-        self.btn_copy = QPushButton("💾 +")
-        self.btn_copy.setMinimumWidth(BTN_COMPOUND_ICON_WIDTH)
-        self.btn_copy.clicked.connect(self.save_project_as)
-        top.addWidget(self.btn_copy)
-
-        # Buttons Undo/Redo
-        self.btn_undo = QPushButton("↶")
-        self.btn_undo.setFixedWidth(PROJECT_FOLDER_BTN_WIDTH)
-        self.btn_undo.clicked.connect(self.undo)
-        self.btn_undo.setEnabled(False)
-        top.addWidget(self.btn_undo)
-
-        self.btn_redo = QPushButton("↷")
-        self.btn_redo.setFixedWidth(PROJECT_FOLDER_BTN_WIDTH)
-        self.btn_redo.clicked.connect(self.redo)
-        self.btn_redo.setEnabled(False)
-        top.addWidget(self.btn_redo)
-
-        top.addStretch()
-
-        self.btn_health = QPushButton()
-        self.btn_health.clicked.connect(self.open_project_health_dialog)
-        top.addWidget(self.btn_health)
-
-        btn_about = QPushButton("ℹ️")
-        btn_about.setFixedWidth(ABOUT_BTN_WIDTH)
-        btn_about.clicked.connect(self.show_about)
-        top.addWidget(btn_about)
-
-        layout.addLayout(top)
-
-    def _init_episode_controls(self, layout: QHBoxLayout) -> None:
-        """Init episode controls."""
-        ep_ctrl = QHBoxLayout()
-
-        self.ep_combo = QComboBox()
-        self.ep_combo.setMinimumWidth(EPISODE_COMBO_MIN_WIDTH)
-        self.ep_combo.currentIndexChanged.connect(self.change_episode)
-        self.lbl_episode = QLabel()
-        ep_ctrl.addWidget(self.lbl_episode)
-        ep_ctrl.addWidget(self.ep_combo)
-
-        self.btn_import = QPushButton()
-        self.btn_import.clicked.connect(self.import_files)
-        ep_ctrl.addWidget(self.btn_import)
-
-        self.btn_vid = QPushButton("🎬 +")
-        self.btn_vid.setMinimumWidth(BTN_COMPOUND_ICON_WIDTH)
-        self.btn_vid.clicked.connect(self.set_episode_video)
-        ep_ctrl.addWidget(self.btn_vid)
-
-        btn_ren = QPushButton("✎")
-        btn_ren.setMinimumWidth(BTN_RENAME_WIDTH)
-        btn_ren.clicked.connect(self.rename_episode)
-        ep_ctrl.addWidget(btn_ren)
-
-        btn_del = QPushButton("🗑")
-        btn_del.setMinimumWidth(BTN_RENAME_WIDTH)
-        btn_del.clicked.connect(self.delete_episode_dialog)
-        ep_ctrl.addWidget(btn_del)
-        
-        ep_ctrl.addStretch()
-
-        self.actor_filter_combo = QComboBox()
-        self.actor_filter_combo.setMinimumWidth(150)
-        self.actor_filter_combo.currentIndexChanged.connect(self.refresh_main_table)
-        self.lbl_actor_filter = QLabel()
-        ep_ctrl.addWidget(self.lbl_actor_filter)
-        ep_ctrl.addWidget(self.actor_filter_combo)
-
-        self.filter_unassigned = QCheckBox()
-        self.filter_unassigned.toggled.connect(self.refresh_main_table)
-        ep_ctrl.addWidget(self.filter_unassigned)
-
-        self.search_edit = QLineEdit()
-        self.search_edit.setFixedWidth(SEARCH_EDIT_WIDTH)
-        self.search_edit.textChanged.connect(self.refresh_main_table)
-        ep_ctrl.addWidget(self.search_edit)
-        
-        self.btn_glob_search = QPushButton()
-        self.btn_glob_search.clicked.connect(self.open_global_search)
-        ep_ctrl.addWidget(self.btn_glob_search)
-        
-        layout.addLayout(ep_ctrl)
-    
-    def _init_center_area(self, layout: QHBoxLayout) -> None:
-        """Init center area."""
-        middle_layout: QHBoxLayout = QHBoxLayout()
-
-        self.table_stack = QStackedWidget()
-
-        self.main_table = QTableView()
-        self.main_table_model = MainTableModel(self)
-        self.main_table.setModel(self.main_table_model)
-        customize_table(self.main_table)
-        header = self.main_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.Fixed)
-        header.setSectionResizeMode(2, QHeaderView.Fixed)
-        header.setSectionResizeMode(3, QHeaderView.Fixed)
-        header.setSectionResizeMode(4, QHeaderView.Fixed)
-        header.setSectionResizeMode(5, QHeaderView.Stretch)
-        header.setSectionResizeMode(6, QHeaderView.Fixed)
-        self.main_table.setColumnWidth(1, MAIN_TABLE_COUNT_COL_WIDTH)
-        self.main_table.setColumnWidth(2, MAIN_TABLE_COUNT_COL_WIDTH)
-        self.main_table.setColumnWidth(3, MAIN_TABLE_COUNT_COL_WIDTH)
-        self.main_table.setColumnWidth(4, MAIN_TABLE_SCOPE_COL_WIDTH)
-        self.main_table.setColumnWidth(6, MAIN_TABLE_VIDEO_COL_WIDTH)
-        self.main_table.setItemDelegateForColumn(4, ScopeComboDelegate(self))
-        self.main_table.setItemDelegateForColumn(5, ActorComboDelegate(self))
-        self.main_table.horizontalHeader().setSectionsClickable(True)
-        self.main_table.horizontalHeader().sectionClicked.connect(
-            self.on_header_clicked
-        )
-        self.main_table.clicked.connect(self.on_main_table_cell_clicked)
-        self.main_table.selectionModel().selectionChanged.connect(
-            lambda *_: self.update_selected_character_stats()
-        )
-
-        self.missing_file_widget = QWidget()
-        mf_lay: QVBoxLayout = QVBoxLayout(self.missing_file_widget)
-
-        self.lbl_missing = QLabel()
-        self.lbl_missing.setStyleSheet(
-            "color: red; font-weight: bold;"
-        )
-        self.lbl_missing.setAlignment(Qt.AlignCenter)
-
-        self.btn_relink = QPushButton()
-        self.btn_relink.clicked.connect(self.relink_file)
-
-        mf_lay.addStretch()
-        mf_lay.addWidget(self.lbl_missing)
-        mf_lay.addWidget(self.btn_relink)
-        mf_lay.addStretch()
-
-        self.table_stack.addWidget(self.main_table)
-        self.table_stack.addWidget(self.missing_file_widget)
-
-        middle_layout.addWidget(self.table_stack, stretch=1)
-
-        self._init_tools_sidebar(middle_layout)
-
-        layout.addLayout(middle_layout)
-
-    def _init_tools_sidebar(self, layout: QHBoxLayout) -> None:
-        """Init tools sidebar."""
-        tools_sidebar_widget = QWidget()
-        tools_sidebar_widget.setFixedWidth(TOOLS_SIDEBAR_WIDTH)
-        tools_sidebar_layout = QVBoxLayout(tools_sidebar_widget)
-        tools_sidebar_layout.setContentsMargins(5, 0, 0, 0)
-        
-        self.lbl_tools = QLabel()
-        tools_sidebar_layout.addWidget(self.lbl_tools)
-        
-        self.btn_all_v = QPushButton()
-        self.btn_all_v.clicked.connect(self.open_live_preview)
-        tools_sidebar_layout.addWidget(self.btn_all_v)
-
-        self.btn_prompter = QPushButton()
-        self.btn_prompter.clicked.connect(self.open_teleprompter)
-        tools_sidebar_layout.addWidget(self.btn_prompter)
-
-        self.btn_reaper = QPushButton()
-        self.btn_reaper.clicked.connect(self.export_to_reaper_rpp)
-        tools_sidebar_layout.addWidget(self.btn_reaper)
-
-        self.btn_ep_sum = QPushButton()
-        self.btn_ep_sum.clicked.connect(self.show_episode_summary)
-        tools_sidebar_layout.addWidget(self.btn_ep_sum)
-
-        tools_sidebar_layout.addStretch()
-
-        self.character_stats_group = QGroupBox()
-        stats_layout = QVBoxLayout(self.character_stats_group)
-        self.lbl_character_stats_name = QLabel()
-        self.lbl_character_stats_name.setWordWrap(True)
-        self.lbl_character_stats_name.setStyleSheet("font-weight: bold;")
-        stats_layout.addWidget(self.lbl_character_stats_name)
-
-        self.lbl_character_stats_totals = QLabel()
-        stats_layout.addWidget(self.lbl_character_stats_totals)
-
-        self.txt_character_stats_episodes = QTextEdit()
-        self.txt_character_stats_episodes.setReadOnly(True)
-        self.txt_character_stats_episodes.setFrameShape(QFrame.NoFrame)
-        stats_layout.addWidget(self.txt_character_stats_episodes)
-        self._reset_character_stats_panel()
-        tools_sidebar_layout.addWidget(self.character_stats_group)
-
-        layout.addWidget(tools_sidebar_widget)
-    
-    def _init_bottom_panel(self, layout) -> None:
-        """Init bottom panel."""
-        bottom_panel = QHBoxLayout()
-
-        self.btn_settings = QPushButton()
-        self.btn_settings.clicked.connect(self.open_global_settings)
-        bottom_panel.addWidget(self.btn_settings)
-
-        self.btn_project_settings = QPushButton()
-        self.btn_project_settings.clicked.connect(self.open_project_settings)
-        bottom_panel.addWidget(self.btn_project_settings)
-
-        bottom_panel.addStretch()
-
-        self.exp_group = QGroupBox()
-        exp_lay = QHBoxLayout(self.exp_group)
-        exp_lay.setContentsMargins(5, 5, 5, 5)
-
-        self.btn_cfg = QPushButton()
-        self.btn_cfg.clicked.connect(self.open_export_settings)
-        exp_lay.addWidget(self.btn_cfg)
-
-        exp_lay.addSpacing(EXPORT_PANEL_SPACING)
-
-        self.btn_preview = QPushButton()
-        self.btn_preview.clicked.connect(self.open_live_preview)
-        exp_lay.addWidget(self.btn_preview)
-
-        exp_lay.addSpacing(EXPORT_PANEL_SPACING)
-
-        self.chk_exp_html = QCheckBox()
-        self.chk_exp_html.setChecked(True)
-
-        self.chk_exp_xls = QCheckBox("Excel")
-        self.chk_exp_docx = QCheckBox("DOCX")
-
-        self.radio_cur = QRadioButton()
-        self.radio_cur.setChecked(True)
-
-        self.radio_all = QRadioButton()
-
-        self.btn_run_export = QPushButton()
-        self.btn_run_export.clicked.connect(self.run_unified_export)
-
-        exp_lay.addWidget(self.chk_exp_html)
-        exp_lay.addWidget(self.chk_exp_xls)
-        exp_lay.addWidget(self.chk_exp_docx)
-        exp_lay.addSpacing(EXPORT_PANEL_SPACING)
-        exp_lay.addWidget(self.radio_cur)
-        exp_lay.addWidget(self.radio_all)
-        exp_lay.addSpacing(EXPORT_PANEL_SPACING)
-        exp_lay.addWidget(self.btn_run_export)
-
-        bottom_panel.addWidget(self.exp_group)
-        self.exp_group.setVisible(False)
-        layout.addLayout(bottom_panel)
-        self.retranslate_ui()
-    
+    def _get_import_controller(self) -> ImportController:
+        """Return the import controller, creating it for lightweight test stubs."""
+        if not getattr(self, "import_controller", None):
+            self.import_controller = ImportController(
+                data_ref=self.data,
+                episode_service=self.episode_service,
+                script_text_service=self.script_text_service,
+                undo_stack=self.undo_stack,
+                get_current_project_path=lambda: self.current_project_path,
+            )
+        return self.import_controller
 
     def set_dirty(self, dirty: bool = True) -> None:
         """Set dirty."""
@@ -994,15 +354,14 @@ class MainWindow(QMainWindow):
 
         new_data = self.project_service.create_new_project("Новый проект")
         self._apply_global_settings_to_project_data(new_data)
-        self.data.clear()
-        self.data.update(new_data)
+        self.project_controller.reset_current_project(
+            new_data,
+            clear_undo_callback=self.undo_stack.clear
+        )
         self.episode_service.set_merge_gap_from_config(
             self.data["replica_merge_config"]
         )
-        self.project_service.current_project_path = None
         self.current_project_path = None
-        self.project_service.set_dirty(False)
-        self.undo_stack.clear()
         self.episode_service.clear_cache()
         self.current_ep_stats = []
         self.character_names_changed = {}
@@ -1011,6 +370,7 @@ class MainWindow(QMainWindow):
         self.refresh_actor_list()
         self.update_ep_list()
         self.refresh_main_table()
+        self._sync_export_format_controls_from_config()
         self._update_project_folder_button()
         self.update_window_title()
         self._update_new_project_button()
@@ -1242,44 +602,10 @@ class MainWindow(QMainWindow):
         char_name: str
     ) -> Dict[str, Any]:
         """Calculate character project stats."""
-        result: Dict[str, Any] = {
-            "rings": 0,
-            "words": 0,
-            "episodes": []
-        }
-        export_service = ExportService(self.data)
-
-        for ep in sorted(
-            self.data.get("episodes", {}).keys(),
-            key=natural_sort_key
-        ):
-            lines = self.get_episode_lines(str(ep))
-            if not lines:
-                continue
-
-            processed = export_service.process_merge_logic(
-                lines,
-                self.data.get("replica_merge_config", {})
-            )
-            ep_rings = 0
-            ep_words = 0
-
-            for line in processed:
-                if line.get("char") != char_name:
-                    continue
-                ep_rings += 1
-                ep_words += len(line.get("text", "").split())
-
-            if ep_rings:
-                result["episodes"].append({
-                    "episode": str(ep),
-                    "rings": ep_rings,
-                    "words": ep_words
-                })
-                result["rings"] += ep_rings
-                result["words"] += ep_words
-
-        return result
+        return self.character_stats_service.project_stats(
+            char_name,
+            self.get_episode_lines
+        )
 
 
     def save_project(self) -> bool:
@@ -1329,13 +655,12 @@ class MainWindow(QMainWindow):
 
     def _remember_recent_project(self, path: Optional[str]) -> None:
         """Store a project path in the recent-project list."""
-        if not path:
-            return
-        self.global_settings_service.add_recent_project(path)
-        self.global_settings["recent_projects"] = (
-            self.global_settings_service.get_recent_projects()
-        )
-        self.global_settings_service.save_settings(self.global_settings)
+        if self.project_controller:
+            self.project_controller.remember_recent_project(
+                self.global_settings,
+                self.global_settings_service,
+                path
+            )
         self._update_recent_projects_combo()
 
     def _update_recent_projects_combo(self) -> None:
@@ -1348,8 +673,13 @@ class MainWindow(QMainWindow):
         combo.clear()
         combo.addItem(tr("main.recent"), None)
 
-        recent = self.global_settings_service.get_recent_projects()
-        existing = [path for path in recent if os.path.exists(path)]
+        existing = (
+            self.project_controller.existing_recent_projects(
+                self.global_settings_service
+            )
+            if self.project_controller
+            else []
+        )
 
         if not existing:
             combo.addItem(translate_source("Нет недавних проектов"), None)
@@ -1381,9 +711,11 @@ class MainWindow(QMainWindow):
 
     def clear_recent_projects(self) -> None:
         """Clear recent projects."""
-        self.global_settings_service.clear_recent_projects()
-        self.global_settings["recent_projects"] = []
-        self.global_settings_service.save_settings(self.global_settings)
+        if self.project_controller:
+            self.project_controller.clear_recent_projects(
+                self.global_settings,
+                self.global_settings_service
+            )
         self._update_recent_projects_combo()
 
     def load_recent_project(self, path: str) -> None:
@@ -1422,13 +754,13 @@ class MainWindow(QMainWindow):
             logger.info(f"Actors count: {len(self.data.get('actors', {}))}")
             logger.info(f"Global map count: {len(self.data.get('global_map', {}))}")
 
-            self.data["loaded_episodes"] = {}
+            self.project_controller.prepare_loaded_project(self.episode_service)
             self.current_ep_stats = []
-            self.episode_service.clear_cache()
 
             self._sync_project_actors_with_global_base()
             self.refresh_actor_list()
             self.update_ep_list()
+            self._sync_export_format_controls_from_config()
 
         except Exception as e:
             log_exception(logger, "Load failed", e)
@@ -1462,42 +794,34 @@ class MainWindow(QMainWindow):
 
     def _scan_project_folder(self) -> None:
         """Scan project folder."""
-        folder = self.project_folder_service.get_project_folder(self.data)
-        if folder:
-            ass_count, video_count, text_count = (
-                self.project_folder_service.scan_and_link_files(self.data, folder)
+        if not self.project_controller:
+            return
+        ass_count, video_count, text_count = (
+            self.project_controller.scan_project_folder(
+                self.project_folder_service
             )
-            if ass_count > 0 or video_count > 0 or text_count > 0:
-                self.update_ep_list()
-                QMessageBox.information(
-                    self,
-                    "Папка проекта",
-                    f"Обновлены пути:\n"
-                    f"• Субтитры: {ass_count}\n"
-                    f"• Видео: {video_count}\n"
-                    f"• Рабочие тексты: {text_count}"
-                )
+        )
+        if ass_count > 0 or video_count > 0 or text_count > 0:
+            self.update_ep_list()
+            QMessageBox.information(
+                self,
+                "Папка проекта",
+                f"Обновлены пути:\n"
+                f"• Субтитры: {ass_count}\n"
+                f"• Видео: {video_count}\n"
+                f"• Рабочие тексты: {text_count}"
+            )
 
     def _episode_text_exists(self, ep: str) -> bool:
         """Episode text exists."""
-        text_path = self.data.get("episode_texts", {}).get(str(ep))
-        return bool(text_path and os.path.exists(text_path))
+        return self.script_text_service.episode_text_exists(self.data, ep)
 
     def _link_existing_working_texts(self) -> int:
         """Link already generated working texts before migration prompt."""
-        found = self.script_text_service.find_existing_episode_texts(
+        linked_count = self.script_text_service.link_existing_working_texts(
             self.data,
             self.current_project_path
         )
-        linked_count = 0
-        episode_texts = self.data.setdefault("episode_texts", {})
-
-        for ep_num, text_path in found.items():
-            current_path = episode_texts.get(str(ep_num))
-            if current_path == text_path and os.path.exists(current_path):
-                continue
-            episode_texts[str(ep_num)] = text_path
-            linked_count += 1
 
         if linked_count:
             self.update_ep_list()
@@ -1509,23 +833,18 @@ class MainWindow(QMainWindow):
     def _episodes_needing_working_texts(self) -> List[str]:
         """Episodes needing working texts."""
         self._link_existing_working_texts()
-        episodes = self.data.get("episodes", {})
-        return [
-            str(ep)
-            for ep, path in episodes.items()
-            if (
-                not self._episode_text_exists(str(ep)) and
-                self._is_text_source_path(path)
-            )
-        ]
+        return self.script_text_service.episodes_needing_working_texts(
+            self.data,
+            self.current_project_path
+        )
 
     def _is_subtitle_source_path(self, path: str) -> bool:
         """Is subtitle source path."""
-        return os.path.splitext(path or "")[1].lower() in {'.ass', '.srt'}
+        return self.script_text_service.is_subtitle_source_path(path)
 
     def _is_text_source_path(self, path: str) -> bool:
         """Return whether a path can generate a working text."""
-        return os.path.splitext(path or "")[1].lower() in {'.ass', '.srt', '.docx'}
+        return self.script_text_service.is_text_source_path(path)
 
     def _prompt_working_text_migration(self) -> None:
         """Tell the user that old projects need working texts."""
@@ -1821,8 +1140,11 @@ class MainWindow(QMainWindow):
         if not gender_ok:
             return
 
-        existing_id = self.global_settings_service.find_global_actor_by_name(name)
-        if existing_id:
+        if not self.global_actor_controller.add_global_actor(
+            self.global_settings,
+            name,
+            gender
+        ):
             QMessageBox.information(
                 self,
                 "Актёр уже есть",
@@ -1830,14 +1152,6 @@ class MainWindow(QMainWindow):
             )
             return
 
-        self.global_settings_service.add_global_actor(
-            name,
-            gender=gender
-        )
-        self.global_settings["global_actor_base"] = (
-            self.global_settings_service.get_global_actor_base()
-        )
-        self.global_settings_service.save_settings(self.global_settings)
         self.refresh_global_actor_table()
 
     def delete_global_actor_dialog(self) -> None:
@@ -1862,11 +1176,10 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.Yes:
             return
 
-        if self.global_settings_service.remove_global_actor(actor_id):
-            self.global_settings["global_actor_base"] = (
-                self.global_settings_service.get_global_actor_base()
-            )
-            self.global_settings_service.save_settings(self.global_settings)
+        if self.global_actor_controller.remove_global_actor(
+            self.global_settings,
+            actor_id
+        ):
             self.refresh_global_actor_table()
 
     def add_selected_global_actor_to_project(self) -> None:
@@ -1880,7 +1193,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        actor = self.global_settings_service.get_global_actor_base().get(actor_id)
+        actor = self.global_actor_controller.global_actor_data(actor_id)
         if not actor:
             return
 
@@ -1906,38 +1219,12 @@ class MainWindow(QMainWindow):
 
     def _sync_project_actors_with_global_base(self) -> int:
         """Sync project actor records with global actor records by name."""
-        actors = self.data.get("actors", {})
-        if not isinstance(actors, dict) or not actors:
+        if not self.global_actor_controller:
             return 0
 
-        actor_base = self.global_settings_service.get_global_actor_base()
-        if not actor_base:
-            return 0
-
-        global_by_name = {
-            self._actor_name_key(actor.get("name", "")): (actor_id, actor)
-            for actor_id, actor in actor_base.items()
-            if isinstance(actor, dict) and self._actor_name_key(actor.get("name", ""))
-        }
-
-        changed = 0
-        for project_actor_id, project_actor in list(actors.items()):
-            if not isinstance(project_actor, dict):
-                continue
-
-            match = global_by_name.get(
-                self._actor_name_key(project_actor.get("name", ""))
-            )
-            if not match:
-                continue
-
-            global_actor_id, global_actor = match
-            if self._merge_project_actor_with_global(
-                project_actor_id,
-                global_actor_id,
-                global_actor
-            ):
-                changed += 1
+        changed = (
+            self.global_actor_controller.sync_project_actors_with_global_base()
+        )
 
         if changed:
             self.set_dirty(True)
@@ -1949,6 +1236,8 @@ class MainWindow(QMainWindow):
 
     def _actor_name_key(self, name: str) -> str:
         """Return a stable comparison key for actor names."""
+        if self.global_actor_controller:
+            return self.global_actor_controller.actor_name_key(name)
         return " ".join(str(name or "").split()).casefold()
 
     def _merge_project_actor_with_global(
@@ -1958,36 +1247,13 @@ class MainWindow(QMainWindow):
         global_actor: Dict[str, Any]
     ) -> bool:
         """Merge one project actor with a global actor record."""
-        actors = self.data.setdefault("actors", {})
-        old_actor = actors.get(project_actor_id)
-        if not isinstance(old_actor, dict):
+        if not self.global_actor_controller:
             return False
-
-        merged_actor = old_actor.copy()
-        merged_actor.update({
-            "name": global_actor.get("name", old_actor.get("name", "")),
-            "gender": global_actor.get("gender", old_actor.get("gender", "")),
-        })
-
-        changed = False
-        if project_actor_id != global_actor_id:
-            if global_actor_id in actors and isinstance(actors[global_actor_id], dict):
-                target_actor = actors[global_actor_id].copy()
-                target_actor.update(merged_actor)
-                actors[global_actor_id] = target_actor
-            else:
-                actors[global_actor_id] = merged_actor
-            del actors[project_actor_id]
-            self._replace_project_actor_references(
-                project_actor_id,
-                global_actor_id
-            )
-            changed = True
-        elif actors.get(project_actor_id) != merged_actor:
-            actors[project_actor_id] = merged_actor
-            changed = True
-
-        return changed
+        return self.global_actor_controller.merge_project_actor_with_global(
+            project_actor_id,
+            global_actor_id,
+            global_actor
+        )
 
     def _replace_project_actor_references(
         self,
@@ -1995,34 +1261,10 @@ class MainWindow(QMainWindow):
         new_actor_id: str
     ) -> None:
         """Replace actor ids in project assignment and filter data."""
-        for mapping_name in ("global_map",):
-            mapping = self.data.get(mapping_name, {})
-            if not isinstance(mapping, dict):
-                continue
-            for char_name, actor_id in list(mapping.items()):
-                if actor_id == old_actor_id:
-                    mapping[char_name] = new_actor_id
-
-        episode_maps = self.data.get("episode_actor_map", {})
-        if isinstance(episode_maps, dict):
-            for episode_map in episode_maps.values():
-                if not isinstance(episode_map, dict):
-                    continue
-                for char_name, actor_id in list(episode_map.items()):
-                    if actor_id == old_actor_id:
-                        episode_map[char_name] = new_actor_id
-
-        export_config = self.data.get("export_config", {})
-        if (
-            isinstance(export_config, dict) and
-            isinstance(export_config.get("highlight_ids_export"), list)
-        ):
-            export_config["highlight_ids_export"] = (
-                self._replace_actor_ids_in_list(
-                    export_config.get("highlight_ids_export"),
-                    old_actor_id,
-                    new_actor_id
-                )
+        if self.global_actor_controller:
+            self.global_actor_controller.replace_project_actor_references(
+                old_actor_id,
+                new_actor_id
             )
 
     def _replace_actor_ids_in_list(
@@ -2032,15 +1274,13 @@ class MainWindow(QMainWindow):
         new_actor_id: str
     ) -> Any:
         """Replace an actor id in a list while preserving order."""
-        if not isinstance(values, list):
+        if not self.global_actor_controller:
             return values
-
-        result = []
-        for value in values:
-            next_value = new_actor_id if value == old_actor_id else value
-            if next_value not in result:
-                result.append(next_value)
-        return result
+        return self.global_actor_controller.replace_actor_ids_in_list(
+            values,
+            old_actor_id,
+            new_actor_id
+        )
 
     def add_project_actors_to_global_dialog(self) -> None:
         """Batch-add project actors to the global actor base."""
@@ -2053,11 +1293,9 @@ class MainWindow(QMainWindow):
             )
             return
 
-        global_names = {
-            actor.get("name", "").strip().casefold()
-            for actor in self.global_settings_service.get_global_actor_base().values()
-            if isinstance(actor, dict)
-        }
+        rows, available_count = (
+            self.global_actor_controller.project_actor_transfer_rows()
+        )
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Добавить актёров в глобальную базу")
@@ -2065,24 +1303,15 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Выберите актёров проекта для добавления:"))
 
         actor_list = QListWidget()
-        available_count = 0
-        for actor_id, actor in sorted(
-            project_actors.items(),
-            key=lambda item: item[1].get("name", "").lower()
-        ):
-            name = actor.get("name", actor_id)
-            exists = name.strip().casefold() in global_names
-            item = QListWidgetItem(
-                f"{name} — уже есть в глобальной базе" if exists else name
-            )
-            item.setData(Qt.UserRole, actor_id)
-            if exists:
+        for row_data in rows:
+            item = QListWidgetItem(row_data["label"])
+            item.setData(Qt.UserRole, row_data["actor_id"])
+            if row_data["exists"]:
                 item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
                 item.setCheckState(Qt.Unchecked)
             else:
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
                 item.setCheckState(Qt.Checked)
-                available_count += 1
             actor_list.addItem(item)
 
         layout.addWidget(actor_list)
@@ -2117,14 +1346,10 @@ class MainWindow(QMainWindow):
             )
             return
 
-        stats = self.global_settings_service.add_project_actors_to_global(
-            project_actors,
+        stats = self.global_actor_controller.add_project_actors_to_global(
+            self.global_settings,
             selected_ids
         )
-        self.global_settings["global_actor_base"] = (
-            self.global_settings_service.get_global_actor_base()
-        )
-        self.global_settings_service.save_settings(self.global_settings)
 
         if self._is_global_actor_mode():
             self.refresh_global_actor_table()
@@ -2205,24 +1430,20 @@ class MainWindow(QMainWindow):
         if not actor_name:
             return
 
-        for actor in self.data.get("actors", {}).values():
-            if actor.get("name", "").strip().casefold() == actor_name.casefold():
-                QMessageBox.information(
-                    self,
-                    "Актёр уже в проекте",
-                    f"{actor_name} уже добавлен в этот проект."
-                )
-                return
+        if self.actor_controller.find_actor_by_name(actor_name):
+            QMessageBox.information(
+                self,
+                "Актёр уже в проекте",
+                f"{actor_name} уже добавлен в этот проект."
+            )
+            return
 
-        actor_id = str(datetime.now().timestamp())
-        command = AddActorCommand(
-            self.data["actors"],
-            actor_id,
+        self.actor_controller.add_actor(
+            self.undo_stack,
             actor_name,
             color,
             gender
         )
-        self.undo_stack.push(command)
         self.global_settings_service.add_global_actor(actor_name, gender=gender)
         self.global_settings["global_actor_base"] = (
             self.global_settings_service.get_global_actor_base()
@@ -2255,16 +1476,29 @@ class MainWindow(QMainWindow):
                 if new_name == old_name:
                     return
 
-                command = RenameActorCommand(
-                    self.data["actors"],
-                    aid,
-                    new_name
-                )
-                self.undo_stack.push(command)
+                if not self._rename_actor_with_undo(aid, new_name):
+                    return
                 self.actor_controller.refresh()
                 self.refresh_main_table()
                 self._refresh_open_windows(self.ep_combo.currentData())
                 self.set_dirty()
+
+    def _rename_actor_with_undo(self, actor_id: str, new_name: str) -> bool:
+        """Rename an actor through ActorController, with legacy stub fallback."""
+        if hasattr(self.actor_controller, "rename_actor_with_undo"):
+            return self.actor_controller.rename_actor_with_undo(
+                self.undo_stack,
+                actor_id,
+                new_name
+            )
+
+        command = RenameActorCommand(
+            self.data["actors"],
+            actor_id,
+            new_name
+        )
+        self.undo_stack.push(command)
+        return True
 
     def _update_global_actor_from_table_item(self, item: QTableWidgetItem) -> None:
         """Update global actor-base data from an edited table item."""
@@ -2309,12 +1543,11 @@ class MainWindow(QMainWindow):
         if self.actor_controller:
             dialog = CustomColorDialog(self)
             if dialog.exec() and dialog.selected_color:
-                command = UpdateActorColorCommand(
-                    self.data["actors"],
+                self.actor_controller.update_actor_color_with_undo(
+                    self.undo_stack,
                     aid,
                     dialog.selected_color
                 )
-                self.undo_stack.push(command)
                 self.actor_controller.refresh()
                 self.refresh_main_table()
                 self.set_dirty()
@@ -2359,17 +1592,10 @@ class MainWindow(QMainWindow):
         )
 
         if reply == QMessageBox.Yes:
-            command = DeleteActorCommand(
-                self.data["actors"],
-                self.data["global_map"],
-                actor_id,
-                [
-                    mapping for mapping in
-                    self.data.get("episode_actor_map", {}).values()
-                    if isinstance(mapping, dict)
-                ]
+            self.actor_controller.delete_actor_with_undo(
+                self.undo_stack,
+                actor_id
             )
-            self.undo_stack.push(command)
             self.actor_controller.refresh()
             self.refresh_main_table()
             self.set_dirty()
@@ -2422,48 +1648,15 @@ class MainWindow(QMainWindow):
 
     def _recalculate_episode_stats(self, lines: List[Dict[str, Any]]) -> None:
         """Recalculate episode stats."""
-        from collections import defaultdict
-
-        char_data: Dict[str, Dict[str, Any]] = defaultdict(
-            lambda: {"lines": 0, "raw": []}
+        self.current_ep_stats = self.character_stats_service.episode_stats(
+            lines,
+            self.episode_service.merge_gap,
+            self.episode_service.fps
         )
-
-        for line in lines:
-            char = line.get('char', '')
-            if char:
-                char_data[char]["lines"] += 1
-                char_data[char]["raw"].append(line)
-
-        merge_gap_seconds = self.episode_service.merge_gap / self.episode_service.fps
-
-        stats = []
-        for char, info in char_data.items():
-            rings = 1
-            words = 0
-            char_lines = info["raw"]
-
-            if char_lines:
-                words = len(char_lines[0]['text'].split())
-
-                for i in range(1, len(char_lines)):
-                    if char_lines[i]['s'] - char_lines[i-1]['e'] >= merge_gap_seconds:
-                        rings += 1
-                    words += len(char_lines[i]['text'].split())
-
-            stats.append({
-                "name": char,
-                "lines": info["lines"],
-                "rings": rings,
-                "words": words
-            })
-
-        self.current_ep_stats = stats
 
     def _parse_episode(self, ep: str, path: str) -> List[Dict[str, Any]]:
         """Parse episode."""
-        stats: List[Dict[str, Any]]
-        lines: List[Dict[str, Any]]
-        stats, lines = self.episode_service.parse_ass_file(path)
+        stats, lines = self._get_import_controller().parse_source_file(ep, path)
         self.current_ep_stats = stats
         return lines
 
@@ -2474,39 +1667,14 @@ class MainWindow(QMainWindow):
         lines: List[Dict[str, Any]]
     ) -> None:
         """Create working text for episode."""
-        if not lines:
-            return
-
-        merge_config = self.data.get("replica_merge_config", {})
-        if os.path.splitext(path or "")[1].lower() == '.docx':
-            merge_config = {**merge_config, "merge": False}
-
-        self.script_text_service.create_episode_text(
-            self.data,
-            ep,
-            path,
-            lines,
-            merge_config,
-            self.current_project_path
-        )
+        self._get_import_controller().create_working_text_for_episode(ep, path, lines)
 
     def _convert_imported_lines_for_cache(
         self,
         lines: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """Convert imported lines for cache."""
-        episode_lines = []
-        for idx, line_data in enumerate(lines):
-            episode_lines.append({
-                'id': idx,
-                's': line_data['s'],
-                'e': line_data['e'],
-                'char': line_data['char'],
-                'text': line_data['text'],
-                's_raw': line_data.get('s_raw', ''),
-                'e_raw': line_data.get('e_raw', ''),
-            })
-        return episode_lines
+        return self._get_import_controller().convert_imported_lines_for_cache(lines)
 
     def import_ass(self, paths: Optional[List[str]] = None) -> None:
         """Import ass."""
@@ -2536,8 +1704,7 @@ class MainWindow(QMainWindow):
 
     def _import_single_file(self, path: str) -> None:
         """Import single file."""
-        numbers: List[str] = re.findall(r'\d+', os.path.basename(path))
-        num: str = " ".join(numbers) or "1"
+        num = self._get_import_controller().suggested_episode_name(path)
 
         name: str
         ok: bool
@@ -2549,21 +1716,11 @@ class MainWindow(QMainWindow):
         )
 
         if ok and name:
-            command = AddEpisodeCommand(
-                self.data["episodes"],
+            stats, _lines = self._get_import_controller().add_subtitle_episode(
                 name,
                 path
             )
-            self.undo_stack.push(command)
-
-            ext = os.path.splitext(path)[1].lower()
-            if ext == '.srt':
-                lines = self._parse_srt_episode(name, path)
-            else:
-                lines = self._parse_episode(name, path)
-
-            self._create_working_text_for_episode(name, path, lines)
-
+            self.current_ep_stats = stats
             self.set_dirty()
 
     def import_files(self, paths: Optional[List[str]] = None) -> None:
@@ -2593,9 +1750,6 @@ class MainWindow(QMainWindow):
     def import_docx_with_dialog(self, file_path: str) -> None:
         """Import docx with dialog."""
         from ui.dialogs import DocxImportDialog
-        from core.commands import AddEpisodeCommand
-        import re
-        import os
 
         dialog = DocxImportDialog(self, file_path)
         if dialog.exec() != QDialog.Accepted:
@@ -2605,8 +1759,7 @@ class MainWindow(QMainWindow):
         if not result:
             return
 
-        numbers: List[str] = re.findall(r'\d+', os.path.basename(file_path))
-        num: str = " ".join(numbers) or "1"
+        num = self._get_import_controller().suggested_episode_name(file_path)
 
         name: str
         ok: bool
@@ -2620,30 +1773,7 @@ class MainWindow(QMainWindow):
         if not ok or not name:
             return
 
-        lines = result['lines']
-        episode_lines = self._convert_imported_lines_for_cache(lines)
-
-        command = AddEpisodeCommand(
-            self.data["episodes"],
-            name,
-            file_path
-        )
-        self.undo_stack.push(command)
-
-        if "loaded_episodes" not in self.data:
-            self.data["loaded_episodes"] = {}
-        self.data["loaded_episodes"][name] = episode_lines
-
-        self.episode_service._loaded_episodes[name] = episode_lines
-
-        self._create_working_text_for_episode(name, file_path, episode_lines)
-        working_lines = self.script_text_service.load_episode_lines(
-            self.data,
-            name
-        )
-        if working_lines:
-            self.data["loaded_episodes"][name] = working_lines
-
+        self._get_import_controller().add_docx_episode(name, file_path, result)
         self.current_ep_stats = result['stats']
 
         # Update UI
@@ -2652,24 +1782,19 @@ class MainWindow(QMainWindow):
 
         QMessageBox.information(
             self, "Импорт завершён",
-            f"Импортировано {len(lines)} реплик из DOCX файла." +
+            f"Импортировано {len(result['lines'])} реплик из DOCX файла." +
             (f"\n({result.get('tables_count', 1)} таблиц(ы))" if result.get('tables_count', 1) > 1 else "")
         )
 
     def _parse_srt_episode(self, ep: str, path: str) -> List[Dict[str, Any]]:
         """Parse srt episode."""
-        stats: List[Dict[str, Any]]
-        lines: List[Dict[str, Any]]
-        stats, lines = self.episode_service.parse_srt_file(path)
+        stats, lines = self._get_import_controller().parse_source_file(ep, path)
         self.current_ep_stats = stats
         return lines
 
     def import_docx(self, paths: Optional[List[str]] = None) -> None:
         """Import docx."""
         from ui.dialogs import DocxImportDialog
-        from core.commands import AddEpisodeCommand
-        import re
-        import os
 
         # DOCX-specific handling
         dialog = DocxImportDialog(self)
@@ -2680,8 +1805,7 @@ class MainWindow(QMainWindow):
         if not result:
             return
 
-        numbers: List[str] = re.findall(r'\d+', dialog.file_label.text())
-        num: str = " ".join(numbers) or "1"
+        num = self._get_import_controller().suggested_episode_name(dialog.file_label.text())
 
         name: str
         ok: bool
@@ -2695,8 +1819,6 @@ class MainWindow(QMainWindow):
         if not ok or not name:
             return
 
-        lines = result['lines']
-        episode_lines = self._convert_imported_lines_for_cache(lines)
         docx_path = (
             result.get('source_path') or
             (
@@ -2706,27 +1828,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        command = AddEpisodeCommand(
-            self.data["episodes"],
-            name,
-            docx_path
-        )
-        self.undo_stack.push(command)
-
-        if "loaded_episodes" not in self.data:
-            self.data["loaded_episodes"] = {}
-        self.data["loaded_episodes"][name] = episode_lines
-
-        self.episode_service._loaded_episodes[name] = episode_lines
-
-        self._create_working_text_for_episode(name, docx_path, episode_lines)
-        working_lines = self.script_text_service.load_episode_lines(
-            self.data,
-            name
-        )
-        if working_lines:
-            self.data["loaded_episodes"][name] = working_lines
-
+        self._get_import_controller().add_docx_episode(name, docx_path, result)
         self.current_ep_stats = result['stats']
 
         # Update UI
@@ -2735,7 +1837,7 @@ class MainWindow(QMainWindow):
 
         QMessageBox.information(
             self, "Импорт завершён",
-            f"Импортировано {len(lines)} реплик из DOCX файла." +
+            f"Импортировано {len(result['lines'])} реплик из DOCX файла." +
             (f"\n({result.get('tables_count', 1)} таблиц(ы))" if result.get('tables_count', 1) > 1 else "")
         )
 
@@ -2747,7 +1849,7 @@ class MainWindow(QMainWindow):
             self, "Файл", "", "Subtitle Files (*.ass *.srt)"
         )
         if path:
-            self.data["episodes"][ep] = path
+            self._get_import_controller().relink_episode_file(ep, path)
             self.change_episode()
             self.set_dirty()
 
@@ -3074,6 +2176,43 @@ class MainWindow(QMainWindow):
             else:
                 self.export_to_docx(ep)
 
+    def _update_export_format_config(self) -> None:
+        """Persist selected export formats in project settings."""
+        if not hasattr(self, "chk_exp_html"):
+            return
+
+        export_config = self.data.setdefault(
+            "export_config",
+            deepcopy(DEFAULT_EXPORT_CONFIG)
+        )
+        export_config["format_html"] = self.chk_exp_html.isChecked()
+        export_config["format_xls"] = self.chk_exp_xls.isChecked()
+        export_config["format_docx"] = self.chk_exp_docx.isChecked()
+
+        if hasattr(self, "preview_window") and self.preview_window:
+            self.preview_window.sync_export_format_controls()
+        if hasattr(self, "set_dirty"):
+            self.set_dirty(True)
+
+    def _sync_export_format_controls_from_config(self) -> None:
+        """Update main export format checkboxes from project settings."""
+        if not hasattr(self, "chk_exp_html"):
+            return
+
+        cfg = self.data.get("export_config", DEFAULT_EXPORT_CONFIG)
+        controls = [
+            (self.chk_exp_html, cfg.get("format_html", True)),
+            (self.chk_exp_xls, cfg.get("format_xls", False)),
+            (self.chk_exp_docx, cfg.get("format_docx", False)),
+        ]
+        for checkbox, checked in controls:
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(checked))
+            checkbox.blockSignals(False)
+
+        if hasattr(self, "preview_window") and self.preview_window:
+            self.preview_window.sync_export_format_controls()
+
     def _execute_batch_export(
         self,
         episodes: Dict[str, str],
@@ -3118,26 +2257,11 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.critical(self, "Ошибка экспорта", message)
 
-    def _create_excel_book(
-        self,
-        ep: str,
-        processed: List[Dict[str, Any]],
-        cfg: Optional[Dict[str, Any]] = None
-    ) -> Any:
-        """Create an Excel workbook with multiple sheets."""
-        export_service = ExportService(self.data)
-        return export_service.create_excel_book(ep, processed, cfg)
-
     def _open_exported_file_if_needed(self, path: str) -> None:
         """Open an exported file when export settings allow it."""
         if not self.data.get("export_config", {}).get("open_auto", True):
             return
-        if sys.platform == 'win32':
-            os.startfile(path)
-        elif sys.platform == 'darwin':
-            os.system(f'open "{path}"')
-        else:
-            os.system(f'xdg-open "{path}"')
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def export_to_excel(self, ep: str) -> None:
         """Export data to an Excel file."""
@@ -3475,6 +2599,7 @@ class MainWindow(QMainWindow):
             )
 
             self.change_episode()
+            self._sync_export_format_controls_from_config()
             self._sync_preview_export_settings()
             self.set_dirty()
 
@@ -3552,71 +2677,64 @@ class MainWindow(QMainWindow):
 
     def save_default_export_config(self, config: Dict[str, Any]) -> bool:
         """Save default export settings for future projects."""
-        self.global_settings_service.set_default_export_config(config)
-        self.global_settings["default_export_config"] = (
-            self.global_settings_service.get_default_export_config()
-        )
-        return self.global_settings_service.save_settings(self.global_settings)
+        return self.settings_controller.save_default_export_config(config)
 
     def apply_default_export_config_to_project(self) -> Dict[str, Any]:
         """Apply default export settings to the current project."""
-        return self.apply_export_config_to_project(
-            self.global_settings_service.get_default_export_config()
-        )
+        result = self.settings_controller.apply_default_export_config_to_project()
+        self._sync_export_format_controls_from_config()
+        self._sync_preview_export_settings()
+        self.set_dirty(True)
+        return result
 
     def apply_export_config_to_project(
         self,
         config: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Apply export settings to the current project."""
-        self.data["export_config"] = deepcopy(config)
+        result = self.settings_controller.apply_export_config_to_project(config)
+        self._sync_export_format_controls_from_config()
         self._sync_preview_export_settings()
         self.set_dirty(True)
-        return deepcopy(self.data["export_config"])
+        return result
 
     def save_default_prompter_config(self, config: Dict[str, Any]) -> bool:
         """Save default teleprompter settings for future projects."""
-        self.global_settings_service.set_default_prompter_config(config)
-        self.global_settings["default_prompter_config"] = (
-            self.global_settings_service.get_default_prompter_config()
-        )
-        return self.global_settings_service.save_settings(self.global_settings)
+        return self.settings_controller.save_default_prompter_config(config)
 
     def apply_default_prompter_config_to_project(self) -> Dict[str, Any]:
         """Apply default teleprompter settings to the current project."""
-        return self.apply_prompter_config_to_project(
-            self.global_settings_service.get_default_prompter_config()
+        result = (
+            self.settings_controller.apply_default_prompter_config_to_project()
         )
+        self._sync_teleprompter_settings()
+        self.set_dirty(True)
+        return result
 
     def apply_prompter_config_to_project(
         self,
         config: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Apply teleprompter settings to the current project."""
-        self.data["prompter_config"] = deepcopy(config)
+        result = self.settings_controller.apply_prompter_config_to_project(config)
         self._sync_teleprompter_settings()
         self.set_dirty(True)
-        return deepcopy(self.data["prompter_config"])
+        return result
 
     def apply_prompter_reaper_ports_to_project(
         self,
         config: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Apply Reaper sync ports to the current project."""
-        prompter_config = deepcopy(
-            self.data.get("prompter_config") or DEFAULT_PROMPTER_CONFIG
+        prompter_config, changed = (
+            self.settings_controller.apply_prompter_reaper_ports_to_project(
+                config
+            )
         )
-        changed = False
-        for key in ("port_in", "port_out"):
-            if key in config and prompter_config.get(key) != config[key]:
-                prompter_config[key] = config[key]
-                changed = True
-
         if changed:
-            self.data["prompter_config"] = prompter_config
             self._sync_teleprompter_settings()
             self.set_dirty(True)
-        return deepcopy(prompter_config)
+        return prompter_config
 
     def _sync_teleprompter_settings(self) -> None:
         """Refresh an open teleprompter after settings change."""
@@ -3629,7 +2747,7 @@ class MainWindow(QMainWindow):
 
     def get_prompter_color_presets(self) -> List[Optional[Dict[str, str]]]:
         """Return global teleprompter color presets."""
-        return self.global_settings_service.get_prompter_color_presets()
+        return self.settings_controller.get_prompter_color_presets()
 
     def save_prompter_color_preset(
         self,
@@ -3637,19 +2755,11 @@ class MainWindow(QMainWindow):
         colors: Dict[str, str]
     ) -> bool:
         """Save one global teleprompter color preset."""
-        self.global_settings_service.set_prompter_color_preset(index, colors)
-        self.global_settings["prompter_color_presets"] = (
-            self.global_settings_service.get_prompter_color_presets()
-        )
-        return self.global_settings_service.save_settings(self.global_settings)
+        return self.settings_controller.save_prompter_color_preset(index, colors)
 
     def clear_prompter_color_preset(self, index: int) -> bool:
         """Clear one global teleprompter color preset."""
-        self.global_settings_service.clear_prompter_color_preset(index)
-        self.global_settings["prompter_color_presets"] = (
-            self.global_settings_service.get_prompter_color_presets()
-        )
-        return self.global_settings_service.save_settings(self.global_settings)
+        return self.settings_controller.clear_prompter_color_preset(index)
 
     def save_global_prompter_settings(self, config: Dict[str, Any]) -> None:
         """Compatibility shim for teleprompter callers; settings are project-local."""
@@ -3667,21 +2777,21 @@ class MainWindow(QMainWindow):
             self.ensure_working_text_for_episode(ep_num, "экспортировать RPP")
             return
 
-        video_path = self.project_folder_service.resolve_project_path(
-            self.data,
-            self.data["video_paths"].get(ep_num)
-        )
-        export_service = ExportService(self.data)
+        reaper_controller = self.reaper_export_controller
+        video_path = reaper_controller.resolve_video_path(ep_num)
 
-        def make_preview(use_video: bool, use_regions: bool) -> Dict[str, Any]:
-            preview_video_path = video_path
-            return export_service.get_reaper_rpp_preview(
+        def make_preview(
+            use_video: bool,
+            use_regions: bool,
+            transliterate_actor_names: bool
+        ) -> Dict[str, Any]:
+            return reaper_controller.preview(
                 ep_num,
                 lines,
-                merge_cfg=self.data.get("replica_merge_config", {}),
-                video_path=preview_video_path,
-                use_video=use_video,
-                use_regions=use_regions
+                video_path,
+                use_video,
+                use_regions,
+                transliterate_actor_names
             )
 
         dialog = ReaperExportDialog(
@@ -3693,29 +2803,25 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.Accepted:
             return
 
-        use_video, use_regions = dialog.get_options()
+        use_video, use_regions, transliterate_actor_names = dialog.get_options()
 
-        default_name = (
-            f"{self.data.get('project_name', 'Project')} - "
-            f"Ep{ep_num}.rpp"
-        )
+        default_name = reaper_controller.default_filename(ep_num)
         save_path, _ = QFileDialog.getSaveFileName(
             self, "Сохранить RPP", default_name, "Reaper Project (*.rpp)"
         )
         if not save_path:
             return
-
-        rpp_content = export_service.generate_reaper_rpp(
-            ep_num,
-            lines,
-            merge_cfg=self.data.get("replica_merge_config", {}),
-            video_path=video_path,
-            use_video=use_video,
-            use_regions=use_regions
-        )
         
         try:
-            export_service.save_reaper_rpp(save_path, rpp_content)
+            reaper_controller.save(
+                ep_num,
+                lines,
+                save_path,
+                video_path,
+                use_video,
+                use_regions,
+                transliterate_actor_names
+            )
             
             reply = QMessageBox.question(
                 self,
@@ -3725,12 +2831,7 @@ class MainWindow(QMainWindow):
             )
             
             if reply == QMessageBox.Yes:
-                if sys.platform == 'win32':
-                    os.startfile(save_path)
-                elif sys.platform == 'darwin':
-                    os.system(f'open "{save_path}"')
-                else:
-                    os.system(f'xdg-open "{save_path}"')
+                QDesktopServices.openUrl(QUrl.fromLocalFile(save_path))
         except Exception as e:
             log_exception(logger, "Error saving RPP", e)
             QMessageBox.critical(
@@ -3742,6 +2843,158 @@ class MainWindow(QMainWindow):
         index = self.ep_combo.findData(ep_num)
         if index >= 0:
             self.ep_combo.setCurrentIndex(index)
+
+    # === Quick subtitle converter ===
+
+    def convert_dropped_subtitles(
+        self,
+        paths: List[str],
+        preview_first: bool = False
+    ) -> None:
+        """Convert dropped ASS/SRT files to selected montage formats."""
+        files = self.quick_subtitle_service.supported_files(paths)
+        if not files:
+            QMessageBox.warning(
+                self,
+                "Быстрый конвертер",
+                "Перетащите файлы ASS или SRT."
+            )
+            return
+
+        if preview_first:
+            self._preview_dropped_subtitle_conversion(files)
+            return
+
+        if not self._quick_montage_should_export_html() and not (
+            self._quick_montage_should_export_docx()
+        ):
+            QMessageBox.information(
+                self,
+                "Быстрый конвертер",
+                "Выберите HTML или DOCX в настройках экспорта."
+            )
+            return
+
+        progress = QProgressDialog(
+            "Конвертация субтитров...",
+            "Отмена",
+            0,
+            len(files),
+            self
+        )
+        progress.setWindowTitle("Быстрый конвертер")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+
+        exported: List[str] = []
+        errors: List[str] = []
+
+        for idx, path in enumerate(files, 1):
+            if progress.wasCanceled():
+                break
+
+            progress.setLabelText(
+                f"Конвертация {idx} из {len(files)}:\n"
+                f"{os.path.basename(path)}"
+            )
+            progress.setValue(idx - 1)
+            QApplication.processEvents()
+
+            try:
+                exported.extend(self._export_quick_subtitle_montage(path))
+            except Exception as exc:
+                log_exception(logger, "Quick subtitle conversion failed", exc)
+                errors.append(f"{os.path.basename(path)}: {exc}")
+
+        progress.setValue(len(files))
+
+        if exported:
+            shown_paths = "\n".join(exported[:5])
+            extra_count = len(exported) - 5
+            if extra_count > 0:
+                shown_paths += f"\n...и ещё {extra_count}"
+            QMessageBox.information(
+                self,
+                "Быстрый конвертер",
+                f"Готово. Экспортировано файлов: {len(exported)}\n\n"
+                f"{shown_paths}"
+            )
+
+        if errors:
+            QMessageBox.warning(
+                self,
+                "Быстрый конвертер",
+                "Не удалось конвертировать некоторые файлы:\n\n" +
+                "\n".join(errors[:8])
+            )
+
+    def _preview_dropped_subtitle_conversion(self, files: List[str]) -> None:
+        """Open quick preview for the first dropped subtitle, then convert all."""
+        first_path = files[0]
+        try:
+            lines = self.quick_subtitle_service.preview_lines(first_path)
+        except Exception as exc:
+            log_exception(logger, "Quick subtitle preview failed", exc)
+            QMessageBox.warning(
+                self,
+                "Быстрый конвертер",
+                f"Не удалось открыть превью: {exc}"
+            )
+            return
+
+        from .preview import HtmlLivePreview
+
+        preview = HtmlLivePreview(
+            self,
+            "1",
+            override_lines=lines,
+            source_title=os.path.basename(first_path),
+            register_preview=False
+        )
+        preview.exec()
+        self.convert_dropped_subtitles(files, preview_first=False)
+
+    def _export_quick_subtitle_montage(self, path: str) -> List[str]:
+        """Export one subtitle file to montage files next to it."""
+        return self.quick_subtitle_service.export_montage(
+            path,
+            self._quick_montage_should_export_html(),
+            self._quick_montage_should_export_docx()
+        )
+
+    def _parse_quick_subtitle_file(
+        self,
+        path: str
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Parse a subtitle file for quick conversion."""
+        return self.quick_subtitle_service.parse_file(path)
+
+    def _normalize_quick_subtitle_lines(
+        self,
+        lines: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Ensure quick-converted subtitle lines have stable ids."""
+        return self.quick_subtitle_service.normalize_lines(lines)
+
+    def _quick_montage_export_config(self) -> Dict[str, Any]:
+        """Return current export config without actor color highlighting."""
+        return self.quick_subtitle_service.export_config()
+
+    def _quick_montage_should_export_html(self) -> bool:
+        """Return True when HTML is enabled in current export controls."""
+        return hasattr(self, "chk_exp_html") and self.chk_exp_html.isChecked()
+
+    def _quick_montage_should_export_docx(self) -> bool:
+        """Return True when DOCX is enabled in current export controls."""
+        return hasattr(self, "chk_exp_docx") and self.chk_exp_docx.isChecked()
+
+    def _quick_montage_output_path(
+        self,
+        source_path: str,
+        extension: str
+    ) -> str:
+        """Return a unique montage path next to the source subtitle file."""
+        return self.quick_subtitle_service.output_path(source_path, extension)
     
     # === Drag & Drop ===
     

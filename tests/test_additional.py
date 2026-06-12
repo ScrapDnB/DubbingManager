@@ -238,7 +238,7 @@ class TestExportServiceAdditional:
         merge_cfg = sample_project_data["replica_merge_config"]
 
         processed = service.process_merge_logic(sample_lines, merge_cfg)
-        html = service.generate_html("1", processed, cfg, layout_type='Сценарий')
+        html = service.generate_html("1", processed, cfg, layout_type='Сценарий 1')
 
         assert 'line-container' in html
         assert "<table" not in html

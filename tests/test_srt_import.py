@@ -279,14 +279,14 @@ John: Second line (0.15s gap).
 
 
 class TestSrtSave:
-    """Tests for SRT file saving functionality"""
+    """Tests for disabled SRT source saving."""
 
     def setup_method(self):
         """Setup test fixtures"""
         self.episode_service = EpisodeService(merge_gap=5, fps=25.0)
 
-    def test_save_episode_to_srt(self):
-        """Test saving edited SRT episode"""
+    def test_save_episode_to_srt_is_disabled(self):
+        """Test that edited SRT data is not written back to source."""
         srt_content = """1
 00:00:01,000 --> 00:00:04,000
 John: Hello, how are you?
@@ -308,28 +308,27 @@ Mary: I'm fine, thank you!
             lines[0]['text'] = 'Hello, edited!'
             lines[1]['text'] = "I'm great now!"
             
-            # Сохраняем
             success, message = self.episode_service.save_episode_to_srt(
                 "1", episodes, lines
             )
             
-            assert success is True
+            assert success is False
+            assert "ASS/SRT отключена" in message
             
-            # Проверяем сохранённый файл
             with open(temp_path, 'r', encoding='utf-8') as f:
                 saved_content = f.read()
             
-            assert 'John: Hello, edited!' in saved_content
-            assert "Mary: I'm great now!" in saved_content
-            # Тайминги должны сохраниться
+            assert 'John: Hello, how are you?' in saved_content
+            assert "Mary: I'm fine, thank you!" in saved_content
+            assert 'Hello, edited!' not in saved_content
             assert '00:00:01,000 --> 00:00:04,000' in saved_content
             assert '00:00:05,000 --> 00:00:08,000' in saved_content
             
         finally:
             os.unlink(temp_path)
 
-    def test_save_episode_to_srt_without_character(self):
-        """Test saving SRT without character name"""
+    def test_save_episode_to_srt_without_character_is_disabled(self):
+        """Test that source SRT remains unchanged without character names."""
         srt_content = """1
 00:00:01,000 --> 00:00:04,000
 Hello.
@@ -355,19 +354,22 @@ World.
                 "1", episodes, lines
             )
             
-            assert success is True
+            assert success is False
+            assert "ASS/SRT отключена" in message
             
             with open(temp_path, 'r', encoding='utf-8') as f:
                 saved_content = f.read()
             
-            assert 'Edited hello.' in saved_content
-            assert 'Edited world.' in saved_content
+            assert 'Hello.' in saved_content
+            assert 'World.' in saved_content
+            assert 'Edited hello.' not in saved_content
+            assert 'Edited world.' not in saved_content
             
         finally:
             os.unlink(temp_path)
 
-    def test_save_episode_to_srt_via_save_episode_to_ass(self):
-        """Test that save_episode_to_ass routes to SRT save for .srt files"""
+    def test_save_episode_to_srt_via_save_episode_to_ass_is_disabled(self):
+        """Test that save_episode_to_ass no longer routes to SRT writing."""
         srt_content = """1
 00:00:01,000 --> 00:00:04,000
 John: Original text.
@@ -381,17 +383,18 @@ John: Original text.
             lines = self.episode_service.load_srt_episode("1", episodes)
             lines[0]['text'] = 'Edited via route!'
             
-            # Вызываем save_episode_to_ass (должен определить .srt и вызвать save_episode_to_srt)
             success, message = self.episode_service.save_episode_to_ass(
                 "1", episodes, lines
             )
             
-            assert success is True
+            assert success is False
+            assert "ASS/SRT отключена" in message
             
             with open(temp_path, 'r', encoding='utf-8') as f:
                 saved_content = f.read()
             
-            assert 'Edited via route!' in saved_content
+            assert 'John: Original text.' in saved_content
+            assert 'Edited via route!' not in saved_content
             
         finally:
             os.unlink(temp_path)
