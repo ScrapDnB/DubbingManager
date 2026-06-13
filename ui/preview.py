@@ -656,7 +656,7 @@ class HtmlLivePreview(QDialog):
             selected = dialog.get_selected()
             self.highlight_negative_ids = dialog.get_negative_selected()
             cfg = self.main_app.data["export_config"]
-            if len(selected) == len(all_aids) or len(selected) == 0:
+            if len(selected) == len(all_aids):
                 self.highlight_ids = None
             else:
                 self.highlight_ids = selected

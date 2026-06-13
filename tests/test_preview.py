@@ -245,6 +245,41 @@ def test_preview_actor_filter_updates_export_config(monkeypatch):
     assert calls == [True]
 
 
+def test_preview_actor_filter_preserves_empty_selection(monkeypatch):
+    _app()
+    preview = HtmlLivePreview.__new__(HtmlLivePreview)
+    preview.main_app = MainAppStub()
+    preview.main_app.data["actors"]["actor-2"] = {
+        "name": "Second Actor",
+        "color": "#000000",
+    }
+    preview.highlight_ids = None
+    preview.highlight_negative_ids = []
+    calls = []
+    preview.update_preview = lambda: calls.append(True)
+
+    class ActorFilterStub:
+        def __init__(self, actors, current_selection, negative_ids, parent):
+            self.current_selection = current_selection
+
+        def exec(self):
+            return True
+
+        def get_selected(self):
+            return []
+
+        def get_negative_selected(self):
+            return []
+
+    monkeypatch.setattr(preview_module, "ActorFilterDialog", ActorFilterStub)
+
+    preview.open_actor_filter()
+
+    assert preview.highlight_ids == []
+    assert preview.main_app.data["export_config"]["highlight_ids_export"] == []
+    assert calls == [True]
+
+
 def test_preview_places_round_time_checkbox_below_timing_dropdown(monkeypatch):
     _app()
     monkeypatch.setattr(preview_module, "WEB_ENGINE_AVAILABLE", False)

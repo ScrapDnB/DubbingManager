@@ -269,6 +269,39 @@ def test_settings_dialog_applies_export_defaults_after_confirmation(
     assert settings["export_config"]["highlight_negative_ids_export"] == ["actor2"]
 
 
+def test_settings_dialog_actor_filter_preserves_empty_selection(
+    app,
+    project_data,
+    monkeypatch,
+):
+    dialog = SettingsDialog(project_data)
+
+    class ActorFilterStub:
+        def __init__(self, actors, current_selection, negative_ids, parent):
+            self.current_selection = current_selection
+
+        def exec(self):
+            return True
+
+        def get_selected(self):
+            return []
+
+        def get_negative_selected(self):
+            return []
+
+    monkeypatch.setattr(
+        "ui.dialogs.settings.ActorFilterDialog",
+        ActorFilterStub
+    )
+
+    dialog._open_export_actor_filter()
+    settings = dialog.get_settings()
+
+    assert dialog.highlight_ids_export == []
+    assert settings["export_config"]["highlight_ids_export"] == []
+    assert "отключена" in dialog.export_actor_filter_summary.text()
+
+
 def test_settings_dialog_saves_prompter_defaults_after_confirmation(
     app,
     project_data,

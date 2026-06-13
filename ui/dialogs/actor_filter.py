@@ -24,7 +24,11 @@ class ActorFilterDialog(QDialog):
         self.resize(420, 520)
 
         self.actors_data: Dict[str, Dict] = actors_data
-        self.selected_ids: Set[str] = set(selected_ids) if selected_ids else set()
+        self.selected_ids: Optional[Set[str]] = (
+            set(selected_ids)
+            if selected_ids is not None
+            else None
+        )
         self.negative_ids: Set[str] = (
             set(negative_ids)
             if negative_ids
@@ -61,7 +65,7 @@ class ActorFilterDialog(QDialog):
         for aid, info in self.actors_data.items():
             row = QHBoxLayout()
             chk: QCheckBox = QCheckBox(info["name"])
-            if not self.selected_ids or aid in self.selected_ids:
+            if self.selected_ids is None or aid in self.selected_ids:
                 chk.setChecked(True)
             negative_chk = QPushButton("◐")
             negative_chk.setCheckable(True)

@@ -20,3 +20,18 @@ def test_actor_filter_dialog_returns_negative_selection():
 
     assert dialog.get_selected() == ["actor1"]
     assert dialog.get_negative_selected() == ["actor2"]
+
+
+def test_actor_filter_dialog_keeps_empty_selection_empty():
+    app = QApplication.instance() or QApplication([])
+    _ = app
+
+    dialog = ActorFilterDialog(
+        {
+            "actor1": {"name": "Actor One"},
+            "actor2": {"name": "Actor Two"},
+        },
+        selected_ids=[],
+    )
+
+    assert dialog.get_selected() == []

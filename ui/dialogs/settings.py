@@ -1386,7 +1386,11 @@ class SettingsDialog(QDialog):
             "round_time": self.export_round_time.isChecked(),
             "time_display": self.export_time_display.currentData(),
             "open_auto": self.export_open_auto.isChecked(),
-            "highlight_ids_export": deepcopy(self.highlight_ids_export or []),
+            "highlight_ids_export": (
+                deepcopy(self.highlight_ids_export)
+                if self.highlight_ids_export is not None
+                else None
+            ),
             "highlight_negative_ids_export": deepcopy(
                 self.highlight_negative_ids_export or []
             ),
@@ -1448,8 +1452,10 @@ class SettingsDialog(QDialog):
         self.export_time_display.setCurrentIndex(
             time_display_index if time_display_index >= 0 else 0
         )
-        self.highlight_ids_export = deepcopy(
-            export_config.get("highlight_ids_export", [])
+        self.highlight_ids_export = (
+            deepcopy(export_config.get("highlight_ids_export"))
+            if export_config.get("highlight_ids_export") is not None
+            else None
         )
         self.highlight_negative_ids_export = deepcopy(
             export_config.get("highlight_negative_ids_export", [])
@@ -1761,7 +1767,7 @@ class SettingsDialog(QDialog):
         if dialog.exec():
             selected = dialog.get_selected()
             self.highlight_negative_ids_export = dialog.get_negative_selected()
-            if len(selected) == len(all_actor_ids) or len(selected) == 0:
+            if len(selected) == len(all_actor_ids):
                 self.highlight_ids_export = None
             else:
                 self.highlight_ids_export = selected
@@ -1772,7 +1778,7 @@ class SettingsDialog(QDialog):
         if self.highlight_ids_export is None:
             text = "Подсветка применяется ко всем актёрам."
         elif not self.highlight_ids_export:
-            text = "Подсветка применяется ко всем актёрам."
+            text = "Подсветка отключена для всех актёров."
         else:
             selected_names = [
                 actors.get(actor_id, {}).get("name", actor_id)

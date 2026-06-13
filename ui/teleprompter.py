@@ -1427,13 +1427,13 @@ class TeleprompterWindow(QDialog):
         all_ids = list(self.main_app.data["actors"].keys())
         dialog = ActorFilterDialog(
             self.main_app.data["actors"],
-            self.highlight_ids or all_ids,
+            self.highlight_ids if self.highlight_ids is not None else all_ids,
             parent=self
         )
         if dialog.exec():
             sel = dialog.get_selected()
             self.highlight_ids = (
-                None if len(sel) == len(all_ids) or len(sel) == 0 else sel
+                None if len(sel) == len(all_ids) else sel
             )
             self.build_prompter_content()
 
