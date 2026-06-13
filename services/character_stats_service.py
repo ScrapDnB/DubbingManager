@@ -116,6 +116,7 @@ class CharacterStatsService:
         rows_by_key: Dict[Tuple[str, str], Dict[str, Any]] = {}
         export_service = ExportService(self.data_ref)
         actors = self.data_ref.get("actors", {})
+        next_order = 0
 
         for ep in episodes:
             lines = get_episode_lines(ep)
@@ -139,31 +140,44 @@ class CharacterStatsService:
                     else ""
                 )
                 key = (char, actor_name)
-                row = rows_by_key.setdefault(
-                    key,
-                    {"char": char, "actor": actor_name, "episodes": defaultdict(int)}
-                )
+                row = rows_by_key.get(key)
+                if row is None:
+                    row = {
+                        "char": char,
+                        "actor": actor_name,
+                        "first_ep": ep,
+                        "order": next_order,
+                        "episodes": defaultdict(int),
+                    }
+                    rows_by_key[key] = row
+                    next_order += 1
                 row["episodes"][ep] += 1
 
         rows: List[List[Any]] = [header]
-        sorted_rows = sorted(
-            rows_by_key.values(),
-            key=lambda row: (
-                -sum(row["episodes"].values()),
-                row["char"].casefold(),
-                row["actor"].casefold(),
-            )
-        )
+        rows_by_first_episode: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for row in rows_by_key.values():
+            rows_by_first_episode[row["first_ep"]].append(row)
 
-        for row in sorted_rows:
-            counts = [row["episodes"].get(ep, 0) for ep in episodes]
-            total = sum(counts)
-            rows.append([
-                row["char"],
-                row["actor"],
-                *[count if count else "" for count in counts],
-                total,
-            ])
+        for ep in episodes:
+            episode_rows = sorted(
+                rows_by_first_episode.get(ep, []),
+                key=lambda row: row["order"]
+            )
+            if not episode_rows:
+                continue
+
+            if len(rows) > 1:
+                rows.append([f"{ep} серия", "", *["" for _ in episodes], 0])
+
+            for row in episode_rows:
+                counts = [row["episodes"].get(ep_num, 0) for ep_num in episodes]
+                total = sum(counts)
+                rows.append([
+                    row["char"],
+                    row["actor"],
+                    *[count if count else "" for count in counts],
+                    total,
+                ])
 
         return rows
 

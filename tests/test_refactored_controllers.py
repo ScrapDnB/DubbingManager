@@ -74,7 +74,8 @@ def test_character_stats_service_builds_google_sheets_csv():
 
     assert rows[0] == ["Персонаж", "Актёр", "1", "2", "Всего"]
     assert rows[1] == ["Hero", "Actor One", "2", "1", "3"]
-    assert rows[2] == ["Other", "Actor Two", "", "1", "1"]
+    assert rows[2] == ["2 серия", "", "", "", "0"]
+    assert rows[3] == ["Other", "Actor Two", "", "1", "1"]
 
 
 def test_import_controller_adds_srt_episode_and_working_text(tmp_path):
