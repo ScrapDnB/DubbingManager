@@ -305,6 +305,7 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
             self.btn_preview.setText(tr("export.preview"))
             self.chk_exp_html.setText(tr("export.html"))
             self.chk_exp_docx.setText("DOCX")
+            self.chk_exp_pdf.setText("PDF")
             self.radio_cur.setText(tr("episode.current"))
             self.radio_all.setText(tr("common.all"))
             self.btn_run_export.setText(tr("export.run"))
@@ -2142,8 +2143,9 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         do_html: bool = self.chk_exp_html.isChecked()
         do_xls: bool = self.chk_exp_xls.isChecked()
         do_docx: bool = self.chk_exp_docx.isChecked()
+        do_pdf: bool = self.chk_exp_pdf.isChecked()
 
-        if not (do_html or do_xls or do_docx):
+        if not (do_html or do_xls or do_docx or do_pdf):
             return
 
         is_all: bool = self.radio_all.isChecked()
@@ -2158,14 +2160,14 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         if not episodes or None in episodes.values():
             return
 
-        selected_count = sum([do_html, do_xls, do_docx])
+        selected_count = sum([do_html, do_xls, do_docx, do_pdf])
         if is_all or selected_count > 1:
             dest = QFileDialog.getExistingDirectory(
                 self, "Выберите папку"
             )
             if dest:
                 self._execute_batch_export(
-                    episodes, do_html, do_xls, do_docx, dest
+                    episodes, do_html, do_xls, do_docx, do_pdf, dest
                 )
         else:
             ep = list(episodes.keys())[0]
@@ -2173,8 +2175,10 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
                 self.export_to_html(ep)
             elif do_xls:
                 self.export_to_excel(ep)
-            else:
+            elif do_docx:
                 self.export_to_docx(ep)
+            else:
+                self.export_to_pdf(ep)
 
     def _update_export_format_config(self) -> None:
         """Persist selected export formats in project settings."""
@@ -2188,6 +2192,7 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         export_config["format_html"] = self.chk_exp_html.isChecked()
         export_config["format_xls"] = self.chk_exp_xls.isChecked()
         export_config["format_docx"] = self.chk_exp_docx.isChecked()
+        export_config["format_pdf"] = self.chk_exp_pdf.isChecked()
 
         if hasattr(self, "preview_window") and self.preview_window:
             self.preview_window.sync_export_format_controls()
@@ -2204,6 +2209,7 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
             (self.chk_exp_html, cfg.get("format_html", True)),
             (self.chk_exp_xls, cfg.get("format_xls", False)),
             (self.chk_exp_docx, cfg.get("format_docx", False)),
+            (self.chk_exp_pdf, cfg.get("format_pdf", False)),
         ]
         for checkbox, checked in controls:
             checkbox.blockSignals(True)
@@ -2219,6 +2225,7 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         do_html: bool,
         do_xls: bool,
         do_docx: bool,
+        do_pdf: bool,
         folder: str
     ) -> None:
         """Execute batch export."""
@@ -2245,6 +2252,7 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
             do_html=do_html,
             do_xls=do_xls,
             do_docx=do_docx,
+            do_pdf=do_pdf,
             folder=folder,
             progress_callback=progress_callback
         )
@@ -2290,6 +2298,22 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
 
         if path:
             success, message = self.export_controller.export_to_docx(ep, path)
+            if success:
+                self._open_exported_file_if_needed(path)
+            else:
+                QMessageBox.warning(self, "Ошибка", message)
+
+    def export_to_pdf(self, ep: str) -> None:
+        """Export data to a PDF file."""
+        if not self.export_controller:
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save PDF", f"Script_{ep}.pdf", "*.pdf"
+        )
+
+        if path:
+            success, message = self.export_controller.export_to_pdf(ep, path)
             if success:
                 self._open_exported_file_if_needed(path)
             else:
@@ -2867,11 +2891,12 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
 
         if not self._quick_montage_should_export_html() and not (
             self._quick_montage_should_export_docx()
+            or self._quick_montage_should_export_pdf()
         ):
             QMessageBox.information(
                 self,
                 "Быстрый конвертер",
-                "Выберите HTML или DOCX в настройках экспорта."
+                "Выберите HTML, DOCX или PDF в настройках экспорта."
             )
             return
 
@@ -2959,7 +2984,8 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         return self.quick_subtitle_service.export_montage(
             path,
             self._quick_montage_should_export_html(),
-            self._quick_montage_should_export_docx()
+            self._quick_montage_should_export_docx(),
+            self._quick_montage_should_export_pdf()
         )
 
     def _parse_quick_subtitle_file(
@@ -2987,6 +3013,10 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
     def _quick_montage_should_export_docx(self) -> bool:
         """Return True when DOCX is enabled in current export controls."""
         return hasattr(self, "chk_exp_docx") and self.chk_exp_docx.isChecked()
+
+    def _quick_montage_should_export_pdf(self) -> bool:
+        """Return True when PDF is enabled in current export controls."""
+        return hasattr(self, "chk_exp_pdf") and self.chk_exp_pdf.isChecked()
 
     def _quick_montage_output_path(
         self,

@@ -150,6 +150,7 @@ def test_initial_project_uses_global_default_export_config(
                 "layout_type": "Сценарий 2",
                 "format_html": False,
                 "format_docx": True,
+                "format_pdf": True,
                 "time_display": "start",
             }
         }),
@@ -165,9 +166,11 @@ def test_initial_project_uses_global_default_export_config(
     assert initial_window.data["export_config"]["layout_type"] == "Сценарий 2"
     assert initial_window.data["export_config"]["format_html"] is False
     assert initial_window.data["export_config"]["format_docx"] is True
+    assert initial_window.data["export_config"]["format_pdf"] is True
     assert initial_window.data["export_config"]["time_display"] == "start"
     assert initial_window.chk_exp_html.isChecked() is False
     assert initial_window.chk_exp_docx.isChecked() is True
+    assert initial_window.chk_exp_pdf.isChecked() is True
     initial_window.close()
 
 
@@ -210,6 +213,7 @@ def test_apply_export_config_to_project_updates_current_project(window):
         "time_display": "start",
         "format_html": False,
         "format_docx": True,
+        "format_pdf": True,
     })
 
     assert window.data["export_config"]["layout_type"] == "Сценарий 1"
@@ -217,6 +221,7 @@ def test_apply_export_config_to_project_updates_current_project(window):
     assert window.data["export_config"]["time_display"] == "start"
     assert window.chk_exp_html.isChecked() is False
     assert window.chk_exp_docx.isChecked() is True
+    assert window.chk_exp_pdf.isChecked() is True
     assert export_config == window.data["export_config"]
     window.preview_window.sync_export_settings.assert_called_once_with(
         update_preview=True
@@ -578,6 +583,36 @@ def test_quick_subtitle_converter_writes_docx_when_selected(
 
     assert not (tmp_path / "quick-docx.html").exists()
     assert (tmp_path / "quick-docx.docx").exists()
+    warning.assert_not_called()
+
+
+def test_quick_subtitle_converter_writes_pdf_when_selected(
+    window,
+    tmp_path
+):
+    srt_path = tmp_path / "quick-pdf.srt"
+    srt_path.write_text(
+        "1\n"
+        "00:00:01,000 --> 00:00:02,500\n"
+        "Hero: PDF реплика\n",
+        encoding="utf-8"
+    )
+    window.data["export_config"] = {
+        "layout_type": "Таблица",
+        "use_color": True,
+    }
+    window.chk_exp_html.setChecked(False)
+    window.chk_exp_docx.setChecked(False)
+    window.chk_exp_pdf.setChecked(True)
+
+    with patch("ui.main_window.QMessageBox.information"):
+        with patch("ui.main_window.QMessageBox.warning") as warning:
+            window.convert_dropped_subtitles([str(srt_path)])
+
+    pdf_path = tmp_path / "quick-pdf.pdf"
+    assert not (tmp_path / "quick-pdf.html").exists()
+    assert pdf_path.exists()
+    assert pdf_path.read_bytes().startswith(b"%PDF")
     warning.assert_not_called()
 
 

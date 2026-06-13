@@ -874,6 +874,65 @@ class TestExportService:
         assert (tmp_path / "Test Project - Ep2.docx").exists()
         assert not (tmp_path / "Test Project - Все серии.docx").exists()
 
+    def test_export_to_pdf_writes_pdf_file(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any],
+        tmp_path
+    ) -> None:
+        """Тест: PDF экспорт создаёт файл через HTML-разметку."""
+        service = ExportService(sample_project_data)
+        save_path = tmp_path / "script.pdf"
+
+        success, message = service.export_to_pdf(
+            "1",
+            sample_lines,
+            export_config,
+            str(save_path),
+            merge_cfg={"merge": False}
+        )
+
+        assert success is True
+        assert "PDF сохранён" in message
+        assert save_path.exists()
+        assert save_path.read_bytes().startswith(b"%PDF")
+
+    def test_export_batch_writes_pdf_per_episode(
+        self,
+        sample_project_data: Dict[str, Any],
+        monkeypatch,
+        tmp_path
+    ) -> None:
+        """Тест: PDF при пакетном экспорте создаётся по файлу на серию."""
+        sample_project_data["export_config"] = {}
+        sample_project_data["replica_merge_config"] = {"merge": False}
+        service = ExportService(sample_project_data)
+        monkeypatch.setattr(service, "_open_path", lambda path: None)
+
+        def get_lines(ep):
+            return [{
+                "id": 1,
+                "s": 0.0,
+                "e": 1.0,
+                "char": "Character1",
+                "text": f"Line {ep}",
+                "s_raw": "0:00:00.00"
+            }]
+
+        success, message = service.export_batch(
+            episodes={"1": "one.ass", "2": "two.ass"},
+            get_lines_callback=get_lines,
+            do_html=False,
+            do_pdf=True,
+            folder=str(tmp_path)
+        )
+
+        assert success is True
+        assert message == "Экспортировано файлов: 2"
+        assert (tmp_path / "Test Project - Ep1.pdf").exists()
+        assert (tmp_path / "Test Project - Ep2.pdf").exists()
+
     def test_export_batch_respects_open_auto(
         self,
         sample_project_data: Dict[str, Any],

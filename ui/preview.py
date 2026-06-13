@@ -256,12 +256,16 @@ class HtmlLivePreview(QDialog):
         self.chk_exp_xls.setChecked(cfg.get("format_xls", False))
         self.chk_exp_docx = QCheckBox("DOCX")
         self.chk_exp_docx.setChecked(cfg.get("format_docx", False))
+        self.chk_exp_pdf = QCheckBox("PDF")
+        self.chk_exp_pdf.setChecked(cfg.get("format_pdf", False))
         self.chk_exp_html.toggled.connect(self._update_export_format_config)
         self.chk_exp_xls.toggled.connect(self._update_export_format_config)
         self.chk_exp_docx.toggled.connect(self._update_export_format_config)
+        self.chk_exp_pdf.toggled.connect(self._update_export_format_config)
         formats_layout.addWidget(self.chk_exp_html)
         formats_layout.addWidget(self.chk_exp_xls)
         formats_layout.addWidget(self.chk_exp_docx)
+        formats_layout.addWidget(self.chk_exp_pdf)
         export_layout.addLayout(formats_layout)
 
         scope_layout = QHBoxLayout()
@@ -347,7 +351,8 @@ class HtmlLivePreview(QDialog):
         do_html = self.chk_exp_html.isChecked()
         do_xls = self.chk_exp_xls.isChecked()
         do_docx = self.chk_exp_docx.isChecked()
-        if not (do_html or do_xls or do_docx):
+        do_pdf = self.chk_exp_pdf.isChecked()
+        if not (do_html or do_xls or do_docx or do_pdf):
             QMessageBox.information(
                 self,
                 "Экспорт",
@@ -368,7 +373,7 @@ class HtmlLivePreview(QDialog):
             QMessageBox.warning(self, "Экспорт", "Нет серий для экспорта.")
             return
 
-        selected_count = sum([do_html, do_xls, do_docx])
+        selected_count = sum([do_html, do_xls, do_docx, do_pdf])
         if self.radio_all_episodes.isChecked() or selected_count > 1:
             folder = QFileDialog.getExistingDirectory(
                 self,
@@ -380,6 +385,7 @@ class HtmlLivePreview(QDialog):
                     do_html,
                     do_xls,
                     do_docx,
+                    do_pdf,
                     folder
                 )
             return
@@ -389,8 +395,10 @@ class HtmlLivePreview(QDialog):
             self.main_app.export_to_html(ep)
         elif do_xls:
             self.main_app.export_to_excel(ep)
-        else:
+        elif do_docx:
             self.main_app.export_to_docx(ep)
+        else:
+            self.main_app.export_to_pdf(ep)
 
     def _preview_check_box(self, text: str, checked: bool) -> QCheckBox:
         """Create a preview settings checkbox."""
@@ -422,6 +430,7 @@ class HtmlLivePreview(QDialog):
         cfg["format_html"] = self.chk_exp_html.isChecked()
         cfg["format_xls"] = self.chk_exp_xls.isChecked()
         cfg["format_docx"] = self.chk_exp_docx.isChecked()
+        cfg["format_pdf"] = self.chk_exp_pdf.isChecked()
         if hasattr(self.main_app, "_sync_export_format_controls_from_config"):
             self.main_app._sync_export_format_controls_from_config()
         self._save_export_settings()
@@ -435,6 +444,7 @@ class HtmlLivePreview(QDialog):
             (self.chk_exp_html, cfg.get("format_html", True)),
             (self.chk_exp_xls, cfg.get("format_xls", False)),
             (self.chk_exp_docx, cfg.get("format_docx", False)),
+            (self.chk_exp_pdf, cfg.get("format_pdf", False)),
         ]
         for checkbox, checked in controls:
             checkbox.blockSignals(True)
@@ -466,6 +476,7 @@ class HtmlLivePreview(QDialog):
                 self.chk_exp_html,
                 self.chk_exp_xls,
                 self.chk_exp_docx,
+                self.chk_exp_pdf,
             ])
         for widget in widgets:
             widget.blockSignals(True)
@@ -499,6 +510,7 @@ class HtmlLivePreview(QDialog):
             self.chk_exp_html.setChecked(cfg.get("format_html", True))
             self.chk_exp_xls.setChecked(cfg.get("format_xls", False))
             self.chk_exp_docx.setChecked(cfg.get("format_docx", False))
+            self.chk_exp_pdf.setChecked(cfg.get("format_pdf", False))
 
         for widget in widgets:
             widget.blockSignals(False)

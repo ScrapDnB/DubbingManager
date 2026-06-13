@@ -175,6 +175,7 @@ DEFAULT_EXPORT_CONFIG = {
     'format_html': True,
     'format_xls': False,
     'format_docx': False,
+    'format_pdf': False,
     'layout_type': 'Таблица',
     'col_tc': True,
     'col_char': True,
@@ -219,7 +220,7 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Application version shown in the UI and build metadata.
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.6.1 dev"
 
 # Project file format version used for compatibility migrations.
 PROJECT_VERSION = "1.3"

@@ -224,7 +224,7 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(tab)
 
         layout.addWidget(self._hint(
-            "Эти параметры влияют на HTML, Excel и быстрый просмотр "
+            "Эти параметры влияют на HTML, Excel, DOCX, PDF и быстрый просмотр "
             "монтажного листа. На исходные ASS/SRT и рабочие тексты они не "
             "влияют."
         ))
@@ -240,6 +240,9 @@ class SettingsDialog(QDialog):
         self.export_format_docx = self._check_box(
             "DOCX", self.export_config.get("format_docx", False)
         )
+        self.export_format_pdf = self._check_box(
+            "PDF", self.export_config.get("format_pdf", False)
+        )
         self.export_format_html.setToolTip(
             "Создавать HTML-монтажный лист при экспорте."
         )
@@ -249,9 +252,13 @@ class SettingsDialog(QDialog):
         self.export_format_docx.setToolTip(
             "Создавать DOCX-файл при экспорте."
         )
+        self.export_format_pdf.setToolTip(
+            "Создавать PDF-файл при экспорте."
+        )
         formats_layout.addWidget(self.export_format_html)
         formats_layout.addWidget(self.export_format_xls)
         formats_layout.addWidget(self.export_format_docx)
+        formats_layout.addWidget(self.export_format_pdf)
         formats_layout.addStretch()
         layout.addWidget(formats)
 
@@ -365,10 +372,10 @@ class SettingsDialog(QDialog):
         self.export_f_char = self._spin(6, 72, self.export_config.get("f_char", 20))
         self.export_f_actor = self._spin(6, 72, self.export_config.get("f_actor", 14))
         self.export_f_text = self._spin(6, 72, self.export_config.get("f_text", 30))
-        self.export_f_time.setToolTip("Размер таймкодов в HTML/Excel экспорте.")
-        self.export_f_char.setToolTip("Размер имён персонажей в HTML/Excel экспорте.")
-        self.export_f_actor.setToolTip("Размер имён актёров в HTML/Excel экспорте.")
-        self.export_f_text.setToolTip("Размер текста реплик в HTML/Excel экспорте.")
+        self.export_f_time.setToolTip("Размер таймкодов в монтажном экспорте.")
+        self.export_f_char.setToolTip("Размер имён персонажей в монтажном экспорте.")
+        self.export_f_actor.setToolTip("Размер имён актёров в монтажном экспорте.")
+        self.export_f_text.setToolTip("Размер текста реплик в монтажном экспорте.")
         fonts_layout.addRow("Таймкод:", self.export_f_time)
         fonts_layout.addRow("Персонаж:", self.export_f_char)
         fonts_layout.addRow("Актёр:", self.export_f_actor)
@@ -559,7 +566,7 @@ class SettingsDialog(QDialog):
 
         info = QLabel(
             "Эти настройки используются в монтажных листах, телесуфлёре, "
-            "HTML/Excel экспорте и отчётах."
+            "экспорте и отчётах."
         )
         info.setWordWrap(True)
         info.setStyleSheet("color: #666;")
@@ -1361,6 +1368,7 @@ class SettingsDialog(QDialog):
             "format_html": self.export_format_html.isChecked(),
             "format_xls": self.export_format_xls.isChecked(),
             "format_docx": self.export_format_docx.isChecked(),
+            "format_pdf": self.export_format_pdf.isChecked(),
             "col_tc": self.export_col_tc.isChecked(),
             "col_char": self.export_col_char.isChecked(),
             "col_actor": self.export_col_actor.isChecked(),
@@ -1405,6 +1413,9 @@ class SettingsDialog(QDialog):
         )
         self.export_format_docx.setChecked(
             export_config.get("format_docx", False)
+        )
+        self.export_format_pdf.setChecked(
+            export_config.get("format_pdf", False)
         )
         self.export_col_tc.setChecked(export_config.get("col_tc", True))
         self.export_col_char.setChecked(export_config.get("col_char", True))

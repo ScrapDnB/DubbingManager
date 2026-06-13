@@ -6,6 +6,7 @@ from .actor_service import ActorService
 from .character_stats_service import CharacterStatsService
 from .export_service import ExportService
 from .global_settings_service import GlobalSettingsService
+from .pdf_export_service import PdfExportService
 from .project_compatibility import ensure_project_compatibility
 from .project_folder_service import ProjectFolderService
 from .project_health_service import ProjectHealthIssue, ProjectHealthService
@@ -41,6 +42,7 @@ __all__ = [
     'CharacterStatsService',
     'ExportService',
     'GlobalSettingsService',
+    'PdfExportService',
     'ensure_project_compatibility',
     'ProjectFolderService',
     'ProjectHealthIssue',

@@ -53,7 +53,8 @@ class QuickSubtitleService:
         self,
         path: str,
         export_html: bool,
-        export_docx: bool
+        export_docx: bool,
+        export_pdf: bool = False
     ) -> List[str]:
         """Export one subtitle file to montage files next to it."""
         _stats, lines = self.parse_file(path)
@@ -98,6 +99,19 @@ class QuickSubtitleService:
             document = export_service.create_docx_document({"1": processed}, cfg)
             document.save(docx_path)
             exported.append(docx_path)
+
+        if export_pdf:
+            pdf_path = self.output_path(path, ".pdf")
+            success, message = export_service.export_to_pdf(
+                "1",
+                lines,
+                cfg,
+                pdf_path,
+                merge_cfg=project_data["replica_merge_config"]
+            )
+            if not success:
+                raise RuntimeError(message)
+            exported.append(pdf_path)
 
         return exported
 

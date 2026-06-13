@@ -212,6 +212,54 @@ class ExportController:
             logger.error(f"DOCX export failed: {e}")
             return False, f"Ошибка экспорта: {e}"
 
+    def export_to_pdf(
+        self,
+        ep: str,
+        save_path: str,
+        all_episodes: bool = False
+    ) -> Tuple[bool, str]:
+        """Export data to a PDF file."""
+        try:
+            export_config = self.data_ref.get(
+                "export_config",
+                deepcopy(DEFAULT_EXPORT_CONFIG)
+            )
+            merge_config = self.data_ref.get(
+                "replica_merge_config",
+                deepcopy(DEFAULT_REPLICA_MERGE_CONFIG)
+            )
+            export_service = ExportService(self.data_ref)
+
+            if all_episodes:
+                episodes_data = {}
+                for ep_num in self.data_ref.get("episodes", {}).keys():
+                    lines = self._get_episode_lines(ep_num)
+                    if lines:
+                        episodes_data[ep_num] = lines
+                if not episodes_data:
+                    return False, (
+                        "Не найдено рабочих текстов для экспорта. "
+                        "Создайте их из субтитров в окне «Файлы проекта»."
+                    )
+            else:
+                lines = self._get_episode_lines(ep)
+                if not lines:
+                    return False, self._missing_working_text_message(ep)
+                episodes_data = {ep: lines}
+
+            return export_service.export_to_pdf(
+                ep,
+                episodes_data.get(ep, []),
+                export_config,
+                save_path,
+                all_episodes=episodes_data,
+                merge_cfg=merge_config
+            )
+
+        except Exception as e:
+            logger.error(f"PDF export failed: {e}")
+            return False, f"Ошибка экспорта: {e}"
+
     def export_to_reaper_rpp(
         self,
         ep: str,

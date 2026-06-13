@@ -9,6 +9,7 @@ from typing import Dict, List, Any, Optional, Set, Tuple, Callable
 
 from services.assignment_service import get_actor_for_character
 from services.export_layouts import ExportLayoutMixin
+from services.pdf_export_service import PdfExportService
 from services.replica_merge_service import ReplicaMergeService
 from services.reaper_rpp_service import ReaperRppService
 from utils.helpers import (
@@ -43,6 +44,7 @@ class ExportService(ExportLayoutMixin):
 
     def __init__(self, project_data: Dict[str, Any]):
         self.project_data = project_data
+        self.pdf_export_service = PdfExportService()
         self.replica_merge_service = ReplicaMergeService()
         self.reaper_rpp_service = ReaperRppService(project_data)
 
@@ -494,6 +496,45 @@ class ExportService(ExportLayoutMixin):
             logger.error(f"DOCX export error: {e}")
             return False, f"{translate_source('Ошибка экспорта DOCX:')} {e}"
 
+    def export_to_pdf(
+        self,
+        ep: str,
+        lines: List[Dict[str, Any]],
+        cfg: Dict[str, Any],
+        save_path: str,
+        all_episodes: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        merge_cfg: Optional[Dict[str, Any]] = None
+    ) -> Tuple[bool, str]:
+        """Export data to a PDF document."""
+        try:
+            episodes_data = all_episodes if all_episodes else {ep: lines}
+            if merge_cfg is None:
+                merge_cfg = self.project_data.get("replica_merge_config", {})
+
+            html_parts = []
+            for ep_num in sorted(episodes_data.keys(), key=self._episode_sort_key):
+                ep_lines = episodes_data[ep_num]
+                processed = self.process_merge_logic(ep_lines, merge_cfg)
+                html_parts.append(
+                    self.generate_html(
+                        ep_num,
+                        processed,
+                        cfg,
+                        cfg.get('highlight_ids_export'),
+                        layout_type=cfg.get('layout_type', 'Таблица'),
+                        is_editable=False
+                    )
+                )
+
+            html = "\n<div style='page-break-after: always'></div>\n".join(
+                html_parts
+            )
+            self.pdf_export_service.render_html_to_pdf(html, save_path)
+            return True, f"{translate_source('PDF сохранён:')} {save_path}"
+        except Exception as e:
+            logger.error(f"PDF export error: {e}")
+            return False, f"{translate_source('Ошибка экспорта PDF:')} {e}"
+
     def export_to_excel(
         self,
         ep: str,
@@ -613,6 +654,7 @@ class ExportService(ExportLayoutMixin):
         do_html: bool = True,
         do_xls: bool = False,
         do_docx: bool = False,
+        do_pdf: bool = False,
         folder: str = None,
         progress_callback: Optional[Callable[[int, int, str], None]] = None
     ) -> Tuple[bool, str]:
@@ -682,6 +724,19 @@ class ExportService(ExportLayoutMixin):
                     )
                     document.save(filepath)
                     exported_count += 1
+
+                if do_pdf:
+                    filename = f"{project_name} - Ep{ep}.pdf"
+                    filepath = os.path.join(folder, filename)
+                    success, _ = self.export_to_pdf(
+                        ep,
+                        lines,
+                        cfg,
+                        filepath,
+                        merge_cfg=merge_cfg
+                    )
+                    if success:
+                        exported_count += 1
 
             if do_xls and EXCEL_AVAILABLE and all_episodes_data:
                 filename = f"{project_name} - {translate_source('Все серии')}.xlsx"

@@ -494,6 +494,22 @@ class TestExportController:
             if os.path.exists(path):
                 os.unlink(path)
 
+    def test_export_to_pdf(self, controller, data_ref):
+        """Тест экспорта в PDF"""
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as f:
+            path = f.name
+
+        try:
+            success, message = controller.export_to_pdf("1", path)
+
+            assert success is True
+            assert os.path.exists(path)
+            with open(path, 'rb') as f:
+                assert f.read(4) == b'%PDF'
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
     def test_export_to_reaper_rpp(self, controller, data_ref):
         """Тест экспорта в Reaper RPP"""
         with tempfile.NamedTemporaryFile(suffix='.Rpp', delete=False) as f:

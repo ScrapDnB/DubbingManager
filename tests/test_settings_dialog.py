@@ -86,6 +86,7 @@ def project_data():
             "format_html": True,
             "format_xls": False,
             "format_docx": True,
+            "format_pdf": False,
             "layout_type": "Таблица",
             "col_tc": True,
             "col_char": True,
@@ -188,6 +189,7 @@ def test_settings_dialog_returns_updated_settings(app, project_data):
     assert settings["export_config"]["format_html"] is True
     assert settings["export_config"]["format_xls"] is False
     assert settings["export_config"]["format_docx"] is True
+    assert settings["export_config"]["format_pdf"] is False
     assert settings["export_config"]["highlight_ids_export"] == ["actor1"]
     assert settings["export_config"]["table_width_time"] == 6.5
     assert settings["export_config"]["table_width_char"] == 11.5
@@ -373,6 +375,7 @@ def test_global_settings_dialog_uses_default_export_config(app, project_data):
         "format_html": False,
         "format_xls": True,
         "format_docx": True,
+        "format_pdf": True,
     }
     parent = DummySettingsParent(default_export_config)
     dialog = SettingsDialog(
@@ -389,6 +392,7 @@ def test_global_settings_dialog_uses_default_export_config(app, project_data):
     assert settings["default_export_config"]["format_html"] is False
     assert settings["default_export_config"]["format_xls"] is True
     assert settings["default_export_config"]["format_docx"] is True
+    assert settings["default_export_config"]["format_pdf"] is True
 
 
 def test_global_settings_dialog_uses_default_prompter_config(app, project_data):
