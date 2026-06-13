@@ -1,8 +1,11 @@
 """Character statistics helpers."""
 
+import csv
+from io import StringIO
 from collections import defaultdict
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Tuple
 
+from services.assignment_service import get_actor_for_character
 from services.export_service import ExportService
 from utils.helpers import natural_sort_key
 
@@ -99,3 +102,77 @@ class CharacterStatsService:
                 result["words"] += ep_words
 
         return result
+
+    def project_casting_csv_rows(
+        self,
+        get_episode_lines: Callable[[str], List[Dict[str, Any]]],
+    ) -> List[List[Any]]:
+        """Return casting summary rows by character, actor and episode rings."""
+        episodes = sorted(
+            (str(ep) for ep in self.data_ref.get("episodes", {}).keys()),
+            key=natural_sort_key
+        )
+        header: List[Any] = ["Персонаж", "Актёр", *episodes, "Всего"]
+        rows_by_key: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        export_service = ExportService(self.data_ref)
+        actors = self.data_ref.get("actors", {})
+
+        for ep in episodes:
+            lines = get_episode_lines(ep)
+            if not lines:
+                continue
+
+            processed = export_service.process_merge_logic(
+                lines,
+                self.data_ref.get("replica_merge_config", {})
+            )
+
+            for line in processed:
+                char = line.get("char", "")
+                if not char:
+                    continue
+
+                actor_id = get_actor_for_character(self.data_ref, char, ep)
+                actor_name = (
+                    actors.get(actor_id, {}).get("name", "")
+                    if actor_id
+                    else ""
+                )
+                key = (char, actor_name)
+                row = rows_by_key.setdefault(
+                    key,
+                    {"char": char, "actor": actor_name, "episodes": defaultdict(int)}
+                )
+                row["episodes"][ep] += 1
+
+        rows: List[List[Any]] = [header]
+        sorted_rows = sorted(
+            rows_by_key.values(),
+            key=lambda row: (
+                -sum(row["episodes"].values()),
+                row["char"].casefold(),
+                row["actor"].casefold(),
+            )
+        )
+
+        for row in sorted_rows:
+            counts = [row["episodes"].get(ep, 0) for ep in episodes]
+            total = sum(counts)
+            rows.append([
+                row["char"],
+                row["actor"],
+                *[count if count else "" for count in counts],
+                total,
+            ])
+
+        return rows
+
+    def project_casting_csv(
+        self,
+        get_episode_lines: Callable[[str], List[Dict[str, Any]]],
+    ) -> str:
+        """Return a CSV summary ready for Google Sheets import/paste."""
+        buffer = StringIO()
+        writer = csv.writer(buffer, lineterminator="\n")
+        writer.writerows(self.project_casting_csv_rows(get_episode_lines))
+        return buffer.getvalue()

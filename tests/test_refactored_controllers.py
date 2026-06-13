@@ -1,6 +1,8 @@
 """Direct tests for controllers/services split out of MainWindow."""
 
+import csv
 from pathlib import Path
+from io import StringIO
 from unittest.mock import MagicMock
 
 from core.commands import UndoStack
@@ -43,6 +45,36 @@ def test_character_stats_service_counts_episode_and_project_stats():
     assert project_stats["episodes"] == [
         {"episode": "1", "rings": 2, "words": 3}
     ]
+
+
+def test_character_stats_service_builds_google_sheets_csv():
+    data = {
+        "episodes": {"2": "two.ass", "1": "one.ass"},
+        "replica_merge_config": {"merge": False},
+        "actors": {
+            "actor-1": {"name": "Actor One"},
+            "actor-2": {"name": "Actor Two"},
+        },
+        "global_map": {"Hero": "actor-1", "Other": "actor-2"},
+    }
+    lines_by_ep = {
+        "1": [
+            {"id": 0, "s": 0.0, "e": 1.0, "char": "Hero", "text": "one"},
+            {"id": 1, "s": 1.1, "e": 2.0, "char": "Hero", "text": "two"},
+        ],
+        "2": [
+            {"id": 2, "s": 0.0, "e": 1.0, "char": "Other", "text": "three"},
+            {"id": 3, "s": 1.1, "e": 2.0, "char": "Hero", "text": "four"},
+        ],
+    }
+    service = CharacterStatsService(data)
+
+    csv_text = service.project_casting_csv(lambda ep: lines_by_ep.get(ep, []))
+    rows = list(csv.reader(StringIO(csv_text)))
+
+    assert rows[0] == ["Персонаж", "Актёр", "1", "2", "Всего"]
+    assert rows[1] == ["Hero", "Actor One", "2", "1", "3"]
+    assert rows[2] == ["Other", "Actor Two", "", "1", "1"]
 
 
 def test_import_controller_adds_srt_episode_and_working_text(tmp_path):

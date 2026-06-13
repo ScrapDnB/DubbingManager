@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from ui.dialogs.search import GlobalSearchDialog
 from ui.dialogs.summary import SummaryDialog
+import ui.dialogs.summary as summary_module
 
 
 @pytest.fixture
@@ -62,6 +63,36 @@ def test_summary_uses_working_text_callback(app):
     assert dialog._table.item(0, 0).text() == "Actor One"
     assert dialog._table.item(0, 2).text() == "1"
     assert dialog._table.item(0, 3).text() == "3"
+
+
+def test_project_summary_exports_google_sheets_csv(app, tmp_path, monkeypatch):
+    data = _project_data()
+    data["project_name"] = "Project"
+    parent = MainAppStub(data, {"1": _working_lines()})
+    dialog = SummaryDialog(data, None, parent)
+    save_path = tmp_path / "summary.csv"
+    messages = []
+
+    monkeypatch.setattr(
+        summary_module.QFileDialog,
+        "getSaveFileName",
+        lambda *args, **kwargs: (str(save_path), "CSV (*.csv)")
+    )
+    monkeypatch.setattr(
+        summary_module.QMessageBox,
+        "information",
+        lambda *args, **kwargs: messages.append(args)
+    )
+
+    dialog._export_project_csv()
+
+    raw = save_path.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")
+    assert save_path.read_text(encoding="utf-8-sig").splitlines() == [
+        "Персонаж,Актёр,1,Всего",
+        "Hero,Actor One,1,1",
+    ]
+    assert messages
 
 
 def test_global_search_uses_working_text_callback(app):

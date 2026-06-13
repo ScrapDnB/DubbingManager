@@ -2,11 +2,12 @@
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem,
-    QHeaderView, QAbstractItemView, QFrame, QPushButton, QLabel
+    QHeaderView, QAbstractItemView, QFrame, QPushButton, QFileDialog,
+    QMessageBox, QHBoxLayout
 )
 from PySide6.QtGui import QColor
 from typing import Dict, Any, Optional, List
-from services import ExportService
+from services import CharacterStatsService, ExportService
 from services.assignment_service import get_actor_for_character
 from utils.i18n import translate_source, translate_widget_tree
 
@@ -54,9 +55,17 @@ class SummaryDialog(QDialog):
 
         self._calculate_stats()
 
+        buttons_layout = QHBoxLayout()
+        if not self.target_ep:
+            btn_export_csv = QPushButton("Экспорт CSV для Google Sheets")
+            btn_export_csv.clicked.connect(self._export_project_csv)
+            buttons_layout.addWidget(btn_export_csv)
+        buttons_layout.addStretch()
+
         btn_close = QPushButton("Закрыть")
         btn_close.clicked.connect(self.accept)
-        layout.addWidget(btn_close)
+        buttons_layout.addWidget(btn_close)
+        layout.addLayout(buttons_layout)
 
     def _customize_table(self) -> None:
         """Customize table."""
@@ -166,3 +175,26 @@ class SummaryDialog(QDialog):
             return self.main_app.get_episode_lines(ep_num)
 
         return self.data.get("loaded_episodes", {}).get(ep_num, [])
+
+    def _export_project_csv(self) -> None:
+        """Export project casting rings summary to CSV."""
+        project_name = self.data.get("project_name", "project")
+        default_name = f"{project_name} - rings summary.csv"
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Сохранить CSV",
+            default_name,
+            "CSV (*.csv)"
+        )
+        if not path:
+            return
+
+        service = CharacterStatsService(self.data)
+        csv_text = service.project_casting_csv(self._get_episode_lines)
+        with open(path, "w", encoding="utf-8-sig", newline="") as file:
+            file.write(csv_text)
+        QMessageBox.information(
+            self,
+            "Экспорт CSV",
+            f"CSV сохранён: {path}"
+        )
