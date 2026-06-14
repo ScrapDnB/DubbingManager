@@ -3,13 +3,22 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QFrame, QPushButton, QFileDialog,
-    QMessageBox, QHBoxLayout
+    QMessageBox, QHBoxLayout, QInputDialog
 )
 from PySide6.QtGui import QColor
 from typing import Dict, Any, Optional, List
 from services import CharacterStatsService, ExportService
 from services.assignment_service import get_actor_for_character
 from utils.i18n import translate_source, translate_widget_tree
+
+PROJECT_EXPORT_METRIC_LABELS = {
+    "rings": "Кольца",
+    "lines": "Строчки",
+    "words": "Слова",
+}
+PROJECT_EXPORT_METRIC_BY_LABEL = {
+    label: metric for metric, label in PROJECT_EXPORT_METRIC_LABELS.items()
+}
 
 
 class SummaryDialog(QDialog):
@@ -57,10 +66,7 @@ class SummaryDialog(QDialog):
 
         buttons_layout = QHBoxLayout()
         if not self.target_ep:
-            btn_export_csv = QPushButton("Экспорт CSV для Google Sheets")
-            btn_export_csv.clicked.connect(self._export_project_csv)
-            buttons_layout.addWidget(btn_export_csv)
-            btn_export_xlsx = QPushButton("Экспорт XLSX для Google Sheets")
+            btn_export_xlsx = QPushButton("Экспорт для Google Sheets")
             btn_export_xlsx.clicked.connect(self._export_project_xlsx)
             buttons_layout.addWidget(btn_export_xlsx)
         buttons_layout.addStretch()
@@ -179,33 +185,15 @@ class SummaryDialog(QDialog):
 
         return self.data.get("loaded_episodes", {}).get(ep_num, [])
 
-    def _export_project_csv(self) -> None:
-        """Export project casting rings summary to CSV."""
-        project_name = self.data.get("project_name", "project")
-        default_name = f"{project_name} - rings summary.csv"
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Сохранить CSV",
-            default_name,
-            "CSV (*.csv)"
-        )
-        if not path:
-            return
-
-        service = CharacterStatsService(self.data)
-        csv_text = service.project_casting_csv(self._get_episode_lines)
-        with open(path, "w", encoding="utf-8-sig", newline="") as file:
-            file.write(csv_text)
-        QMessageBox.information(
-            self,
-            "Экспорт CSV",
-            f"CSV сохранён: {path}"
-        )
-
     def _export_project_xlsx(self) -> None:
-        """Export formatted project casting rings summary to XLSX."""
+        """Export formatted project casting summary to XLSX."""
+        metric = self._choose_project_export_metric()
+        if not metric:
+            return
+        self._save_project_export_metric(metric)
+
         project_name = self.data.get("project_name", "project")
-        default_name = f"{project_name} - rings summary.xlsx"
+        default_name = f"{project_name}.xlsx"
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Сохранить XLSX",
@@ -218,7 +206,8 @@ class SummaryDialog(QDialog):
         try:
             service = CharacterStatsService(self.data)
             workbook = service.create_project_casting_xlsx(
-                self._get_episode_lines
+                self._get_episode_lines,
+                metric=metric,
             )
             workbook.save(path)
         except ImportError as exc:
@@ -230,3 +219,58 @@ class SummaryDialog(QDialog):
             "Экспорт XLSX",
             f"XLSX сохранён: {path}"
         )
+
+    def _choose_project_export_metric(self) -> Optional[str]:
+        """Ask which metric should be exported to the spreadsheet."""
+        labels = list(PROJECT_EXPORT_METRIC_LABELS.values())
+        current_metric = self._get_project_export_metric()
+        current_label = PROJECT_EXPORT_METRIC_LABELS.get(
+            current_metric,
+            PROJECT_EXPORT_METRIC_LABELS["rings"],
+        )
+        current_index = labels.index(current_label)
+        label, accepted = QInputDialog.getItem(
+            self,
+            "Экспорт для Google Sheets",
+            "Что считать:",
+            labels,
+            current_index,
+            False,
+        )
+        if not accepted:
+            return None
+        return PROJECT_EXPORT_METRIC_BY_LABEL.get(label, "rings")
+
+    def _get_project_export_metric(self) -> str:
+        """Return the last selected project spreadsheet export metric."""
+        settings_service = getattr(
+            self.main_app,
+            "global_settings_service",
+            None
+        )
+        if (
+            settings_service and
+            hasattr(settings_service, "get_project_summary_export_metric")
+        ):
+            return settings_service.get_project_summary_export_metric()
+        return self.data.get("_project_summary_export_metric", "rings")
+
+    def _save_project_export_metric(self, metric: str) -> None:
+        """Persist the selected project spreadsheet export metric."""
+        settings_service = getattr(
+            self.main_app,
+            "global_settings_service",
+            None
+        )
+        if (
+            settings_service and
+            hasattr(settings_service, "set_project_summary_export_metric")
+        ):
+            settings_service.set_project_summary_export_metric(metric)
+            settings = settings_service.get_settings()
+            settings["project_summary_export_metric"] = metric
+            settings_service.save_settings(settings)
+            if hasattr(self.main_app, "global_settings"):
+                self.main_app.global_settings = settings_service.get_settings()
+            return
+        self.data["_project_summary_export_metric"] = metric

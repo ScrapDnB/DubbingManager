@@ -59,6 +59,7 @@ class TestGlobalSettingsService:
             'prompter_config': {'f_tc': 30},
             'replica_merge_config': {'merge_gap': 10},
             'recent_projects': ['/tmp/a.json', '/tmp/a.json', '/tmp/b.json'],
+            'project_summary_export_metric': 'words',
             'language': 'en',
         }
         
@@ -83,6 +84,7 @@ class TestGlobalSettingsService:
             str(Path('/tmp/a.json').expanduser()),
             str(Path('/tmp/b.json').expanduser()),
         ]
+        assert settings['project_summary_export_metric'] == 'words'
         assert settings['language'] == 'en'
 
     def test_load_settings_ignores_legacy_project_settings(self, service, temp_settings_file):
@@ -135,7 +137,8 @@ class TestGlobalSettingsService:
             'docx_import_config': {
                 'mapping': {'character': 0, 'text': 2},
                 'time_separators': ['-', '|']
-            }
+            },
+            'project_summary_export_metric': 'lines',
         }
         
         result = service.save_settings(settings)
@@ -161,7 +164,20 @@ class TestGlobalSettingsService:
         assert saved_data['prompter_color_presets'][0]['active_text'] == '#eeeeee'
         assert saved_data['prompter_color_presets'][1] is None
         assert saved_data['recent_projects'] == []
+        assert saved_data['project_summary_export_metric'] == 'lines'
         assert saved_data['language'] == 'ru'
+
+    def test_project_summary_export_metric_normalization(self, service):
+        """Тест глобальной метрики экспорта сводки проекта."""
+        service.settings = {}
+
+        assert service.get_project_summary_export_metric() == 'rings'
+
+        service.set_project_summary_export_metric('words')
+        assert service.get_project_summary_export_metric() == 'words'
+
+        service.set_project_summary_export_metric('invalid')
+        assert service.get_project_summary_export_metric() == 'rings'
 
     def test_language_normalization(self, service):
         """Тест нормализации языка интерфейса."""

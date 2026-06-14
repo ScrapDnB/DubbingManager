@@ -1,13 +1,13 @@
 """Character statistics helpers."""
 
-import csv
-from io import StringIO
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Tuple
 
 from services.assignment_service import get_actor_for_character
 from services.export_service import ExportService
 from utils.helpers import natural_sort_key
+
+PROJECT_CASTING_METRICS = {"rings", "lines", "words"}
 
 
 class CharacterStatsService:
@@ -103,11 +103,13 @@ class CharacterStatsService:
 
         return result
 
-    def project_casting_csv_rows(
+    def project_casting_summary_rows(
         self,
         get_episode_lines: Callable[[str], List[Dict[str, Any]]],
+        metric: str = "rings",
     ) -> List[List[Any]]:
-        """Return casting summary rows by character, actor and episode rings."""
+        """Return casting summary rows by character, actor and episode metric."""
+        metric = metric if metric in PROJECT_CASTING_METRICS else "rings"
         episodes = sorted(
             (str(ep) for ep in self.data_ref.get("episodes", {}).keys()),
             key=natural_sort_key
@@ -123,10 +125,12 @@ class CharacterStatsService:
             if not lines:
                 continue
 
-            processed = export_service.process_merge_logic(
-                lines,
-                self.data_ref.get("replica_merge_config", {})
-            )
+            processed = lines
+            if metric == "rings":
+                processed = export_service.process_merge_logic(
+                    lines,
+                    self.data_ref.get("replica_merge_config", {})
+                )
 
             for line in processed:
                 char = line.get("char", "")
@@ -151,7 +155,10 @@ class CharacterStatsService:
                     }
                     rows_by_key[key] = row
                     next_order += 1
-                row["episodes"][ep] += 1
+                row["episodes"][ep] += self._project_casting_metric_value(
+                    line,
+                    metric
+                )
 
         rows: List[List[Any]] = [header]
         rows_by_first_episode: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -181,19 +188,20 @@ class CharacterStatsService:
 
         return rows
 
-    def project_casting_csv(
+    def _project_casting_metric_value(
         self,
-        get_episode_lines: Callable[[str], List[Dict[str, Any]]],
-    ) -> str:
-        """Return a CSV summary ready for Google Sheets import/paste."""
-        buffer = StringIO()
-        writer = csv.writer(buffer, lineterminator="\n")
-        writer.writerows(self.project_casting_csv_rows(get_episode_lines))
-        return buffer.getvalue()
+        line: Dict[str, Any],
+        metric: str,
+    ) -> int:
+        """Return one exported cell contribution for the selected metric."""
+        if metric == "words":
+            return len(line.get("text", "").split())
+        return 1
 
     def create_project_casting_xlsx(
         self,
         get_episode_lines: Callable[[str], List[Dict[str, Any]]],
+        metric: str = "rings",
     ) -> Any:
         """Return a formatted XLSX workbook for Google Sheets import."""
         try:
@@ -203,7 +211,7 @@ class CharacterStatsService:
         except ImportError as exc:
             raise ImportError("openpyxl не установлен") from exc
 
-        rows = self.project_casting_csv_rows(get_episode_lines)
+        rows = self.project_casting_summary_rows(get_episode_lines, metric=metric)
         wb = Workbook()
         ws = wb.active
         ws.title = "Сводка"

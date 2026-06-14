@@ -38,6 +38,8 @@ def _get_settings_file_path() -> Path:
 
 # Path to the global settings file
 SETTINGS_FILE = _get_settings_file_path()
+PROJECT_SUMMARY_EXPORT_METRICS = {"rings", "lines", "words"}
+DEFAULT_PROJECT_SUMMARY_EXPORT_METRIC = "rings"
 
 
 class GlobalSettingsService:
@@ -88,6 +90,12 @@ class GlobalSettingsService:
                     )
                 )
 
+            settings['project_summary_export_metric'] = (
+                self._normalize_project_summary_export_metric(
+                    loaded.get('project_summary_export_metric')
+                )
+            )
+
             settings['language'] = self._normalize_language(
                 loaded.get('language', DEFAULT_LANGUAGE)
             )
@@ -123,6 +131,11 @@ class GlobalSettingsService:
                 'prompter_color_presets': (
                     self._normalize_prompter_color_presets(
                         settings.get('prompter_color_presets', [])
+                    )
+                ),
+                'project_summary_export_metric': (
+                    self._normalize_project_summary_export_metric(
+                        settings.get('project_summary_export_metric')
                     )
                 ),
                 'language': self._normalize_language(
@@ -161,6 +174,7 @@ class GlobalSettingsService:
             'default_export_config': deepcopy(DEFAULT_EXPORT_CONFIG),
             'default_prompter_config': deepcopy(DEFAULT_PROMPTER_CONFIG),
             'prompter_color_presets': [None, None, None, None],
+            'project_summary_export_metric': DEFAULT_PROJECT_SUMMARY_EXPORT_METRIC,
             'language': DEFAULT_GLOBAL_SETTINGS.get('language', DEFAULT_LANGUAGE),
         }
 
@@ -200,6 +214,18 @@ class GlobalSettingsService:
         """Set default teleprompter settings for new projects."""
         self.settings['default_prompter_config'] = (
             self._normalize_prompter_config(config)
+        )
+
+    def get_project_summary_export_metric(self) -> str:
+        """Return the metric used by project summary spreadsheet export."""
+        return self._normalize_project_summary_export_metric(
+            self.settings.get('project_summary_export_metric')
+        )
+
+    def set_project_summary_export_metric(self, metric: str) -> None:
+        """Set the metric used by project summary spreadsheet export."""
+        self.settings['project_summary_export_metric'] = (
+            self._normalize_project_summary_export_metric(metric)
         )
 
     def get_prompter_color_presets(self) -> List[Optional[Dict[str, str]]]:
@@ -525,6 +551,13 @@ class GlobalSettingsService:
         for index, colors in enumerate(presets[:4]):
             result[index] = self._normalize_prompter_colors(colors)
         return result
+
+    def _normalize_project_summary_export_metric(self, metric: Any) -> str:
+        """Return a supported project summary spreadsheet metric."""
+        value = str(metric or DEFAULT_PROJECT_SUMMARY_EXPORT_METRIC)
+        if value in PROJECT_SUMMARY_EXPORT_METRICS:
+            return value
+        return DEFAULT_PROJECT_SUMMARY_EXPORT_METRIC
 
     def _normalize_actor_gender(self, gender: str) -> str:
         """Return a normalized actor gender marker."""

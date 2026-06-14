@@ -1,8 +1,6 @@
 """Direct tests for controllers/services split out of MainWindow."""
 
-import csv
 from pathlib import Path
-from io import StringIO
 from unittest.mock import MagicMock
 
 from core.commands import UndoStack
@@ -47,7 +45,7 @@ def test_character_stats_service_counts_episode_and_project_stats():
     ]
 
 
-def test_character_stats_service_builds_google_sheets_csv():
+def test_character_stats_service_builds_google_sheets_rows():
     data = {
         "episodes": {"2": "two.ass", "1": "one.ass"},
         "replica_merge_config": {"merge": False},
@@ -69,13 +67,47 @@ def test_character_stats_service_builds_google_sheets_csv():
     }
     service = CharacterStatsService(data)
 
-    csv_text = service.project_casting_csv(lambda ep: lines_by_ep.get(ep, []))
-    rows = list(csv.reader(StringIO(csv_text)))
+    rows = service.project_casting_summary_rows(
+        lambda ep: lines_by_ep.get(ep, [])
+    )
 
     assert rows[0] == ["Персонаж", "Актёр", "1", "2", "Всего"]
-    assert rows[1] == ["Hero", "Actor One", "2", "1", "3"]
-    assert rows[2] == ["2 серия", "", "", "", "0"]
-    assert rows[3] == ["Other", "Actor Two", "", "1", "1"]
+    assert rows[1] == ["Hero", "Actor One", 2, 1, 3]
+    assert rows[2] == ["2 серия", "", "", "", 0]
+    assert rows[3] == ["Other", "Actor Two", "", 1, 1]
+
+
+def test_character_stats_service_exports_selected_project_metric():
+    data = {
+        "episodes": {"1": "one.ass"},
+        "replica_merge_config": {"merge": True, "merge_gap": 120, "fps": 25.0},
+        "actors": {"actor-1": {"name": "Actor One"}},
+        "global_map": {"Hero": "actor-1"},
+    }
+    lines_by_ep = {
+        "1": [
+            {"id": 0, "s": 0.0, "e": 1.0, "char": "Hero", "text": "one two"},
+            {"id": 1, "s": 1.2, "e": 2.0, "char": "Hero", "text": "three"},
+        ],
+    }
+    service = CharacterStatsService(data)
+
+    rings_rows = service.project_casting_summary_rows(
+        lambda ep: lines_by_ep.get(ep, []),
+        metric="rings",
+    )
+    lines_rows = service.project_casting_summary_rows(
+        lambda ep: lines_by_ep.get(ep, []),
+        metric="lines",
+    )
+    words_rows = service.project_casting_summary_rows(
+        lambda ep: lines_by_ep.get(ep, []),
+        metric="words",
+    )
+
+    assert rings_rows[1] == ["Hero", "Actor One", 1, 1]
+    assert lines_rows[1] == ["Hero", "Actor One", 2, 2]
+    assert words_rows[1] == ["Hero", "Actor One", 3, 3]
 
 
 def test_character_stats_service_builds_formatted_google_sheets_xlsx():
