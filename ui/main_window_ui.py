@@ -342,6 +342,10 @@ class MainWindowUiMixin:
         self.btn_ep_sum.clicked.connect(self.show_episode_summary)
         tools_sidebar_layout.addWidget(self.btn_ep_sum)
 
+        self.btn_bulk_roles = QPushButton()
+        self.btn_bulk_roles.clicked.connect(self.open_bulk_role_assignment_dialog)
+        tools_sidebar_layout.addWidget(self.btn_bulk_roles)
+
         self.quick_converter_drop_zone = QuickSubtitleDropZone()
         self.quick_converter_drop_zone.filesDropped.connect(
             self.convert_dropped_subtitles

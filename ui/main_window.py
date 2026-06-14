@@ -84,6 +84,7 @@ from .dialogs import (
     CustomColorDialog,
     ReaperExportDialog,
     ActorRolesDialog,
+    BulkRoleAssignmentDialog,
     ProjectRolesDialog,
     GlobalSearchDialog,
     SummaryDialog,
@@ -290,6 +291,7 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
             self.btn_prompter.setText("Телесуфлёр")
             self.btn_reaper.setText("Reaper")
             self.btn_ep_sum.setText("Отчёт серии")
+            self.btn_bulk_roles.setText("Назначить роли")
             self.character_stats_group.setTitle(tr("stats.group"))
 
         if hasattr(self, "btn_settings"):
@@ -2511,6 +2513,16 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
     def open_project_roles_dialog(self) -> None:
         """Open project-wide roles dialog."""
         dialog = ProjectRolesDialog(
+            self.data,
+            self,
+            get_episode_lines=self.get_episode_lines,
+            on_changed=self._on_project_roles_changed,
+        )
+        dialog.exec()
+
+    def open_bulk_role_assignment_dialog(self) -> None:
+        """Open project-wide bulk role assignment dialog."""
+        dialog = BulkRoleAssignmentDialog(
             self.data,
             self,
             get_episode_lines=self.get_episode_lines,

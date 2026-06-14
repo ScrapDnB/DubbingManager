@@ -4,7 +4,12 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
-from ui.dialogs.roles import ActorRolesDialog, ProjectRolesDialog
+from ui.dialogs.roles import (
+    ActorRolesDialog,
+    BulkRoleAssignmentDialog,
+    ProjectRolesDialog,
+    assign_project_roles,
+)
 from ui.main_window import MainWindow
 
 
@@ -163,3 +168,58 @@ def test_project_roles_dialog_resets_role_assignments(app):
 
     assert "Hero" not in project_data["global_map"]
     assert "Hero" not in project_data["episode_actor_map"]["1"]
+
+
+def test_assign_project_roles_assigns_globally_and_clears_local_overrides():
+    project_data = {
+        "global_map": {"Hero": "actor-1"},
+        "episode_actor_map": {
+            "1": {"Hero": "actor-2", "Villain": "actor-1"},
+            "2": {"Hero": "actor-1"},
+        },
+    }
+
+    changed = assign_project_roles(project_data, ["Hero", "Villain"], "actor-3")
+
+    assert changed == 5
+    assert project_data["global_map"]["Hero"] == "actor-3"
+    assert project_data["global_map"]["Villain"] == "actor-3"
+    assert "Hero" not in project_data["episode_actor_map"]["1"]
+    assert "Villain" not in project_data["episode_actor_map"]["1"]
+    assert "Hero" not in project_data["episode_actor_map"]["2"]
+
+
+def test_bulk_role_assignment_dialog_assigns_checked_roles(app):
+    project_data = {
+        "actors": {
+            "actor-1": {"name": "Actor One", "color": "#ff0000"},
+            "actor-2": {"name": "Actor Two", "color": "#00ff00"},
+        },
+        "episodes": {"1": "/tmp/one.ass"},
+        "global_map": {"Hero": "actor-1"},
+        "episode_actor_map": {"1": {"Hero": "actor-1", "Villain": "actor-1"}},
+    }
+    changed = []
+    dialog = BulkRoleAssignmentDialog(
+        project_data,
+        get_episode_lines=lambda ep: [
+            {"char": "Hero", "text": "hello"},
+            {"char": "Villain", "text": "boo"},
+        ],
+        on_changed=lambda: changed.append(True),
+    )
+    actor_index = dialog._actor_combo.findData("actor-2")
+    dialog._actor_combo.setCurrentIndex(actor_index)
+
+    for row in range(dialog._table.rowCount()):
+        role = dialog._table.item(row, 1).text()
+        if role in {"Hero", "Villain"}:
+            dialog._table.item(row, 0).setCheckState(Qt.Checked)
+
+    dialog._apply_assignment()
+
+    assert project_data["global_map"]["Hero"] == "actor-2"
+    assert project_data["global_map"]["Villain"] == "actor-2"
+    assert project_data["episode_actor_map"]["1"] == {}
+    assert dialog.assigned_count == 2
+    assert changed

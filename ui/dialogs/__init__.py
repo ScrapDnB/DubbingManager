@@ -2,7 +2,7 @@ from .actor_filter import ActorFilterDialog
 from .colors import PrompterColorDialog, CustomColorDialog
 from .docx_import import DocxImportDialog
 from .reaper import ReaperExportDialog
-from .roles import ActorRolesDialog, ProjectRolesDialog
+from .roles import ActorRolesDialog, BulkRoleAssignmentDialog, ProjectRolesDialog
 from .search import GlobalSearchDialog
 from .summary import SummaryDialog
 from .project_files import ProjectFilesDialog
@@ -16,6 +16,7 @@ __all__ = [
     'DocxImportDialog',
     'ReaperExportDialog',
     'ActorRolesDialog',
+    'BulkRoleAssignmentDialog',
     'ProjectRolesDialog',
     'GlobalSearchDialog',
     'SummaryDialog',
