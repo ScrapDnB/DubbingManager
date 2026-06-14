@@ -78,6 +78,40 @@ def test_character_stats_service_builds_google_sheets_csv():
     assert rows[3] == ["Other", "Actor Two", "", "1", "1"]
 
 
+def test_character_stats_service_builds_formatted_google_sheets_xlsx():
+    data = {
+        "episodes": {"1": "one.ass", "2": "two.ass"},
+        "replica_merge_config": {"merge": False},
+        "actors": {
+            "actor-1": {"name": "Actor One"},
+            "actor-2": {"name": "Actor Two"},
+        },
+        "global_map": {"Hero": "actor-1", "Other": "actor-2"},
+    }
+    lines_by_ep = {
+        "1": [
+            {"id": 0, "s": 0.0, "e": 1.0, "char": "Hero", "text": "one"},
+        ],
+        "2": [
+            {"id": 1, "s": 0.0, "e": 1.0, "char": "Other", "text": "two"},
+        ],
+    }
+    service = CharacterStatsService(data)
+
+    workbook = service.create_project_casting_xlsx(
+        lambda ep: lines_by_ep.get(ep, [])
+    )
+    sheet = workbook.active
+
+    assert sheet["A1"].fill.fgColor.rgb == "00FFFF00"
+    assert sheet["A3"].value == "2 серия"
+    assert sheet["A3"].fill.fgColor.rgb == "00FFFF00"
+    assert sheet["A1"].alignment.wrap_text is True
+    assert sheet["A2"].alignment.wrap_text is True
+    assert sheet.column_dimensions["A"].width == 28
+    assert sheet.column_dimensions["B"].width == 30
+
+
 def test_import_controller_adds_srt_episode_and_working_text(tmp_path):
     srt_path = tmp_path / "Episode_02.srt"
     srt_path.write_text(

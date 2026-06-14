@@ -60,6 +60,9 @@ class SummaryDialog(QDialog):
             btn_export_csv = QPushButton("Экспорт CSV для Google Sheets")
             btn_export_csv.clicked.connect(self._export_project_csv)
             buttons_layout.addWidget(btn_export_csv)
+            btn_export_xlsx = QPushButton("Экспорт XLSX для Google Sheets")
+            btn_export_xlsx.clicked.connect(self._export_project_xlsx)
+            buttons_layout.addWidget(btn_export_xlsx)
         buttons_layout.addStretch()
 
         btn_close = QPushButton("Закрыть")
@@ -197,4 +200,33 @@ class SummaryDialog(QDialog):
             self,
             "Экспорт CSV",
             f"CSV сохранён: {path}"
+        )
+
+    def _export_project_xlsx(self) -> None:
+        """Export formatted project casting rings summary to XLSX."""
+        project_name = self.data.get("project_name", "project")
+        default_name = f"{project_name} - rings summary.xlsx"
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Сохранить XLSX",
+            default_name,
+            "Excel (*.xlsx)"
+        )
+        if not path:
+            return
+
+        try:
+            service = CharacterStatsService(self.data)
+            workbook = service.create_project_casting_xlsx(
+                self._get_episode_lines
+            )
+            workbook.save(path)
+        except ImportError as exc:
+            QMessageBox.warning(self, "Экспорт XLSX", str(exc))
+            return
+
+        QMessageBox.information(
+            self,
+            "Экспорт XLSX",
+            f"XLSX сохранён: {path}"
         )

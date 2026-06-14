@@ -190,3 +190,58 @@ class CharacterStatsService:
         writer = csv.writer(buffer, lineterminator="\n")
         writer.writerows(self.project_casting_csv_rows(get_episode_lines))
         return buffer.getvalue()
+
+    def create_project_casting_xlsx(
+        self,
+        get_episode_lines: Callable[[str], List[Dict[str, Any]]],
+    ) -> Any:
+        """Return a formatted XLSX workbook for Google Sheets import."""
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Alignment, Font, PatternFill
+            from openpyxl.utils import get_column_letter
+        except ImportError as exc:
+            raise ImportError("openpyxl не установлен") from exc
+
+        rows = self.project_casting_csv_rows(get_episode_lines)
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Сводка"
+
+        yellow_fill = PatternFill("solid", fgColor="FFFF00")
+        bold_font = Font(bold=True)
+        wrap_alignment = Alignment(
+            wrap_text=True,
+            vertical="top",
+            horizontal="left",
+        )
+
+        for row in rows:
+            ws.append(row)
+
+        for row in ws.iter_rows():
+            for cell in row:
+                cell.alignment = wrap_alignment
+
+        max_column = ws.max_column
+        for cell in ws[1]:
+            cell.fill = yellow_fill
+            cell.font = bold_font
+
+        for row_idx in range(2, ws.max_row + 1):
+            first_value = ws.cell(row=row_idx, column=1).value
+            second_value = ws.cell(row=row_idx, column=2).value
+            if isinstance(first_value, str) and first_value.endswith(" серия") and not second_value:
+                for col_idx in range(1, max_column + 1):
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    cell.fill = yellow_fill
+                    cell.font = bold_font
+
+        ws.column_dimensions["A"].width = 28
+        ws.column_dimensions["B"].width = 30
+        for col_idx in range(3, max_column):
+            ws.column_dimensions[get_column_letter(col_idx)].width = 8
+        ws.column_dimensions[get_column_letter(max_column)].width = 10
+
+        ws.freeze_panes = "C2"
+        return wb

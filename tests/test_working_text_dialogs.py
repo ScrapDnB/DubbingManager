@@ -95,6 +95,36 @@ def test_project_summary_exports_google_sheets_csv(app, tmp_path, monkeypatch):
     assert messages
 
 
+def test_project_summary_exports_formatted_google_sheets_xlsx(
+    app,
+    tmp_path,
+    monkeypatch
+):
+    data = _project_data()
+    data["project_name"] = "Project"
+    parent = MainAppStub(data, {"1": _working_lines()})
+    dialog = SummaryDialog(data, None, parent)
+    save_path = tmp_path / "summary.xlsx"
+    messages = []
+
+    monkeypatch.setattr(
+        summary_module.QFileDialog,
+        "getSaveFileName",
+        lambda *args, **kwargs: (str(save_path), "Excel (*.xlsx)")
+    )
+    monkeypatch.setattr(
+        summary_module.QMessageBox,
+        "information",
+        lambda *args, **kwargs: messages.append(args)
+    )
+
+    dialog._export_project_xlsx()
+
+    assert save_path.exists()
+    assert save_path.read_bytes().startswith(b"PK")
+    assert messages
+
+
 def test_global_search_uses_working_text_callback(app):
     data = _project_data()
     parent = MainAppStub(data, {"1": _working_lines()})
