@@ -9,6 +9,7 @@ from .global_settings_service import GlobalSettingsService
 from .pdf_export_service import PdfExportService
 from .project_compatibility import ensure_project_compatibility
 from .project_folder_service import ProjectFolderService
+from .project_archive_service import ProjectArchiveError, ProjectArchiveService
 from .project_health_service import ProjectHealthIssue, ProjectHealthService
 from .docx_import_service import DocxImportService
 from .script_text_service import ScriptTextService
@@ -45,6 +46,8 @@ __all__ = [
     'PdfExportService',
     'ensure_project_compatibility',
     'ProjectFolderService',
+    'ProjectArchiveError',
+    'ProjectArchiveService',
     'ProjectHealthIssue',
     'ProjectHealthService',
     'DocxImportService',

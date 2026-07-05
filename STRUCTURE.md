@@ -145,7 +145,7 @@ DubbingManager/
 Версии задаются в `config/constants.py`:
 
 ```python
-APP_VERSION = "1.6.1 dev"
+APP_VERSION = "1.6.2"
 PROJECT_VERSION = "1.3"
 SCRIPT_TEXT_DIR_NAME = "texts_dm"
 ```

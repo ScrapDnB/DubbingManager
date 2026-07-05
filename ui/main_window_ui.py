@@ -177,6 +177,24 @@ class MainWindowUiMixin:
         self.btn_copy.clicked.connect(self.save_project_as)
         top.addWidget(self.btn_copy)
 
+        self.btn_export_project_archive = QPushButton("📦↑")
+        self.btn_export_project_archive.setToolTip(
+            "Экспортировать проект вместе с текстами"
+        )
+        self.btn_export_project_archive.clicked.connect(
+            self.export_project_archive
+        )
+        top.addWidget(self.btn_export_project_archive)
+
+        self.btn_import_project_archive = QPushButton("📦↓")
+        self.btn_import_project_archive.setToolTip(
+            "Импортировать проект вместе с текстами"
+        )
+        self.btn_import_project_archive.clicked.connect(
+            self.import_project_archive
+        )
+        top.addWidget(self.btn_import_project_archive)
+
         self.btn_undo = QPushButton("↶")
         self.btn_undo.setFixedWidth(PROJECT_FOLDER_BTN_WIDTH)
         self.btn_undo.clicked.connect(self.undo)

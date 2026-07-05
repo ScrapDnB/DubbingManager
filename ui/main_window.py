@@ -18,6 +18,7 @@ from typing import Dict, List, Any, Optional, Set, Tuple, Callable
 import json
 import os
 import sys
+import zipfile
 from copy import deepcopy
 from datetime import datetime
 import logging
@@ -54,6 +55,8 @@ from services import (
     CharacterStatsService,
     ExportService,
     GlobalSettingsService,
+    ProjectArchiveError,
+    ProjectArchiveService,
     ProjectFolderService,
     QuickSubtitleService,
     ScriptTextService,
@@ -139,6 +142,7 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         self.project_service = ProjectService()
         self.actor_service = ActorService()
         self.global_settings_service = GlobalSettingsService()
+        self.project_archive_service = ProjectArchiveService()
         self.project_folder_service = ProjectFolderService()
         self.script_text_service = ScriptTextService()
         self.assignment_transfer_service = AssignmentTransferService()
@@ -643,6 +647,91 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
                 self._update_new_project_button()
             return result
         return False
+
+    def export_project_archive(self) -> None:
+        """Export the current project and its text files as one archive."""
+        if not self.save_project():
+            return
+
+        project_name = str(self.data.get("project_name") or "project").strip()
+        default_name = f"{project_name}.dmproject"
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Экспорт проекта с текстами",
+            default_name,
+            "Архив Dubbing Manager (*.dmproject);;ZIP (*.zip)",
+        )
+        if not path:
+            return
+        if not os.path.splitext(path)[1]:
+            path += ".dmproject"
+
+        try:
+            result = self.project_archive_service.export_archive(
+                self.data,
+                path,
+                self.current_project_path,
+            )
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(
+                self,
+                "Экспорт проекта",
+                f"Не удалось создать архив:\n{exc}",
+            )
+            return
+
+        message = (
+            f"Архив сохранён:\n{path}\n\n"
+            f"Исходных текстов: {result['sources']}\n"
+            f"Рабочих текстов: {result['texts']}"
+        )
+        if result["missing"]:
+            message += f"\nНе найдено файлов: {result['missing']}"
+        QMessageBox.information(self, "Экспорт проекта", message)
+
+    def import_project_archive(self) -> None:
+        """Import a portable project archive into a selected folder."""
+        if not self.project_controller:
+            return
+        if not self.project_controller.maybe_save(self):
+            return
+
+        archive_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Импорт проекта с текстами",
+            "",
+            "Архив Dubbing Manager (*.dmproject *.zip)",
+        )
+        if not archive_path:
+            return
+
+        destination = QFileDialog.getExistingDirectory(
+            self,
+            "Выберите папку для импортированного проекта",
+            os.path.dirname(archive_path),
+        )
+        if not destination:
+            return
+
+        try:
+            project_path = self.project_archive_service.import_archive(
+                archive_path,
+                destination,
+            )
+        except (OSError, zipfile.BadZipFile, ProjectArchiveError) as exc:
+            QMessageBox.critical(
+                self,
+                "Импорт проекта",
+                f"Не удалось импортировать архив:\n{exc}",
+            )
+            return
+
+        self._load_from_path(project_path)
+        QMessageBox.information(
+            self,
+            "Импорт проекта",
+            f"Проект импортирован:\n{project_path}",
+        )
 
     def load_project_dialog(self) -> None:
         """Load project dialog."""
