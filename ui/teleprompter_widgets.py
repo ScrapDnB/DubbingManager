@@ -4,8 +4,9 @@ import logging
 import platform
 from typing import List, Optional, Union
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QCompleter,
     QDialog,
@@ -271,22 +272,67 @@ class TeleprompterFloatWindow(QDialog):
         self._drag_pos = None
         self._cocoa_window = None  # macOS-specific handling
 
+        use_cocoa = bool(
+            getattr(self.teleprompter, "cfg", {}).get(
+                "use_cocoa_float_window",
+                True
+            )
+        )
+
         # macOS-specific handling
-        if platform.system() == "Darwin":
+        if platform.system() == "Darwin" and use_cocoa:
             self._init_cocoa_window()
         else:
-            # Qt-specific handling
-            flags = (
-                Qt.Tool |
-                Qt.WindowStaysOnTopHint |
-                Qt.CustomizeWindowHint |
-                Qt.WindowDoesNotAcceptFocus |
-                Qt.FramelessWindowHint
-            )
-            self.setWindowFlags(flags)
-            self.setAttribute(Qt.WA_ShowWithoutActivating)
-            self.resize(PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT)
-            self._init_qt_ui()
+            self._init_qt_window()
+
+    def _init_qt_window(self) -> None:
+        """Init Qt floating window chrome."""
+        flags = (
+            Qt.Tool |
+            Qt.WindowStaysOnTopHint |
+            Qt.CustomizeWindowHint |
+            Qt.WindowDoesNotAcceptFocus |
+            Qt.FramelessWindowHint
+        )
+        self.setWindowFlags(flags)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setFocusPolicy(Qt.NoFocus)
+        mac_always_show_tool = getattr(Qt, "WA_MacAlwaysShowToolWindow", None)
+        if mac_always_show_tool is not None:
+            self.setAttribute(mac_always_show_tool)
+        self.resize(PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT)
+        self._init_qt_ui()
+
+    def _should_lower_neighbor_windows(self) -> bool:
+        """Return whether Qt macOS float window should suppress app windows."""
+        return platform.system() == "Darwin" and not self._cocoa_window
+
+    def _schedule_lower_neighbor_windows(self) -> None:
+        """Schedule lowering non-control Dubbing Manager windows."""
+        if not self._should_lower_neighbor_windows():
+            return
+
+        QTimer.singleShot(0, self._lower_neighbor_windows)
+        QTimer.singleShot(80, self._lower_neighbor_windows)
+
+    def _lower_neighbor_windows(self) -> None:
+        """Lower visible top-level app windows except teleprompter and control."""
+        if not self._should_lower_neighbor_windows():
+            return
+
+        keep = {self, self.teleprompter}
+        for widget in QApplication.topLevelWidgets():
+            if widget in keep or not widget.isVisible():
+                continue
+            widget.lower()
+
+    def _clear_control_focus(self) -> None:
+        """Keep the floating control from owning keyboard focus."""
+        focus_widget = QApplication.focusWidget()
+        if focus_widget and (
+            focus_widget is self or self.isAncestorOf(focus_widget)
+        ):
+            focus_widget.clearFocus()
 
     def _init_cocoa_window(self) -> None:
         """Init cocoa window."""
@@ -409,6 +455,8 @@ class TeleprompterFloatWindow(QDialog):
             self._replica_text_view = text_view
             self._replica_scroll_view = scroll_view
             self._replica_items = []
+            self._cocoa_selected_index = -1
+            self._cocoa_rendering_replica_list = False
             self._episode_popup = episode_popup
             self._cocoa_episode_items = []
 
@@ -430,18 +478,8 @@ class TeleprompterFloatWindow(QDialog):
             
         except Exception as e:
             logger.debug(f"macOS Cocoa window init error: {e}")
-            # Qt-specific handling
-            flags = (
-                Qt.Tool |
-                Qt.WindowStaysOnTopHint |
-                Qt.CustomizeWindowHint |
-                Qt.WindowDoesNotAcceptFocus |
-                Qt.FramelessWindowHint
-            )
-            self.setWindowFlags(flags)
-            self.setAttribute(Qt.WA_ShowWithoutActivating)
-            self.resize(PROMPTER_FLOAT_WINDOW_WIDTH, PROMPTER_FLOAT_WINDOW_HEIGHT)
-            self._init_qt_ui()
+            self._cocoa_window = None
+            self._init_qt_window()
 
     # macOS-specific handling
 
@@ -470,16 +508,22 @@ class TeleprompterFloatWindow(QDialog):
 
         self.btn_prev = QPushButton("⏮ Назад")
         self.btn_prev.setMinimumHeight(50)
+        self.btn_prev.setFocusPolicy(Qt.NoFocus)
         self.btn_prev.clicked.connect(
             lambda: self.teleprompter.navigate_to_replica_in_direction(-1)
         )
+        self.btn_prev.clicked.connect(self._schedule_lower_neighbor_windows)
+        self.btn_prev.clicked.connect(self._clear_control_focus)
         btn_layout.addWidget(self.btn_prev)
 
         self.btn_next = QPushButton("Вперёд ⏭")
         self.btn_next.setMinimumHeight(50)
+        self.btn_next.setFocusPolicy(Qt.NoFocus)
         self.btn_next.clicked.connect(
             lambda: self.teleprompter.navigate_to_replica_in_direction(1)
         )
+        self.btn_next.clicked.connect(self._schedule_lower_neighbor_windows)
+        self.btn_next.clicked.connect(self._clear_control_focus)
         btn_layout.addWidget(self.btn_next)
 
         layout.addLayout(btn_layout)
@@ -488,6 +532,7 @@ class TeleprompterFloatWindow(QDialog):
         episode_layout.addWidget(QLabel("Серия:"))
         self.episode_combo = QComboBox()
         self.episode_combo.setMinimumWidth(160)
+        self.episode_combo.setFocusPolicy(Qt.NoFocus)
         self.episode_combo.currentIndexChanged.connect(
             self.on_qt_episode_changed
         )
@@ -496,12 +541,20 @@ class TeleprompterFloatWindow(QDialog):
 
         layout.addWidget(QLabel("<b>Список реплик:</b>"))
         self.replica_list = QListWidget()
+        self.replica_list.setFocusPolicy(Qt.NoFocus)
         self.replica_list.itemClicked.connect(
             lambda item: self.teleprompter.jump_to_specific_time(item.data(Qt.UserRole))
+        )
+        self.replica_list.itemClicked.connect(
+            lambda _item: self._schedule_lower_neighbor_windows()
+        )
+        self.replica_list.itemClicked.connect(
+            lambda _item: self._clear_control_focus()
         )
         layout.addWidget(self.replica_list)
 
         btn_close = QPushButton("Скрыть")
+        btn_close.setFocusPolicy(Qt.NoFocus)
         btn_close.clicked.connect(self.hide_window)
         layout.addWidget(btn_close)
 
@@ -535,6 +588,7 @@ class TeleprompterFloatWindow(QDialog):
             return
         self.teleprompter.switch_episode(str(ep_num))
         self.sync_episode_combo()
+        self._clear_control_focus()
 
     def onPrevClicked_(self, sender) -> None:
         """Onprevclicked."""
@@ -619,15 +673,111 @@ class TeleprompterFloatWindow(QDialog):
         
         logger.debug(f"Cocoa: найдено {len(self._replica_items)} реплик")
         
-        text = '\n'.join(replicas) if replicas else translate_source("Нет реплик")
-        self._replica_text_view.setString_(text)
-        
-        from Foundation import NSMakeRange
-        self._replica_text_view.scrollRangeToVisible_(NSMakeRange(0, 0))
+        if self._cocoa_selected_index >= len(self._replica_items):
+            self._cocoa_selected_index = -1
+        self._render_cocoa_replica_list(replicas)
+        if self._cocoa_selected_index >= 0:
+            self._scroll_cocoa_replica_to_index(self._cocoa_selected_index)
+        else:
+            from Foundation import NSMakeRange
+            self._replica_text_view.scrollRangeToVisible_(NSMakeRange(0, 0))
         logger.debug("Cocoa: текст обновлён")
+
+    def _cocoa_range_for_replica_index(self, index: int):
+        """Return the Cocoa text range for a replica row."""
+        text = self._replica_text_view.string()
+        if not text:
+            return None
+
+        lines = text.split('\n')
+        if not 0 <= index < len(lines):
+            return None
+
+        pos = 0
+        for i in range(index):
+            pos += len(lines[i]) + 1
+
+        from Foundation import NSMakeRange
+        return NSMakeRange(pos, len(lines[index]))
+
+    def _scroll_cocoa_replica_to_index(self, index: int) -> None:
+        """Scroll Cocoa replica list to the row without selecting text."""
+        row_range = self._cocoa_range_for_replica_index(index)
+        if row_range is not None:
+            self._replica_text_view.scrollRangeToVisible_(row_range)
+
+    def _render_cocoa_replica_list(self, replicas=None) -> None:
+        """Render Cocoa replica list with persistent current-line highlight."""
+        if not hasattr(self, '_replica_text_view'):
+            return
+
+        replicas = replicas if replicas is not None else [
+            item.get('text', '') for item in self._replica_items
+        ]
+        text = '\n'.join(replicas) if replicas else translate_source("Нет реплик")
+
+        try:
+            from AppKit import (
+                NSAttributedString,
+                NSBackgroundColorAttributeName,
+                NSColor,
+                NSFont,
+                NSFontAttributeName,
+                NSForegroundColorAttributeName,
+            )
+            from Foundation import NSMutableAttributedString, NSMakeRange
+
+            attributed = NSMutableAttributedString.alloc().initWithString_(text)
+            full_range = NSMakeRange(0, len(text))
+            attributed.addAttribute_value_range_(
+                NSFontAttributeName,
+                NSFont.systemFontOfSize_(11),
+                full_range
+            )
+            attributed.addAttribute_value_range_(
+                NSForegroundColorAttributeName,
+                NSColor.textColor(),
+                full_range
+            )
+
+            index = getattr(self, '_cocoa_selected_index', -1)
+            if 0 <= index < len(replicas):
+                pos = 0
+                lines = text.split('\n')
+                for i in range(index):
+                    pos += len(lines[i]) + 1
+                length = len(lines[index])
+                if length > 0:
+                    highlight_range = NSMakeRange(pos, length)
+                    attributed.addAttribute_value_range_(
+                        NSBackgroundColorAttributeName,
+                        NSColor.selectedControlColor(),
+                        highlight_range
+                    )
+                    attributed.addAttribute_value_range_(
+                        NSForegroundColorAttributeName,
+                        NSColor.selectedControlTextColor(),
+                        highlight_range
+                    )
+
+            self._cocoa_rendering_replica_list = True
+            try:
+                self._replica_text_view.textStorage().setAttributedString_(attributed)
+            finally:
+                self._cocoa_rendering_replica_list = False
+        except Exception as e:
+            logger.debug(f"Cocoa: highlighted replica render failed: {e}")
+            self._cocoa_rendering_replica_list = True
+            try:
+                self._replica_text_view.setString_(text)
+            finally:
+                self._cocoa_rendering_replica_list = False
 
     def onReplicaSelected_(self, notification) -> None:
         """Onreplicaselected."""
+        if getattr(self, '_cocoa_rendering_replica_list', False):
+            return
+
         text_view = notification.object()
         selected_range = text_view.selectedRange()
         selected_location = selected_range.location
@@ -646,6 +796,8 @@ class TeleprompterFloatWindow(QDialog):
                         if i < len(self._replica_items):
                             time_code = self._replica_items[i].get('time')
                             if time_code:
+                                self._cocoa_selected_index = i
+                                self._render_cocoa_replica_list()
                                 self.on_replica_clicked(time_code)
                         break
                     
@@ -657,29 +809,30 @@ class TeleprompterFloatWindow(QDialog):
             return
         
         if 0 <= index < len(self._replica_items):
-            text = self._replica_text_view.string()
-            if text:
-                lines = text.split('\n')
-                pos = 0
-                for i in range(index):
-                    pos += len(lines[i]) + 1
-                
-                from Foundation import NSMakeRange
-                line_length = len(lines[index]) if index < len(lines) else 0
-                self._replica_text_view.setSelectedRange_(NSMakeRange(pos, line_length))
-                
-                self._replica_text_view.scrollRangeToVisible_(NSMakeRange(pos, line_length))
+            self._cocoa_selected_index = index
+            self._render_cocoa_replica_list()
+            self._scroll_cocoa_replica_to_index(index)
 
     def on_replica_clicked(self, time_code: float) -> None:
         """Handle replica click."""
         if self.teleprompter and time_code is not None:
             self.teleprompter.jump_to_specific_time(time_code)
+            self._clear_control_focus()
 
     # Qt-specific handling
 
     def showEvent(self, event) -> None:
         """Showevent."""
         super().showEvent(event)
+        self._schedule_lower_neighbor_windows()
+        self._clear_control_focus()
+
+    def event(self, event) -> bool:
+        """Handle Qt window events."""
+        if event.type() == QEvent.WindowActivate:
+            self._schedule_lower_neighbor_windows()
+            QTimer.singleShot(0, self._clear_control_focus)
+        return super().event(event)
 
     def closeEvent(self, event) -> None:
         """Closeevent."""
@@ -688,7 +841,7 @@ class TeleprompterFloatWindow(QDialog):
 
     def hide_window(self) -> None:
         """Hide window."""
-        if platform.system() == "Darwin":
+        if self._cocoa_window:
             self.hide_cocoa_window()
         else:
             self.hide()
@@ -697,7 +850,7 @@ class TeleprompterFloatWindow(QDialog):
 
     def sync_replica_list(self) -> None:
         """Synchronize replica list."""
-        if platform.system() == "Darwin":
+        if self._cocoa_window:
             self.update_cocoa_replica_list()
         else:
             # Qt-specific handling
@@ -721,7 +874,7 @@ class TeleprompterFloatWindow(QDialog):
 
     def sync_episode_combo(self) -> None:
         """Synchronize episode combo."""
-        if platform.system() == "Darwin":
+        if self._cocoa_window:
             self.sync_cocoa_episode_combo()
             return
 
@@ -747,10 +900,11 @@ class TeleprompterFloatWindow(QDialog):
         ep_num = self.episode_combo.itemData(index)
         if ep_num is not None:
             self._switch_to_episode(str(ep_num))
+            self._schedule_lower_neighbor_windows()
 
     def update_selection(self, index: int) -> None:
         """Update selection."""
-        if platform.system() == "Darwin":
+        if self._cocoa_window:
             self.update_cocoa_selection(index)
         else:
             if 0 <= index < self.replica_list.count():

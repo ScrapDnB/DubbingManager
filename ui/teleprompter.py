@@ -789,7 +789,7 @@ class TeleprompterWindow(QDialog):
         if not hasattr(self, 'float_window') or self.float_window is None:
             self.float_window = TeleprompterFloatWindow(self)
         
-        if platform.system() == "Darwin":
+        if self.float_window._cocoa_window:
             # macOS-specific handling
             self.float_window.show_cocoa_window()
         else:
@@ -802,7 +802,7 @@ class TeleprompterWindow(QDialog):
     def hide_float_window(self) -> None:
         """Hide float window."""
         if hasattr(self, 'float_window') and self.float_window:
-            if platform.system() == "Darwin":
+            if self.float_window._cocoa_window:
                 self.float_window.hide_cocoa_window()
             else:
                 self.float_window.hide()

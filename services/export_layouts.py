@@ -850,11 +850,13 @@ class ExportLayoutMixin:
         text: Any,
         font_size: float,
         bold: bool = False,
-        align: Any = WD_ALIGN_PARAGRAPH.LEFT,
+        align: Any = None,
         fill_color: Optional[str] = None,
         text_color: Optional[str] = None
     ) -> None:
         """Fill a DOCX table cell with styled text."""
+        if align is None:
+            align = WD_ALIGN_PARAGRAPH.LEFT
         cell.text = ""
         paragraph = cell.paragraphs[0]
         paragraph.alignment = align

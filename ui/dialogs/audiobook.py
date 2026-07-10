@@ -762,8 +762,8 @@ class AudiobookDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Аудиосериал")
-        self.resize(1400, 900)
-        self.setMinimumSize(1050, 700)
+        self.resize(1400, 1020)
+        self.setMinimumSize(1050, 820)
 
         self.main_window = parent
         self.data: Dict[str, Any] = getattr(parent, "data", {})

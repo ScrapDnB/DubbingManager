@@ -171,6 +171,7 @@ DEFAULT_PROMPTER_CONFIG = {
     "key_prev": "Left",
     "key_next": "Right",
     "scroll_smoothness_slider": 18,
+    "use_cocoa_float_window": True,
     "colors": {
         "bg": "#000000",
         "active_text": "#FFFFFF",
@@ -236,7 +237,7 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Application version shown in the UI and build metadata.
-APP_VERSION = "1.6.2"
+APP_VERSION = "1.7.0"
 
 # Project file format version used for compatibility migrations.
 PROJECT_VERSION = "1.4"
