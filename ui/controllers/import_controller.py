@@ -5,6 +5,8 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.commands import AddEpisodeCommand
+from services.project_metadata_service import maybe_set_project_name_from_first_import
+from utils.helpers import set_project_kind
 
 
 class ImportController:
@@ -35,6 +37,12 @@ class ImportController:
         path: str
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Add ASS/SRT episode, parse it, and create working text."""
+        maybe_set_project_name_from_first_import(
+            self.data_ref,
+            path,
+            {".ass"}
+        )
+        set_project_kind(self.data_ref, "subtitle")
         command = AddEpisodeCommand(
             self.data_ref["episodes"],
             name,
@@ -53,6 +61,7 @@ class ImportController:
         result: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """Add a DOCX import result and create working text."""
+        set_project_kind(self.data_ref, "subtitle")
         lines = result.get('lines', [])
         episode_lines = self.convert_imported_lines_for_cache(lines)
 

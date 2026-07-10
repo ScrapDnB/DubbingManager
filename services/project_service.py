@@ -63,12 +63,22 @@ class ProjectService:
                 "studio": ""
             },
             "project_name": name,
+            "project_kind": "subtitle",
             "actors": {},
             "global_map": {},
             "episode_actor_map": {},
             "episodes": {},
             "video_paths": {},
             "episode_texts": {},
+            "episode_working_texts": {},
+            "book_chapters": {},
+            "audiobook_source": {},
+            "audiobook_chapter_order": [],
+            "audiobook_settings": {
+                "font_family": "Georgia",
+                "zoom_steps": 0,
+                "slots": [],
+            },
             "export_config": deepcopy(DEFAULT_EXPORT_CONFIG),
             "prompter_config": deepcopy(DEFAULT_PROMPTER_CONFIG),
             "replica_merge_config": deepcopy(DEFAULT_REPLICA_MERGE_CONFIG),
@@ -294,6 +304,30 @@ class ProjectService:
         if "episode_texts" in data and not isinstance(data["episode_texts"], dict):
             raise ProjectValidationError(
                 "Field 'episode_texts' must be a dictionary"
+            )
+
+        if (
+            "episode_working_texts" in data and
+            not isinstance(data["episode_working_texts"], dict)
+        ):
+            raise ProjectValidationError(
+                "Field 'episode_working_texts' must be a dictionary"
+            )
+
+        if (
+            "project_kind" in data and
+            data["project_kind"] not in ("subtitle", "audiobook")
+        ):
+            raise ProjectValidationError(
+                "Field 'project_kind' must be 'subtitle' or 'audiobook'"
+            )
+
+        if (
+            "audiobook_chapter_order" in data and
+            not isinstance(data["audiobook_chapter_order"], list)
+        ):
+            raise ProjectValidationError(
+                "Field 'audiobook_chapter_order' must be a list"
             )
 
     def _ensure_compatibility(self, data: Dict[str, Any]) -> None:

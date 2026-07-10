@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (
     QColorDialog, QComboBox, QLabel, QInputDialog,
     QFrame, QListWidget, QListWidgetItem,
     QMessageBox, QAbstractItemView,
-    QDialogButtonBox, QDialog, QProgressDialog, QApplication
+    QDialogButtonBox, QDialog, QProgressDialog, QApplication,
+    QHeaderView,
 )
 from PySide6.QtGui import (
     QColor, QDesktopServices
@@ -18,7 +19,6 @@ from typing import Dict, List, Any, Optional, Set, Tuple, Callable
 import json
 import os
 import sys
-import zipfile
 from copy import deepcopy
 from datetime import datetime
 import logging
@@ -40,12 +40,16 @@ from config.constants import (
     MAIN_WINDOW_HEIGHT,
     AUTOSAVE_INTERVAL_MS,
     APP_VERSION,
+    PROJECT_FILE_EXTENSION,
+    PROJECT_FILE_FILTER,
+    PROJECT_LEGACY_FILE_EXTENSION,
 )
 from utils.helpers import (
     wrap_widget,
     log_exception,
     get_video_fps,
-    natural_sort_key
+    natural_sort_key,
+    ordered_episode_names,
 )
 from utils.i18n import set_language, tr, translate_source, translate_widget_tree
 from services import (
@@ -55,8 +59,6 @@ from services import (
     CharacterStatsService,
     ExportService,
     GlobalSettingsService,
-    ProjectArchiveError,
-    ProjectArchiveService,
     ProjectFolderService,
     QuickSubtitleService,
     ScriptTextService,
@@ -94,6 +96,7 @@ from .dialogs import (
     ProjectFilesDialog,
     SettingsDialog,
     DocxImportDialog,
+    AudiobookDialog,
 )
 from .models import (
     ACTOR_ID_ROLE,
@@ -142,7 +145,6 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         self.project_service = ProjectService()
         self.actor_service = ActorService()
         self.global_settings_service = GlobalSettingsService()
-        self.project_archive_service = ProjectArchiveService()
         self.project_folder_service = ProjectFolderService()
         self.script_text_service = ScriptTextService()
         self.assignment_transfer_service = AssignmentTransferService()
@@ -291,11 +293,12 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
 
         if hasattr(self, "lbl_tools"):
             self.lbl_tools.setText("Сценарии")
-            self.btn_all_v.setText("Монтажный лист")
-            self.btn_prompter.setText("Телесуфлёр")
-            self.btn_reaper.setText("Reaper")
-            self.btn_ep_sum.setText("Отчёт серии")
-            self.btn_bulk_roles.setText("Назначить роли")
+            self.btn_all_v.setText("📄 Монтажный лист")
+            self.btn_prompter.setText("🎬 Телесуфлёр")
+            self.btn_reaper.setText("🎹 Reaper")
+            self.btn_audiobook.setText("📖 Аудиосериал")
+            self.btn_ep_sum.setText("📊 Отчёт серии")
+            self.btn_bulk_roles.setText("🎭 Назначить роли")
             self.character_stats_group.setTitle(tr("stats.group"))
 
         if hasattr(self, "btn_settings"):
@@ -636,9 +639,11 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
             return False
         
         path, _ = QFileDialog.getSaveFileName(
-            self, "Сохранить", "", "*.json"
+            self, "Сохранить", "", PROJECT_FILE_FILTER
         )
         if path:
+            if not os.path.splitext(path)[1]:
+                path += PROJECT_FILE_EXTENSION
             result = self.project_controller.save_project_as(path)
             if result:
                 self.current_project_path = self.project_controller.get_current_project_path()
@@ -648,91 +653,6 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
             return result
         return False
 
-    def export_project_archive(self) -> None:
-        """Export the current project and its text files as one archive."""
-        if not self.save_project():
-            return
-
-        project_name = str(self.data.get("project_name") or "project").strip()
-        default_name = f"{project_name}.dmproject"
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Экспорт проекта с текстами",
-            default_name,
-            "Архив Dubbing Manager (*.dmproject);;ZIP (*.zip)",
-        )
-        if not path:
-            return
-        if not os.path.splitext(path)[1]:
-            path += ".dmproject"
-
-        try:
-            result = self.project_archive_service.export_archive(
-                self.data,
-                path,
-                self.current_project_path,
-            )
-        except (OSError, ValueError) as exc:
-            QMessageBox.critical(
-                self,
-                "Экспорт проекта",
-                f"Не удалось создать архив:\n{exc}",
-            )
-            return
-
-        message = (
-            f"Архив сохранён:\n{path}\n\n"
-            f"Исходных текстов: {result['sources']}\n"
-            f"Рабочих текстов: {result['texts']}"
-        )
-        if result["missing"]:
-            message += f"\nНе найдено файлов: {result['missing']}"
-        QMessageBox.information(self, "Экспорт проекта", message)
-
-    def import_project_archive(self) -> None:
-        """Import a portable project archive into a selected folder."""
-        if not self.project_controller:
-            return
-        if not self.project_controller.maybe_save(self):
-            return
-
-        archive_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Импорт проекта с текстами",
-            "",
-            "Архив Dubbing Manager (*.dmproject *.zip)",
-        )
-        if not archive_path:
-            return
-
-        destination = QFileDialog.getExistingDirectory(
-            self,
-            "Выберите папку для импортированного проекта",
-            os.path.dirname(archive_path),
-        )
-        if not destination:
-            return
-
-        try:
-            project_path = self.project_archive_service.import_archive(
-                archive_path,
-                destination,
-            )
-        except (OSError, zipfile.BadZipFile, ProjectArchiveError) as exc:
-            QMessageBox.critical(
-                self,
-                "Импорт проекта",
-                f"Не удалось импортировать архив:\n{exc}",
-            )
-            return
-
-        self._load_from_path(project_path)
-        QMessageBox.information(
-            self,
-            "Импорт проекта",
-            f"Проект импортирован:\n{project_path}",
-        )
-
     def load_project_dialog(self) -> None:
         """Load project dialog."""
         if not self.project_controller:
@@ -740,10 +660,33 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         
         if self.project_controller.maybe_save(self):
             path, _ = QFileDialog.getOpenFileName(
-                self, "Открыть", "", "*.json"
+                self, "Открыть", "", PROJECT_FILE_FILTER
             )
             if path:
                 self._load_from_path(path)
+
+    def open_project_file(self, path: str) -> bool:
+        """Open a project file from the OS or command line."""
+        if not path:
+            return False
+        if not self.project_controller:
+            return False
+        if not os.path.exists(path):
+            QMessageBox.warning(
+                self,
+                "Проект не найден",
+                f"Файл не существует:\n{path}"
+            )
+            return False
+        current_path = self.project_controller.get_current_project_path()
+        if current_path and os.path.abspath(current_path) == os.path.abspath(path):
+            self.raise_()
+            self.activateWindow()
+            return True
+        if not self.project_controller.maybe_save(self):
+            return False
+        self._load_from_path(path)
+        return True
 
     def _remember_recent_project(self, path: Optional[str]) -> None:
         """Store a project path in the recent-project list."""
@@ -1152,6 +1095,7 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         self.actor_table.blockSignals(True)
         self.actor_table.setSortingEnabled(False)
         self.actor_table.setColumnCount(3)
+        self._apply_global_actor_table_column_layout()
         self.actor_table.setRowCount(0)
         self.actor_table.setHorizontalHeaderLabels([
             tr("actor.table.actor"),
@@ -1193,6 +1137,16 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
 
         self.actor_table.setSortingEnabled(True)
         self.actor_table.blockSignals(False)
+
+    def _apply_global_actor_table_column_layout(self) -> None:
+        """Apply stable column sizing for the global actor table."""
+        header = self.actor_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        self.actor_table.setColumnWidth(1, 90)
+        self.actor_table.setColumnWidth(2, 50)
 
     def add_actor_button_clicked(self) -> None:
         """Handle the add-actor button for the selected actor-base mode."""
@@ -2188,7 +2142,7 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
             self.data.get("loaded_episodes", {}),
             ep,
             self.data.get("episode_actor_map", {}),
-            self.data.get("episode_texts", {})
+            self.data.get("episode_working_texts", {})
         )
         self.undo_stack.push(command)
 
@@ -2208,10 +2162,7 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         self.ep_combo.clear()
 
         ep: str
-        for ep in sorted(
-            self.data["episodes"].keys(),
-            key=natural_sort_key
-        ):
+        for ep in ordered_episode_names(self.data):
             self.ep_combo.addItem(str(ep), ep)
 
         if select:
@@ -2431,18 +2382,45 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         ep_num: str,
         target_path: Optional[str] = None
     ) -> bool:
-        """Save episode to ass."""
-        QMessageBox.warning(
+        """Save original imported ASS snapshot from the project."""
+        if not self.script_text_service.has_source_ass(self.data, ep_num):
+            QMessageBox.warning(
+                self,
+                "Исходный ASS недоступен",
+                "В этой серии нет сохранённого исходного ASS. "
+                "Для старых проектов снимок появится после повторного импорта."
+            )
+            return False
+
+        save_path = target_path
+        if not save_path:
+            default_name = f"{self.data.get('project_name', 'Project')} - Ep{ep_num}.ass"
+            save_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Сохранить исходный ASS",
+                default_name,
+                "ASS Files (*.ass)"
+            )
+        if not save_path:
+            return False
+        if os.path.splitext(save_path)[1] == "":
+            save_path += ".ass"
+
+        if self.script_text_service.save_source_ass(self.data, ep_num, save_path):
+            QMessageBox.information(
+                self,
+                "Готово",
+                "Исходный ASS сохранён без правок из рабочего текста."
+            )
+            return True
+
+        QMessageBox.critical(
             self,
-            "Сохранение отключено",
-            "Запись изменений обратно в ASS/SRT отключена.\n"
-            "Редактируйте рабочий текст, он сохраняется в JSON автоматически."
+            "Ошибка",
+            "Не удалось сохранить исходный ASS."
         )
         return False
 
-
-
-    
     def open_preview(self, char: Optional[str]) -> None:
         """Open preview."""
         ep = self.ep_combo.currentData()
@@ -2456,19 +2434,13 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
             self.data,
             vp
         )
-        
-        if not resolved_vp or not os.path.exists(resolved_vp):
-            self.set_episode_video()
-            vp = self.data.get("video_paths", {}).get(ep)
-            resolved_vp = self.project_folder_service.resolve_project_path(
-                self.data,
-                vp
-            )
-        
-        if resolved_vp:
-            from .video import VideoPreviewWindow
 
-            VideoPreviewWindow(resolved_vp, lines, ep, self).exec()
+        if not resolved_vp or not os.path.exists(resolved_vp):
+            resolved_vp = None
+
+        from .video import VideoPreviewWindow
+
+        VideoPreviewWindow(resolved_vp, lines, ep, self).exec()
     
     def get_episode_lines(self, ep: str) -> List[Dict[str, Any]]:
         """Return episode lines, loading them when needed."""
@@ -2619,6 +2591,14 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         )
         dialog.exec()
 
+    def open_audiobook_dialog(self) -> None:
+        """Open audiobook import and markup dialog."""
+        dialog = AudiobookDialog(self)
+        dialog.exec()
+        self.update_ep_list(self.ep_combo.currentData())
+        self.refresh_actor_list()
+        self.refresh_main_table()
+
     def _on_project_roles_changed(self) -> None:
         """Refresh UI after project role assignments change."""
         self.refresh_actor_list()
@@ -2689,6 +2669,10 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
             if "default_prompter_config" in settings:
                 self.global_settings["default_prompter_config"] = (
                     settings["default_prompter_config"]
+                )
+            if "audiobook_config" in settings:
+                self.global_settings["audiobook_config"] = (
+                    settings["audiobook_config"]
                 )
             self.global_settings_service.save_settings(self.global_settings)
             self.global_settings = self.global_settings_service.get_settings()
@@ -2908,7 +2892,8 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         def make_preview(
             use_video: bool,
             use_regions: bool,
-            transliterate_actor_names: bool
+            transliterate_actor_names: bool,
+            marker_mode: str
         ) -> Dict[str, Any]:
             return reaper_controller.preview(
                 ep_num,
@@ -2916,47 +2901,81 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
                 video_path,
                 use_video,
                 use_regions,
-                transliterate_actor_names
+                transliterate_actor_names,
+                marker_mode
             )
 
         dialog = ReaperExportDialog(
             video_path,
             self,
-            preview_provider=make_preview
+            preview_provider=make_preview,
+            source_markers_available=reaper_controller.has_source_markers(ep_num)
         )
 
         if dialog.exec() != QDialog.Accepted:
             return
 
-        use_video, use_regions, transliterate_actor_names = dialog.get_options()
+        (
+            use_video,
+            use_regions,
+            transliterate_actor_names,
+            marker_mode,
+            output_format,
+        ) = dialog.get_options()
 
-        default_name = reaper_controller.default_filename(ep_num)
+        default_name = (
+            reaper_controller.default_csv_filename(ep_num)
+            if output_format == "csv"
+            else reaper_controller.default_filename(ep_num)
+        )
+        file_filter = (
+            "CSV Files (*.csv)"
+            if output_format == "csv"
+            else "Reaper Project (*.rpp)"
+        )
         save_path, _ = QFileDialog.getSaveFileName(
-            self, "Сохранить RPP", default_name, "Reaper Project (*.rpp)"
+            self,
+            "Сохранить маркеры Reaper" if output_format == "csv" else "Сохранить RPP",
+            default_name,
+            file_filter
         )
         if not save_path:
             return
         
         try:
-            reaper_controller.save(
-                ep_num,
-                lines,
-                save_path,
-                video_path,
-                use_video,
-                use_regions,
-                transliterate_actor_names
-            )
-            
-            reply = QMessageBox.question(
-                self,
-                "Готово",
-                "Проект создан. Открыть в Reaper?",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            
-            if reply == QMessageBox.Yes:
-                QDesktopServices.openUrl(QUrl.fromLocalFile(save_path))
+            if output_format == "csv":
+                reaper_controller.save_marker_csv(
+                    ep_num,
+                    lines,
+                    save_path,
+                    marker_mode
+                )
+                QMessageBox.information(
+                    self,
+                    "Готово",
+                    "CSV с маркерами сохранён."
+                )
+            else:
+                reaper_controller.save(
+                    ep_num,
+                    lines,
+                    save_path,
+                    video_path,
+                    use_video,
+                    use_regions,
+                    transliterate_actor_names,
+                    marker_mode
+                )
+
+                reply = QMessageBox.question(
+                    self,
+                    "Готово",
+                    "Проект создан. Открыть в Reaper?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+
+                if reply == QMessageBox.Yes:
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(save_path))
         except Exception as e:
             log_exception(logger, "Error saving RPP", e)
             QMessageBox.critical(
@@ -3144,10 +3163,16 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         ]
         
         ass_files = [f for f in files if f.endswith('.ass')]
-        json_files = [f for f in files if f.endswith('.json')]
+        project_files = [
+            f for f in files
+            if os.path.splitext(f)[1].lower() in {
+                PROJECT_FILE_EXTENSION,
+                PROJECT_LEGACY_FILE_EXTENSION,
+            }
+        ]
         
-        if json_files and self.maybe_save():
-            self._load_from_path(json_files[0])
+        if project_files:
+            self.open_project_file(project_files[0])
         elif ass_files:
             self.import_ass(ass_files)
     

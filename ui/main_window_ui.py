@@ -177,24 +177,6 @@ class MainWindowUiMixin:
         self.btn_copy.clicked.connect(self.save_project_as)
         top.addWidget(self.btn_copy)
 
-        self.btn_export_project_archive = QPushButton("📦↑")
-        self.btn_export_project_archive.setToolTip(
-            "Экспортировать проект вместе с текстами"
-        )
-        self.btn_export_project_archive.clicked.connect(
-            self.export_project_archive
-        )
-        top.addWidget(self.btn_export_project_archive)
-
-        self.btn_import_project_archive = QPushButton("📦↓")
-        self.btn_import_project_archive.setToolTip(
-            "Импортировать проект вместе с текстами"
-        )
-        self.btn_import_project_archive.clicked.connect(
-            self.import_project_archive
-        )
-        top.addWidget(self.btn_import_project_archive)
-
         self.btn_undo = QPushButton("↶")
         self.btn_undo.setFixedWidth(PROJECT_FOLDER_BTN_WIDTH)
         self.btn_undo.clicked.connect(self.undo)
@@ -344,17 +326,21 @@ class MainWindowUiMixin:
         self.lbl_tools = QLabel()
         tools_sidebar_layout.addWidget(self.lbl_tools)
 
-        self.btn_all_v = QPushButton()
-        self.btn_all_v.clicked.connect(self.open_live_preview)
-        tools_sidebar_layout.addWidget(self.btn_all_v)
-
         self.btn_prompter = QPushButton()
         self.btn_prompter.clicked.connect(self.open_teleprompter)
         tools_sidebar_layout.addWidget(self.btn_prompter)
 
+        self.btn_all_v = QPushButton()
+        self.btn_all_v.clicked.connect(self.open_live_preview)
+        tools_sidebar_layout.addWidget(self.btn_all_v)
+
         self.btn_reaper = QPushButton()
         self.btn_reaper.clicked.connect(self.export_to_reaper_rpp)
         tools_sidebar_layout.addWidget(self.btn_reaper)
+
+        self.btn_audiobook = QPushButton()
+        self.btn_audiobook.clicked.connect(self.open_audiobook_dialog)
+        tools_sidebar_layout.addWidget(self.btn_audiobook)
 
         self.btn_ep_sum = QPushButton()
         self.btn_ep_sum.clicked.connect(self.show_episode_summary)

@@ -12,6 +12,7 @@ from .project_folder_service import ProjectFolderService
 from .project_archive_service import ProjectArchiveError, ProjectArchiveService
 from .project_health_service import ProjectHealthIssue, ProjectHealthService
 from .docx_import_service import DocxImportService
+from .book_import_service import BookImportError, BookImportService
 from .script_text_service import ScriptTextService
 from .quick_subtitle_service import QuickSubtitleService
 from .reaper_rpp_service import ReaperRppService
@@ -51,6 +52,8 @@ __all__ = [
     'ProjectHealthIssue',
     'ProjectHealthService',
     'DocxImportService',
+    'BookImportError',
+    'BookImportService',
     'ScriptTextService',
     'QuickSubtitleService',
     'ReaperRppService',

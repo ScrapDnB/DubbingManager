@@ -51,14 +51,24 @@ class ActorController:
         self.actor_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.actor_table.setFrameShape(QFrame.NoFrame)
         self.actor_table.verticalHeader().setVisible(False)
+        self._apply_column_layout()
+        
+        self.actor_table.cellClicked.connect(self._on_cell_clicked)
+
+    def _apply_column_layout(self) -> None:
+        """Apply stable column sizing for the project actor table."""
+        header = self.actor_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
         self.actor_table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.Stretch
         )
+        header.setSectionResizeMode(0, QHeaderView.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.Fixed)
+        self.actor_table.setColumnWidth(0, 150)
         self.actor_table.setColumnWidth(1, 100)
         self.actor_table.setColumnWidth(2, 60)
         self.actor_table.setColumnWidth(3, 50)
-        
-        self.actor_table.cellClicked.connect(self._on_cell_clicked)
 
     def _on_cell_clicked(self, row: int, col: int) -> None:
         """Handle cell click."""
@@ -96,6 +106,7 @@ class ActorController:
         self.actor_table.blockSignals(True)
         self.actor_table.setSortingEnabled(False)
         self._set_headers()
+        self._apply_column_layout()
         self.actor_table.setRowCount(0)
 
         actor_roles = self._get_actor_roles()

@@ -90,6 +90,7 @@ class TestEpisodeController:
         success, message = controller.import_ass(paths)
         
         assert success == True
+        assert data_ref["project_kind"] == "subtitle"
         assert "S01E01.ass" in data_ref["episodes"].values() or "1" in data_ref["episodes"]
 
     def test_import_ass_no_paths(self, controller):
@@ -109,6 +110,7 @@ class TestEpisodeController:
         success, message = controller.import_srt(paths)
         
         assert success == True
+        assert data_ref["project_kind"] == "subtitle"
 
     def test_import_docx(self, controller):
         """Тест импорта DOCX"""
@@ -197,12 +199,14 @@ class TestEpisodeController:
         data_ref["episodes"] = {"1": "/path/to/ep1.ass"}
         data_ref["video_paths"] = {"1": "/path/to/video1.mp4"}
         data_ref["loaded_episodes"] = {"1": []}
+        data_ref["audiobook_chapter_order"] = ["1"]
         
         success = controller.rename_episode("1", "2")
         
         assert success == True
         assert "2" in data_ref["episodes"]
         assert "1" not in data_ref["episodes"]
+        assert data_ref["audiobook_chapter_order"] == ["2"]
 
     def test_rename_episode_same_name(self, controller):
         """Тест переименования с тем же именем"""
@@ -217,6 +221,7 @@ class TestEpisodeController:
         data_ref["loaded_episodes"] = {"1": []}
         data_ref["episode_texts"] = {"1": "/path/to/text.json"}
         data_ref["episode_actor_map"] = {"1": {"Character": "actor_1"}}
+        data_ref["audiobook_chapter_order"] = ["1", "2"]
         
         success = controller.delete_episode("1")
         
@@ -226,6 +231,7 @@ class TestEpisodeController:
         assert "1" not in data_ref["loaded_episodes"]
         assert "1" not in data_ref["episode_texts"]
         assert "1" not in data_ref["episode_actor_map"]
+        assert data_ref["audiobook_chapter_order"] == ["2"]
 
     def test_delete_episode_not_found(self, controller):
         """Тест удаления несуществующего эпизода"""
@@ -251,6 +257,24 @@ class TestEpisodeController:
         episodes = controller.get_episode_list()
         
         assert episodes == ["1", "2", "3"]
+
+    def test_get_episode_list_uses_audiobook_order(self, controller, data_ref):
+        """Тест порядка глав аудиокниги"""
+        data_ref["project_kind"] = "audiobook"
+        data_ref["episodes"] = {
+            "Глава 1": "book.pdf",
+            "Пролог": "book.pdf",
+            "Вступление": "book.pdf",
+        }
+        data_ref["audiobook_chapter_order"] = [
+            "Вступление",
+            "Пролог",
+            "Глава 1",
+        ]
+
+        episodes = controller.get_episode_list()
+
+        assert episodes == ["Вступление", "Пролог", "Глава 1"]
 
     def test_invalidate_episode_cache(self, controller, episode_service, data_ref):
         """Тест инвалидации кэша"""

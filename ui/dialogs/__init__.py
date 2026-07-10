@@ -1,4 +1,5 @@
 from .actor_filter import ActorFilterDialog
+from .audiobook import AudiobookDialog
 from .colors import PrompterColorDialog, CustomColorDialog
 from .docx_import import DocxImportDialog
 from .reaper import ReaperExportDialog
@@ -11,6 +12,7 @@ from .settings import SettingsDialog
 
 __all__ = [
     'ActorFilterDialog',
+    'AudiobookDialog',
     'PrompterColorDialog',
     'CustomColorDialog',
     'DocxImportDialog',

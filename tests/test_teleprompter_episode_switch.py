@@ -4,7 +4,9 @@ import pytest
 from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QApplication
 
+from services import ScriptTextService
 from ui.teleprompter import TeleprompterWindow
+from ui.teleprompter_widgets import TeleprompterFloatWindow
 
 
 @pytest.fixture
@@ -22,8 +24,9 @@ class MainAppStub:
                 "actor-1": {"name": "Actor", "color": "#ffffff"},
                 "actor-2": {"name": "Fresh Actor", "color": "#ffcc00"},
             },
-            "global_map": {"Hero": "actor-1"},
+            "global_map": {"Hero": "actor-1", "Villain": "actor-2"},
             "episodes": {"1": "/tmp/ep1.ass", "2": "/tmp/ep2.ass"},
+            "episode_texts": {},
             "loaded_episodes": {},
             "replica_merge_config": {"merge": False},
             "prompter_config": {
@@ -53,6 +56,9 @@ class MainAppStub:
         self.prompter_color_presets = [None, None, None, None]
 
     def get_episode_lines(self, ep_num):
+        cached = self.data.get("loaded_episodes", {}).get(str(ep_num))
+        if cached:
+            return cached
         start = 1.0 if str(ep_num) == "1" else 11.0
         return [{
             "id": 0,
@@ -115,6 +121,42 @@ def test_switch_episode_keeps_filter_and_sync_settings(app):
     assert window.list_of_replicas.item(0).text().endswith("Hero")
     assert window.last_known_time == 11.0
 
+    window.close()
+
+
+def test_float_window_episode_combo_matches_main_combo_and_switches(app, monkeypatch):
+    monkeypatch.setattr("ui.teleprompter_widgets.platform.system", lambda: "Windows")
+    main_app = MainAppStub()
+    main_app.data["episodes"] = {
+        "2": "/tmp/ep2.ass",
+        "10": "/tmp/ep10.ass",
+        "1": "/tmp/ep1.ass",
+    }
+    window = TeleprompterWindow(main_app, "1")
+    float_window = TeleprompterFloatWindow(window)
+    window.float_window = float_window
+
+    main_items = [
+        (window.combo_episode.itemText(i), window.combo_episode.itemData(i))
+        for i in range(window.combo_episode.count())
+    ]
+    float_items = [
+        (float_window.episode_combo.itemText(i), float_window.episode_combo.itemData(i))
+        for i in range(float_window.episode_combo.count())
+    ]
+
+    assert float_items == main_items
+
+    float_window.episode_combo.setCurrentIndex(
+        float_window.episode_combo.findData("2")
+    )
+
+    assert window.ep_num == "2"
+    assert window.combo_episode.currentData() == "2"
+    assert float_window.episode_combo.currentData() == "2"
+    assert float_window.replica_list.item(0).text().startswith("0:00:11")
+
+    float_window.close()
     window.close()
 
 
@@ -278,5 +320,71 @@ def test_refresh_cast_assignments_rebuilds_actor_names(app):
     )
     assert "(Fresh Actor)" in scene_text
     assert window.ep_num == "1"
+
+    window.close()
+
+
+def test_editing_character_rebuilds_actor_assignment(app):
+    main_app = MainAppStub()
+    window = TeleprompterWindow(main_app, "1")
+
+    window.handle_character_edited([0], "Villain")
+
+    scene_text = "\n".join(
+        item.toPlainText()
+        for item in window.prompter_scene.items()
+        if hasattr(item, "toPlainText")
+    )
+    assert main_app.data["loaded_episodes"]["1"][0]["char"] == "Villain"
+    assert "(Fresh Actor)" in scene_text
+    assert "Villain" in scene_text
+    assert main_app.dirty is True
+
+    window.close()
+
+
+def test_splitting_text_creates_replica_with_new_actor(app, tmp_path):
+    main_app = MainAppStub()
+    source_path = tmp_path / "ep1.ass"
+    source_path.write_text("test", encoding="utf-8")
+    main_app.data["episodes"]["1"] = str(source_path)
+    ScriptTextService().create_episode_text(
+        main_app.data,
+        "1",
+        str(source_path),
+        [{
+            "id": 0,
+            "s": 1.0,
+            "e": 2.0,
+            "char": "Hero",
+            "text": "Hero text. Villain text."
+        }],
+        {"merge": False},
+        None
+    )
+
+    window = TeleprompterWindow(main_app, "1")
+
+    window.handle_text_split_to_character(
+        [0],
+        "Hero text.",
+        "Villain text.",
+        "Villain"
+    )
+
+    lines = main_app.data["loaded_episodes"]["1"]
+    scene_text = "\n".join(
+        item.toPlainText()
+        for item in window.prompter_scene.items()
+        if hasattr(item, "toPlainText")
+    )
+
+    assert [line["char"] for line in lines] == ["Hero", "Villain"]
+    assert [line["text"] for line in lines] == [
+        "Hero text.",
+        "Villain text."
+    ]
+    assert "(Fresh Actor)" in scene_text
+    assert main_app.dirty is True
 
     window.close()

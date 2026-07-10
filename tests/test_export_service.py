@@ -1089,6 +1089,116 @@ class TestExportService:
         assert 'NAME "Иван Ёжиков"' not in rpp
         assert 'MARKER 1 0.0000 "Character1: Line" 1 16777471' in rpp
 
+    def test_generate_reaper_rpp_can_use_source_line_markers(
+        self,
+        sample_project_data: Dict[str, Any]
+    ) -> None:
+        """Тест: RPP умеет ставить маркеры по исходным строкам проекта."""
+        sample_project_data["episode_working_texts"] = {
+            "1": {
+                "source_lines": [
+                    {
+                        "id": 0,
+                        "start": 0.0,
+                        "end": 1.0,
+                        "character": "Character1",
+                        "text": "First",
+                    },
+                    {
+                        "id": 1,
+                        "start": 1.1,
+                        "end": 2.0,
+                        "character": "Character1",
+                        "text": "Second",
+                    },
+                ]
+            }
+        }
+        service = ExportService(sample_project_data)
+        lines = [
+            {
+                "id": 1,
+                "s": 0.0,
+                "e": 2.0,
+                "char": "Character1",
+                "text": "Edited merged",
+            }
+        ]
+
+        rpp = service.generate_reaper_rpp(
+            "1",
+            lines,
+            merge_cfg={"merge": True, "merge_gap": 120, "fps": 25},
+            marker_mode="source"
+        )
+
+        assert 'MARKER 1 0.0000 "Character1: First" 1 16777471' in rpp
+        assert 'MARKER 2 1.1000 "Character1: Second" 1 16777471' in rpp
+        assert "Edited merged" not in rpp
+
+    def test_reaper_source_markers_unavailable_for_reconstructed_old_ass(
+        self,
+        sample_project_data: Dict[str, Any]
+    ) -> None:
+        """Тест: старый ASS без снимка не выдаёт реконструкцию за исходник."""
+        sample_project_data["episode_working_texts"] = {
+            "1": {
+                "source": {"type": "ass"},
+                "source_ass": None,
+                "source_lines_origin": "reconstructed",
+                "source_lines": [{
+                    "id": 0,
+                    "start": 0.0,
+                    "end": 1.0,
+                    "character": "Character1",
+                    "text": "Original-ish",
+                }],
+            }
+        }
+        service = ExportService(sample_project_data)
+        lines = [{
+            "id": 1,
+            "s": 0.0,
+            "e": 2.0,
+            "char": "Character1",
+            "text": "Merged working",
+        }]
+
+        assert service.has_reaper_source_markers("1") is False
+        rpp = service.generate_reaper_rpp(
+            "1",
+            lines,
+            merge_cfg={"merge": False},
+            marker_mode="source"
+        )
+
+        assert "Merged working" in rpp
+        assert "Original-ish" not in rpp
+
+    def test_save_reaper_marker_csv_writes_marker_rows(
+        self,
+        sample_project_data: Dict[str, Any],
+        tmp_path
+    ) -> None:
+        """Тест: CSV маркеров сохраняет тайминги, персонажа, актёра и текст."""
+        service = ExportService(sample_project_data)
+        save_path = tmp_path / "markers.csv"
+
+        service.save_reaper_marker_csv(
+            str(save_path),
+            "1",
+            [{
+                "s": 1.0,
+                "e": 2.0,
+                "char": "Character1",
+                "text": "Line",
+            }]
+        )
+
+        content = save_path.read_text(encoding="utf-8-sig")
+        assert "Number,Start,End,Name,Character,Actor,Text,Color" in content
+        assert "1,1.0000,2.0000,Character1: Line,Character1,Actor One,Line,#FF0000" in content
+
     def test_save_reaper_rpp_writes_utf8_bom_for_cyrillic(
         self,
         sample_project_data: Dict[str, Any],

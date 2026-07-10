@@ -79,6 +79,7 @@ from utils.helpers import (
 )
 from utils.i18n import translate_source, translate_widget_tree
 from .teleprompter_widgets import (
+    EditableCharacterItem,
     EditableTextItem,
     SettingsSection,
     TeleprompterFloatWindow,
@@ -368,8 +369,16 @@ class TeleprompterWindow(QDialog):
             f"{translate_source('Серия')} {self.ep_num}"
         )
 
+        combo_index = self.combo_episode.findData(str(self.ep_num))
+        if combo_index >= 0:
+            self.combo_episode.blockSignals(True)
+            self.combo_episode.setCurrentIndex(combo_index)
+            self.combo_episode.blockSignals(False)
+
         self._sync_main_episode_selection()
         self.build_prompter_content()
+        if hasattr(self, 'float_window') and self.float_window:
+            self.float_window.sync_episode_combo()
 
     def _sync_main_episode_selection(self) -> None:
         """Synchronize main episode selection."""
@@ -1091,7 +1100,14 @@ class TeleprompterWindow(QDialog):
             
             row_y = y_cursor
             
-            item_char = QGraphicsTextItem(replica['char'])
+            if replica.get('_working_text'):
+                editable_ids = [replica.get('id', i)]
+            else:
+                editable_ids = replica.get('source_ids', [replica.get('id', i)])
+
+            item_char = EditableCharacterItem(
+                replica['char'], self, editable_ids
+            )
             item_char.setFont(f_char)
             item_char.setDefaultTextColor(char_col)
             item_char.setPos(0, row_y)
@@ -1121,10 +1137,6 @@ class TeleprompterWindow(QDialog):
             
             y_cursor += item_char.boundingRect().height()
             
-            if replica.get('_working_text'):
-                editable_ids = [replica.get('id', i)]
-            else:
-                editable_ids = replica.get('source_ids', [replica.get('id', i)])
             item_text = EditableTextItem(
                 replica.get('text', ''), self, editable_ids
             )
@@ -1153,6 +1165,7 @@ class TeleprompterWindow(QDialog):
         self.update_view_position_by_time(self.last_known_time)
         
         if hasattr(self, 'float_window') and self.float_window:
+            self.float_window.sync_episode_combo()
             self.float_window.sync_replica_list()
     
     def update_timecode_display(self, time_seconds: float) -> None:
@@ -1456,6 +1469,130 @@ class TeleprompterWindow(QDialog):
     def _split_merged_text(self, text: str, ids: List[int]) -> List[str]:
         """Split merged text."""
         return self.navigation_service.split_merged_text(text, ids)
+
+    def get_project_character_names(self) -> List[str]:
+        """Return all known project character names for autocompletion."""
+        names: Set[str] = set()
+
+        for char_name in self.main_app.data.get("global_map", {}).keys():
+            if char_name:
+                names.add(str(char_name))
+
+        episode_maps = self.main_app.data.get("episode_actor_map", {})
+        if isinstance(episode_maps, dict):
+            for episode_map in episode_maps.values():
+                if not isinstance(episode_map, dict):
+                    continue
+                for char_name in episode_map.keys():
+                    if char_name:
+                        names.add(str(char_name))
+
+        for lines in self.main_app.data.get("loaded_episodes", {}).values():
+            if not isinstance(lines, list):
+                continue
+            for line in lines:
+                char_name = line.get("char") if isinstance(line, dict) else None
+                if char_name:
+                    names.add(str(char_name))
+
+        for ep_num in self.main_app.data.get("episodes", {}).keys():
+            try:
+                for line in self.main_app.get_episode_lines(str(ep_num)):
+                    char_name = line.get("char")
+                    if char_name:
+                        names.add(str(char_name))
+            except Exception as e:
+                logger.debug(
+                    "Could not collect characters for episode %s: %s",
+                    ep_num,
+                    e
+                )
+
+        return sorted(names, key=str.lower)
+
+    def handle_character_edited(self, line_id: Any, new_character: str) -> None:
+        """Handle character edited."""
+        new_character = new_character.strip()
+        if not new_character:
+            return
+
+        if (
+            hasattr(self.main_app, "ensure_working_text_for_episode") and
+            not self.main_app.ensure_working_text_for_episode(
+                str(self.ep_num),
+                "изменить персонажа реплики"
+            )
+        ):
+            return
+
+        ids = []
+        if isinstance(line_id, (list, tuple)):
+            ids = [x for x in line_id]
+        else:
+            ids = [line_id]
+
+        loaded = self.main_app.data.setdefault('loaded_episodes', {})
+        ep_key = (
+            self.ep_num if self.ep_num in loaded
+            else str(self.ep_num) if str(self.ep_num) in loaded
+            else None
+        )
+
+        try:
+            if ep_key is not None:
+                lines = loaded[ep_key]
+            else:
+                lines = self.main_app.get_episode_lines(self.ep_num)
+        except Exception:
+            lines = self.main_app.get_episode_lines(self.ep_num)
+
+        def find_line(lid: Any):
+            lid_str = str(lid)
+            for idx, line in enumerate(lines):
+                if str(line.get('id')) == lid_str:
+                    return line
+                try:
+                    if int(lid) == idx:
+                        return line
+                except (TypeError, ValueError):
+                    pass
+            return None
+
+        updated_any = False
+        for sid in ids:
+            target = find_line(sid)
+            if target and target.get('char') != new_character:
+                target['char'] = new_character
+                updated_any = True
+
+        if updated_any:
+            try:
+                script_text_service = ScriptTextService()
+                for sid in ids:
+                    script_text_service.update_line_character(
+                        self.main_app.data,
+                        str(self.ep_num),
+                        sid,
+                        new_character
+                    )
+            except Exception as e:
+                logger.warning(f"Error saving working text character: {e}")
+
+            try:
+                self.main_app.data['loaded_episodes'][str(self.ep_num)] = lines
+            except Exception:
+                pass
+
+            self._has_text_changes = True
+            try:
+                self.main_app.set_dirty(True)
+            except Exception:
+                pass
+
+            try:
+                self.build_prompter_content()
+            except Exception as e:
+                log_exception(logger, "Error rebuilding content", e)
     
     def handle_text_edited(self, line_id: Any, new_text: str) -> None:
         """Handle text edited."""
@@ -1587,6 +1724,76 @@ class TeleprompterWindow(QDialog):
                 self.build_prompter_content()
             except Exception as e:
                 log_exception(logger, "Error rebuilding content", e)
+
+    def handle_text_split_to_character(
+        self,
+        line_id: Any,
+        remaining_text: str,
+        split_text: str,
+        split_character: str
+    ) -> None:
+        """Split selected text into a new character replica."""
+        split_text = split_text.strip()
+        split_character = split_character.strip()
+        if not split_text or not split_character:
+            return
+
+        if (
+            hasattr(self.main_app, "ensure_working_text_for_episode") and
+            not self.main_app.ensure_working_text_for_episode(
+                str(self.ep_num),
+                "перенести часть реплики другому персонажу"
+            )
+        ):
+            return
+
+        if isinstance(line_id, (list, tuple)):
+            if len(line_id) != 1:
+                return
+            target_id = line_id[0]
+        else:
+            target_id = line_id
+
+        script_text_service = ScriptTextService()
+        try:
+            updated = script_text_service.split_line_to_character(
+                self.main_app.data,
+                str(self.ep_num),
+                target_id,
+                remaining_text,
+                split_text,
+                split_character
+            )
+        except Exception as e:
+            logger.warning(f"Error splitting working text: {e}")
+            return
+
+        if not updated:
+            return
+
+        try:
+            lines = script_text_service.load_episode_lines(
+                self.main_app.data,
+                str(self.ep_num)
+            )
+            if lines:
+                self.main_app.data.setdefault(
+                    'loaded_episodes',
+                    {}
+                )[str(self.ep_num)] = lines
+        except Exception as e:
+            logger.warning(f"Error reloading split working text: {e}")
+
+        self._has_text_changes = True
+        try:
+            self.main_app.set_dirty(True)
+        except Exception:
+            pass
+
+        try:
+            self.build_prompter_content()
+        except Exception as e:
+            log_exception(logger, "Error rebuilding content", e)
 
     def refresh_episode_data(self) -> None:
         """Refresh episode data."""

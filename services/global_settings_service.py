@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from config.constants import (
+    DEFAULT_AUDIOBOOK_CONFIG,
     DEFAULT_GLOBAL_SETTINGS,
     DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
@@ -90,6 +91,10 @@ class GlobalSettingsService:
                     )
                 )
 
+            settings['audiobook_config'] = self._normalize_audiobook_config(
+                loaded.get('audiobook_config', DEFAULT_AUDIOBOOK_CONFIG)
+            )
+
             settings['project_summary_export_metric'] = (
                 self._normalize_project_summary_export_metric(
                     loaded.get('project_summary_export_metric')
@@ -133,6 +138,9 @@ class GlobalSettingsService:
                         settings.get('prompter_color_presets', [])
                     )
                 ),
+                'audiobook_config': self._normalize_audiobook_config(
+                    settings.get('audiobook_config', DEFAULT_AUDIOBOOK_CONFIG)
+                ),
                 'project_summary_export_metric': (
                     self._normalize_project_summary_export_metric(
                         settings.get('project_summary_export_metric')
@@ -174,6 +182,7 @@ class GlobalSettingsService:
             'default_export_config': deepcopy(DEFAULT_EXPORT_CONFIG),
             'default_prompter_config': deepcopy(DEFAULT_PROMPTER_CONFIG),
             'prompter_color_presets': [None, None, None, None],
+            'audiobook_config': deepcopy(DEFAULT_AUDIOBOOK_CONFIG),
             'project_summary_export_metric': DEFAULT_PROJECT_SUMMARY_EXPORT_METRIC,
             'language': DEFAULT_GLOBAL_SETTINGS.get('language', DEFAULT_LANGUAGE),
         }
@@ -261,6 +270,15 @@ class GlobalSettingsService:
         return self.settings.get(
             'docx_import_config',
             deepcopy(DEFAULT_DOCX_IMPORT_CONFIG)
+        )
+
+    def get_audiobook_config(self) -> Dict[str, Any]:
+        """Return global audiobook import settings."""
+        return self._normalize_audiobook_config(
+            self.get_settings().get(
+                'audiobook_config',
+                DEFAULT_AUDIOBOOK_CONFIG,
+            )
         )
 
     def update_export_config(self, config: Dict[str, Any]) -> None:
@@ -551,6 +569,25 @@ class GlobalSettingsService:
         for index, colors in enumerate(presets[:4]):
             result[index] = self._normalize_prompter_colors(colors)
         return result
+
+    def _normalize_audiobook_config(self, config: Any) -> Dict[str, Any]:
+        """Return sanitized global audiobook import settings."""
+        if not isinstance(config, dict) or "chapter_keywords" not in config:
+            return deepcopy(DEFAULT_AUDIOBOOK_CONFIG)
+
+        keywords = config.get("chapter_keywords")
+        if not isinstance(keywords, list):
+            return deepcopy(DEFAULT_AUDIOBOOK_CONFIG)
+
+        normalized: List[str] = []
+        seen = set()
+        for keyword in keywords:
+            value = " ".join(str(keyword).split())
+            folded = value.casefold()
+            if value and folded not in seen:
+                seen.add(folded)
+                normalized.append(value)
+        return {"chapter_keywords": normalized}
 
     def _normalize_project_summary_export_metric(self, metric: Any) -> str:
         """Return a supported project summary spreadsheet metric."""

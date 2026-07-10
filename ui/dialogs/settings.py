@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMessageBox,
     QPushButton,
     QSpinBox,
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from config.constants import (
+    DEFAULT_AUDIOBOOK_CONFIG,
     DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
     DEFAULT_PROMPTER_CONFIG,
@@ -84,6 +86,7 @@ class SettingsDialog(QDialog):
         self.docx_config = deepcopy(
             project_data.get("docx_import_config", DEFAULT_DOCX_IMPORT_CONFIG)
         )
+        self.audiobook_config = self._load_initial_audiobook_config()
         self.language = "ru"
         if parent is not None and hasattr(parent, "global_settings"):
             self.language = parent.global_settings.get("language", "ru")
@@ -128,6 +131,20 @@ class SettingsDialog(QDialog):
             project_data.get("prompter_config", DEFAULT_PROMPTER_CONFIG)
         )
 
+    def _load_initial_audiobook_config(self) -> Dict[str, Any]:
+        if (
+            self.main_window is not None
+            and hasattr(self.main_window, "global_settings_service")
+            and hasattr(
+                self.main_window.global_settings_service,
+                "get_audiobook_config",
+            )
+        ):
+            return deepcopy(
+                self.main_window.global_settings_service.get_audiobook_config()
+            )
+        return deepcopy(DEFAULT_AUDIOBOOK_CONFIG)
+
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
 
@@ -162,6 +179,11 @@ class SettingsDialog(QDialog):
                 "Актёры",
             )
             self._add_tab("interface", self._build_interface_tab(), tr("settings.interface"))
+            self._add_tab(
+                "audiobooks",
+                self._build_audiobook_tab(),
+                "Аудиокниги",
+            )
         layout.addWidget(self.tabs)
         self._select_initial_tab()
 
@@ -560,6 +582,71 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return tab
 
+    def _build_audiobook_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        note = QLabel(
+            "При импорте PDF строка считается началом новой главы, если "
+            "начинается с одного из этих ключевых слов."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #666;")
+        layout.addWidget(note)
+
+        self.audiobook_keywords = QListWidget()
+        for keyword in self.audiobook_config.get("chapter_keywords", []):
+            keyword = str(keyword).strip()
+            if keyword:
+                self.audiobook_keywords.addItem(keyword)
+        layout.addWidget(self.audiobook_keywords, stretch=1)
+
+        add_row = QHBoxLayout()
+        self.audiobook_keyword_edit = QLineEdit()
+        self.audiobook_keyword_edit.setPlaceholderText(
+            "Например: Часть, Книга"
+        )
+        self.audiobook_keyword_edit.returnPressed.connect(
+            self._add_audiobook_keyword
+        )
+        add_row.addWidget(self.audiobook_keyword_edit, stretch=1)
+        add_button = QPushButton("Добавить")
+        add_button.clicked.connect(self._add_audiobook_keyword)
+        add_row.addWidget(add_button)
+        layout.addLayout(add_row)
+
+        remove_button = QPushButton("Удалить выбранные")
+        remove_button.clicked.connect(self._remove_audiobook_keywords)
+        layout.addWidget(remove_button)
+        return tab
+
+    def _add_audiobook_keyword(self) -> None:
+        keyword = self.audiobook_keyword_edit.text().strip()
+        if not keyword:
+            return
+        existing = {
+            self.audiobook_keywords.item(index).text().casefold()
+            for index in range(self.audiobook_keywords.count())
+        }
+        if keyword.casefold() not in existing:
+            self.audiobook_keywords.addItem(keyword)
+        self.audiobook_keyword_edit.clear()
+
+    def _remove_audiobook_keywords(self) -> None:
+        for item in self.audiobook_keywords.selectedItems():
+            self.audiobook_keywords.takeItem(
+                self.audiobook_keywords.row(item)
+            )
+
+    def _current_audiobook_config(self) -> Dict[str, Any]:
+        return {
+            "chapter_keywords": [
+                self.audiobook_keywords.item(index).text().strip()
+                for index in range(self.audiobook_keywords.count())
+                if self.audiobook_keywords.item(index).text().strip()
+            ],
+        }
+
     def _build_merge_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -857,6 +944,11 @@ class SettingsDialog(QDialog):
         self.project_name_edit = QLineEdit(
             self.project_data.get("project_name", "")
         )
+        self.project_kind_label = QLabel(
+            self._project_kind_display_name(
+                self.project_data.get("project_kind", "subtitle")
+            )
+        )
         self.project_created_by_edit = QLineEdit(
             metadata.get("created_by", "")
         )
@@ -864,6 +956,7 @@ class SettingsDialog(QDialog):
             metadata.get("studio", "")
         )
         details_form.addRow("Название проекта:", self.project_name_edit)
+        details_form.addRow("Тип проекта:", self.project_kind_label)
         details_form.addRow("Автор проекта:", self.project_created_by_edit)
         details_form.addRow("Студия:", self.project_studio_edit)
         details_form.addRow(self._hint(
@@ -896,6 +989,11 @@ class SettingsDialog(QDialog):
         self._refresh_project_info()
         layout.addStretch()
         return tab
+
+    def _project_kind_display_name(self, kind: Any) -> str:
+        if kind == "audiobook":
+            return "Аудиокнига / аудиосериал"
+        return "Субтитры / видео"
 
     def _build_series_files_tab(self) -> QWidget:
         tab = QWidget()
@@ -952,7 +1050,7 @@ class SettingsDialog(QDialog):
             self.project_data.get("project_folder") or
             translate_source("не задана")
         )
-        texts_count = len(self.project_data.get("episode_texts", {}))
+        texts_count = len(self.project_data.get("episode_working_texts", {}))
         episodes_count = len(self.project_data.get("episodes", {}))
         self.project_info_label.setText(
             f"{translate_source('Папка проекта:')} {project_folder}\n"
@@ -1695,6 +1793,7 @@ class SettingsDialog(QDialog):
                 "language": self.language_combo.currentData(),
                 "default_export_config": self._current_export_config(),
                 "default_prompter_config": self._current_prompter_config(),
+                "audiobook_config": self._current_audiobook_config(),
             }
 
         export_config = self._current_export_config()

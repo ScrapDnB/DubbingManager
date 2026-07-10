@@ -46,6 +46,21 @@ Compress-Archive -Path "dist\Dubbing Manager" -DestinationPath "Dubbing_Manager_
 
 Windows собирается в формате `onedir`, а не `onefile`, чтобы запуск был быстрее и надёжнее для PySide6/Qt.
 
+В Windows ZIP также кладётся скрипт:
+
+```powershell
+Register_DUB_File_Association.ps1
+```
+
+Его можно один раз запустить из распакованной папки приложения, чтобы
+зарегистрировать `.dub` за `Dubbing Manager.exe` для текущего пользователя.
+После этого двойной клик по `.dub` будет открывать проект. Для удаления
+ассоциации:
+
+```powershell
+.\Register_DUB_File_Association.ps1 -Unregister
+```
+
 ## Публикация релиза
 
 ```bash

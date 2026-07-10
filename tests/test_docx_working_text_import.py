@@ -59,9 +59,8 @@ def test_docx_import_creates_working_text(tmp_path, monkeypatch):
 
     window.import_docx_with_dialog(docx_path)
 
-    text_path = Path(window.data["episode_texts"]["1"])
-    assert text_path.exists()
-    assert text_path.parent.name == "project_texts_dm"
+    assert window.data["episode_texts"] == {}
+    assert window.data["episode_working_texts"]["1"]["lines"][0]["text"] == "Hello docx"
     assert window.data["episodes"]["1"] == docx_path
     assert window.data["loaded_episodes"]["1"][0]["_working_text"] is True
     assert window.get_episode_lines("1")[0]["text"] == "Hello docx"
@@ -97,7 +96,6 @@ def test_docx_working_text_is_created_without_merging_replicas(tmp_path):
 
     window._create_working_text_for_episode("1", docx_path, lines)
 
-    text_path = Path(window.data["episode_texts"]["1"])
-    payload = json.loads(text_path.read_text(encoding="utf-8"))
+    payload = window.data["episode_working_texts"]["1"]
     assert len(payload["lines"]) == 2
     assert payload["merge_config"]["merge"] is False

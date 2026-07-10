@@ -601,6 +601,78 @@ class ExportService(ExportLayoutMixin):
         """Save an RPP file with an encoding Reaper reads reliably."""
         self.reaper_rpp_service.save(save_path, rpp_content)
 
+    def save_reaper_marker_csv(
+        self,
+        save_path: str,
+        ep: str,
+        lines: List[Dict[str, Any]]
+    ) -> None:
+        """Save Reaper marker data as CSV."""
+        self.reaper_rpp_service.save_marker_csv(save_path, ep, lines)
+
+    def get_reaper_marker_lines(
+        self,
+        ep: str,
+        lines: List[Dict[str, Any]],
+        merge_cfg: Optional[Dict[str, Any]] = None,
+        marker_mode: str = "merged"
+    ) -> List[Dict[str, Any]]:
+        """Return lines used for Reaper regions/markers."""
+        if marker_mode == "source":
+            source_lines = (
+                self._get_project_source_lines(ep)
+                if self.has_reaper_source_markers(ep)
+                else []
+            )
+            if source_lines:
+                return source_lines
+        if merge_cfg is None:
+            merge_cfg = self.project_data.get("replica_merge_config", {})
+        return self.process_merge_logic(lines, merge_cfg)
+
+    def has_reaper_source_markers(self, ep: str) -> bool:
+        """Return whether exact source-line Reaper markers are available."""
+        payload = self.project_data.get("episode_working_texts", {}).get(str(ep))
+        if not isinstance(payload, dict):
+            return False
+        source_lines = payload.get("source_lines")
+        if not isinstance(source_lines, list) or not source_lines:
+            return False
+        if payload.get("source_lines_origin") == "reconstructed":
+            return False
+
+        source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+        source_type = str(source.get("type") or "").lower()
+        source_ass = payload.get("source_ass")
+        if source_type == "ass":
+            return bool(
+                isinstance(source_ass, dict) and
+                source_ass.get("raw_content")
+            )
+
+        return True
+
+    def _get_project_source_lines(self, ep: str) -> List[Dict[str, Any]]:
+        """Return embedded original source lines for an episode."""
+        payload = self.project_data.get("episode_working_texts", {}).get(str(ep))
+        if not isinstance(payload, dict):
+            return []
+        source_lines = payload.get("source_lines")
+        if not isinstance(source_lines, list):
+            return []
+        result = []
+        for idx, line in enumerate(source_lines):
+            char = line.get("char") or line.get("character", "")
+            result.append({
+                "id": line.get("id", idx),
+                "s": line.get("s", line.get("start", 0.0)),
+                "e": line.get("e", line.get("end", 0.0)),
+                "char": char,
+                "text": line.get("text", ""),
+                "s_raw": line.get("s_raw", ""),
+            })
+        return result
+
     def generate_reaper_rpp(
         self,
         ep: str,
@@ -609,9 +681,16 @@ class ExportService(ExportLayoutMixin):
         video_path: Optional[str] = None,
         use_video: bool = False,
         use_regions: bool = True,
-        transliterate_actor_names: bool = False
+        transliterate_actor_names: bool = False,
+        marker_mode: str = "merged"
     ) -> str:
         """Generate a Reaper RPP project from episode lines."""
+        marker_lines = self.get_reaper_marker_lines(
+            ep,
+            lines,
+            merge_cfg,
+            marker_mode
+        )
         return self.reaper_rpp_service.generate(
             ep,
             lines,
@@ -619,7 +698,8 @@ class ExportService(ExportLayoutMixin):
             video_path,
             use_video,
             use_regions,
-            transliterate_actor_names
+            transliterate_actor_names,
+            marker_lines
         )
 
     def get_reaper_rpp_preview(
@@ -630,9 +710,16 @@ class ExportService(ExportLayoutMixin):
         video_path: Optional[str] = None,
         use_video: bool = False,
         use_regions: bool = True,
-        transliterate_actor_names: bool = False
+        transliterate_actor_names: bool = False,
+        marker_mode: str = "merged"
     ) -> Dict[str, Any]:
         """Return a user-facing preview summary for RPP export."""
+        marker_lines = self.get_reaper_marker_lines(
+            ep,
+            lines,
+            merge_cfg,
+            marker_mode
+        )
         return self.reaper_rpp_service.preview(
             ep,
             lines,
@@ -640,7 +727,8 @@ class ExportService(ExportLayoutMixin):
             video_path,
             use_video,
             use_regions,
-            transliterate_actor_names
+            transliterate_actor_names,
+            marker_lines
         )
 
     # ==========================================================================

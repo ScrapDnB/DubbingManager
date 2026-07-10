@@ -6,6 +6,8 @@ from typing import List, Optional, Union
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QComboBox,
+    QCompleter,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -30,6 +32,9 @@ from config.constants import (
     FLOAT_BTN_WIDTH,
     FLOAT_BTN_Y_NEXT,
     FLOAT_BTN_Y_PREV,
+    FLOAT_EPISODE_COMBO_HEIGHT,
+    FLOAT_EPISODE_COMBO_Y,
+    FLOAT_EPISODE_LABEL_Y,
     FLOAT_LABEL_HEIGHT,
     FLOAT_LABEL_Y,
     FLOAT_MARGIN_X,
@@ -77,15 +82,30 @@ class SettingsSection(QFrame):
 class EditTextDialog(QDialog):
     """Edit Text Dialog dialog."""
     
-    def __init__(self, parent=None, initial_text: str = ""):
+    def __init__(
+        self,
+        parent=None,
+        initial_text: str = "",
+        can_split_character: bool = True
+    ):
         super().__init__(parent)
         self.setWindowTitle("Редактирование реплики")
         self.resize(EDIT_TEXT_DIALOG_WIDTH, EDIT_TEXT_DIALOG_HEIGHT)
+        self.split_character: Optional[str] = None
+        self.split_text: str = ""
+        self.remaining_text: str = ""
         
         layout = QVBoxLayout(self)
         self.text_edit = QTextEdit()
         self.text_edit.setPlainText(initial_text)
         layout.addWidget(self.text_edit)
+
+        self.btn_split_character = QPushButton(
+            "Перенести в другого персонажа"
+        )
+        self.btn_split_character.setEnabled(can_split_character)
+        self.btn_split_character.clicked.connect(self.split_selection_to_character)
+        layout.addWidget(self.btn_split_character)
         
         btn_box = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
@@ -93,6 +113,106 @@ class EditTextDialog(QDialog):
         btn_box.accepted.connect(self.accept)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
+
+    def split_selection_to_character(self) -> None:
+        """Move selected text into a new character replica."""
+        cursor = self.text_edit.textCursor()
+        selected_text = cursor.selectedText().replace("\u2029", "\n").strip()
+        if not selected_text:
+            return
+
+        character_names = []
+        if hasattr(self.parent(), "get_project_character_names"):
+            character_names = self.parent().get_project_character_names()
+
+        dialog = EditCharacterDialog(
+            self,
+            "",
+            character_names
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        character = dialog.selected_character()
+        if not character:
+            return
+
+        cursor.removeSelectedText()
+        self.split_character = character
+        self.split_text = selected_text
+        self.remaining_text = self.text_edit.toPlainText()
+        self.accept()
+
+
+class EditCharacterDialog(QDialog):
+    """Dialog for changing one teleprompter replica character."""
+
+    def __init__(
+        self,
+        parent=None,
+        initial_name: str = "",
+        character_names: Optional[List[str]] = None
+    ):
+        super().__init__(parent)
+        self.setWindowTitle("Изменение персонажа")
+        self.resize(360, 110)
+
+        layout = QVBoxLayout(self)
+        self.character_combo = QComboBox()
+        self.character_combo.setEditable(True)
+        self.character_combo.setInsertPolicy(QComboBox.NoInsert)
+        self.character_combo.addItems(character_names or [])
+        self.character_combo.setCurrentText(initial_name)
+
+        completer = QCompleter(character_names or [], self)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        self.character_combo.setCompleter(completer)
+        layout.addWidget(self.character_combo)
+
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    def selected_character(self) -> str:
+        """Return selected character name."""
+        return self.character_combo.currentText().strip()
+
+
+class EditableCharacterItem(QGraphicsTextItem):
+    """Graphics item that edits a replica character on double click."""
+
+    def __init__(
+        self,
+        text: str,
+        window: 'TeleprompterWindow',
+        line_id: Optional[Union[int, List[int]]] = None
+    ):
+        super().__init__(text)
+        self.window = window
+        self.line_id = line_id
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        try:
+            initial = self.toPlainText()
+            dialog = EditCharacterDialog(
+                self.window,
+                initial,
+                self.window.get_project_character_names()
+            )
+            if dialog.exec() == QDialog.Accepted:
+                new_name = dialog.selected_character()
+                if new_name and new_name != initial:
+                    self.window.handle_character_edited(
+                        self.line_id,
+                        new_name
+                    )
+        except Exception as e:
+            log_exception(logger, "Error editing character", e)
 
 
 class EditableTextItem(QGraphicsTextItem):
@@ -111,8 +231,27 @@ class EditableTextItem(QGraphicsTextItem):
     def mouseDoubleClickEvent(self, event) -> None:
         try:
             initial = self.toPlainText()
-            dialog = EditTextDialog(self.window, initial)
+            can_split_character = not isinstance(
+                self.line_id, (list, tuple)
+            ) or len(self.line_id) == 1
+            dialog = EditTextDialog(
+                self.window,
+                initial,
+                can_split_character=can_split_character
+            )
             if dialog.exec() == QDialog.Accepted:
+                if dialog.split_character:
+                    try:
+                        self.window.handle_text_split_to_character(
+                            self.line_id,
+                            dialog.remaining_text,
+                            dialog.split_text,
+                            dialog.split_character
+                        )
+                    except Exception as e:
+                        log_exception(logger, "Error splitting text", e)
+                    return
+
                 new_text = dialog.text_edit.toPlainText()
                 if new_text != initial:
                     try:
@@ -156,7 +295,7 @@ class TeleprompterFloatWindow(QDialog):
                 NSPanel, NSNonactivatingPanelMask, NSUtilityWindowMask,
                 NSFloatingWindowLevel, NSMakeRect, NSButton, NSSmallSquareBezelStyle,
                 NSFont, NSScrollView, NSTextView, NSNoBorder, NSView,
-                NSBezelBorder
+                NSBezelBorder, NSPopUpButton
             )
             import objc
             
@@ -193,8 +332,38 @@ class TeleprompterFloatWindow(QDialog):
             btn_prev.setTarget_(self)
             btn_prev.setAction_(objc.selector(self.onPrevClicked_, signature=b'v@:@'))
             content_view.addSubview_(btn_prev)
-            
+
             from AppKit import NSTextField, NSCenterTextAlignment
+            episode_label = NSTextField.alloc().initWithFrame_(
+                NSMakeRect(
+                    FLOAT_MARGIN_X,
+                    FLOAT_EPISODE_LABEL_Y,
+                    FLOAT_BTN_WIDTH,
+                    FLOAT_LABEL_HEIGHT
+                )
+            )
+            episode_label.setStringValue_(translate_source("Серия:"))
+            episode_label.setEditable_(False)
+            episode_label.setSelectable_(False)
+            episode_label.setBezeled_(False)
+            episode_label.setDrawsBackground_(False)
+            episode_label.setFont_(NSFont.boldSystemFontOfSize_(12))
+            episode_label.setAlignment_(NSCenterTextAlignment)
+            content_view.addSubview_(episode_label)
+
+            episode_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+                NSMakeRect(
+                    FLOAT_MARGIN_X,
+                    FLOAT_EPISODE_COMBO_Y,
+                    FLOAT_BTN_WIDTH,
+                    FLOAT_EPISODE_COMBO_HEIGHT
+                ),
+                False
+            )
+            episode_popup.setTarget_(self)
+            episode_popup.setAction_(objc.selector(self.onEpisodeSelected_, signature=b'v@:@'))
+            content_view.addSubview_(episode_popup)
+
             label = NSTextField.alloc().initWithFrame_(
                 NSMakeRect(FLOAT_MARGIN_X, FLOAT_LABEL_Y, FLOAT_BTN_WIDTH, FLOAT_LABEL_HEIGHT)
             )
@@ -240,6 +409,8 @@ class TeleprompterFloatWindow(QDialog):
             self._replica_text_view = text_view
             self._replica_scroll_view = scroll_view
             self._replica_items = []
+            self._episode_popup = episode_popup
+            self._cocoa_episode_items = []
 
             btn_hide = NSButton.alloc().initWithFrame_(
                 NSMakeRect(FLOAT_BTN_HIDE_X, FLOAT_BTN_HIDE_Y, FLOAT_BTN_HIDE_WIDTH, FLOAT_BTN_HIDE_HEIGHT)
@@ -255,6 +426,7 @@ class TeleprompterFloatWindow(QDialog):
 
             self._btn_prev = btn_prev
             self._btn_next = btn_next
+            self.sync_cocoa_episode_combo()
             
         except Exception as e:
             logger.debug(f"macOS Cocoa window init error: {e}")
@@ -312,6 +484,16 @@ class TeleprompterFloatWindow(QDialog):
 
         layout.addLayout(btn_layout)
 
+        episode_layout = QHBoxLayout()
+        episode_layout.addWidget(QLabel("Серия:"))
+        self.episode_combo = QComboBox()
+        self.episode_combo.setMinimumWidth(160)
+        self.episode_combo.currentIndexChanged.connect(
+            self.on_qt_episode_changed
+        )
+        episode_layout.addWidget(self.episode_combo, 1)
+        layout.addLayout(episode_layout)
+
         layout.addWidget(QLabel("<b>Список реплик:</b>"))
         self.replica_list = QListWidget()
         self.replica_list.itemClicked.connect(
@@ -324,6 +506,35 @@ class TeleprompterFloatWindow(QDialog):
         layout.addWidget(btn_close)
 
         self.sync_replica_list()
+        self.sync_episode_combo()
+
+    def _episode_items(self):
+        """Return episode items from the main teleprompter combo."""
+        combo = getattr(self.teleprompter, "combo_episode", None)
+        if not combo:
+            return []
+
+        items = []
+        for index in range(combo.count()):
+            text = combo.itemText(index)
+            data = combo.itemData(index)
+            items.append((text, str(data if data is not None else text)))
+        return items
+
+    def _current_episode_index(self, items) -> int:
+        """Return current episode index in a copied item list."""
+        current = str(getattr(self.teleprompter, "ep_num", ""))
+        for index, (_, data) in enumerate(items):
+            if str(data) == current:
+                return index
+        return -1
+
+    def _switch_to_episode(self, ep_num: str) -> None:
+        """Switch teleprompter episode from the floating window."""
+        if not self.teleprompter:
+            return
+        self.teleprompter.switch_episode(str(ep_num))
+        self.sync_episode_combo()
 
     def onPrevClicked_(self, sender) -> None:
         """Onprevclicked."""
@@ -335,6 +546,15 @@ class TeleprompterFloatWindow(QDialog):
         if self.teleprompter:
             self.teleprompter.navigate_to_replica_in_direction(1)
 
+    def onEpisodeSelected_(self, sender) -> None:
+        """Handle Cocoa episode selection."""
+        if not hasattr(self, "_cocoa_episode_items"):
+            return
+
+        index = sender.indexOfSelectedItem()
+        if 0 <= index < len(self._cocoa_episode_items):
+            self._switch_to_episode(self._cocoa_episode_items[index][1])
+
     def onHideClicked_(self, sender) -> None:
         """Onhideclicked."""
         if self._cocoa_window:
@@ -345,6 +565,7 @@ class TeleprompterFloatWindow(QDialog):
     def show_cocoa_window(self) -> None:
         """Show cocoa window."""
         if self._cocoa_window:
+            self.sync_cocoa_episode_combo()
             self.update_cocoa_replica_list()
             
             if hasattr(self, 'teleprompter') and self.teleprompter:
@@ -356,6 +577,21 @@ class TeleprompterFloatWindow(QDialog):
             
             self._cocoa_window.orderFrontRegardless()
             self._cocoa_window.makeKeyAndOrderFront_(None)
+
+    def sync_cocoa_episode_combo(self) -> None:
+        """Synchronize Cocoa episode popup."""
+        if not hasattr(self, "_episode_popup"):
+            return
+
+        items = self._episode_items()
+        self._cocoa_episode_items = items
+        self._episode_popup.removeAllItems()
+        for text, _ in items:
+            self._episode_popup.addItemWithTitle_(text)
+
+        current_index = self._current_episode_index(items)
+        if current_index >= 0:
+            self._episode_popup.selectItemAtIndex_(current_index)
 
     def hide_cocoa_window(self) -> None:
         """Hide cocoa window."""
@@ -483,6 +719,35 @@ class TeleprompterFloatWindow(QDialog):
                 self.replica_list.setCurrentRow(current_row)
             self.replica_list.blockSignals(False)
 
+    def sync_episode_combo(self) -> None:
+        """Synchronize episode combo."""
+        if platform.system() == "Darwin":
+            self.sync_cocoa_episode_combo()
+            return
+
+        if not hasattr(self, "episode_combo"):
+            return
+
+        items = self._episode_items()
+        self.episode_combo.blockSignals(True)
+        self.episode_combo.clear()
+        for text, data in items:
+            self.episode_combo.addItem(text, data)
+
+        current_index = self._current_episode_index(items)
+        if current_index >= 0:
+            self.episode_combo.setCurrentIndex(current_index)
+        self.episode_combo.blockSignals(False)
+
+    def on_qt_episode_changed(self, index: int) -> None:
+        """Handle Qt episode selection."""
+        if not hasattr(self, "episode_combo"):
+            return
+
+        ep_num = self.episode_combo.itemData(index)
+        if ep_num is not None:
+            self._switch_to_episode(str(ep_num))
+
     def update_selection(self, index: int) -> None:
         """Update selection."""
         if platform.system() == "Darwin":
@@ -521,5 +786,3 @@ class TeleprompterFloatWindow(QDialog):
             event.accept()
             return
         super().mouseReleaseEvent(event)
-
-

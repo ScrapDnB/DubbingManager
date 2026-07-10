@@ -96,6 +96,14 @@ class ProjectFilesDialog(QDialog):
         self.btn_create_all_texts.clicked.connect(self._create_all_missing_texts)
         btn_layout.addWidget(self.btn_create_all_texts)
 
+        self.btn_save_source_ass = QPushButton("💾 Сохранить исходный ASS...")
+        self.btn_save_source_ass.setToolTip(
+            "Сохранить исходный ASS из снимка, встроенного в проект"
+        )
+        self.btn_save_source_ass.clicked.connect(self._save_selected_source_ass)
+        self.btn_save_source_ass.setEnabled(False)
+        btn_layout.addWidget(self.btn_save_source_ass)
+
         self.btn_delete_episode = QPushButton("🗑 Удалить серию...")
         self.btn_delete_episode.setToolTip(
             "Удалить из проекта серию и все связанные с ней пути"
@@ -193,14 +201,16 @@ class ProjectFilesDialog(QDialog):
     def _get_working_text_status(
         self,
         ep_num: str,
-        text_path: Optional[str],
-        source_path: Optional[str]
+        has_working_text: bool,
+        source_path: Optional[str],
+        has_lost_legacy_text: bool = False,
+        is_embedded_text: bool = False
     ) -> Tuple[str, QColor]:
         """Return working text status."""
-        if text_path and self.folder_service.project_path_exists(self.data, text_path):
-            return translate_source("✓ Используется рабочий текст"), QColor("#28a745")
+        if has_working_text:
+            return translate_source("✓ Рабочий текст в проекте"), QColor("#28a745")
 
-        if text_path:
+        if has_lost_legacy_text:
             return translate_source("✗ Рабочий текст потерян"), QColor("#dc3545")
 
         if source_path and self.folder_service.project_path_exists(self.data, source_path):
@@ -214,14 +224,18 @@ class ProjectFilesDialog(QDialog):
     def _get_episode_text_source_status(
         self,
         ep_num: str,
-        text_path: Optional[str],
-        source_path: Optional[str]
+        has_working_text: bool,
+        source_path: Optional[str],
+        has_lost_legacy_text: bool = False,
+        is_embedded_text: bool = False
     ) -> Tuple[str, QColor]:
         """Return episode text source status."""
-        if text_path and self.folder_service.project_path_exists(self.data, text_path):
+        if has_working_text:
+            if is_embedded_text:
+                return translate_source("Текст: в проекте"), QColor("#28a745")
             return translate_source("Текст: рабочий JSON"), QColor("#28a745")
 
-        if text_path:
+        if has_lost_legacy_text:
             return translate_source("Текст: рабочий JSON потерян"), QColor("#dc3545")
 
         if source_path and self.folder_service.project_path_exists(self.data, source_path):
@@ -237,13 +251,15 @@ class ProjectFilesDialog(QDialog):
         self.file_tree.clear()
         
         episodes = self.data.get("episodes", {})
-        episode_texts = self.data.get("episode_texts", {})
+        episode_texts = self.data.get("episode_working_texts", {})
+        legacy_episode_texts = self.data.get("episode_texts", {})
         video_paths = self.data.get("video_paths", {})
         project_folder = self.data.get("project_folder")
         
         all_ep_nums = sorted(
             set(episodes.keys()) |
             set(episode_texts.keys()) |
+            set(legacy_episode_texts.keys()) |
             set(video_paths.keys()),
             key=natural_sort_key
         )
@@ -261,11 +277,28 @@ class ProjectFilesDialog(QDialog):
             ep_item.setFont(0, QFont("", -1, QFont.Bold))
             ep_item.setData(0, Qt.UserRole, ("episode", ep_num))
             ass_path = episodes.get(ep_num)
-            text_path = episode_texts.get(ep_num)
+            text_payload = episode_texts.get(ep_num)
+            legacy_text_path = legacy_episode_texts.get(ep_num)
+            is_embedded_text = isinstance(text_payload, dict)
+            has_working_text = (
+                is_embedded_text or
+                bool(
+                    legacy_text_path and
+                    self.folder_service.project_path_exists(
+                        self.data,
+                        legacy_text_path
+                    )
+                )
+            )
+            has_lost_legacy_text = bool(
+                legacy_text_path and not has_working_text
+            )
             ep_status_text, ep_status_color = self._get_episode_text_source_status(
                 ep_num,
-                text_path,
-                ass_path
+                has_working_text,
+                ass_path,
+                has_lost_legacy_text,
+                is_embedded_text
             )
             ep_item.setText(2, ep_status_text)
             ep_item.setForeground(2, ep_status_color)
@@ -289,25 +322,27 @@ class ProjectFilesDialog(QDialog):
                 ep_item.addChild(source_item)
 
             # Working text
-            if text_path or ass_path:
+            if has_working_text or ass_path:
                 total_count += 1
                 status_text, status_color = self._get_working_text_status(
                     ep_num,
-                    text_path,
-                    ass_path
+                    has_working_text,
+                    ass_path,
+                    has_lost_legacy_text
                 )
 
-                if text_path and self.folder_service.project_path_exists(
-                    self.data,
-                    text_path
-                ):
+                if has_working_text:
                     found_count += 1
 
                 text_item = QTreeWidgetItem([
                     "",
                     translate_source("📝 Рабочий текст"),
                     status_text,
-                    text_path or ""
+                    (
+                        translate_source("Хранится в проекте")
+                        if isinstance(text_payload, dict)
+                        else legacy_text_path or ""
+                    )
                 ])
                 text_item.setForeground(2, status_color)
                 text_item.setData(3, Qt.UserRole, ("text", ep_num))
@@ -394,11 +429,10 @@ class ProjectFilesDialog(QDialog):
     def _missing_source_episodes(self) -> List[str]:
         """Return episodes that can generate a missing working text."""
         episodes = self.data.get("episodes", {})
-        episode_texts = self.data.get("episode_texts", {})
+        episode_texts = self.data.get("episode_working_texts", {})
         result = []
         for ep_num in sorted(episodes.keys(), key=natural_sort_key):
-            text_path = episode_texts.get(str(ep_num))
-            if text_path and self.folder_service.project_path_exists(self.data, text_path):
+            if isinstance(episode_texts.get(str(ep_num)), dict):
                 continue
             source_path = episodes.get(ep_num)
             if (
@@ -424,10 +458,14 @@ class ProjectFilesDialog(QDialog):
             self.btn_delete_episode.setEnabled(
                 self._episode_from_item(item) is not None
             )
+            self.btn_save_source_ass.setEnabled(
+                self._has_source_ass_for_item(item)
+            )
         else:
             self.btn_relink.setEnabled(False)
             self.btn_regenerate_text.setEnabled(False)
             self.btn_delete_episode.setEnabled(False)
+            self.btn_save_source_ass.setEnabled(False)
 
     def _episode_from_item(self, item: Optional[QTreeWidgetItem]) -> Optional[str]:
         """Return the episode number represented by a tree item."""
@@ -438,6 +476,33 @@ class ProjectFilesDialog(QDialog):
                     return str(file_data[1])
             item = item.parent()
         return None
+
+    def _has_source_ass_for_item(self, item: Optional[QTreeWidgetItem]) -> bool:
+        """Return whether the selected episode has an original ASS snapshot."""
+        ep_num = self._episode_from_item(item)
+        if not ep_num:
+            return False
+        payload = self.data.get("episode_working_texts", {}).get(str(ep_num))
+        source_ass = payload.get("source_ass") if isinstance(payload, dict) else None
+        return bool(isinstance(source_ass, dict) and source_ass.get("raw_content"))
+
+    def _save_selected_source_ass(self) -> None:
+        """Save the selected episode's original ASS through the parent window."""
+        selected_items = self.file_tree.selectedItems()
+        if not selected_items:
+            return
+
+        ep_num = self._episode_from_item(selected_items[0])
+        parent = self.parent()
+        if not ep_num or not parent or not hasattr(parent, "save_episode_to_ass"):
+            QMessageBox.warning(
+                self,
+                translate_source("Ошибка"),
+                translate_source("Не удалось сохранить исходный ASS из этого окна.")
+            )
+            return
+
+        parent.save_episode_to_ass(str(ep_num))
 
     def _relink_selected(self) -> None:
         """Relink selected."""
@@ -463,9 +528,7 @@ class ProjectFilesDialog(QDialog):
                 file_filter = "Supported Text Sources (*.ass *.srt *.docx);;Subtitle Files (*.ass *.srt);;DOCX Files (*.docx);;All Files (*)"
                 title = translate_source("Выберите исходный файл серии")
         elif file_type == "text":
-            current_path = self.data.get("episode_texts", {}).get(ep_num)
-            file_filter = "Episode Text Files (*.json)"
-            title = translate_source("Выберите рабочий текст эпизода")
+            return
         else:
             current_path = self.data.get("video_paths", {}).get(ep_num)
             file_filter = "Video Files (*.mp4 *.mkv *.avi *.mov *.m4v *.wmv)"
@@ -482,10 +545,6 @@ class ProjectFilesDialog(QDialog):
         if path:
             if file_type == "ass":
                 self.data["episodes"][ep_num] = path
-            elif file_type == "text":
-                if "episode_texts" not in self.data:
-                    self.data["episode_texts"] = {}
-                self.data["episode_texts"][ep_num] = path
             else:
                 if "video_paths" not in self.data:
                     self.data["video_paths"] = {}
@@ -559,7 +618,7 @@ class ProjectFilesDialog(QDialog):
             translate_source("Удалить серию"),
             translate_source(
                 "Удалить серию {episode} из проекта?\n\n"
-                "Будут удалены ссылки на исходник, рабочий JSON, видео и "
+                "Будут удалены ссылки на исходник, рабочий текст, видео и "
                 "серийные назначения. Файлы на диске останутся."
             ).format(episode=ep_num),
             QMessageBox.Yes | QMessageBox.No,
@@ -568,13 +627,17 @@ class ProjectFilesDialog(QDialog):
         if reply != QMessageBox.Yes:
             return
 
+        text_map = self.data.setdefault("episode_working_texts", {})
+        if ep_num in self.data.get("episode_texts", {}):
+            text_map = self.data.setdefault("episode_texts", {})
+
         command = DeleteEpisodeCommand(
             self.data.setdefault("episodes", {}),
             self.data.setdefault("video_paths", {}),
             self.data.setdefault("loaded_episodes", {}),
             ep_num,
             self.data.setdefault("episode_actor_map", {}),
-            self.data.setdefault("episode_texts", {})
+            text_map
         )
 
         parent = self.parent()

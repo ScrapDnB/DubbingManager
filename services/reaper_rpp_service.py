@@ -1,5 +1,6 @@
 """Service for generating Reaper RPP project files."""
 
+import csv
 from typing import Any, Dict, List, Optional, Set
 
 from services.assignment_service import get_actor_for_character
@@ -80,6 +81,42 @@ class ReaperRppService:
         with open(save_path, 'w', encoding='utf-8-sig') as f:
             f.write(rpp_content)
 
+    def save_marker_csv(
+        self,
+        save_path: str,
+        ep: str,
+        lines: List[Dict[str, Any]]
+    ) -> None:
+        """Save Reaper marker data as CSV."""
+        actors = self.project_data.get("actors", {})
+        with open(save_path, "w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Number",
+                "Start",
+                "End",
+                "Name",
+                "Character",
+                "Actor",
+                "Text",
+                "Color",
+            ])
+            for idx, line in enumerate(lines, 1):
+                char = line.get("char", "")
+                text = line.get("text", "")
+                actor_id = get_actor_for_character(self.project_data, char, ep)
+                actor = actors.get(actor_id, {}) if actor_id else {}
+                writer.writerow([
+                    idx,
+                    f"{float(line.get('s', 0.0)):.4f}",
+                    f"{float(line.get('e', 0.0)):.4f}",
+                    f"{char}: {text}".strip(),
+                    char,
+                    actor.get("name", ""),
+                    text,
+                    actor.get("color", ""),
+                ])
+
     def generate(
         self,
         ep: str,
@@ -88,17 +125,19 @@ class ReaperRppService:
         video_path: Optional[str] = None,
         use_video: bool = False,
         use_regions: bool = True,
-        transliterate_actor_names: bool = False
+        transliterate_actor_names: bool = False,
+        marker_lines: Optional[List[Dict[str, Any]]] = None
     ) -> str:
         """Generate a Reaper RPP project from episode lines."""
         if merge_cfg is None:
             merge_cfg = self.project_data.get("replica_merge_config", {})
 
         processed_lines = self.replica_merge_service.process(lines, merge_cfg)
+        region_lines = marker_lines if marker_lines is not None else processed_lines
         actors = self.project_data.get("actors", {})
 
         active_actor_ids: Set[str] = set()
-        for line in processed_lines:
+        for line in region_lines:
             actor_id = get_actor_for_character(
                 self.project_data,
                 line.get('char', ''),
@@ -108,14 +147,17 @@ class ReaperRppService:
                 active_actor_ids.add(actor_id)
 
         max_time = 600.0
-        if processed_lines:
-            max_time = max(float(line.get('e', 0.0)) for line in processed_lines)
+        timed_lines = processed_lines + [
+            line for line in region_lines if line not in processed_lines
+        ]
+        if timed_lines:
+            max_time = max(float(line.get('e', 0.0)) for line in timed_lines)
             max_time += 600.0
 
         rpp = ['<REAPER_PROJECT 0.1 "7.0"']
 
         if use_regions:
-            for i, line in enumerate(processed_lines):
+            for i, line in enumerate(region_lines):
                 start = float(line.get('s', 0.0))
                 end = float(line.get('e', 0.0))
 
@@ -184,20 +226,22 @@ class ReaperRppService:
         video_path: Optional[str] = None,
         use_video: bool = False,
         use_regions: bool = True,
-        transliterate_actor_names: bool = False
+        transliterate_actor_names: bool = False,
+        marker_lines: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """Return a user-facing preview summary for RPP export."""
         if merge_cfg is None:
             merge_cfg = self.project_data.get("replica_merge_config", {})
 
         processed_lines = self.replica_merge_service.process(lines, merge_cfg)
+        region_lines = marker_lines if marker_lines is not None else processed_lines
         actors = self.project_data.get("actors", {})
 
         active_actor_ids: Set[str] = set()
         invalid_lines = 0
         sample_regions: List[str] = []
 
-        for line in processed_lines:
+        for line in region_lines:
             start = float(line.get('s', 0.0))
             end = float(line.get('e', 0.0))
             if end <= start:
@@ -224,7 +268,7 @@ class ReaperRppService:
         )
 
         return {
-            "regions": len(processed_lines) if use_regions else 0,
+            "regions": len(region_lines) if use_regions else 0,
             "tracks": len(active_actor_ids),
             "actors": active_actor_names,
             "video": bool(use_video and video_path),

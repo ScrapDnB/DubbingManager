@@ -255,6 +255,7 @@ class TestProjectFilesDialog:
         assert not dialog.btn_relink.isEnabled()
         assert not dialog.btn_regenerate_text.isEnabled()
         assert not dialog.btn_delete_episode.isEnabled()
+        assert not dialog.btn_save_source_ass.isEnabled()
 
     def test_regenerate_button_enabled_for_text_item(self, app, test_data):
         """Кнопка пересоздания активна для рабочего текста"""
@@ -272,6 +273,50 @@ class TestProjectFilesDialog:
         dialog.file_tree.setCurrentItem(text_item)
 
         assert dialog.btn_regenerate_text.isEnabled()
+
+    def test_save_source_ass_button_enabled_for_episode_with_snapshot(self, app, test_data):
+        """Кнопка сохранения исходного ASS активна для серии со снимком."""
+        data, _ = test_data
+        data["episode_working_texts"] = {
+            "1": {
+                "source_ass": {"raw_content": "ass"},
+                "lines": [],
+            }
+        }
+        dialog = ProjectFilesDialog(data)
+
+        root_item = dialog.file_tree.topLevelItem(0)
+        dialog.file_tree.setCurrentItem(root_item)
+
+        assert dialog.btn_save_source_ass.isEnabled()
+
+    def test_save_source_ass_button_calls_parent_for_selected_episode(self, app, test_data):
+        """Сохранение исходного ASS вызывается для выбранной серии."""
+        data, _ = test_data
+        data["episode_working_texts"] = {
+            "1": {
+                "source_ass": {"raw_content": "ass"},
+                "lines": [],
+            }
+        }
+
+        class Parent(QWidget):
+            def __init__(self):
+                super().__init__()
+                self.calls = []
+
+            def save_episode_to_ass(self, ep_num):
+                self.calls.append(ep_num)
+                return True
+
+        parent = Parent()
+        dialog = ProjectFilesDialog(data, parent)
+
+        root_item = dialog.file_tree.topLevelItem(0)
+        dialog.file_tree.setCurrentItem(root_item)
+        dialog._save_selected_source_ass()
+
+        assert parent.calls == ["1"]
 
     def test_regenerate_text_asks_for_missing_text_source(self, app, test_data, monkeypatch):
         """Пересоздание предлагает выбрать исходник, если он потерян"""
