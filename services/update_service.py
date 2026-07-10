@@ -10,7 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
-import requests
+try:
+    import requests
+except ImportError:
+    requests = None
 
 
 DEFAULT_RELEASES_API_URL = (
@@ -56,6 +59,8 @@ class UpdateService:
 
     def check_for_updates(self, current_version: str) -> UpdateInfo:
         """Return update information from the latest GitHub release."""
+        if requests is None:
+            raise ImportError("requests not available")
         response = requests.get(
             self.api_url,
             timeout=self.timeout,
@@ -111,6 +116,8 @@ class UpdateService:
         progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> str:
         """Download a release asset and return the local path."""
+        if requests is None:
+            raise ImportError("requests not available")
         target_dir = Path(destination_dir or tempfile.gettempdir())
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / asset.name

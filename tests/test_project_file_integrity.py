@@ -33,12 +33,17 @@ class TestProjectFileStructure:
         # Проверка обязательных полей
         assert "metadata" in data
         assert "project_name" in data
+        assert "project_kind" in data
         assert "actors" in data
         assert "global_map" in data
         assert "episodes" in data
         assert "video_paths" in data
         assert "episode_texts" in data
+        assert "episode_working_texts" in data
         assert "episode_actor_map" in data
+        assert "book_chapters" in data
+        assert "audiobook_source" in data
+        assert "audiobook_chapter_order" in data
         assert "export_config" in data
         assert "prompter_config" in data
         assert "replica_merge_config" in data
@@ -55,9 +60,14 @@ class TestProjectFileStructure:
         assert isinstance(data["actors"], dict)
         assert isinstance(data["global_map"], dict)
         assert isinstance(data["episodes"], dict)
+        assert data["project_kind"] == "subtitle"
         assert isinstance(data["video_paths"], dict)
         assert isinstance(data["episode_texts"], dict)
+        assert isinstance(data["episode_working_texts"], dict)
         assert isinstance(data["episode_actor_map"], dict)
+        assert isinstance(data["book_chapters"], dict)
+        assert isinstance(data["audiobook_source"], dict)
+        assert isinstance(data["audiobook_chapter_order"], list)
         assert isinstance(data["docx_import_config"], dict)
 
     def test_create_new_project_deep_copies_default_configs(self):
@@ -87,7 +97,11 @@ class TestProjectFileStructure:
         data["global_map"]["Character1"] = "actor1"
         data["episodes"]["1"] = "/path/to/episode1.ass"
         data["video_paths"]["1"] = "/path/to/video1.mp4"
-        data["episode_texts"]["1"] = "/path/to/episode_1.json"
+        data["episode_working_texts"]["1"] = {
+            "format_version": "1.0",
+            "episode": "1",
+            "lines": [{"text": "Line", "character": "Character1"}],
+        }
         data["project_folder"] = self.test_dir
         
         # Сохраняем
@@ -105,7 +119,7 @@ class TestProjectFileStructure:
         assert loaded_data["global_map"]["Character1"] == "actor1"
         assert loaded_data["episodes"]["1"] == "/path/to/episode1.ass"
         assert loaded_data["video_paths"]["1"] == "/path/to/video1.mp4"
-        assert loaded_data["episode_texts"]["1"] == "/path/to/episode_1.json"
+        assert loaded_data["episode_working_texts"]["1"]["lines"][0]["text"] == "Line"
         assert loaded_data["project_folder"] == self.test_dir
 
     def test_json_valid_format(self):

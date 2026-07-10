@@ -1,7 +1,11 @@
 import json
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 import pytest
 from unittest.mock import Mock, patch
-from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QHeaderView
 
 from services.update_service import UpdateInfo
 from ui.main_window import MainWindow
@@ -37,6 +41,27 @@ def test_update_ep_list_clears_main_table_when_project_has_no_episodes(window):
 
     assert window.current_ep_stats == []
     assert window.main_table_model.rowCount() == 0
+
+
+def test_update_ep_list_uses_audiobook_chapter_order(window):
+    window.data["project_kind"] = "audiobook"
+    window.data["episodes"] = {
+        "Глава 1": "book.pdf",
+        "Пролог": "book.pdf",
+        "Вступление": "book.pdf",
+    }
+    window.data["audiobook_chapter_order"] = [
+        "Вступление",
+        "Пролог",
+        "Глава 1",
+    ]
+
+    window.update_ep_list()
+
+    assert [
+        window.ep_combo.itemData(index)
+        for index in range(window.ep_combo.count())
+    ] == ["Вступление", "Пролог", "Глава 1"]
 
 
 def test_update_check_can_run_from_about_button(window):
@@ -111,6 +136,39 @@ def test_open_exported_file_runs_when_open_auto_enabled(window):
 
     open_url.assert_called_once()
     assert open_url.call_args.args[0].toLocalFile() == "/tmp/export.docx"
+
+
+def test_character_preview_opens_without_prompting_for_missing_video(
+    window,
+    monkeypatch
+):
+    window.ep_combo.clear()
+    window.ep_combo.addItem("1", "1")
+    window.data["video_paths"] = {}
+    window.get_episode_lines = Mock(return_value=[{
+        "s": 1.0,
+        "e": 2.0,
+        "char": "Hero",
+        "text": "Line",
+    }])
+    window.set_episode_video = Mock()
+    calls = []
+
+    class PreviewStub:
+        def __init__(self, video_path, lines, ep_num, parent=None):
+            calls.append((video_path, lines, ep_num, parent))
+
+        def exec(self):
+            return 0
+
+    monkeypatch.setattr("ui.video.VideoPreviewWindow", PreviewStub)
+
+    window.open_preview("Hero")
+
+    window.set_episode_video.assert_not_called()
+    assert calls
+    assert calls[0][0] is None
+    assert calls[0][2] == "1"
 
 
 def test_new_project_uses_default_export_config(window):
@@ -390,6 +448,43 @@ def test_global_actor_mode_shows_global_actor_base(window):
     assert window.actor_table.item(0, 2).text() == "Ж"
     assert window.btn_add_actor.isEnabled()
     assert window.btn_add_project_actors_to_global.text() == "В проект"
+
+
+def test_actor_table_keeps_column_layout_when_switching_actor_base(window):
+    window.data["actors"] = {
+        "actor1": {"name": "Project Actor", "color": "#FF0000", "gender": "М"}
+    }
+    window.global_settings_service.settings = window.global_settings
+    window.global_settings["global_actor_base"] = {}
+    window.global_settings_service.add_global_actor(
+        "Global Actor",
+        "#123456",
+        actor_id="global1",
+        gender="Ж"
+    )
+
+    window.actor_base_mode.setCurrentIndex(
+        window.actor_base_mode.findData("global")
+    )
+
+    global_header = window.actor_table.horizontalHeader()
+    assert window.actor_table.columnCount() == 3
+    assert global_header.sectionResizeMode(0) == QHeaderView.Stretch
+    assert global_header.sectionResizeMode(1) == QHeaderView.Fixed
+    assert global_header.sectionResizeMode(2) == QHeaderView.Fixed
+
+    window.actor_base_mode.setCurrentIndex(
+        window.actor_base_mode.findData("project")
+    )
+
+    project_header = window.actor_table.horizontalHeader()
+    assert window.actor_table.columnCount() == 4
+    assert project_header.sectionResizeMode(0) == QHeaderView.Interactive
+    assert project_header.sectionResizeMode(1) == QHeaderView.Stretch
+    assert project_header.sectionResizeMode(2) == QHeaderView.Fixed
+    assert project_header.sectionResizeMode(3) == QHeaderView.Fixed
+    assert window.actor_table.columnWidth(2) == 60
+    assert window.actor_table.columnWidth(3) == 50
 
 
 def test_global_actor_mode_marks_actors_already_in_project(window):

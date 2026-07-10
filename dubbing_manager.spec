@@ -36,6 +36,33 @@ mac_info_plist = {
     'CFBundleSupportedPlatforms': ['MacOSX'],
     'NSMainNibFile': '',
     'CFBundleIconFile': 'DubbingManager.icns',
+    'CFBundleDocumentTypes': [
+        {
+            'CFBundleTypeName': 'Dubbing Manager Project',
+            'CFBundleTypeRole': 'Editor',
+            'CFBundleTypeExtensions': ['dub'],
+            'CFBundleTypeIconFile': 'DubbingManager.icns',
+            'LSHandlerRank': 'Owner',
+            'LSItemContentTypes': ['com.yuriromanov.dubbingmanager.project'],
+        },
+        {
+            'CFBundleTypeName': 'Dubbing Manager Legacy JSON Project',
+            'CFBundleTypeRole': 'Editor',
+            'CFBundleTypeExtensions': ['json'],
+            'LSHandlerRank': 'Alternate',
+        },
+    ],
+    'UTExportedTypeDeclarations': [
+        {
+            'UTTypeIdentifier': 'com.yuriromanov.dubbingmanager.project',
+            'UTTypeDescription': 'Dubbing Manager Project',
+            'UTTypeConformsTo': ['public.json'],
+            'UTTypeTagSpecification': {
+                'public.filename-extension': ['dub'],
+                'public.mime-type': 'application/x-dubbing-manager-project',
+            },
+        },
+    ],
 }
 
 hidden_imports = [
@@ -104,7 +131,7 @@ exe = EXE(
     runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
-    argv_emulation=False,
+    argv_emulation=is_macos,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,

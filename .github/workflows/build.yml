@@ -56,6 +56,13 @@ jobs:
             throw "Windows executable was not created"
           }
 
+      - name: Add Windows file association helper
+        shell: pwsh
+        run: |
+          Copy-Item `
+            "scripts\register_windows_file_association.ps1" `
+            "dist\Dubbing Manager\Register_DUB_File_Association.ps1"
+
       - name: Create Windows ZIP
         shell: pwsh
         run: Compress-Archive -Path "dist\Dubbing Manager" -DestinationPath "Dubbing_Manager_Windows.zip" -Force

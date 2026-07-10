@@ -70,3 +70,32 @@ class TestMainLogging:
                 
                 # Директория должна быть создана
                 assert path.parent.exists()
+
+
+class TestProjectFileArguments:
+    """Tests for project file path detection."""
+
+    def test_is_project_file_accepts_dub_and_legacy_json(self):
+        from main import is_project_file
+
+        assert is_project_file("/tmp/project.dub")
+        assert is_project_file("/tmp/project.DUB")
+        assert is_project_file("/tmp/project.json")
+        assert not is_project_file("/tmp/project.txt")
+
+    def test_initial_project_path_returns_first_existing_project(self, tmp_path):
+        from main import initial_project_path
+
+        txt = tmp_path / "notes.txt"
+        dub = tmp_path / "show.dub"
+        legacy = tmp_path / "old.json"
+        txt.write_text("notes", encoding="utf-8")
+        dub.write_text("{}", encoding="utf-8")
+        legacy.write_text("{}", encoding="utf-8")
+
+        assert initial_project_path([
+            "DubbingManager",
+            str(txt),
+            str(dub),
+            str(legacy),
+        ]) == str(dub)

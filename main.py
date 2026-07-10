@@ -5,8 +5,14 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Optional
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QEvent
+
+from config.constants import (
+    PROJECT_FILE_EXTENSION,
+    PROJECT_LEGACY_FILE_EXTENSION,
+)
 from ui.main_window import MainWindow
 
 
@@ -30,6 +36,39 @@ def get_log_path() -> Path:
 
 
 logger = logging.getLogger(__name__)
+
+
+class DubbingManagerApplication(QApplication):
+    """Application object that accepts project files opened by the OS."""
+
+    def __init__(self, argv: list[str]) -> None:
+        super().__init__(argv)
+        self.main_window: Optional[MainWindow] = None
+
+    def event(self, event) -> bool:
+        """Handle macOS/Finder file-open events."""
+        if event.type() == QEvent.FileOpen and self.main_window:
+            path = event.file()
+            if is_project_file(path):
+                self.main_window.open_project_file(path)
+                return True
+        return super().event(event)
+
+
+def is_project_file(path: str) -> bool:
+    """Return whether path looks like a project file."""
+    return Path(path).suffix.lower() in {
+        PROJECT_FILE_EXTENSION,
+        PROJECT_LEGACY_FILE_EXTENSION,
+    }
+
+
+def initial_project_path(argv: list[str]) -> Optional[str]:
+    """Return the first project path passed on the command line."""
+    for arg in argv[1:]:
+        if is_project_file(arg) and Path(arg).exists():
+            return arg
+    return None
 
 
 def setup_logging() -> None:
@@ -77,12 +116,16 @@ def main() -> int:
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
     
-    app = QApplication(sys.argv)
+    app = DubbingManagerApplication(sys.argv)
     app.setApplicationName("Dubbing Manager")
     app.setOrganizationName("DubbingTools")
     
     window = MainWindow()
+    app.main_window = window
     window.show()
+    start_project = initial_project_path(sys.argv)
+    if start_project:
+        window.open_project_file(start_project)
     
     logger.info("Application started successfully")
     

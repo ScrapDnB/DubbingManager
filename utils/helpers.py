@@ -4,7 +4,7 @@ import re
 import subprocess
 import traceback
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from PySide6.QtGui import QColor
 import logging
 import json
@@ -33,6 +33,81 @@ def natural_sort_key(value: Any) -> Tuple[Any, ...]:
         for part in parts
         if part != ''
     )
+
+
+def ordered_episode_names(project_data: Dict[str, Any]) -> List[str]:
+    """Return episode names in the order appropriate for the project kind."""
+    episodes = project_data.get("episodes", {})
+    if not isinstance(episodes, dict):
+        return []
+
+    if project_data.get("project_kind") == "audiobook":
+        order = project_data.get("audiobook_chapter_order", [])
+        if not isinstance(order, list):
+            order = []
+        seen = set()
+        result: List[str] = []
+        for name in order:
+            episode = str(name)
+            if episode in episodes and episode not in seen:
+                result.append(episode)
+                seen.add(episode)
+        result.extend(
+            sorted(
+                (str(ep) for ep in episodes if str(ep) not in seen),
+                key=natural_sort_key,
+            )
+        )
+        return result
+
+    return sorted((str(ep) for ep in episodes), key=natural_sort_key)
+
+
+def set_project_kind(project_data: Dict[str, Any], kind: str) -> None:
+    """Store a normalized project kind."""
+    project_data["project_kind"] = (
+        "audiobook" if kind == "audiobook" else "subtitle"
+    )
+
+
+def set_audiobook_chapter_order(
+    project_data: Dict[str, Any],
+    order: List[str],
+) -> None:
+    """Store audiobook chapter order without duplicates."""
+    seen = set()
+    result = []
+    for name in order:
+        title = str(name)
+        if title and title not in seen:
+            result.append(title)
+            seen.add(title)
+    project_data["audiobook_chapter_order"] = result
+
+
+def rename_episode_in_order(
+    project_data: Dict[str, Any],
+    old_name: str,
+    new_name: str,
+) -> None:
+    """Rename an episode inside audiobook order metadata."""
+    order = project_data.get("audiobook_chapter_order")
+    if not isinstance(order, list):
+        return
+    project_data["audiobook_chapter_order"] = [
+        new_name if item == old_name else item
+        for item in order
+    ]
+
+
+def remove_episode_from_order(project_data: Dict[str, Any], name: str) -> None:
+    """Remove an episode from audiobook order metadata."""
+    order = project_data.get("audiobook_chapter_order")
+    if not isinstance(order, list):
+        return
+    project_data["audiobook_chapter_order"] = [
+        item for item in order if item != name
+    ]
 
 
 def ass_time_to_seconds(time_str: str) -> float:

@@ -15,6 +15,14 @@ MY_PALETTE = [
 # Main Window UI Constants
 # =============================================================================
 
+PROJECT_FILE_EXTENSION = ".dub"
+PROJECT_LEGACY_FILE_EXTENSION = ".json"
+PROJECT_FILE_FILTER = (
+    "Dubbing Manager Project (*.dub);;"
+    "Legacy JSON Project (*.json);;"
+    "All Files (*)"
+)
+
 MAIN_WINDOW_WIDTH = 1350
 MAIN_WINDOW_HEIGHT = 850
 
@@ -45,19 +53,22 @@ MAIN_TABLE_VIDEO_COL_WIDTH = 64
 PROMPTER_WINDOW_WIDTH = 1200
 PROMPTER_WINDOW_HEIGHT = 900
 PROMPTER_FLOAT_WINDOW_WIDTH = 300
-PROMPTER_FLOAT_WINDOW_HEIGHT = 400
+PROMPTER_FLOAT_WINDOW_HEIGHT = 440
 EDIT_TEXT_DIALOG_WIDTH = 600
 EDIT_TEXT_DIALOG_HEIGHT = 400
 
 # macOS-specific handling
 FLOAT_BTN_WIDTH = 280
 FLOAT_BTN_HEIGHT = 50
-FLOAT_BTN_Y_PREV = 340  # Back button in the upper slot.
-FLOAT_BTN_Y_NEXT = 280  # Forward button in the lower slot.
-FLOAT_LABEL_Y = 250
+FLOAT_BTN_Y_PREV = 380  # Back button in the upper slot.
+FLOAT_BTN_Y_NEXT = 320  # Forward button in the lower slot.
+FLOAT_EPISODE_LABEL_Y = 290
+FLOAT_EPISODE_COMBO_Y = 260
+FLOAT_EPISODE_COMBO_HEIGHT = 26
+FLOAT_LABEL_Y = 235
 FLOAT_LABEL_HEIGHT = 20
 FLOAT_SCROLL_Y = 50
-FLOAT_SCROLL_HEIGHT = 195
+FLOAT_SCROLL_HEIGHT = 180
 FLOAT_SCROLL_WIDTH = 280
 FLOAT_TEXT_VIEW_WIDTH = 260
 FLOAT_BTN_HIDE_WIDTH = 90
@@ -160,6 +171,7 @@ DEFAULT_PROMPTER_CONFIG = {
     "key_prev": "Left",
     "key_next": "Right",
     "scroll_smoothness_slider": 18,
+    "use_cocoa_float_window": True,
     "colors": {
         "bg": "#000000",
         "active_text": "#FFFFFF",
@@ -211,19 +223,24 @@ DEFAULT_DOCX_IMPORT_CONFIG = {
     'time_separators': ['-'],
 }
 
+DEFAULT_AUDIOBOOK_CONFIG = {
+    "chapter_keywords": ["Глава", "Chapter"],
+}
+
 DEFAULT_GLOBAL_SETTINGS = {
     'export_config': None,  # Initialized from DEFAULT_EXPORT_CONFIG.
     'prompter_config': None,  # Initialized from DEFAULT_PROMPTER_CONFIG.
     'replica_merge_config': None,  # Initialized from DEFAULT_REPLICA_MERGE_CONFIG.
     'docx_import_config': None,  # DOCX-specific handling
+    'audiobook_config': DEFAULT_AUDIOBOOK_CONFIG,
     'language': 'ru',
 }
 
 # Application version shown in the UI and build metadata.
-APP_VERSION = "1.6.2"
+APP_VERSION = "1.7.0"
 
 # Project file format version used for compatibility migrations.
-PROJECT_VERSION = "1.3"
+PROJECT_VERSION = "1.4"
 
 # Folder name for Dubbing Manager working text JSON files.
 SCRIPT_TEXT_DIR_NAME = "texts_dm"

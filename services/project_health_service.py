@@ -35,11 +35,15 @@ class ProjectHealthService:
         issues: List[ProjectHealthIssue] = []
 
         episodes = project_data.get("episodes", {})
-        episode_texts = project_data.get("episode_texts", {})
+        episode_texts = project_data.get("episode_working_texts", {})
+        legacy_episode_texts = project_data.get("episode_texts", {})
         video_paths = project_data.get("video_paths", {})
 
         all_episode_nums = sorted(
-            set(episodes) | set(episode_texts) | set(video_paths),
+            set(episodes) |
+            set(episode_texts) |
+            set(legacy_episode_texts) |
+            set(video_paths),
             key=self._episode_sort_key
         )
 
@@ -53,7 +57,8 @@ class ProjectHealthService:
 
         for ep_num in all_episode_nums:
             source_path = episodes.get(ep_num)
-            text_path = episode_texts.get(ep_num)
+            text_payload = episode_texts.get(ep_num)
+            legacy_text_path = legacy_episode_texts.get(ep_num)
             video_path = video_paths.get(ep_num)
 
             self._check_source_file(
@@ -61,14 +66,15 @@ class ProjectHealthService:
                 project_data,
                 ep_num,
                 source_path,
-                text_path
+                text_payload or legacy_text_path
             )
             lines = self._check_working_text(
                 issues,
                 project_data,
                 ep_num,
-                text_path,
-                source_path
+                text_payload,
+                source_path,
+                legacy_text_path
             )
             self._check_video_file(issues, project_data, ep_num, video_path)
 
@@ -92,10 +98,10 @@ class ProjectHealthService:
         project_data: Dict[str, Any],
         ep_num: str,
         source_path: Optional[str],
-        text_path: Optional[str]
+        text_value: Optional[Any]
     ) -> None:
         if not source_path:
-            if not text_path:
+            if not text_value:
                 issues.append(ProjectHealthIssue(
                     self.SEVERITY_ERROR,
                     "Текст",
@@ -108,7 +114,11 @@ class ProjectHealthService:
             project_data,
             source_path
         ):
-            severity = self.SEVERITY_WARNING if text_path else self.SEVERITY_ERROR
+            severity = (
+                self.SEVERITY_WARNING
+                if text_value
+                else self.SEVERITY_ERROR
+            )
             issues.append(ProjectHealthIssue(
                 severity,
                 "Файлы",
@@ -122,10 +132,19 @@ class ProjectHealthService:
         issues: List[ProjectHealthIssue],
         project_data: Dict[str, Any],
         ep_num: str,
-        text_path: Optional[str],
-        source_path: Optional[str]
+        text_payload: Optional[Dict[str, Any]],
+        source_path: Optional[str],
+        legacy_text_path: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        if not text_path:
+        if not text_payload and legacy_text_path:
+            text_payload = self._load_legacy_working_text(
+                issues,
+                project_data,
+                ep_num,
+                legacy_text_path
+            )
+
+        if not text_payload:
             if source_path:
                 issues.append(ProjectHealthIssue(
                     self.SEVERITY_WARNING,
@@ -136,6 +155,33 @@ class ProjectHealthService:
                 ))
             return []
 
+        lines = text_payload.get("lines")
+        if not isinstance(lines, list):
+            issues.append(ProjectHealthIssue(
+                self.SEVERITY_ERROR,
+                "Рабочий текст",
+                "В рабочем тексте нет списка lines.",
+                ep_num
+            ))
+            return []
+
+        if not lines:
+            issues.append(ProjectHealthIssue(
+                self.SEVERITY_WARNING,
+                "Рабочий текст",
+                "В рабочем тексте нет реплик.",
+                ep_num
+            ))
+
+        return lines
+
+    def _load_legacy_working_text(
+        self,
+        issues: List[ProjectHealthIssue],
+        project_data: Dict[str, Any],
+        ep_num: str,
+        text_path: str
+    ) -> Optional[Dict[str, Any]]:
         resolved_text_path = self.project_folder_service.resolve_project_path(
             project_data,
             text_path
@@ -148,7 +194,7 @@ class ProjectHealthService:
                 ep_num,
                 text_path
             ))
-            return []
+            return None
 
         try:
             with open(resolved_text_path, 'r', encoding='utf-8') as f:
@@ -161,29 +207,9 @@ class ProjectHealthService:
                 ep_num,
                 text_path
             ))
-            return []
+            return None
 
-        lines = payload.get("lines")
-        if not isinstance(lines, list):
-            issues.append(ProjectHealthIssue(
-                self.SEVERITY_ERROR,
-                "Рабочий текст",
-                "В рабочем JSON нет списка lines.",
-                ep_num,
-                text_path
-            ))
-            return []
-
-        if not lines:
-            issues.append(ProjectHealthIssue(
-                self.SEVERITY_WARNING,
-                "Рабочий текст",
-                "В рабочем тексте нет реплик.",
-                ep_num,
-                text_path
-            ))
-
-        return lines
+        return payload if isinstance(payload, dict) else None
 
     def _check_video_file(
         self,

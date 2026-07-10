@@ -375,7 +375,7 @@ class TestProjectService:
         
         # Проверка, что добавлены缺失ствующие поля
         assert "metadata" in data
-        assert data["metadata"]["format_version"] == "0.9"
+        assert data["metadata"]["format_version"] == PROJECT_VERSION
         assert "video_paths" in data
         assert "export_config" in data
         assert "prompter_config" in data

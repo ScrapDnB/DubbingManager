@@ -38,6 +38,8 @@ def test_episodes_needing_working_texts_ignores_existing_file(tmp_path):
     window.data["episode_texts"] = {"1": str(existing_text)}
 
     assert window._episodes_needing_working_texts() == ["2", "3"]
+    assert window.data["episode_working_texts"]["1"] == {}
+    assert window.data["episode_texts"] == {}
 
 
 def test_episodes_needing_working_texts_links_text_next_to_project(tmp_path):
@@ -52,7 +54,8 @@ def test_episodes_needing_working_texts_links_text_next_to_project(tmp_path):
     window.data["episodes"] = {"1": str(tmp_path / "episode_1.srt")}
 
     assert window._episodes_needing_working_texts() == []
-    assert window.data["episode_texts"]["1"] == str(text_path)
+    assert window.data["episode_working_texts"]["1"]["episode"] == "1"
+    assert window.data["episode_texts"] == {}
 
 
 def test_episodes_needing_working_texts_links_text_from_project_folder(tmp_path):
@@ -69,7 +72,8 @@ def test_episodes_needing_working_texts_links_text_from_project_folder(tmp_path)
     window.data["episodes"] = {"1": str(tmp_path / "episode_1.srt")}
 
     assert window._episodes_needing_working_texts() == []
-    assert window.data["episode_texts"]["1"] == str(text_path)
+    assert window.data["episode_working_texts"]["1"]["episode"] == "1"
+    assert window.data["episode_texts"] == {}
 
 
 def test_create_missing_working_texts_builds_found_sources(tmp_path, monkeypatch):
@@ -96,9 +100,9 @@ def test_create_missing_working_texts_builds_found_sources(tmp_path, monkeypatch
 
     assert created == 1
     assert skipped == 1
-    text_path = Path(window.data["episode_texts"]["1"])
-    assert text_path.exists()
-    assert text_path.parent.name == "project_texts_dm"
+    payload = window.data["episode_working_texts"]["1"]
+    assert payload["lines"][0]["text"] == "Hello there"
+    assert window.data["episode_texts"] == {}
     assert messages
 
 
@@ -122,9 +126,9 @@ def test_create_missing_working_texts_uses_project_folder(tmp_path, monkeypatch)
 
     assert created == 1
     assert skipped == 0
-    text_path = Path(window.data["episode_texts"]["1"])
-    assert text_path == project_folder / "texts_dm" / "episode_1.json"
-    assert text_path.exists()
+    payload = window.data["episode_working_texts"]["1"]
+    assert payload["lines"][0]["text"] == "Hello there"
+    assert window.data["episode_texts"] == {}
 
 
 def test_migration_prompt_only_informs_user(tmp_path, monkeypatch):

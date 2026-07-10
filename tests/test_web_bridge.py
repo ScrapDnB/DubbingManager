@@ -1,7 +1,6 @@
 """Тесты для web_bridge.py"""
 
 import pytest
-import json
 from unittest.mock import MagicMock, patch
 
 from utils.web_bridge import WebBridge
@@ -121,11 +120,10 @@ class TestWebBridge:
         # Должен добавить в loaded_episodes
         assert "1" in main_app.data["loaded_episodes"]
 
-    def test_update_text_saves_working_json(self, bridge, main_app, tmp_path):
-        """Тест сохранения текста в рабочий JSON"""
-        text_path = tmp_path / "episode_1.json"
-        text_path.write_text(
-            json.dumps({
+    def test_update_text_saves_working_payload(self, bridge, main_app):
+        """Тест сохранения текста в рабочий payload проекта"""
+        main_app.data["episode_working_texts"] = {
+            "1": {
                 "format_version": "1.0",
                 "episode": "1",
                 "lines": [
@@ -141,17 +139,15 @@ class TestWebBridge:
                         "dirty": False
                     }
                 ]
-            }),
-            encoding="utf-8"
-        )
-        main_app.data["episode_texts"] = {"1": str(text_path)}
+            }
+        }
         main_app.data["loaded_episodes"]["1"] = [
             {"id": 0, "text": "Original text", "_working_text": True}
         ]
 
         bridge.update_text("0", "Saved text")
 
-        payload = json.loads(text_path.read_text(encoding="utf-8"))
+        payload = main_app.data["episode_working_texts"]["1"]
         assert payload["lines"][0]["text"] == "Saved text"
         assert payload["lines"][0]["dirty"] is True
 

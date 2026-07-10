@@ -264,7 +264,8 @@ class ExportController:
         self,
         ep: str,
         save_path: str,
-        transliterate_actor_names: bool = False
+        transliterate_actor_names: bool = False,
+        marker_mode: str = "merged"
     ) -> Tuple[bool, str]:
         """Export to reaper rpp."""
         try:
@@ -278,7 +279,8 @@ class ExportController:
                 ep,
                 lines,
                 merge_cfg=self.data_ref.get("replica_merge_config", {}),
-                transliterate_actor_names=transliterate_actor_names
+                transliterate_actor_names=transliterate_actor_names,
+                marker_mode=marker_mode
             )
 
             export_service.save_reaper_rpp(save_path, rpp_content)

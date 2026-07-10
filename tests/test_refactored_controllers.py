@@ -153,6 +153,7 @@ def test_import_controller_adds_srt_episode_and_working_text(tmp_path):
     data = {
         "episodes": {},
         "episode_texts": {},
+        "episode_working_texts": {},
         "loaded_episodes": {},
         "replica_merge_config": {},
         "actors": {},
@@ -169,10 +170,98 @@ def test_import_controller_adds_srt_episode_and_working_text(tmp_path):
     stats, lines = controller.add_subtitle_episode("2", str(srt_path))
 
     assert data["episodes"]["2"] == str(srt_path)
-    assert data["episode_texts"]["2"].endswith("episode_2.json")
-    assert Path(data["episode_texts"]["2"]).exists()
+    assert data["project_kind"] == "subtitle"
+    assert data["episode_texts"] == {}
+    assert data["episode_working_texts"]["2"]["lines"][0]["text"] == "Hello"
     assert stats[0]["name"] == "Hero"
     assert lines[0]["text"] == "Hello"
+
+
+def test_import_controller_sets_default_project_name_from_first_ass(tmp_path):
+    ass_path = tmp_path / "Pilot Episode.ass"
+    ass_path.write_text(
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,Hello\n",
+        encoding="utf-8"
+    )
+    data = {
+        "project_name": "Новый проект",
+        "episodes": {},
+        "episode_texts": {},
+        "episode_working_texts": {},
+        "loaded_episodes": {},
+        "replica_merge_config": {},
+        "actors": {},
+        "global_map": {},
+    }
+    controller = ImportController(
+        data_ref=data,
+        episode_service=EpisodeService(),
+        script_text_service=ScriptTextService(),
+        undo_stack=UndoStack(),
+        get_current_project_path=lambda: str(tmp_path / "project.dub"),
+    )
+
+    controller.add_subtitle_episode("1", str(ass_path))
+
+    assert data["project_name"] == "Pilot Episode"
+
+
+def test_import_controller_does_not_replace_manual_project_name(tmp_path):
+    ass_path = tmp_path / "Pilot Episode.ass"
+    ass_path.write_text(
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,Hello\n",
+        encoding="utf-8"
+    )
+    data = {
+        "project_name": "Manual Name",
+        "episodes": {},
+        "episode_texts": {},
+        "episode_working_texts": {},
+        "loaded_episodes": {},
+        "replica_merge_config": {},
+        "actors": {},
+        "global_map": {},
+    }
+    controller = ImportController(
+        data_ref=data,
+        episode_service=EpisodeService(),
+        script_text_service=ScriptTextService(),
+        undo_stack=UndoStack(),
+        get_current_project_path=lambda: str(tmp_path / "project.dub"),
+    )
+
+    controller.add_subtitle_episode("1", str(ass_path))
+
+    assert data["project_name"] == "Manual Name"
+
+
+def test_import_controller_does_not_set_project_name_from_srt(tmp_path):
+    srt_path = tmp_path / "Subtitle Name.srt"
+    srt_path.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nHero: Hello\n",
+        encoding="utf-8"
+    )
+    data = {
+        "project_name": "Новый проект",
+        "episodes": {},
+        "episode_texts": {},
+        "episode_working_texts": {},
+        "loaded_episodes": {},
+        "replica_merge_config": {},
+        "actors": {},
+        "global_map": {},
+    }
+    controller = ImportController(
+        data_ref=data,
+        episode_service=EpisodeService(),
+        script_text_service=ScriptTextService(),
+        undo_stack=UndoStack(),
+        get_current_project_path=lambda: str(tmp_path / "project.dub"),
+    )
+
+    controller.add_subtitle_episode("1", str(srt_path))
+
+    assert data["project_name"] == "Новый проект"
 
 
 def test_settings_controller_applies_defaults_and_ports():

@@ -1,5 +1,9 @@
 """Тесты единого окна настроек."""
 
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 import pytest
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
@@ -71,6 +75,7 @@ def app():
 def project_data():
     return {
         "project_name": "Test",
+        "project_kind": "subtitle",
         "metadata": {
             "created_by": "Producer",
             "studio": "Studio One",
@@ -152,6 +157,7 @@ def test_settings_dialog_creation(app, project_data):
     assert dialog.tabs.tabText(6) == "Перенос"
     assert dialog.export_layout_type.currentText() == "Таблица"
     assert dialog.project_name_edit.text() == "Test"
+    assert dialog.project_kind_label.text() == "Субтитры / видео"
     assert dialog.project_created_by_edit.text() == "Producer"
     assert dialog.project_studio_edit.text() == "Studio One"
     assert dialog.highlight_ids_export == ["actor1"]
@@ -183,6 +189,7 @@ def test_settings_dialog_returns_updated_settings(app, project_data):
     settings = dialog.get_settings()
 
     assert settings["project_name"] == "Updated Project"
+    assert "project_kind" not in settings
     assert settings["metadata"]["created_by"] == "Editor"
     assert settings["metadata"]["studio"] == "Studio Two"
     assert settings["export_config"]["layout_type"] == "Сценарий 1"
@@ -203,6 +210,14 @@ def test_settings_dialog_returns_updated_settings(app, project_data):
     assert settings["prompter_config"]["reaper_offset_enabled"] is True
     assert settings["prompter_config"]["colors"]["bg"] == "#000000"
     assert settings["docx_import_config"]["time_separators"] == ["-", "|"]
+
+
+def test_settings_dialog_shows_audiobook_project_type(app, project_data):
+    project_data["project_kind"] = "audiobook"
+
+    dialog = SettingsDialog(project_data)
+
+    assert dialog.project_kind_label.text() == "Аудиокнига / аудиосериал"
 
 
 def test_settings_dialog_saves_export_defaults_after_confirmation(
@@ -385,16 +400,18 @@ def test_global_settings_dialog_contains_only_global_tabs(app, project_data):
     dialog = SettingsDialog(project_data, settings_scope="global")
 
     assert dialog.windowTitle() == "Настройки"
-    assert dialog.tabs.count() == 4
+    assert dialog.tabs.count() == 5
     assert dialog.tabs.tabText(0) == "Монтажный лист"
     assert dialog.tabs.tabText(1) == "Телесуфлёр"
     assert dialog.tabs.tabText(2) == "Актёры"
     assert dialog.tabs.tabText(3) == "Интерфейс"
+    assert dialog.tabs.tabText(4) == "Аудиокниги"
     settings = dialog.get_settings()
     assert set(settings.keys()) == {
         "language",
         "default_export_config",
         "default_prompter_config",
+        "audiobook_config",
     }
     assert settings["default_export_config"]["layout_type"] == "Таблица"
     assert settings["default_prompter_config"]["f_text"] == 36

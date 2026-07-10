@@ -19,6 +19,7 @@ from utils.helpers import (
     srt_time_to_seconds,
     format_seconds_to_tc,
     hex_to_rgba_string,
+    ordered_episode_names,
     split_merged_text,
     get_video_fps,
 )
@@ -43,6 +44,29 @@ class TestLogException:
         assert "Test message" in caplog.text
         assert "Test error" in caplog.text
         assert "Traceback" in caplog.text
+
+
+def test_ordered_episode_names_uses_audiobook_chapter_order():
+    data = {
+        "project_kind": "audiobook",
+        "episodes": {
+            "Глава 1": "book.pdf",
+            "Пролог": "book.pdf",
+            "Вступление": "book.pdf",
+        },
+        "audiobook_chapter_order": ["Вступление", "Пролог", "Глава 1"],
+    }
+
+    assert ordered_episode_names(data) == ["Вступление", "Пролог", "Глава 1"]
+
+
+def test_ordered_episode_names_keeps_subtitle_natural_sort():
+    data = {
+        "project_kind": "subtitle",
+        "episodes": {"10": "10.ass", "2": "2.ass", "1": "1.ass"},
+    }
+
+    assert ordered_episode_names(data) == ["1", "2", "10"]
 
 
 # =============================================================================

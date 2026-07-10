@@ -18,8 +18,18 @@ def test_reaper_dialog_updates_preview_when_region_option_changes(app, tmp_path)
 
     calls = []
 
-    def preview_provider(use_video, use_regions, transliterate_actor_names):
-        calls.append((use_video, use_regions, transliterate_actor_names))
+    def preview_provider(
+        use_video,
+        use_regions,
+        transliterate_actor_names,
+        marker_mode
+    ):
+        calls.append((
+            use_video,
+            use_regions,
+            transliterate_actor_names,
+            marker_mode,
+        ))
         return {
             "regions": 2 if use_regions else 0,
             "tracks": 1,
@@ -47,5 +57,35 @@ def test_reaper_dialog_updates_preview_when_region_option_changes(app, tmp_path)
 
     dialog._chk_transliterate.setChecked(True)
 
-    assert calls[-1] == (True, False, True)
+    assert calls[-1] == (True, False, True, "merged")
     assert "Ivan Ivanov" in dialog._preview_label.text()
+
+    dialog._combo_marker_mode.setCurrentIndex(1)
+
+    assert calls[-1] == (True, False, True, "source")
+
+
+def test_reaper_dialog_disables_source_markers_when_unavailable(app):
+    def preview_provider(
+        use_video,
+        use_regions,
+        transliterate_actor_names,
+        marker_mode
+    ):
+        return {
+            "regions": 1,
+            "tracks": 0,
+            "actors": [],
+            "video": False,
+            "invalid_lines": 0,
+            "sample_regions": [],
+        }
+
+    dialog = ReaperExportDialog(
+        None,
+        preview_provider=preview_provider,
+        source_markers_available=False,
+    )
+
+    assert not dialog._combo_marker_mode.model().item(1).isEnabled()
+    assert dialog._combo_marker_mode.currentData() == "merged"

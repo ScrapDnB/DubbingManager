@@ -12,7 +12,12 @@ import logging
 
 from services import EpisodeService
 from config.constants import DEFAULT_REPLICA_MERGE_CONFIG
-from utils.helpers import natural_sort_key
+from utils.helpers import (
+    ordered_episode_names,
+    remove_episode_from_order,
+    rename_episode_in_order,
+    set_project_kind,
+)
 from utils.i18n import translate_source
 
 logger = logging.getLogger(__name__)
@@ -75,6 +80,7 @@ class EpisodeController:
 
         episodes = self.data_ref.get("episodes", {})
         imported_count = 0
+        set_project_kind(self.data_ref, "subtitle")
 
         for path in paths:
             if not os.path.exists(path):
@@ -112,6 +118,7 @@ class EpisodeController:
 
         episodes = self.data_ref.get("episodes", {})
         imported_count = 0
+        set_project_kind(self.data_ref, "subtitle")
 
         for path in paths:
             if not os.path.exists(path):
@@ -201,6 +208,15 @@ class EpisodeController:
         if old_name in loaded_episodes:
             loaded_episodes[new_name] = loaded_episodes.pop(old_name)
 
+        working_texts = self.data_ref.get("episode_working_texts", {})
+        if old_name in working_texts:
+            working_texts[new_name] = working_texts.pop(old_name)
+
+        legacy_texts = self.data_ref.get("episode_texts", {})
+        if old_name in legacy_texts:
+            legacy_texts[new_name] = legacy_texts.pop(old_name)
+
+        rename_episode_in_order(self.data_ref, old_name, new_name)
         self._mark_dirty()
         return True
 
@@ -210,6 +226,7 @@ class EpisodeController:
         video_paths = self.data_ref.get("video_paths", {})
         loaded_episodes = self.data_ref.get("loaded_episodes", {})
         episode_texts = self.data_ref.get("episode_texts", {})
+        working_texts = self.data_ref.get("episode_working_texts", {})
         episode_actor_map = self.data_ref.get("episode_actor_map", {})
 
         if ep_num not in episodes:
@@ -219,7 +236,9 @@ class EpisodeController:
         video_paths.pop(ep_num, None)
         loaded_episodes.pop(ep_num, None)
         episode_texts.pop(ep_num, None)
+        working_texts.pop(ep_num, None)
         episode_actor_map.pop(ep_num, None)
+        remove_episode_from_order(self.data_ref, ep_num)
 
         self._mark_dirty()
         return True
@@ -248,10 +267,7 @@ class EpisodeController:
 
     def get_episode_list(self) -> List[str]:
         """Return episode list."""
-        return sorted(
-            self.data_ref.get("episodes", {}).keys(),
-            key=natural_sort_key
-        )
+        return ordered_episode_names(self.data_ref)
 
     def get_current_episode_path(self, ep_num: str) -> Optional[str]:
         """Return current episode path."""

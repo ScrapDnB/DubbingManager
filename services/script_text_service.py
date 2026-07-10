@@ -1,4 +1,4 @@
-"""Service for episode working-text files."""
+"""Service for episode working texts stored in project data."""
 
 import json
 import os
@@ -12,7 +12,7 @@ from config.constants import SCRIPT_TEXT_DIR_NAME
 from services.export_service import ExportService
 
 
-SCRIPT_TEXT_FORMAT_VERSION = "1.0"
+SCRIPT_TEXT_FORMAT_VERSION = "1.1"
 
 
 class ScriptTextService:
@@ -44,7 +44,7 @@ class ScriptTextService:
         merge_config: Dict[str, Any],
         project_path: Optional[str] = None
     ) -> str:
-        """Create episode text."""
+        """Create episode text in project data."""
         normalized_lines = self._ensure_source_ids(lines)
         export_service = ExportService(project_data)
         merged_lines = export_service.process_merge_logic(
@@ -55,20 +55,14 @@ class ScriptTextService:
         text_data = self._build_episode_payload(
             ep_num,
             source_path,
+            normalized_lines,
             merged_lines,
             merge_config
         )
 
-        texts_dir = self.get_texts_dir(project_data, source_path, project_path)
-        texts_dir.mkdir(parents=True, exist_ok=True)
-
-        text_path = texts_dir / f"episode_{self._safe_episode_num(ep_num)}.json"
-        self.backup_episode_text(text_path, ep_num, "recreate")
-        with open(text_path, 'w', encoding='utf-8') as f:
-            json.dump(text_data, f, ensure_ascii=False, indent=4)
-
-        project_data.setdefault("episode_texts", {})[ep_num] = str(text_path)
-        return str(text_path)
+        project_data.setdefault("episode_working_texts", {})[str(ep_num)] = text_data
+        project_data.setdefault("episode_texts", {}).pop(str(ep_num), None)
+        return str(ep_num)
 
     def load_episode_text(self, path: str) -> Dict[str, Any]:
         """Load episode text."""
@@ -81,11 +75,13 @@ class ScriptTextService:
         ep_num: str
     ) -> List[Dict[str, Any]]:
         """Load episode lines."""
-        text_path = project_data.get("episode_texts", {}).get(ep_num)
-        if not text_path or not os.path.exists(text_path):
-            return []
+        payload = self.get_episode_payload(project_data, ep_num)
+        if not payload:
+            text_path = project_data.get("episode_texts", {}).get(str(ep_num))
+            if not text_path or not os.path.exists(text_path):
+                return []
+            payload = self.load_episode_text(text_path)
 
-        payload = self.load_episode_text(text_path)
         result = []
         for idx, line in enumerate(payload.get("lines", [])):
             text = line.get("text", "")
@@ -110,6 +106,87 @@ class ScriptTextService:
             })
 
         return result
+
+    def get_source_lines(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str
+    ) -> List[Dict[str, Any]]:
+        """Return original imported source lines in app line format."""
+        payload = self.get_episode_payload(project_data, ep_num)
+        if not payload:
+            return []
+        source_lines = payload.get("source_lines")
+        if not isinstance(source_lines, list):
+            source_lines = self._source_lines_from_payload_lines(payload)
+        result = []
+        for idx, line in enumerate(source_lines):
+            char = line.get("char") or line.get("character", "")
+            text = line.get("text", "")
+            result.append({
+                "id": line.get("id", idx),
+                "s": line.get("s", line.get("start", 0.0)),
+                "e": line.get("e", line.get("end", 0.0)),
+                "char": char,
+                "text": text,
+                "s_raw": line.get("s_raw", ""),
+                "parts": [{
+                    "id": line.get("id", idx),
+                    "text": text,
+                    "sep": ""
+                }],
+                "_source_line": True,
+            })
+        return result
+
+    def has_source_ass(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str
+    ) -> bool:
+        """Return whether the episode stores an original ASS snapshot."""
+        payload = self.get_episode_payload(project_data, ep_num)
+        source_ass = payload.get("source_ass") if payload else None
+        return bool(isinstance(source_ass, dict) and source_ass.get("raw_content"))
+
+    def save_source_ass(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str,
+        save_path: str
+    ) -> bool:
+        """Save the original imported ASS snapshot for an episode."""
+        payload = self.get_episode_payload(project_data, ep_num)
+        source_ass = payload.get("source_ass") if payload else None
+        raw_content = (
+            source_ass.get("raw_content")
+            if isinstance(source_ass, dict)
+            else None
+        )
+        if not raw_content:
+            return False
+        with open(save_path, "w", encoding="utf-8") as f:
+            f.write(raw_content)
+        return True
+
+    def get_episode_payload(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str
+    ) -> Optional[Dict[str, Any]]:
+        """Return embedded working-text payload for an episode."""
+        payload = project_data.get("episode_working_texts", {}).get(str(ep_num))
+        return payload if isinstance(payload, dict) else None
+
+    def set_episode_payload(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str,
+        payload: Dict[str, Any]
+    ) -> None:
+        """Store working-text payload in project data."""
+        project_data.setdefault("episode_working_texts", {})[str(ep_num)] = payload
+        project_data.setdefault("episode_texts", {}).pop(str(ep_num), None)
 
     def find_existing_episode_text(
         self,
@@ -161,6 +238,8 @@ class ScriptTextService:
         ep_num: str
     ) -> bool:
         """Return whether an episode has an existing working-text file."""
+        if self.get_episode_payload(project_data, str(ep_num)) is not None:
+            return True
         text_path = project_data.get("episode_texts", {}).get(str(ep_num))
         return bool(text_path and os.path.exists(text_path))
 
@@ -169,19 +248,21 @@ class ScriptTextService:
         project_data: Dict[str, Any],
         project_path: Optional[str] = None
     ) -> int:
-        """Link already generated working texts into project data."""
+        """Import already generated working texts into project data."""
         found = self.find_existing_episode_texts(project_data, project_path)
-        linked_count = 0
-        episode_texts = project_data.setdefault("episode_texts", {})
+        imported_count = 0
 
         for ep_num, text_path in found.items():
-            current_path = episode_texts.get(str(ep_num))
-            if current_path == text_path and os.path.exists(current_path):
+            if self.get_episode_payload(project_data, str(ep_num)) is not None:
                 continue
-            episode_texts[str(ep_num)] = text_path
-            linked_count += 1
+            try:
+                payload = self.load_episode_text(text_path)
+            except (OSError, json.JSONDecodeError):
+                continue
+            self.set_episode_payload(project_data, str(ep_num), payload)
+            imported_count += 1
 
-        return linked_count
+        return imported_count
 
     def episodes_needing_working_texts(
         self,
@@ -271,11 +352,10 @@ class ScriptTextService:
         new_text: str
     ) -> bool:
         """Update line text."""
-        text_path = project_data.get("episode_texts", {}).get(str(ep_num))
-        if not text_path or not os.path.exists(text_path):
+        payload = self.get_episode_payload(project_data, str(ep_num))
+        if not payload:
             return False
 
-        payload = self.load_episode_text(text_path)
         target = self._find_payload_line(payload.get("lines", []), line_id)
         if not target:
             return False
@@ -286,11 +366,82 @@ class ScriptTextService:
         target["text"] = new_text
         target["dirty"] = True
         payload["modified_at"] = datetime.now().isoformat()
+        return True
 
-        self.backup_episode_text(text_path, ep_num, "edit")
-        with open(text_path, 'w', encoding='utf-8') as f:
-            json.dump(payload, f, ensure_ascii=False, indent=4)
+    def update_line_character(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str,
+        line_id: Any,
+        new_character: str
+    ) -> bool:
+        """Update one line display character."""
+        payload = self.get_episode_payload(project_data, str(ep_num))
+        if not payload:
+            return False
 
+        target = self._find_payload_line(payload.get("lines", []), line_id)
+        if not target:
+            return False
+
+        old_character = (
+            target.get("display_character") or
+            target.get("character", "")
+        )
+        if old_character == new_character:
+            return False
+
+        target["display_character"] = new_character
+        target["dirty"] = True
+        payload.setdefault("characters", {}).setdefault(
+            new_character,
+            {"display_name": new_character}
+        )
+        payload["modified_at"] = datetime.now().isoformat()
+        return True
+
+    def split_line_to_character(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str,
+        line_id: Any,
+        remaining_text: str,
+        split_text: str,
+        split_character: str
+    ) -> bool:
+        """Split selected text into a new display-character line."""
+        payload = self.get_episode_payload(project_data, str(ep_num))
+        if not payload:
+            return False
+
+        lines = payload.get("lines", [])
+        target = self._find_payload_line(lines, line_id)
+        if not target:
+            return False
+
+        split_text = split_text.strip()
+        split_character = split_character.strip()
+        if not split_text or not split_character:
+            return False
+
+        target_index = lines.index(target)
+        target["text"] = remaining_text
+        target["dirty"] = True
+
+        new_line = target.copy()
+        new_line["id"] = self._make_split_line_id(lines, target, target_index)
+        new_line["character"] = split_character
+        new_line["display_character"] = split_character
+        new_line["text"] = split_text
+        new_line["source_texts"] = [split_text]
+        new_line["dirty"] = True
+
+        lines.insert(target_index + 1, new_line)
+        payload.setdefault("characters", {}).setdefault(
+            split_character,
+            {"display_name": split_character}
+        )
+        payload["modified_at"] = datetime.now().isoformat()
         return True
 
     def rename_character(
@@ -301,18 +452,17 @@ class ScriptTextService:
         ep_num: Optional[str] = None
     ) -> int:
         """Rename character."""
-        episode_texts = project_data.get("episode_texts", {})
+        episode_texts = project_data.get("episode_working_texts", {})
         if ep_num is not None:
             items = [(str(ep_num), episode_texts.get(str(ep_num)))]
         else:
             items = list(episode_texts.items())
 
         updated_files = 0
-        for _, text_path in items:
-            if not text_path or not os.path.exists(text_path):
+        for _, payload in items:
+            if not isinstance(payload, dict):
                 continue
 
-            payload = self.load_episode_text(text_path)
             changed = False
 
             for char_key, char_data in payload.get("characters", {}).items():
@@ -331,9 +481,6 @@ class ScriptTextService:
 
             if changed:
                 payload["modified_at"] = datetime.now().isoformat()
-                self.backup_episode_text(text_path, ep_num or payload.get("episode"), "rename")
-                with open(text_path, 'w', encoding='utf-8') as f:
-                    json.dump(payload, f, ensure_ascii=False, indent=4)
                 updated_files += 1
 
         return updated_files
@@ -388,10 +535,27 @@ class ScriptTextService:
                 pass
         return None
 
+    def _make_split_line_id(
+        self,
+        lines: List[Dict[str, Any]],
+        target: Dict[str, Any],
+        target_index: int
+    ) -> str:
+        """Return a unique id for a line split from another line."""
+        base = str(target.get("id") or f"line_{target_index + 1}")
+        existing = {str(line.get("id")) for line in lines}
+        suffix = 1
+        while True:
+            candidate = f"{base}_split_{suffix}"
+            if candidate not in existing:
+                return candidate
+            suffix += 1
+
     def _build_episode_payload(
         self,
         ep_num: str,
         source_path: str,
+        source_lines: List[Dict[str, Any]],
         merged_lines: List[Dict[str, Any]],
         merge_config: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -425,11 +589,16 @@ class ScriptTextService:
             "imported_at": datetime.now().isoformat(),
             "mtime": source.stat().st_mtime if source.exists() else None
         }
+        source_line_payload = self._build_source_line_payload(source_lines)
+        source_ass = self._build_source_ass_snapshot(source)
 
         return {
             "format_version": SCRIPT_TEXT_FORMAT_VERSION,
             "episode": ep_num,
             "source": source_info,
+            "source_ass": source_ass,
+            "source_lines_origin": "imported",
+            "source_lines": source_line_payload,
             "merge_config": merge_config.copy(),
             "characters": {
                 char: {"display_name": char}
@@ -437,6 +606,62 @@ class ScriptTextService:
             },
             "lines": payload_lines
         }
+
+    def _build_source_line_payload(
+        self,
+        source_lines: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Build normalized original source line payload."""
+        result = []
+        for idx, line in enumerate(source_lines):
+            source_id = line.get("id", idx)
+            result.append({
+                "id": source_id,
+                "start": line.get("s", 0.0),
+                "end": line.get("e", 0.0),
+                "s_raw": line.get("s_raw", ""),
+                "character": line.get("char", ""),
+                "text": line.get("text", ""),
+            })
+        return result
+
+    def _build_source_ass_snapshot(self, source: Path) -> Optional[Dict[str, Any]]:
+        """Return original ASS file content for later source export."""
+        if source.suffix.lower() != ".ass" or not source.exists():
+            return None
+        try:
+            raw_content = source.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return {
+            "filename": source.name,
+            "raw_content": raw_content,
+            "imported_at": datetime.now().isoformat(),
+        }
+
+    def _source_lines_from_payload_lines(
+        self,
+        payload: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Reconstruct a legacy source-lines view from merged payload lines."""
+        reconstructed = []
+        for line in payload.get("lines", []):
+            source_ids = line.get("source_ids") or [line.get("id")]
+            source_texts = line.get("source_texts") or [line.get("text", "")]
+            for idx, source_id in enumerate(source_ids):
+                reconstructed.append({
+                    "id": source_id,
+                    "start": line.get("start", 0.0),
+                    "end": line.get("end", 0.0),
+                    "s_raw": line.get("s_raw", ""),
+                    "character": line.get("character", ""),
+                    "text": (
+                        source_texts[idx]
+                        if idx < len(source_texts)
+                        else line.get("text", "")
+                    ),
+                })
+        return reconstructed
 
     def _safe_episode_num(self, ep_num: str) -> str:
         """Safe episode num."""

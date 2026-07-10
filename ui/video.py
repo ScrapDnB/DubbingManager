@@ -3,7 +3,7 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QAbstractItemView, QFrame, QSlider
+    QAbstractItemView, QFrame, QSlider, QCheckBox, QLabel
 )
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
@@ -28,7 +28,7 @@ class VideoPreviewWindow(QDialog):
     
     def __init__(
         self, 
-        video_path: str, 
+        video_path: Optional[str],
         lines: List[Dict[str, Any]], 
         ep_num: str, 
         parent=None
@@ -40,40 +40,59 @@ class VideoPreviewWindow(QDialog):
         self.resize(VIDEO_WINDOW_WIDTH, VIDEO_WINDOW_HEIGHT)
         self.video_path = video_path
         self.lines = lines
+        self.has_video = bool(self.video_path and os.path.exists(self.video_path))
+        self.video_sync_enabled = True
+        self.media_player: Optional[QMediaPlayer] = None
+        self.audio_output: Optional[QAudioOutput] = None
         
         self._init_ui()
         translate_widget_tree(self)
         
-        if self.video_path and os.path.exists(self.video_path):
+        if self.has_video and self.media_player:
             abs_path = os.path.abspath(self.video_path)
             self.media_player.setSource(QUrl.fromLocalFile(abs_path))
     
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
 
-        self.video_widget = QVideoWidget()
-        self.video_widget.setMinimumHeight(VIDEO_WIDGET_MIN_HEIGHT)
-        layout.addWidget(self.video_widget)
-        
-        self.media_player = QMediaPlayer()
-        self.audio_output = QAudioOutput()
-        self.media_player.setVideoOutput(self.video_widget)
-        self.media_player.setAudioOutput(self.audio_output)
-        
-        ctrl_layout = QHBoxLayout()
-        btn_play = QPushButton("Play/Pause")
-        btn_play.clicked.connect(self.toggle_play)
-        
-        self.slider = QSlider(Qt.Horizontal)
-        self.media_player.positionChanged.connect(self.slider.setValue)
-        self.media_player.durationChanged.connect(
-            lambda d: self.slider.setRange(0, d)
-        )
-        self.slider.sliderMoved.connect(self.media_player.setPosition)
-        
-        ctrl_layout.addWidget(btn_play)
-        ctrl_layout.addWidget(self.slider)
-        layout.addLayout(ctrl_layout)
+        if self.has_video:
+            self.video_widget = QVideoWidget()
+            self.video_widget.setMinimumHeight(VIDEO_WIDGET_MIN_HEIGHT)
+            layout.addWidget(self.video_widget)
+
+            self.media_player = QMediaPlayer()
+            self.audio_output = QAudioOutput()
+            self.media_player.setVideoOutput(self.video_widget)
+            self.media_player.setAudioOutput(self.audio_output)
+
+            ctrl_layout = QHBoxLayout()
+            btn_play = QPushButton("Play/Pause")
+            btn_play.clicked.connect(self.toggle_play)
+
+            self.slider = QSlider(Qt.Horizontal)
+            self.media_player.positionChanged.connect(self.slider.setValue)
+            self.media_player.durationChanged.connect(
+                lambda d: self.slider.setRange(0, d)
+            )
+            self.slider.sliderMoved.connect(self.media_player.setPosition)
+
+            self.chk_video_sync = QCheckBox("Синхронизировать клики с видео")
+            self.chk_video_sync.setChecked(True)
+            self.chk_video_sync.setToolTip(
+                "Если включено, клик по реплике перематывает видео к её началу."
+            )
+            self.chk_video_sync.toggled.connect(self._set_video_sync_enabled)
+
+            ctrl_layout.addWidget(btn_play)
+            ctrl_layout.addWidget(self.slider)
+            ctrl_layout.addWidget(self.chk_video_sync)
+            layout.addLayout(ctrl_layout)
+        else:
+            self.no_video_label = QLabel(
+                "Видео для этой серии не привязано. Показан список реплик."
+            )
+            self.no_video_label.setStyleSheet("color: #666;")
+            layout.addWidget(self.no_video_label)
         
         self.line_table = QTableWidget(0, 3)
         self.line_table.setHorizontalHeaderLabels([
@@ -98,18 +117,27 @@ class VideoPreviewWindow(QDialog):
     
     def toggle_play(self) -> None:
         """Toggle play."""
+        if not self.media_player:
+            return
         if self.media_player.playbackState() == QMediaPlayer.PlayingState:
             self.media_player.pause()
         else:
             self.media_player.play()
+
+    def _set_video_sync_enabled(self, enabled: bool) -> None:
+        """Set whether table clicks seek and play the attached video."""
+        self.video_sync_enabled = enabled
     
     def seek_to_line(self, row: int, col: int) -> None:
         """Seek to line."""
+        if not self.media_player or not self.video_sync_enabled:
+            return
         pos = self.line_table.item(row, 0).data(Qt.UserRole)
         self.media_player.setPosition(int(pos * 1000))
         self.media_player.play()
     
     def closeEvent(self, event) -> None:
         """Closeevent."""
-        self.media_player.stop()
+        if self.media_player:
+            self.media_player.stop()
         event.accept()
