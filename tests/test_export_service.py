@@ -1180,7 +1180,7 @@ class TestExportService:
         sample_project_data: Dict[str, Any],
         tmp_path
     ) -> None:
-        """Тест: CSV маркеров сохраняет тайминги, персонажа, актёра и текст."""
+        """Тест: CSV маркеров сохраняет тайминги, текст и цвет Reaper."""
         service = ExportService(sample_project_data)
         save_path = tmp_path / "markers.csv"
 
@@ -1196,8 +1196,8 @@ class TestExportService:
         )
 
         content = save_path.read_text(encoding="utf-8-sig")
-        assert "Number,Start,End,Name,Character,Actor,Text,Color" in content
-        assert "1,1.0000,2.0000,Character1: Line,Character1,Actor One,Line,#FF0000" in content
+        assert "Number,Name,Start,End,Length,Color" in content
+        assert "R1,Character1: Line,1.000000,2.000000,1.000000,FF0000" in content
 
     def test_save_reaper_rpp_writes_utf8_bom_for_cyrillic(
         self,

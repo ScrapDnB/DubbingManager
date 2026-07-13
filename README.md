@@ -10,7 +10,7 @@
 
 Готовые сборки находятся в разделе [Releases](https://github.com/ScrapDnB/DubbingManager/releases).
 
-Актуальная версия: **1.7.0**.
+Актуальная версия: **1.7.1**.
 
 - **macOS**: скачайте `Dubbing_Manager_macOS.dmg`, откройте образ и перенесите приложение в `Applications`.
 - **Windows**: скачайте `Dubbing_Manager_Windows.zip`, распакуйте папку и запустите `Dubbing Manager.exe`. Чтобы `.dub`-проекты открывались двойным кликом, запустите из этой папки `Register_DUB_File_Association.ps1`.

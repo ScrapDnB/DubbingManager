@@ -32,6 +32,22 @@ class ReaperRppService:
 
         return 0x01000000 | (blue << 16) | (green << 8) | red
 
+    def _hex_to_marker_csv_color(self, hex_color: str) -> str:
+        """Hex to Reaper marker CSV color."""
+        if not hex_color or not isinstance(hex_color, str):
+            return ""
+
+        value = hex_color.strip().lstrip("#").upper()
+        if len(value) != 6:
+            return ""
+
+        try:
+            int(value, 16)
+        except ValueError:
+            return ""
+
+        return value
+
     def _escape_rpp_text(self, text: Any) -> str:
         """Escape rpp text."""
         return (
@@ -93,28 +109,28 @@ class ReaperRppService:
             writer = csv.writer(f)
             writer.writerow([
                 "Number",
+                "Name",
                 "Start",
                 "End",
-                "Name",
-                "Character",
-                "Actor",
-                "Text",
+                "Length",
                 "Color",
             ])
             for idx, line in enumerate(lines, 1):
+                start = float(line.get("s", 0.0))
+                end = float(line.get("e", 0.0))
+                length = max(0.0, end - start)
                 char = line.get("char", "")
                 text = line.get("text", "")
                 actor_id = get_actor_for_character(self.project_data, char, ep)
                 actor = actors.get(actor_id, {}) if actor_id else {}
+                color = self._hex_to_marker_csv_color(actor.get("color", ""))
                 writer.writerow([
-                    idx,
-                    f"{float(line.get('s', 0.0)):.4f}",
-                    f"{float(line.get('e', 0.0)):.4f}",
+                    f"R{idx}",
                     f"{char}: {text}".strip(),
-                    char,
-                    actor.get("name", ""),
-                    text,
-                    actor.get("color", ""),
+                    f"{start:.6f}",
+                    f"{end:.6f}",
+                    f"{length:.6f}",
+                    color,
                 ])
 
     def generate(

@@ -237,7 +237,7 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Application version shown in the UI and build metadata.
-APP_VERSION = "1.7.0"
+APP_VERSION = "1.7.1"
 
 # Project file format version used for compatibility migrations.
 PROJECT_VERSION = "1.4"
