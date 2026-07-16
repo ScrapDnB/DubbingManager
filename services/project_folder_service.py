@@ -70,8 +70,15 @@ class ProjectFolderService:
                 return True
             return False
 
-        expanded = Path(str(raw_folder)).expanduser()
-        if not expanded.is_absolute():
+        raw_folder_text = str(raw_folder).strip()
+        expanded = Path(raw_folder_text).expanduser()
+        # A POSIX path is root-relative but not ``Path.is_absolute()`` on
+        # Windows; a Windows drive path has the mirrored issue on POSIX.
+        foreign_absolute = (
+            raw_folder_text.startswith("/")
+            or bool(re.match(r"^[A-Za-z]:[\\\\/]", raw_folder_text))
+        )
+        if not expanded.is_absolute() and not foreign_absolute:
             data["project_folder"] = str((project_dir / expanded).resolve())
             return data["project_folder"] != str(raw_folder)
 
