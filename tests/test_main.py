@@ -12,8 +12,8 @@ class TestMainLogging:
 
     def test_get_log_path_windows(self):
         """Тест пути логов на Windows"""
-        with patch('main.sys.platform', 'win32'):
-            with patch('main.os.environ.get', return_value='C:\\Users\\test\\AppData\\Local'):
+        with patch('app_startup.sys.platform', 'win32'):
+            with patch('app_startup.os.environ.get', return_value='C:\\Users\\test\\AppData\\Local'):
                 from main import get_log_path
                 path = get_log_path()
                 
@@ -22,7 +22,7 @@ class TestMainLogging:
 
     def test_get_log_path_macos(self):
         """Тест пути логов на macOS"""
-        with patch('main.sys.platform', 'darwin'):
+        with patch('app_startup.sys.platform', 'darwin'):
             # Импортируем функцию заново
             import importlib
             import main
@@ -35,7 +35,7 @@ class TestMainLogging:
 
     def test_get_log_path_linux(self):
         """Тест пути логов на Linux"""
-        with patch('main.sys.platform', 'linux'):
+        with patch('app_startup.sys.platform', 'linux'):
             import importlib
             import main
             importlib.reload(main)
@@ -46,8 +46,8 @@ class TestMainLogging:
 
     def test_get_log_path_no_env(self):
         """Тест пути логов без переменных окружения"""
-        with patch('main.sys.platform', 'win32'):
-            with patch('main.os.environ.get', return_value=None):
+        with patch('app_startup.sys.platform', 'win32'):
+            with patch('app_startup.os.environ.get', return_value=None):
                 import importlib
                 import main
                 importlib.reload(main)
@@ -60,8 +60,8 @@ class TestMainLogging:
         """Тест создания директории логов"""
         log_dir = tmp_path / "test_logs"
         
-        with patch('main.sys.platform', 'darwin'):
-            with patch('main.Path.home', return_value=tmp_path):
+        with patch('app_startup.sys.platform', 'darwin'):
+            with patch('app_startup.Path.home', return_value=tmp_path):
                 import importlib
                 import main
                 importlib.reload(main)
@@ -75,11 +75,13 @@ class TestMainLogging:
 class TestProjectFileArguments:
     """Tests for project file path detection."""
 
-    def test_is_project_file_accepts_dub_and_legacy_json(self):
+    def test_is_project_file_accepts_projects_backups_and_legacy_json(self):
         from main import is_project_file
 
         assert is_project_file("/tmp/project.dub")
         assert is_project_file("/tmp/project.DUB")
+        assert is_project_file("/tmp/project.dub_backup")
+        assert is_project_file("/tmp/project.DUB_BACKUP")
         assert is_project_file("/tmp/project.json")
         assert not is_project_file("/tmp/project.txt")
 

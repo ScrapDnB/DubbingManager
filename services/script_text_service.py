@@ -197,8 +197,11 @@ class ScriptTextService:
         """Find an existing generated working-text file for an episode."""
         ep_num = str(ep_num)
         current_path = project_data.get("episode_texts", {}).get(ep_num)
-        if current_path and os.path.exists(current_path):
-            return current_path
+        for candidate in self._path_candidates(
+            project_data, current_path, project_path
+        ):
+            if candidate.is_file():
+                return str(candidate)
 
         candidates = self._candidate_episode_text_paths(
             project_data,
@@ -317,8 +320,12 @@ class ScriptTextService:
             )
 
         source_path = project_data.get("episodes", {}).get(ep_num)
-        if source_path:
-            candidates.append(Path(source_path).resolve().parent / SCRIPT_TEXT_DIR_NAME / filename)
+        for resolved_source in self._path_candidates(
+            project_data, source_path, project_path
+        ):
+            candidates.append(
+                resolved_source.parent / SCRIPT_TEXT_DIR_NAME / filename
+            )
 
         unique_candidates = []
         seen = set()
@@ -328,6 +335,28 @@ class ScriptTextService:
                 seen.add(key)
                 unique_candidates.append(candidate)
         return unique_candidates
+
+    def _path_candidates(
+        self,
+        project_data: Dict[str, Any],
+        raw_path: Optional[str],
+        project_path: Optional[str] = None,
+    ) -> List[Path]:
+        """Return absolute and portable interpretations of a stored path."""
+        if not raw_path:
+            return []
+        path = Path(str(raw_path)).expanduser()
+        if path.is_absolute():
+            return [path]
+        bases = []
+        project_folder = project_data.get("project_folder")
+        if project_folder:
+            bases.append(Path(str(project_folder)).expanduser())
+        if project_path:
+            bases.append(Path(project_path).expanduser().resolve().parent)
+        candidates = [base / path for base in bases]
+        candidates.append(path)
+        return list(dict.fromkeys(candidate.resolve() for candidate in candidates))
 
     def _looks_like_episode_text(self, path: Path, ep_num: str) -> bool:
         """Check whether a JSON file is a generated episode working text."""

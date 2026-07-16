@@ -4,7 +4,10 @@ import logging
 from html import escape
 from typing import Any, Dict, List, Optional, Tuple
 
-from services.assignment_service import get_actor_for_character
+from services.assignment_service import (
+    get_actor_for_character,
+    get_actor_ids_for_character,
+)
 from utils.helpers import (
     hex_to_rgba_string,
     format_seconds_to_full_tc,
@@ -129,12 +132,8 @@ class ExportLayoutMixin:
                 logger.warning(f"Skipping line without 'text' field: {line}")
                 continue
 
-            aid = get_actor_for_character(self.project_data, line['char'], ep)
-            actor = actors.get(aid, {"name": "-", "color": "#ffffff"})
-
-            is_highlighted = (
-                effective_filter is None or
-                aid in effective_filter
+            aid, actor, is_highlighted = self._actor_display_context(
+                line['char'], ep, effective_filter
             )
             h_class = "highlighted-block" if is_highlighted else ""
 
@@ -171,6 +170,29 @@ class ExportLayoutMixin:
                 )
 
         return html + "</body></html>"
+
+    def _actor_display_context(
+        self,
+        character: str,
+        episode: str,
+        effective_filter: Optional[set[str]],
+    ) -> Tuple[Optional[str], Dict[str, Any], bool]:
+        """Use actor color only when a role resolves to one selected actor."""
+        actors = self.project_data.get("actors", {})
+        actor_ids = get_actor_ids_for_character(
+            self.project_data, character, episode
+        )
+        selected_ids = (
+            actor_ids if effective_filter is None
+            else [actor_id for actor_id in actor_ids if actor_id in effective_filter]
+        )
+        color_actor_id = selected_ids[0] if len(selected_ids) == 1 else None
+        actor = dict(actors.get(color_actor_id, {})) if color_actor_id else {}
+        actor["name"] = " / ".join(
+            str(actors.get(actor_id, {}).get("name") or actor_id)
+            for actor_id in actor_ids
+        ) or "-"
+        return color_actor_id, actor, bool(color_actor_id)
 
     def _get_js_for_mode(self, is_editable: bool) -> str:
         """Return js for mode."""

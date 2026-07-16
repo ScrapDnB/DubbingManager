@@ -5,6 +5,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict
 
+from PySide6.QtCore import QTranslator
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_LANGUAGE = "ru"
@@ -125,6 +127,23 @@ def tr(key: str, **kwargs: Any) -> str:
 
 def translate_source(text: str) -> str:
     return i18n.translate_source(text)
+
+
+class JsonSourceTranslator(QTranslator):
+    """Expose the existing source-string catalog to Qt and QML."""
+
+    def translate(
+        self,
+        context: str,
+        source_text: str,
+        disambiguation: str | None = None,
+        n: int = -1,
+    ) -> str:
+        del context, disambiguation, n
+        translated = translate_source(source_text)
+        # PySide treats an empty Python string as a real translation, which can
+        # break Qt's own internal strings containing %1-style placeholders.
+        return translated or source_text
 
 
 def translate_widget_tree(root: Any) -> None:

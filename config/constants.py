@@ -17,8 +17,10 @@ MY_PALETTE = [
 
 PROJECT_FILE_EXTENSION = ".dub"
 PROJECT_LEGACY_FILE_EXTENSION = ".json"
+PROJECT_BACKUP_FILE_EXTENSION = ".dub_backup"
 PROJECT_FILE_FILTER = (
     "Dubbing Manager Project (*.dub);;"
+    "Dubbing Manager Backup (*.dub_backup);;"
     "Legacy JSON Project (*.json);;"
     "All Files (*)"
 )
@@ -217,27 +219,79 @@ DEFAULT_REPLICA_MERGE_CONFIG = {
     'fps': 25,  # Frame rate used for time conversion.
 }
 
+DEFAULT_ASS_IMPORT_CONFIG = {
+    'split_character_names': True,
+    'character_separator': ';',
+    'strip_override_tags': True,
+}
+
+DEFAULT_SRT_IMPORT_CONFIG = {
+    'detect_character_prefix': True,
+    'character_separator': ':',
+    'keep_multiline': True,
+    'default_character': '',
+}
+
 # DOCX-specific handling
 DEFAULT_DOCX_IMPORT_CONFIG = {
     'mapping': {},
-    'time_separators': ['-'],
+    'time_separators': ['-', '–', '—', '|'],
+    'header_mode': 'auto',
+    'header_search_rows': 5,
+    'minimum_header_matches': 2,
+    'rows_to_skip': 0,
+    'default_duration': 1.0,
+    'field_priority': [
+        'character', 'time_start', 'time_end', 'time_split', 'text'
+    ],
+    'aliases': {
+        'character': [
+            'персонаж', 'имя', 'роль', 'actor', 'character', 'char',
+            'speaker', 'voice'
+        ],
+        'time_start': ['начало', 'старт', 'start', 'time start', 'in', 'from'],
+        'time_end': ['конец', 'end', 'time end', 'out', 'to'],
+        'time_split': ['тайминг', 'таймкод', 'время', 'timing', 'timecode', 'time'],
+        'text': [
+            'текст', 'реплика', 'фраза', 'text', 'replica', 'dialog',
+            'speech', 'line'
+        ],
+    },
+    'fallback_mapping': {
+        'character': 0,
+        'time_start': None,
+        'time_end': None,
+        'time_split': 1,
+        'text': 2,
+    },
 }
 
 DEFAULT_AUDIOBOOK_CONFIG = {
     "chapter_keywords": ["Глава", "Chapter"],
 }
 
+DEFAULT_BACKUP_CONFIG = {
+    "enabled": True,
+    "path_mode": "relative",
+    "directory": ".backups",
+    "interval_minutes": 5,
+    "max_backups": 10,
+}
+
 DEFAULT_GLOBAL_SETTINGS = {
     'export_config': None,  # Initialized from DEFAULT_EXPORT_CONFIG.
     'prompter_config': None,  # Initialized from DEFAULT_PROMPTER_CONFIG.
     'replica_merge_config': None,  # Initialized from DEFAULT_REPLICA_MERGE_CONFIG.
+    'ass_import_config': DEFAULT_ASS_IMPORT_CONFIG,
+    'srt_import_config': DEFAULT_SRT_IMPORT_CONFIG,
     'docx_import_config': None,  # DOCX-specific handling
     'audiobook_config': DEFAULT_AUDIOBOOK_CONFIG,
+    'backup_config': DEFAULT_BACKUP_CONFIG,
     'language': 'ru',
 }
 
 # Application version shown in the UI and build metadata.
-APP_VERSION = "1.7.0"
+APP_VERSION = "2.0.0-beta1"
 
 # Project file format version used for compatibility migrations.
 PROJECT_VERSION = "1.4"

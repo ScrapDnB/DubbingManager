@@ -29,6 +29,8 @@ def test_ensure_project_compatibility_adds_current_fields_to_legacy_project():
     assert data["global_map"] == {}
     assert data["episode_actor_map"] == {}
     assert data["prompter_config"]
+    assert data["ass_import_config"]["character_separator"] == ";"
+    assert data["srt_import_config"]["character_separator"] == ":"
     assert data["docx_import_config"]
     assert data["project_folder"] is None
     assert data["export_config"]["layout_type"] == "Сценарий 1"

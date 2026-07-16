@@ -46,6 +46,23 @@ Compress-Archive -Path "dist\Dubbing Manager" -DestinationPath "Dubbing_Manager_
 
 Windows собирается в формате `onedir`, а не `onefile`, чтобы запуск был быстрее и надёжнее для PySide6/Qt.
 
+## Сборка QML-пакета
+
+Основная сборка использует QML-вход:
+
+```bash
+python -m PyInstaller dubbing_manager.spec --clean
+```
+
+На Windows:
+
+```powershell
+python -m PyInstaller dubbing_manager.spec --clean
+```
+
+Используется `qml_main.py`; в пакет включаются каталог `qml`, иконки и QML
+backend.
+
 В Windows ZIP также кладётся скрипт:
 
 ```powershell
@@ -53,8 +70,9 @@ Register_DUB_File_Association.ps1
 ```
 
 Его можно один раз запустить из распакованной папки приложения, чтобы
-зарегистрировать `.dub` за `Dubbing Manager.exe` для текущего пользователя.
-После этого двойной клик по `.dub` будет открывать проект. Для удаления
+зарегистрировать `.dub` и `.dub_backup` за `Dubbing Manager.exe` для текущего
+пользователя. После этого двойной клик по проекту или резервной копии будет
+открывать его в программе. Для удаления
 ассоциации:
 
 ```powershell
@@ -64,8 +82,9 @@ Register_DUB_File_Association.ps1
 ## Публикация релиза
 
 ```bash
-git tag v1.4.0
-git push origin v1.4.0
+git tag v2.0.0-beta1
+git push origin v2.0.0-beta1
 ```
 
-После этого workflow соберёт Windows и macOS артефакты и прикрепит их к релизу.
+После этого workflow соберёт Windows и macOS артефакты и прикрепит их к
+предварительному релизу.

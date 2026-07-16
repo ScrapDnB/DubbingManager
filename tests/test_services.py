@@ -279,16 +279,18 @@ class TestProjectService:
         backup_dir = tmp_path / ".backups"
         backup_dir.mkdir()
         
-        for i in range(15):  # Создаём 15 бэкапов
-            backup_file = backup_dir / f"backup_{i}.json"
+        for i in range(15):  # Создаём 15 бэкапов проекта
+            backup_file = backup_dir / f"project_{i}.dub_backup"
             backup_file.write_text("{}")
+        for i in range(3):
+            (backup_dir / f"other_{i}.dub_backup").write_text("{}")
         
         # Ротация
-        service._rotate_backups(backup_dir)
+        service._rotate_backups(backup_dir, "project_")
         
-        # Должно остаться только MAX_BACKUPS
-        remaining = list(backup_dir.glob("*.json"))
-        assert len(remaining) == MAX_BACKUPS
+        # Должно остаться десять копий проекта и все чужие копии.
+        assert len(list(backup_dir.glob("project_*.dub_backup"))) == MAX_BACKUPS
+        assert len(list(backup_dir.glob("other_*.dub_backup"))) == 3
 
     def test_auto_save_with_backup(self, sample_project_data, tmp_path):
         """Автосохранение с бэкапом"""
@@ -304,8 +306,58 @@ class TestProjectService:
         # Проверка, что бэкап создан
         backup_dir = tmp_path / ".backups"
         assert backup_dir.exists()
-        backups = list(backup_dir.glob("*.json"))
+        backups = list(backup_dir.glob("*.dub_backup"))
         assert len(backups) >= 1
+
+    def test_auto_save_respects_relative_directory_and_disable(
+        self, sample_project_data, tmp_path
+    ):
+        service = ProjectService({
+            "enabled": True,
+            "path_mode": "relative",
+            "directory": "state/backups",
+            "max_backups": 4,
+        })
+        service.current_project_path = str(tmp_path / "project.dub")
+        service.is_dirty = True
+
+        assert service.auto_save(sample_project_data)
+        assert len(list(
+            (tmp_path / "state" / "backups").glob("*.dub_backup")
+        )) == 1
+
+        service.set_backup_config({"enabled": False})
+        service.current_project_path = str(tmp_path / "disabled.dub")
+        service.is_dirty = True
+        assert service.auto_save(sample_project_data)
+        assert not list(
+            (tmp_path / ".backups").glob("disabled_*.dub_backup")
+        )
+
+    def test_auto_save_uses_absolute_backup_directory(
+        self, sample_project_data, tmp_path
+    ):
+        backup_dir = tmp_path / "central-backups"
+        service = ProjectService({
+            "path_mode": "absolute",
+            "directory": str(backup_dir),
+        })
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        service.current_project_path = str(project_dir / "show.dub")
+        service.is_dirty = True
+
+        assert service.auto_save(sample_project_data)
+        project_backups = list(backup_dir.glob("show-*/show_*.dub_backup"))
+        assert len(project_backups) == 1
+
+        second_dir = tmp_path / "second-project"
+        second_dir.mkdir()
+        service.current_project_path = str(second_dir / "show.dub")
+        service.is_dirty = True
+        assert service.auto_save(sample_project_data)
+        buckets = list(backup_dir.glob("show-*"))
+        assert len(buckets) == 2
 
     def test_list_backups(self, sample_project_data, tmp_path):
         """Получение списка бэкапов"""
@@ -317,13 +369,14 @@ class TestProjectService:
         backup_dir.mkdir()
         
         for i in range(3):
-            backup_file = backup_dir / f"backup_{i}.json"
+            backup_file = backup_dir / f"project_{i}.dub_backup"
             backup_file.write_text("{}")
+        (backup_dir / "another_project_0.dub_backup").write_text("{}")
         
         backups = service.list_backups()
         assert len(backups) == 3
         # Отсортированы по времени (новые первые)
-        assert backups[0].name == "backup_2.json"
+        assert backups[0].name == "project_2.dub_backup"
 
     def test_restore_from_backup(self, sample_project_data, tmp_path):
         """Восстановление из бэкапа"""
@@ -332,13 +385,17 @@ class TestProjectService:
         # Создаём бэкап
         backup_dir = tmp_path / ".backups"
         backup_dir.mkdir()
-        backup_file = backup_dir / "backup.json"
+        backup_file = backup_dir / "backup.dub_backup"
         
         with open(backup_file, 'w', encoding='utf-8') as f:
             json.dump(sample_project_data, f)
         
         # Восстановление
         target_path = tmp_path / "restored.json"
+        target_path.write_text(
+            json.dumps({**sample_project_data, "project_name": "До восстановления"}),
+            encoding="utf-8",
+        )
         result = service.restore_from_backup(str(backup_file), str(target_path))
         
         assert result == True
@@ -349,6 +406,13 @@ class TestProjectService:
             restored_data = json.load(f)
         
         assert restored_data["project_name"] == "Тестовый проект"
+        safety_backups = list(
+            backup_dir.glob("restored_before_restore_*.dub_backup")
+        )
+        assert len(safety_backups) == 1
+        assert json.loads(safety_backups[0].read_text(encoding="utf-8"))[
+            "project_name"
+        ] == "До восстановления"
 
     def test_load_old_project_format(self, tmp_path):
         """Загрузка старого формата проекта (без metadata)"""

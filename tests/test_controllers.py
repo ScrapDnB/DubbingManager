@@ -669,6 +669,17 @@ class TestProjectController:
         assert result is not None
         project_service.load_project.assert_called_once_with("/path/project.json")
 
+    def test_load_backup_requires_save_as(
+        self, controller, project_service, data_ref
+    ):
+        project_service.current_project_path = "/backups/show.dub_backup"
+
+        result = controller.load_project("/backups/show.dub_backup")
+
+        assert result is not None
+        assert project_service.current_project_path is None
+        project_service.set_dirty.assert_called_once_with(True)
+
     def test_maybe_save_not_dirty(self, controller, project_service):
         """Тест проверки сохранения (не грязный)"""
         project_service.is_dirty = False

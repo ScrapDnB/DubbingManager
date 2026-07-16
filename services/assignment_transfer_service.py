@@ -97,6 +97,7 @@ class AssignmentTransferService:
             actors[new_id] = {
                 "name": actor_name,
                 "color": actor_data.get("color", "#FFFFFF"),
+                "gender": self._normalize_gender(actor_data.get("gender", "")),
             }
             actor_id_map[str(imported_id)] = new_id
             stats["actors_added"] += 1
@@ -170,3 +171,12 @@ class AssignmentTransferService:
             if candidate not in actors:
                 return candidate
             index += 1
+
+    @staticmethod
+    def _normalize_gender(value: Any) -> str:
+        normalized = str(value or "").strip().upper()
+        if normalized in {"M", "М"}:
+            return "М"
+        if normalized in {"F", "Ж"}:
+            return "Ж"
+        return ""

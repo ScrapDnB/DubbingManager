@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
+from config.constants import DEFAULT_DOCX_IMPORT_CONFIG
 from ui.dialogs.settings import SettingsDialog
 
 
@@ -381,7 +382,9 @@ def test_settings_dialog_falls_back_to_default_docx_separator(app, project_data)
     dialog.docx_time_separators.setText("")
     settings = dialog.get_settings()
 
-    assert settings["docx_import_config"]["time_separators"] == ["-"]
+    assert settings["docx_import_config"]["time_separators"] == (
+        DEFAULT_DOCX_IMPORT_CONFIG["time_separators"]
+    )
 
 
 def test_settings_dialog_opens_requested_tab(app, project_data):

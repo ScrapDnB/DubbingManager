@@ -49,35 +49,37 @@ class QuickSubtitleService:
             raise ValueError("в файле нет реплик")
         return self.normalize_lines(lines)
 
+    def preview_html(
+        self,
+        path: str,
+        config: Dict[str, Any] | None = None,
+    ) -> str:
+        """Build the standalone montage preview without writing a file."""
+        _lines, cfg, export_service, processed = self._prepare_montage(
+            path, config
+        )
+        return export_service.generate_html(
+            "1",
+            processed,
+            cfg,
+            highlight_ids=[],
+            layout_type=cfg.get("layout_type", "Таблица"),
+            is_editable=False,
+        )
+
     def export_montage(
         self,
         path: str,
         export_html: bool,
         export_docx: bool,
-        export_pdf: bool = False
+        export_pdf: bool = False,
+        config: Dict[str, Any] | None = None,
     ) -> List[str]:
         """Export one subtitle file to montage files next to it."""
-        _stats, lines = self.parse_file(path)
-        if not lines:
-            raise ValueError("в файле нет реплик")
-        lines = self.normalize_lines(lines)
-
-        cfg = self.export_config()
-        project_data = {
-            "project_name": os.path.splitext(os.path.basename(path))[0],
-            "actors": {},
-            "global_map": {},
-            "episode_actor_map": {},
-            "export_config": cfg,
-            "replica_merge_config": deepcopy(
-                self.data_ref.get("replica_merge_config", {})
-            ),
-        }
-        export_service = ExportService(project_data)
-        processed = export_service.process_merge_logic(
-            lines,
-            project_data["replica_merge_config"]
+        lines, cfg, export_service, processed = self._prepare_montage(
+            path, config
         )
+        project_data = export_service.project_data
         exported: List[str] = []
 
         if export_html:
@@ -115,6 +117,38 @@ class QuickSubtitleService:
 
         return exported
 
+    def _prepare_montage(
+        self,
+        path: str,
+        config: Dict[str, Any] | None = None,
+    ) -> Tuple[
+        List[Dict[str, Any]],
+        Dict[str, Any],
+        ExportService,
+        List[Dict[str, Any]],
+    ]:
+        _stats, lines = self.parse_file(path)
+        if not lines:
+            raise ValueError("в файле нет реплик")
+        lines = self.normalize_lines(lines)
+        cfg = self.export_config(config)
+        project_data = {
+            "project_name": os.path.splitext(os.path.basename(path))[0],
+            "actors": {},
+            "global_map": {},
+            "episode_actor_map": {},
+            "export_config": cfg,
+            "replica_merge_config": deepcopy(
+                self.data_ref.get("replica_merge_config", {})
+            ),
+        }
+        export_service = ExportService(project_data)
+        processed = export_service.process_merge_logic(
+            lines,
+            project_data["replica_merge_config"],
+        )
+        return lines, cfg, export_service, processed
+
     def normalize_lines(
         self,
         lines: List[Dict[str, Any]]
@@ -127,10 +161,15 @@ class QuickSubtitleService:
             normalized.append(line_data)
         return normalized
 
-    def export_config(self) -> Dict[str, Any]:
+    def export_config(
+        self,
+        overrides: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
         """Return current export config without actor color highlighting."""
         cfg = deepcopy(DEFAULT_EXPORT_CONFIG)
         cfg.update(deepcopy(self.data_ref.get("export_config", {})))
+        if overrides:
+            cfg.update(deepcopy(overrides))
         cfg["use_color"] = False
         cfg["highlight_ids_export"] = []
         cfg["highlight_negative_ids_export"] = []

@@ -3,7 +3,7 @@
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Tuple
 
-from services.assignment_service import get_actor_for_character
+from services.assignment_service import get_actor_ids_for_character
 from services.export_service import ExportService
 from utils.helpers import natural_sort_key
 
@@ -103,6 +103,84 @@ class CharacterStatsService:
 
         return result
 
+    def actor_summary_rows(
+        self,
+        get_episode_lines: Callable[[str], List[Dict[str, Any]]],
+        target_episode: str = "",
+    ) -> List[Dict[str, Any]]:
+        """Return actor totals for one episode or the whole project."""
+        actors = self.data_ref.get("actors", {})
+        stats: Dict[str, Dict[str, Any]] = {
+            actor_id: {"rings": 0, "words": 0, "roles": set()}
+            for actor_id in actors
+        }
+        unassigned: Dict[str, Any] = {
+            "rings": 0,
+            "words": 0,
+            "roles": set(),
+        }
+        episodes = (
+            [str(target_episode)]
+            if target_episode
+            else sorted(
+                (str(ep) for ep in self.data_ref.get("episodes", {})),
+                key=natural_sort_key,
+            )
+        )
+        export_service = ExportService(self.data_ref)
+
+        for episode in episodes:
+            lines = get_episode_lines(episode)
+            if not lines:
+                continue
+            for line in export_service.process_merge_logic(
+                lines,
+                self.data_ref.get("replica_merge_config", {}),
+            ):
+                character = str(line.get("char") or "")
+                if not character:
+                    continue
+                actor_ids = get_actor_ids_for_character(
+                    self.data_ref,
+                    character,
+                    episode,
+                )
+                targets = [stats[actor_id] for actor_id in actor_ids if actor_id in stats]
+                if not targets:
+                    targets = [unassigned]
+                for target in targets:
+                    target["rings"] += 1
+                    target["words"] += len(str(line.get("text") or "").split())
+                    target["roles"].add(character)
+
+        rows: List[Dict[str, Any]] = []
+        for actor_id, actor in actors.items():
+            actor_stats = stats[actor_id]
+            if target_episode and actor_stats["rings"] == 0:
+                continue
+            rows.append({
+                "actorId": actor_id,
+                "actor": actor.get("name", actor_id),
+                "color": actor.get("color", "transparent"),
+                "rings": actor_stats["rings"],
+                "words": actor_stats["words"],
+                "roles": sorted(actor_stats["roles"], key=str.casefold),
+                "unassigned": False,
+            })
+
+        rows.sort(key=lambda row: str(row["actor"]).casefold())
+        if unassigned["roles"]:
+            rows.append({
+                "actorId": "",
+                "actor": "НЕ РАСПРЕДЕЛЕНЫ",
+                "color": "transparent",
+                "rings": unassigned["rings"],
+                "words": unassigned["words"],
+                "roles": sorted(unassigned["roles"], key=str.casefold),
+                "unassigned": True,
+            })
+        return rows
+
     def project_casting_summary_rows(
         self,
         get_episode_lines: Callable[[str], List[Dict[str, Any]]],
@@ -137,28 +215,27 @@ class CharacterStatsService:
                 if not char:
                     continue
 
-                actor_id = get_actor_for_character(self.data_ref, char, ep)
-                actor_name = (
-                    actors.get(actor_id, {}).get("name", "")
-                    if actor_id
-                    else ""
-                )
-                key = (char, actor_name)
-                row = rows_by_key.get(key)
-                if row is None:
-                    row = {
-                        "char": char,
-                        "actor": actor_name,
-                        "first_ep": ep,
-                        "order": next_order,
-                        "episodes": defaultdict(int),
-                    }
-                    rows_by_key[key] = row
-                    next_order += 1
-                row["episodes"][ep] += self._project_casting_metric_value(
-                    line,
-                    metric
-                )
+                actor_ids = get_actor_ids_for_character(self.data_ref, char, ep)
+                for actor_id in actor_ids or [""]:
+                    actor_name = str(
+                        actors.get(actor_id, {}).get("name", "")
+                    )
+                    key = (char, actor_name)
+                    row = rows_by_key.get(key)
+                    if row is None:
+                        row = {
+                            "char": char,
+                            "actor": actor_name,
+                            "first_ep": ep,
+                            "order": next_order,
+                            "episodes": defaultdict(int),
+                        }
+                        rows_by_key[key] = row
+                        next_order += 1
+                    row["episodes"][ep] += self._project_casting_metric_value(
+                        line,
+                        metric
+                    )
 
         rows: List[List[Any]] = [header]
         rows_by_first_episode: Dict[str, List[Dict[str, Any]]] = defaultdict(list)

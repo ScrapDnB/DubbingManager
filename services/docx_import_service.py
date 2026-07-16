@@ -3,6 +3,7 @@
 import os
 import re
 import logging
+from copy import deepcopy
 from typing import Dict, List, Any, Optional, Tuple
 from collections import defaultdict
 
@@ -17,6 +18,7 @@ except ImportError:
     logger.warning("python-docx not installed. DOCX import disabled.")
 
 from utils.helpers import srt_time_to_seconds
+from config.constants import DEFAULT_DOCX_IMPORT_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -40,16 +42,38 @@ DEFAULT_COLUMN_MAPPING = {
 }
 
 # Default separators for combined timing columns
-DEFAULT_TIME_SEPARATORS = ['-']
+DEFAULT_TIME_SEPARATORS = list(DEFAULT_DOCX_IMPORT_CONFIG['time_separators'])
 
 
 class DocxImportService:
     """Docx Import Service implementation."""
 
-    def __init__(self, merge_gap: int = 5, fps: float = 25.0, time_separators: Optional[List[str]] = None):
+    def __init__(
+        self,
+        merge_gap: int = 5,
+        fps: float = 25.0,
+        time_separators: Optional[List[str]] = None,
+        detection_config: Optional[Dict[str, Any]] = None,
+    ):
         self.merge_gap = merge_gap
         self.fps = fps
-        self.time_separators = time_separators or DEFAULT_TIME_SEPARATORS
+        self.detection_config = deepcopy(DEFAULT_DOCX_IMPORT_CONFIG)
+        if isinstance(detection_config, dict):
+            self.detection_config.update({
+                key: deepcopy(value)
+                for key, value in detection_config.items()
+                if key != 'aliases'
+            })
+            if isinstance(detection_config.get('aliases'), dict):
+                self.detection_config['aliases'].update(
+                    deepcopy(detection_config['aliases'])
+                )
+        self.time_separators = (
+            time_separators
+            or self.detection_config.get('time_separators')
+            or DEFAULT_TIME_SEPARATORS
+        )
+        self.last_detection: Dict[str, Any] = {}
 
     def set_merge_gap(self, gap: int) -> None:
         """Set the replica merge gap."""
@@ -116,54 +140,160 @@ class DocxImportService:
             return all_tables[0]
         return []
 
+    def parse_document(
+        self,
+        path: str,
+        column_mapping: Optional[Dict[str, Optional[int]]] = None,
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Parse every table in a DOCX using saved mapping when it still fits."""
+        return self.parse_tables(
+            self.extract_tables_from_docx(path),
+            column_mapping,
+        )
+
+    def parse_tables(
+        self,
+        tables: List[List[List[str]]],
+        column_mapping: Optional[Dict[str, Optional[int]]] = None,
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Parse DOCX table rows and combine them into one episode payload."""
+        all_lines: List[Dict[str, Any]] = []
+        for rows in tables:
+            if not rows:
+                continue
+            detected_mapping = self.detect_columns(rows)
+            column_count = max((len(row) for row in rows), default=0)
+            mapping = (
+                column_mapping
+                if self.mapping_usable(column_mapping, column_count)
+                else detected_mapping
+            )
+            _stats, lines = self.parse_with_mapping(rows, mapping)
+            all_lines.extend(lines)
+        return self._summarize_lines(all_lines), all_lines
+
+    @staticmethod
+    def mapping_usable(mapping: Any, column_count: int) -> bool:
+        """Return whether a saved mapping can address the current table."""
+        if not isinstance(mapping, dict) or mapping.get('text') is None:
+            return False
+        for field in COLUMN_TYPES:
+            value = mapping.get(field)
+            if value is None:
+                continue
+            try:
+                index = int(value)
+            except (TypeError, ValueError):
+                return False
+            if not 0 <= index < column_count:
+                return False
+        return True
+
+    @staticmethod
+    def _summarize_lines(
+        lines: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        characters: Dict[str, Dict[str, int]] = defaultdict(
+            lambda: {'lines': 0, 'words': 0}
+        )
+        for line in lines:
+            character = str(line.get('char') or '')
+            if not character:
+                continue
+            characters[character]['lines'] += 1
+            characters[character]['words'] += len(
+                str(line.get('text') or '').split()
+            )
+        return [
+            {
+                'name': character,
+                'lines': values['lines'],
+                'rings': values['lines'],
+                'words': values['words'],
+            }
+            for character, values in characters.items()
+        ]
+
     def detect_columns(self, rows: List[List[str]]) -> Dict[str, int]:
         """Detect columns."""
         if not rows:
             return DEFAULT_COLUMN_MAPPING.copy()
 
-        # Check the first row for headers
-        header_row = rows[0] if rows else []
-        mapping = {}
-        has_header = False
+        config = self.detection_config
+        mode = config.get('header_mode', 'auto')
+        search_count = min(
+            len(rows), max(1, int(config.get('header_search_rows', 5)))
+        )
+        candidates = [0] if mode == 'first' else range(search_count)
+        best_index, best_mapping, best_score = None, {}, -1
+        if mode != 'none':
+            for row_index in candidates:
+                mapping = self._detect_header_mapping(rows[row_index])
+                score = len(mapping)
+                if score > best_score:
+                    best_index, best_mapping, best_score = (
+                        row_index, mapping, score
+                    )
 
-        # Patterns for automatic detection
-        patterns = {
-            'character': [r'персонаж', r'имя', r'actor', r'character', r'char', r'voice'],
-            'time_start': [r'начало', r'start', r'time.*start', r'in', r'from'],
-            'time_end': [r'конец', r'end', r'time.*end', r'out', r'to'],
-            'time_split': [r'тайминг', r'timing', r'time\s*$', r'время', r'таймкод'],
-            'text': [r'текст', r'text', r'replica', r'фраз', r'dialog', r'speech', r'реплика']
-        }
-
-        # Map headers to column types
-        for col_idx, header in enumerate(header_row):
-            header_lower = header.lower()
-            for col_type, pattern_list in patterns.items():
-                for pattern in pattern_list:
-                    if re.search(pattern, header_lower):
-                        if col_type not in mapping:  # Use the first match
-                            mapping[col_type] = col_idx
-                            has_header = True
-                        break
-
-        # Use defaults if not all columns were detected
-        default_mapping = DEFAULT_COLUMN_MAPPING.copy()
-        for col_type, default_idx in default_mapping.items():
+        minimum = int(config.get('minimum_header_matches', 2))
+        has_header = best_score >= minimum
+        mapping = best_mapping if has_header else {}
+        fallback = config.get('fallback_mapping') or DEFAULT_COLUMN_MAPPING
+        for col_type, default_idx in fallback.items():
             if col_type not in mapping:
-                # If this is a text column and unnamed columns exist
                 if col_type == 'text':
-                    # Look for the last column
-                    if rows:
-                        max_cols = max(len(row) for row in rows)
-                        if max_cols > 0:
-                            mapping[col_type] = max_cols - 1
+                    max_cols = max(len(row) for row in rows)
+                    mapping[col_type] = (
+                        default_idx
+                        if isinstance(default_idx, int) and default_idx < max_cols
+                        else max_cols - 1
+                    )
                 else:
                     mapping[col_type] = default_idx
-
-        # Store the header presence flag
         self._has_header = has_header
+        self._header_row_index = best_index if has_header else None
+        self.last_detection = {
+            'header_found': has_header,
+            'header_row': best_index if has_header else None,
+            'matches': max(0, best_score),
+            'confidence': max(0.0, min(1.0, best_score / 5.0)),
+        }
 
         return mapping
+
+    def _detect_header_mapping(self, row: List[str]) -> Dict[str, int]:
+        aliases = self.detection_config.get('aliases', {})
+        priority = self.detection_config.get(
+            'field_priority', list(COLUMN_TYPES)
+        )
+        mapping: Dict[str, int] = {}
+        used_columns = set()
+        for field in priority:
+            for col_idx, header in enumerate(row):
+                if col_idx in used_columns:
+                    continue
+                if self._header_matches(str(header), aliases.get(field, [])):
+                    mapping[field] = col_idx
+                    used_columns.add(col_idx)
+                    break
+        return mapping
+
+    @staticmethod
+    def _header_matches(header: str, aliases: List[str]) -> bool:
+        normalized = ' '.join(header.casefold().split())
+        for alias in aliases:
+            value = str(alias or '').strip()
+            if not value:
+                continue
+            if value.startswith('re:'):
+                try:
+                    if re.search(value[3:], normalized, re.IGNORECASE):
+                        return True
+                except re.error:
+                    continue
+            elif ' '.join(value.casefold().split()) in normalized:
+                return True
+        return False
 
     def get_available_columns(self, rows: List[List[str]]) -> List[int]:
         """Return available columns."""
@@ -187,8 +317,7 @@ class DocxImportService:
         lines_list = []
 
         # Detect whether a header is present and skip the first row only then
-        has_header = getattr(self, '_has_header', True)
-        start_idx = 1 if has_header and len(rows) > 1 else 0
+        start_idx = self._data_start_index(rows)
         data_rows = rows[start_idx:] if rows else []
 
         for row_idx, row in enumerate(data_rows):
@@ -222,7 +351,9 @@ class DocxImportService:
                 if start_seconds is None:
                     start_seconds = 0.0
                 if end_seconds is None:
-                    end_seconds = start_seconds + 1.0
+                    end_seconds = start_seconds + float(
+                        self.detection_config.get('default_duration', 1.0)
+                    )
 
                 line_data = {
                     's': start_seconds,
@@ -358,8 +489,7 @@ class DocxImportService:
         """Return preview data."""
         preview = []
         # Honor the header flag
-        has_header = getattr(self, '_has_header', True)
-        start_idx = 1 if has_header and len(rows) > 1 else 0
+        start_idx = self._data_start_index(rows)
         data_rows = rows[start_idx:start_idx + limit] if rows else []
 
         for row in data_rows:
@@ -384,3 +514,13 @@ class DocxImportService:
             preview.append(preview_row)
 
         return preview
+
+    def _data_start_index(self, rows: List[List[str]]) -> int:
+        skipped = max(0, int(self.detection_config.get('rows_to_skip', 0)))
+        header_index = getattr(self, '_header_row_index', None)
+        if getattr(self, '_has_header', False):
+            return min(
+                len(rows), (header_index if header_index is not None else 0)
+                + 1 + skipped
+            )
+        return min(len(rows), skipped)

@@ -5,10 +5,12 @@ from datetime import datetime
 from typing import Any, Dict
 
 from config.constants import (
+    DEFAULT_ASS_IMPORT_CONFIG,
     DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
     DEFAULT_PROMPTER_CONFIG,
     DEFAULT_REPLICA_MERGE_CONFIG,
+    DEFAULT_SRT_IMPORT_CONFIG,
     PROJECT_VERSION,
 )
 
@@ -69,6 +71,10 @@ def ensure_project_compatibility(data: Dict[str, Any]) -> None:
             )
     if "docx_import_config" not in data:
         data["docx_import_config"] = deepcopy(DEFAULT_DOCX_IMPORT_CONFIG)
+    if "ass_import_config" not in data:
+        data["ass_import_config"] = deepcopy(DEFAULT_ASS_IMPORT_CONFIG)
+    if "srt_import_config" not in data:
+        data["srt_import_config"] = deepcopy(DEFAULT_SRT_IMPORT_CONFIG)
 
     if "project_folder" not in data:
         data["project_folder"] = None

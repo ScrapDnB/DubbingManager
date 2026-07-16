@@ -26,7 +26,8 @@ class ImportController:
         self.undo_stack = undo_stack
         self.get_current_project_path = get_current_project_path
 
-    def suggested_episode_name(self, path: str) -> str:
+    @staticmethod
+    def suggested_episode_name(path: str) -> str:
         """Return a numeric episode suggestion based on a file name."""
         numbers: List[str] = re.findall(r'\d+', os.path.basename(path))
         return " ".join(numbers) or "1"

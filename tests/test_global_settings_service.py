@@ -42,6 +42,13 @@ class TestGlobalSettingsService:
         assert settings['default_export_config'] == DEFAULT_EXPORT_CONFIG
         assert settings['default_prompter_config'] == DEFAULT_PROMPTER_CONFIG
         assert settings['language'] == 'ru'
+        assert settings['backup_config'] == {
+            'enabled': True,
+            'path_mode': 'relative',
+            'directory': '.backups',
+            'interval_minutes': 5,
+            'max_backups': 10,
+        }
 
     def test_load_settings_with_data(self, service, temp_settings_file):
         """Тест загрузки с данными"""
@@ -139,6 +146,13 @@ class TestGlobalSettingsService:
                 'time_separators': ['-', '|']
             },
             'project_summary_export_metric': 'lines',
+            'backup_config': {
+                'enabled': False,
+                'path_mode': 'absolute',
+                'directory': '/tmp/dubbing-backups',
+                'interval_minutes': 15,
+                'max_backups': 25,
+            },
         }
         
         result = service.save_settings(settings)
@@ -152,7 +166,8 @@ class TestGlobalSettingsService:
         assert 'export_config' not in saved_data
         assert 'prompter_config' not in saved_data
         assert 'replica_merge_config' not in saved_data
-        assert 'docx_import_config' not in saved_data
+        assert saved_data['docx_import_config']['mapping']['text'] == 2
+        assert saved_data['docx_import_config']['time_separators'] == ['-', '|']
         assert saved_data['default_export_config']['layout_type'] == 'Сценарий 1'
         assert saved_data['default_export_config']['col_tc'] is False
         assert saved_data['default_export_config']['col_char'] is True
@@ -166,6 +181,10 @@ class TestGlobalSettingsService:
         assert saved_data['recent_projects'] == []
         assert saved_data['project_summary_export_metric'] == 'lines'
         assert saved_data['language'] == 'ru'
+        assert saved_data['backup_config']['enabled'] is False
+        assert saved_data['backup_config']['directory'] == '/tmp/dubbing-backups'
+        assert saved_data['backup_config']['interval_minutes'] == 15
+        assert saved_data['backup_config']['max_backups'] == 25
 
     def test_project_summary_export_metric_normalization(self, service):
         """Тест глобальной метрики экспорта сводки проекта."""
@@ -514,6 +533,27 @@ class TestGlobalSettingsService:
     def test_settings_file_attribute(self, service, temp_settings_file):
         """Тест атрибута _settings_file"""
         assert service._settings_file == temp_settings_file
+
+
+    def test_docx_import_presets_are_named_normalized_configs(self, service):
+        service.settings = service._get_defaults()
+        service.set_docx_import_presets([
+            {
+                "name": "  Studio table  ",
+                "config": {
+                    "field_priority": ["text", "character"],
+                    "fallback_mapping": {"text": 5, "character": 1},
+                },
+            },
+            {"name": "studio TABLE", "config": {}},
+            {"name": "", "config": {}},
+        ])
+
+        presets = service.get_docx_import_presets()
+        assert len(presets) == 1
+        assert presets[0]["name"] == "Studio table"
+        assert presets[0]["config"]["field_priority"][0] == "text"
+        assert presets[0]["config"]["fallback_mapping"]["text"] == 5
 
 
 class TestGlobalSettingsServiceIntegration:

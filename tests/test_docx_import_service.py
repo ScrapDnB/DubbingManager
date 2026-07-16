@@ -121,6 +121,32 @@ class TestDocxImportService:
         
         assert mapping is not None
 
+    def test_detect_columns_uses_custom_aliases_and_searches_later_rows(self):
+        service = DocxImportService(detection_config={
+            "aliases": {
+                "character": ["speaker name"],
+                "time_split": ["tc range"],
+                "text": ["spoken words"],
+            },
+            "header_search_rows": 4,
+            "minimum_header_matches": 3,
+        })
+        rows = [
+            ["Production notes", "", ""],
+            ["Speaker Name", "TC Range", "Spoken Words"],
+            ["Hero", "00:00:01,000 - 00:00:02,000", "Hello"],
+        ]
+
+        mapping = service.detect_columns(rows)
+        _stats, lines = service.parse_with_mapping(rows, mapping)
+
+        assert mapping["character"] == 0
+        assert mapping["time_split"] == 1
+        assert mapping["text"] == 2
+        assert service.last_detection["header_row"] == 1
+        assert service.last_detection["matches"] == 3
+        assert lines[0]["char"] == "Hero"
+
     def test_detect_columns_empty(self, service):
         """Тест определения для пустых данных"""
         mapping = service.detect_columns([])
@@ -278,6 +304,32 @@ class TestDocxImportService:
         
         # Первая строка - заголовок, должна быть пропущена
         assert len(preview) == 3  # 3 строки данных
+
+    def test_parse_tables_reuses_saved_mapping_across_tables(self):
+        service = DocxImportService(detection_config={
+            "header_mode": "first",
+            "minimum_header_matches": 1,
+        })
+        tables = [
+            [["Текст", "Персонаж"], ["First", "Hero"]],
+            [["Текст", "Персонаж"], ["Second line", "Guest"]],
+        ]
+        mapping = {
+            "character": 1,
+            "time_start": None,
+            "time_end": None,
+            "time_split": None,
+            "text": 0,
+        }
+
+        stats, lines = service.parse_tables(tables, mapping)
+
+        assert [line["text"] for line in lines] == ["First", "Second line"]
+        assert [line["char"] for line in lines] == ["Hero", "Guest"]
+        assert stats == [
+            {"name": "Hero", "lines": 1, "rings": 1, "words": 1},
+            {"name": "Guest", "lines": 1, "rings": 1, "words": 2},
+        ]
 
     def test_docx_not_available(self, tmp_path):
         """Тест когда docx не доступен"""

@@ -5,6 +5,7 @@ import os
 import shutil
 import logging
 import sys
+import hashlib
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -17,14 +18,16 @@ try:
 except ImportError:
     HAS_FCNTL = False
 
-from PySide6.QtWidgets import QMessageBox
-
 from config.constants import (
+    DEFAULT_ASS_IMPORT_CONFIG,
+    DEFAULT_BACKUP_CONFIG,
     DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
     DEFAULT_PROMPTER_CONFIG,
     DEFAULT_REPLICA_MERGE_CONFIG,
+    DEFAULT_SRT_IMPORT_CONFIG,
     PROJECT_VERSION,
+    PROJECT_BACKUP_FILE_EXTENSION,
 )
 from services.project_compatibility import ensure_project_compatibility
 from utils.i18n import translate_source
@@ -33,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 PROJECT_FORMAT_VERSION = PROJECT_VERSION
 
-MAX_BACKUPS = 10
+MAX_BACKUPS = int(DEFAULT_BACKUP_CONFIG["max_backups"])
 
 
 class ProjectValidationError(Exception):
@@ -44,10 +47,21 @@ class ProjectValidationError(Exception):
 class ProjectService:
     """Project Service implementation."""
 
-    def __init__(self):
+    def __init__(self, backup_config: Optional[Dict[str, Any]] = None):
         self.current_project_path: Optional[str] = None
         self.is_dirty: bool = False
         self._project_metadata: Dict[str, Any] = {}
+        self._backup_config = self._normalize_backup_config(backup_config)
+
+    def set_backup_config(self, config: Optional[Dict[str, Any]]) -> None:
+        """Apply global backup settings without touching project data."""
+        self._backup_config = self._normalize_backup_config(config)
+
+    def get_backup_config(self) -> Dict[str, Any]:
+        return deepcopy(self._backup_config)
+
+    def backups_enabled(self) -> bool:
+        return bool(self._backup_config.get("enabled", True))
 
     def create_new_project(self, name: str) -> Dict[str, Any]:
         """Create new project."""
@@ -82,6 +96,8 @@ class ProjectService:
             "export_config": deepcopy(DEFAULT_EXPORT_CONFIG),
             "prompter_config": deepcopy(DEFAULT_PROMPTER_CONFIG),
             "replica_merge_config": deepcopy(DEFAULT_REPLICA_MERGE_CONFIG),
+            "ass_import_config": deepcopy(DEFAULT_ASS_IMPORT_CONFIG),
+            "srt_import_config": deepcopy(DEFAULT_SRT_IMPORT_CONFIG),
             "docx_import_config": deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
             "project_folder": None,
         }
@@ -192,16 +208,32 @@ class ProjectService:
         """Auto save."""
         if not self.is_dirty:
             return True
+        return self.create_backup(data)
+
+    def create_backup(
+        self,
+        data: Dict[str, Any],
+        reason: str = "autosave",
+    ) -> bool:
+        """Write a complete project snapshot using the configured backup policy."""
+        if not self.backups_enabled():
+            return True
         save_data = self._project_data_for_disk(data)
+        safe_reason = "".join(
+            character if character.isalnum() or character in "-_" else "_"
+            for character in str(reason or "backup")
+        ).strip("_") or "backup"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
         if self.current_project_path:
-            # Saved projects keep rotating backups next to the project file.
-            backup_dir = Path(self.current_project_path).parent / ".backups"
-            backup_dir.mkdir(exist_ok=True)
+            backup_dir = self._backup_directory_for(self.current_project_path)
+            backup_dir.mkdir(parents=True, exist_ok=True)
             
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             base_name = Path(self.current_project_path).stem
-            backup_path = backup_dir / f"{base_name}_{timestamp}.json"
+            backup_path = backup_dir / (
+                f"{base_name}_{safe_reason}_{timestamp}"
+                f"{PROJECT_BACKUP_FILE_EXTENSION}"
+            )
             
             try:
                 with open(backup_path, 'w', encoding='utf-8') as f:
@@ -209,7 +241,11 @@ class ProjectService:
                 
                 logger.debug(f"Auto-saved to {backup_path}")
                 
-                self._rotate_backups(backup_dir)
+                self._rotate_backups(
+                    backup_dir,
+                    f"{base_name}_",
+                    int(self._backup_config["max_backups"]),
+                )
                 
                 return True
                 
@@ -218,7 +254,17 @@ class ProjectService:
                 return False
         else:
             # Unsaved projects still get a temporary backup in the current working directory.
-            path = "temp_autosave.json.bak"
+            if self._backup_config["path_mode"] == "absolute":
+                backup_dir = Path(self._backup_config["directory"]).expanduser()
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                path = backup_dir / (
+                    f"unsaved_{safe_reason}_{timestamp}"
+                    f"{PROJECT_BACKUP_FILE_EXTENSION}"
+                )
+            else:
+                path = Path(
+                    f"temp_{safe_reason}{PROJECT_BACKUP_FILE_EXTENSION}"
+                )
             try:
                 with open(path, 'w', encoding='utf-8') as f:
                     json.dump(save_data, f, ensure_ascii=False, indent=4)
@@ -228,16 +274,26 @@ class ProjectService:
                 logger.error(f"Auto-save failed: {e}")
                 return False
 
-    def _rotate_backups(self, backup_dir: Path) -> None:
+    def _rotate_backups(
+        self,
+        backup_dir: Path,
+        prefix: Optional[str] = None,
+        limit: int = MAX_BACKUPS,
+    ) -> None:
         """Rotate backups."""
         try:
             backups = sorted(
-                backup_dir.glob("*.json"),
+                (
+                    path for path in backup_dir.glob(
+                        f"*{PROJECT_BACKUP_FILE_EXTENSION}"
+                    )
+                    if prefix is None or path.name.startswith(prefix)
+                ),
                 key=lambda p: p.stat().st_mtime,
                 reverse=True
             )
             
-            for old_backup in backups[MAX_BACKUPS:]:
+            for old_backup in backups[max(1, int(limit)):]:
                 try:
                     old_backup.unlink()
                     logger.debug(f"Removed old backup: {old_backup}")
@@ -393,15 +449,22 @@ class ProjectService:
     def get_backup_directory(self) -> Optional[Path]:
         """Return backup directory."""
         if self.current_project_path:
-            return Path(self.current_project_path).parent / ".backups"
+            return self._backup_directory_for(self.current_project_path)
         return None
 
     def list_backups(self) -> List[Path]:
         """List backups."""
         backup_dir = self.get_backup_directory()
         if backup_dir and backup_dir.exists():
+            project_stem = Path(self.current_project_path or "").stem
+            prefix = f"{project_stem}_"
             return sorted(
-                backup_dir.glob("*.json"),
+                (
+                    path for path in backup_dir.glob(
+                        f"*{PROJECT_BACKUP_FILE_EXTENSION}"
+                    )
+                    if path.name.startswith(prefix)
+                ),
                 key=lambda p: p.stat().st_mtime,
                 reverse=True
             )
@@ -412,11 +475,66 @@ class ProjectService:
         try:
             with open(backup_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            
+
             self._validate_project_structure(data)
-            
+
+            target = Path(target_path)
+            if target.is_file():
+                backup_dir = self._backup_directory_for(str(target))
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                safety_path = (
+                    backup_dir
+                    / (
+                        f"{target.stem}_before_restore_{timestamp}"
+                        f"{PROJECT_BACKUP_FILE_EXTENSION}"
+                    )
+                )
+                shutil.copy2(target, safety_path)
+                self._rotate_backups(
+                    backup_dir,
+                    f"{target.stem}_",
+                    int(self._backup_config["max_backups"]),
+                )
+
             return self._do_save(data, target_path)
-            
+
         except Exception as e:
             logger.error(f"Restore from backup failed: {e}")
             return False
+
+    def _backup_directory_for(self, project_path: str) -> Path:
+        directory = Path(self._backup_config["directory"]).expanduser()
+        if self._backup_config["path_mode"] == "absolute":
+            resolved = str(Path(project_path).expanduser().resolve())
+            digest = hashlib.sha1(
+                resolved.encode("utf-8")
+            ).hexdigest()[:8]
+            stem = Path(project_path).stem or "project"
+            return directory / f"{stem}-{digest}"
+        return Path(project_path).expanduser().parent / directory
+
+    @staticmethod
+    def _normalize_backup_config(
+        value: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        config = deepcopy(DEFAULT_BACKUP_CONFIG)
+        if isinstance(value, dict):
+            config.update(value)
+        config["enabled"] = bool(config.get("enabled", True))
+        mode = str(config.get("path_mode", "relative") or "relative")
+        config["path_mode"] = (
+            mode if mode in {"relative", "absolute"} else "relative"
+        )
+        config["directory"] = str(
+            config.get("directory", ".backups") or ".backups"
+        ).strip()
+        for key, low, high, fallback in (
+            ("interval_minutes", 1, 1440, 5),
+            ("max_backups", 1, 100, MAX_BACKUPS),
+        ):
+            try:
+                config[key] = max(low, min(high, int(config.get(key, fallback))))
+            except (TypeError, ValueError):
+                config[key] = fallback
+        return config

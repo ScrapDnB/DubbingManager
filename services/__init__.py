@@ -16,6 +16,7 @@ from .book_import_service import BookImportError, BookImportService
 from .script_text_service import ScriptTextService
 from .quick_subtitle_service import QuickSubtitleService
 from .reaper_rpp_service import ReaperRppService
+from .reaper_export_service import ReaperExportService
 from .replica_merge_service import ReplicaMergeService
 from .teleprompter_navigation_service import TeleprompterNavigationService
 from .assignment_transfer_service import AssignmentTransferService
@@ -28,6 +29,8 @@ from .assignment_service import (
     delete_episode_assignments,
     ensure_episode_actor_map,
     get_actor_for_character,
+    get_actor_ids_for_character,
+    actor_ids_from_assignment,
     get_actor_roles,
     get_assignment_map,
     get_assignment_scope,
@@ -57,6 +60,7 @@ __all__ = [
     'ScriptTextService',
     'QuickSubtitleService',
     'ReaperRppService',
+    'ReaperExportService',
     'ReplicaMergeService',
     'TeleprompterNavigationService',
     'AssignmentTransferService',
@@ -69,6 +73,8 @@ __all__ = [
     'delete_episode_assignments',
     'ensure_episode_actor_map',
     'get_actor_for_character',
+    'get_actor_ids_for_character',
+    'actor_ids_from_assignment',
     'get_actor_roles',
     'get_assignment_map',
     'get_assignment_scope',

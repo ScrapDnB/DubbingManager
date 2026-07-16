@@ -51,7 +51,11 @@ def test_import_assignment_transfer_matches_actor_names_and_skips_unknown_episod
         "version": "1.0",
         "actors": {
             "actor1": {"name": "Actor One", "color": "#FF0000"},
-            "actor2": {"name": "Actor Two", "color": "#0000FF"},
+            "actor2": {
+                "name": "Actor Two",
+                "color": "#0000FF",
+                "gender": "F",
+            },
         },
         "global_map": {
             "Hero": "actor1",
@@ -70,6 +74,7 @@ def test_import_assignment_transfer_matches_actor_names_and_skips_unknown_episod
     assert target["global_map"]["Hero"] == "existing"
     new_actor_id = target["global_map"]["Villain"]
     assert target["actors"][new_actor_id]["name"] == "Actor Two"
+    assert target["actors"][new_actor_id]["gender"] == "Ж"
     assert target["episode_actor_map"]["1"]["Guest"] == new_actor_id
     assert "2" not in target["episode_actor_map"]
     assert stats["skipped_episode_assignments"] == 1

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from collections import defaultdict
 
+from config.constants import DEFAULT_ASS_IMPORT_CONFIG, DEFAULT_SRT_IMPORT_CONFIG
 from utils.helpers import ass_time_to_seconds, srt_time_to_seconds
 
 logger = logging.getLogger(__name__)
@@ -15,9 +16,23 @@ logger = logging.getLogger(__name__)
 class EpisodeService:
     """Episode Service implementation."""
 
-    def __init__(self, merge_gap: int = 5, fps: float = 25.0):
+    def __init__(
+        self,
+        merge_gap: int = 5,
+        fps: float = 25.0,
+        ass_import_config: Optional[Dict[str, Any]] = None,
+        srt_import_config: Optional[Dict[str, Any]] = None,
+    ):
         self.merge_gap = merge_gap
         self.fps = fps
+        self.ass_import_config = {
+            **DEFAULT_ASS_IMPORT_CONFIG,
+            **(ass_import_config or {}),
+        }
+        self.srt_import_config = {
+            **DEFAULT_SRT_IMPORT_CONFIG,
+            **(srt_import_config or {}),
+        }
         self._loaded_episodes: Dict[str, List[Dict[str, Any]]] = {}
         self._cache_timestamps: Dict[str, float] = {}  # Cache timestamps
 
@@ -31,11 +46,30 @@ class EpisodeService:
         """Set the frame rate."""
         self.fps = fps
 
+    def set_import_configs(
+        self,
+        ass_config: Optional[Dict[str, Any]] = None,
+        srt_config: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.ass_import_config = {
+            **DEFAULT_ASS_IMPORT_CONFIG,
+            **(ass_config or {}),
+        }
+        self.srt_import_config = {
+            **DEFAULT_SRT_IMPORT_CONFIG,
+            **(srt_config or {}),
+        }
+
     def _split_ass_characters(self, raw_character: str) -> List[str]:
         """Return one or more ASS Name/Actor values split by semicolon."""
+        if not self.ass_import_config.get('split_character_names', True):
+            return [str(raw_character or "").strip()]
+        separator = str(
+            self.ass_import_config.get('character_separator', ';') or ';'
+        )
         characters = [
             part.strip()
-            for part in str(raw_character or "").split(";")
+            for part in str(raw_character or "").split(separator)
             if part.strip()
         ]
         return characters or [str(raw_character or "").strip()]
@@ -70,7 +104,10 @@ class EpisodeService:
                             continue
 
                         char = parts[4].strip()
-                        text = re.sub(r'\{.*?\}', '', parts[9]).strip()
+                        text = parts[9]
+                        if self.ass_import_config.get('strip_override_tags', True):
+                            text = re.sub(r'\{.*?\}', '', text)
+                        text = text.strip()
 
                         if not text and not char:
                             continue
@@ -153,17 +190,32 @@ class EpisodeService:
 
                 # Replica text, possibly spanning several lines
                 text_lines = block_lines[2:]
-                full_text = '\n'.join(text_lines).strip()
+                joiner = (
+                    '\n'
+                    if self.srt_import_config.get('keep_multiline', True)
+                    else ' '
+                )
+                full_text = joiner.join(text_lines).strip()
 
                 # Extract the character name from text formatted as "Name: replica"
-                char_name = ""
+                char_name = str(
+                    self.srt_import_config.get('default_character', '')
+                ).strip()
                 replica_text = full_text
 
-                # Use the first colon to extract the name
-                colon_match = re.match(r'^([^:]+):\s*(.*)', full_text, re.DOTALL)
-                if colon_match:
-                    char_name = colon_match.group(1).strip()
-                    replica_text = colon_match.group(2).strip()
+                if self.srt_import_config.get('detect_character_prefix', True):
+                    separator = str(
+                        self.srt_import_config.get('character_separator', ':')
+                        or ':'
+                    )
+                    prefix_match = re.match(
+                        rf'^(.+?){re.escape(separator)}\s*(.*)',
+                        full_text,
+                        re.DOTALL,
+                    )
+                    if prefix_match:
+                        char_name = prefix_match.group(1).strip()
+                        replica_text = prefix_match.group(2).strip()
 
                 if replica_text:
                     line_data = {

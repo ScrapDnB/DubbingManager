@@ -13,6 +13,7 @@ block_cipher = None
 is_macos = sys.platform == 'darwin'
 is_windows = sys.platform.startswith('win')
 is_onedir = is_macos or is_windows
+entry_point = 'qml_main.py'
 
 app_name = 'Dubbing Manager'
 app_version = APP_VERSION
@@ -46,6 +47,14 @@ mac_info_plist = {
             'LSItemContentTypes': ['com.yuriromanov.dubbingmanager.project'],
         },
         {
+            'CFBundleTypeName': 'Dubbing Manager Project Backup',
+            'CFBundleTypeRole': 'Viewer',
+            'CFBundleTypeExtensions': ['dub_backup'],
+            'CFBundleTypeIconFile': 'DubbingManager.icns',
+            'LSHandlerRank': 'Owner',
+            'LSItemContentTypes': ['com.yuriromanov.dubbingmanager.project-backup'],
+        },
+        {
             'CFBundleTypeName': 'Dubbing Manager Legacy JSON Project',
             'CFBundleTypeRole': 'Editor',
             'CFBundleTypeExtensions': ['json'],
@@ -62,17 +71,30 @@ mac_info_plist = {
                 'public.mime-type': 'application/x-dubbing-manager-project',
             },
         },
+        {
+            'UTTypeIdentifier': 'com.yuriromanov.dubbingmanager.project-backup',
+            'UTTypeDescription': 'Dubbing Manager Project Backup',
+            'UTTypeConformsTo': ['public.json'],
+            'UTTypeTagSpecification': {
+                'public.filename-extension': ['dub_backup'],
+                'public.mime-type': 'application/x-dubbing-manager-project-backup',
+            },
+        },
     ],
 }
 
 hidden_imports = [
     'PySide6.QtCore',
     'PySide6.QtGui',
+    'PySide6.QtQml',
+    'PySide6.QtQuick',
     'PySide6.QtWidgets',
     'PySide6.QtMultimedia',
     'PySide6.QtMultimediaWidgets',
     'PySide6.QtSvg',
     'PySide6.QtWebChannel',
+    'PySide6.QtWebEngineCore',
+    'PySide6.QtWebEngineQuick',
     'PySide6.QtWebEngineWidgets',
 ]
 
@@ -90,14 +112,26 @@ hidden_imports += [
     'config.constants',
 ]
 
+hidden_imports += [
+    'ui.qml_backend', 'ui.qml_backend.app_bridge',
+    'ui.qml_backend.features', 'ui.qml_backend.models',
+    'ui.qml_backend.project_session',
+]
+
+data_files = [
+    ('config', 'config'),
+    ('resources/i18n', 'resources/i18n'),
+]
+data_files += [
+    ('qml', 'qml'),
+    ('resources/icons', 'resources/icons'),
+]
+
 a = Analysis(
-    ['main.py'],
+    [entry_point],
     pathex=[],
     binaries=[],
-    datas=[
-        ('config', 'config'),
-        ('resources/i18n', 'resources/i18n'),
-    ],
+    datas=data_files,
     hiddenimports=hidden_imports,
     hookspath=['hooks'],
     hooksconfig={},

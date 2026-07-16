@@ -5,7 +5,9 @@ from typing import Dict, Any, Optional, List
 
 import os
 import logging
+from pathlib import Path
 
+from config.constants import PROJECT_BACKUP_FILE_EXTENSION
 from services import ProjectService
 from utils.i18n import translate_source
 from core.commands import (
@@ -74,6 +76,9 @@ class ProjectController:
             data = self.project_service.load_project(path)
             self.data_ref.clear()
             self.data_ref.update(data)
+            if Path(path).suffix.lower() == PROJECT_BACKUP_FILE_EXTENSION:
+                self.project_service.current_project_path = None
+                self.project_service.set_dirty(True)
             logger.info(f"Project loaded from: {path}")
             return data
         except Exception as e:

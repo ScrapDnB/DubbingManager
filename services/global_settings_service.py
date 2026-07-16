@@ -11,12 +11,15 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from config.constants import (
+    DEFAULT_ASS_IMPORT_CONFIG,
     DEFAULT_AUDIOBOOK_CONFIG,
+    DEFAULT_BACKUP_CONFIG,
     DEFAULT_GLOBAL_SETTINGS,
     DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
     DEFAULT_PROMPTER_CONFIG,
     DEFAULT_REPLICA_MERGE_CONFIG,
+    DEFAULT_SRT_IMPORT_CONFIG,
 )
 from utils.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, translate_source
 
@@ -94,6 +97,32 @@ class GlobalSettingsService:
             settings['audiobook_config'] = self._normalize_audiobook_config(
                 loaded.get('audiobook_config', DEFAULT_AUDIOBOOK_CONFIG)
             )
+            settings['backup_config'] = self._normalize_backup_config(
+                loaded.get('backup_config', DEFAULT_BACKUP_CONFIG)
+            )
+
+            settings['docx_import_config'] = self._normalize_docx_import_config(
+                loaded.get('docx_import_config', DEFAULT_DOCX_IMPORT_CONFIG)
+            )
+            settings['docx_import_presets'] = (
+                self._normalize_docx_import_presets(
+                    loaded.get('docx_import_presets', [])
+                )
+            )
+            settings['ass_import_config'] = self._normalize_ass_import_config(
+                loaded.get('ass_import_config', DEFAULT_ASS_IMPORT_CONFIG)
+            )
+            settings['srt_import_config'] = self._normalize_srt_import_config(
+                loaded.get('srt_import_config', DEFAULT_SRT_IMPORT_CONFIG)
+            )
+            settings['default_replica_merge_config'] = (
+                self._normalize_replica_merge_config(
+                    loaded.get(
+                        'default_replica_merge_config',
+                        DEFAULT_REPLICA_MERGE_CONFIG,
+                    )
+                )
+            )
 
             settings['project_summary_export_metric'] = (
                 self._normalize_project_summary_export_metric(
@@ -141,6 +170,29 @@ class GlobalSettingsService:
                 'audiobook_config': self._normalize_audiobook_config(
                     settings.get('audiobook_config', DEFAULT_AUDIOBOOK_CONFIG)
                 ),
+                'backup_config': self._normalize_backup_config(
+                    settings.get('backup_config', DEFAULT_BACKUP_CONFIG)
+                ),
+                'docx_import_config': self._normalize_docx_import_config(
+                    settings.get('docx_import_config', DEFAULT_DOCX_IMPORT_CONFIG)
+                ),
+                'docx_import_presets': self._normalize_docx_import_presets(
+                    settings.get('docx_import_presets', [])
+                ),
+                'ass_import_config': self._normalize_ass_import_config(
+                    settings.get('ass_import_config', DEFAULT_ASS_IMPORT_CONFIG)
+                ),
+                'srt_import_config': self._normalize_srt_import_config(
+                    settings.get('srt_import_config', DEFAULT_SRT_IMPORT_CONFIG)
+                ),
+                'default_replica_merge_config': (
+                    self._normalize_replica_merge_config(
+                        settings.get(
+                            'default_replica_merge_config',
+                            DEFAULT_REPLICA_MERGE_CONFIG,
+                        )
+                    )
+                ),
                 'project_summary_export_metric': (
                     self._normalize_project_summary_export_metric(
                         settings.get('project_summary_export_metric')
@@ -183,6 +235,14 @@ class GlobalSettingsService:
             'default_prompter_config': deepcopy(DEFAULT_PROMPTER_CONFIG),
             'prompter_color_presets': [None, None, None, None],
             'audiobook_config': deepcopy(DEFAULT_AUDIOBOOK_CONFIG),
+            'backup_config': deepcopy(DEFAULT_BACKUP_CONFIG),
+            'docx_import_config': deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
+            'docx_import_presets': [],
+            'ass_import_config': deepcopy(DEFAULT_ASS_IMPORT_CONFIG),
+            'srt_import_config': deepcopy(DEFAULT_SRT_IMPORT_CONFIG),
+            'default_replica_merge_config': deepcopy(
+                DEFAULT_REPLICA_MERGE_CONFIG
+            ),
             'project_summary_export_metric': DEFAULT_PROJECT_SUMMARY_EXPORT_METRIC,
             'language': DEFAULT_GLOBAL_SETTINGS.get('language', DEFAULT_LANGUAGE),
         }
@@ -260,16 +320,40 @@ class GlobalSettingsService:
 
     def get_replica_merge_config(self) -> Dict[str, Any]:
         """Return replica merge settings."""
-        return self.settings.get(
-            'replica_merge_config',
-            deepcopy(DEFAULT_REPLICA_MERGE_CONFIG)
+        return self._normalize_replica_merge_config(
+            self.settings.get(
+                'default_replica_merge_config',
+                self.settings.get(
+                    'replica_merge_config', DEFAULT_REPLICA_MERGE_CONFIG
+                ),
+            )
+        )
+
+    def get_ass_import_config(self) -> Dict[str, Any]:
+        return self._normalize_ass_import_config(
+            self.settings.get('ass_import_config', DEFAULT_ASS_IMPORT_CONFIG)
+        )
+
+    def get_srt_import_config(self) -> Dict[str, Any]:
+        return self._normalize_srt_import_config(
+            self.settings.get('srt_import_config', DEFAULT_SRT_IMPORT_CONFIG)
         )
 
     def get_docx_import_config(self) -> Dict[str, Any]:
         """Return DOCX import settings."""
-        return self.settings.get(
-            'docx_import_config',
-            deepcopy(DEFAULT_DOCX_IMPORT_CONFIG)
+        return self._normalize_docx_import_config(
+            self.settings.get('docx_import_config', DEFAULT_DOCX_IMPORT_CONFIG)
+        )
+
+    def get_docx_import_presets(self) -> List[Dict[str, Any]]:
+        """Return reusable named DOCX detection presets."""
+        return self._normalize_docx_import_presets(
+            self.settings.get('docx_import_presets', [])
+        )
+
+    def set_docx_import_presets(self, presets: Any) -> None:
+        self.settings['docx_import_presets'] = (
+            self._normalize_docx_import_presets(presets)
         )
 
     def get_audiobook_config(self) -> Dict[str, Any]:
@@ -280,6 +364,34 @@ class GlobalSettingsService:
                 DEFAULT_AUDIOBOOK_CONFIG,
             )
         )
+
+    def get_backup_config(self) -> Dict[str, Any]:
+        """Return normalized project-backup settings."""
+        return self._normalize_backup_config(
+            self.get_settings().get('backup_config', DEFAULT_BACKUP_CONFIG)
+        )
+
+    @staticmethod
+    def _normalize_backup_config(value: Any) -> Dict[str, Any]:
+        config = deepcopy(DEFAULT_BACKUP_CONFIG)
+        if isinstance(value, dict):
+            config.update(value)
+        config["enabled"] = bool(config.get("enabled", True))
+        mode = str(config.get("path_mode", "relative") or "relative")
+        config["path_mode"] = (
+            mode if mode in {"relative", "absolute"} else "relative"
+        )
+        directory = str(config.get("directory", ".backups") or "").strip()
+        config["directory"] = directory or ".backups"
+        for key, low, high, fallback in (
+            ("interval_minutes", 1, 1440, 5),
+            ("max_backups", 1, 100, 10),
+        ):
+            try:
+                config[key] = max(low, min(high, int(config.get(key, fallback))))
+            except (TypeError, ValueError):
+                config[key] = fallback
+        return config
 
     def update_export_config(self, config: Dict[str, Any]) -> None:
         """Update export settings."""
@@ -295,15 +407,22 @@ class GlobalSettingsService:
 
     def update_replica_merge_config(self, config: Dict[str, Any]) -> None:
         """Update replica merge settings."""
-        if 'replica_merge_config' not in self.settings:
-            self.settings['replica_merge_config'] = {}
-        self.settings['replica_merge_config'].update(config)
+        current = self.get_replica_merge_config()
+        current.update(config)
+        self.settings['default_replica_merge_config'] = (
+            self._normalize_replica_merge_config(current)
+        )
+        self.settings['replica_merge_config'] = deepcopy(
+            self.settings['default_replica_merge_config']
+        )
 
     def update_docx_import_config(self, config: Dict[str, Any]) -> None:
         """Update DOCX import settings."""
-        if 'docx_import_config' not in self.settings:
-            self.settings['docx_import_config'] = {}
-        self.settings['docx_import_config'].update(config)
+        current = self.get_docx_import_config()
+        current.update(deepcopy(config))
+        self.settings['docx_import_config'] = self._normalize_docx_import_config(
+            current
+        )
 
     def get_language(self) -> str:
         """Return the selected interface language."""
@@ -588,6 +707,137 @@ class GlobalSettingsService:
                 seen.add(folded)
                 normalized.append(value)
         return {"chapter_keywords": normalized}
+
+    def _normalize_docx_import_config(self, config: Any) -> Dict[str, Any]:
+        result = deepcopy(DEFAULT_DOCX_IMPORT_CONFIG)
+        if not isinstance(config, dict):
+            return result
+
+        if config.get("header_mode") in {"auto", "first", "none"}:
+            result["header_mode"] = config["header_mode"]
+        for key, low, high in (
+            ("header_search_rows", 1, 20),
+            ("minimum_header_matches", 1, 5),
+            ("rows_to_skip", 0, 100),
+        ):
+            try:
+                result[key] = max(low, min(high, int(config.get(key, result[key]))))
+            except (TypeError, ValueError):
+                pass
+        try:
+            result["default_duration"] = max(
+                0.01, min(60.0, float(config.get("default_duration", 1.0)))
+            )
+        except (TypeError, ValueError):
+            pass
+
+        separators = config.get("time_separators")
+        if isinstance(separators, list):
+            normalized = [str(item) for item in separators if str(item)]
+            if normalized:
+                result["time_separators"] = list(dict.fromkeys(normalized))
+
+        valid_fields = set(DEFAULT_DOCX_IMPORT_CONFIG["field_priority"])
+        priority = config.get("field_priority")
+        if isinstance(priority, list):
+            normalized = [str(item) for item in priority if str(item) in valid_fields]
+            result["field_priority"] = list(dict.fromkeys(normalized))
+            result["field_priority"].extend(
+                field for field in DEFAULT_DOCX_IMPORT_CONFIG["field_priority"]
+                if field not in result["field_priority"]
+            )
+
+        aliases = config.get("aliases")
+        if isinstance(aliases, dict):
+            for field in valid_fields:
+                values = aliases.get(field)
+                if isinstance(values, list):
+                    cleaned = [" ".join(str(item).split()) for item in values]
+                    result["aliases"][field] = [item for item in cleaned if item]
+
+        for mapping_key in ("mapping", "fallback_mapping"):
+            mapping = config.get(mapping_key)
+            if isinstance(mapping, dict):
+                for field in valid_fields:
+                    value = mapping.get(field)
+                    if value is None:
+                        result[mapping_key][field] = None
+                    else:
+                        try:
+                            result[mapping_key][field] = max(0, int(value))
+                        except (TypeError, ValueError):
+                            pass
+        return result
+
+    def _normalize_docx_import_presets(self, presets: Any) -> List[Dict[str, Any]]:
+        if not isinstance(presets, list):
+            return []
+        result = []
+        seen = set()
+        for item in presets:
+            if not isinstance(item, dict):
+                continue
+            name = " ".join(str(item.get('name') or '').split())
+            folded = name.casefold()
+            if not name or folded in seen:
+                continue
+            result.append({
+                'name': name,
+                'config': self._normalize_docx_import_config(
+                    item.get('config', {})
+                ),
+            })
+            seen.add(folded)
+        return result
+
+    @staticmethod
+    def _normalize_ass_import_config(config: Any) -> Dict[str, Any]:
+        result = deepcopy(DEFAULT_ASS_IMPORT_CONFIG)
+        if not isinstance(config, dict):
+            return result
+        result['split_character_names'] = bool(
+            config.get('split_character_names', result['split_character_names'])
+        )
+        result['strip_override_tags'] = bool(
+            config.get('strip_override_tags', result['strip_override_tags'])
+        )
+        separator = str(config.get('character_separator', ';'))
+        result['character_separator'] = separator or ';'
+        return result
+
+    @staticmethod
+    def _normalize_srt_import_config(config: Any) -> Dict[str, Any]:
+        result = deepcopy(DEFAULT_SRT_IMPORT_CONFIG)
+        if not isinstance(config, dict):
+            return result
+        result['detect_character_prefix'] = bool(
+            config.get('detect_character_prefix', True)
+        )
+        result['keep_multiline'] = bool(config.get('keep_multiline', True))
+        separator = str(config.get('character_separator', ':'))
+        result['character_separator'] = separator or ':'
+        result['default_character'] = str(
+            config.get('default_character', '')
+        ).strip()
+        return result
+
+    @staticmethod
+    def _normalize_replica_merge_config(config: Any) -> Dict[str, Any]:
+        result = deepcopy(DEFAULT_REPLICA_MERGE_CONFIG)
+        if not isinstance(config, dict):
+            return result
+        result['merge'] = bool(config.get('merge', result['merge']))
+        for key, low, high in (
+            ('fps', 1.0, 120.0),
+            ('merge_gap', 0.0, 12000.0),
+            ('p_short', 0.0, 5.0),
+            ('p_long', 0.0, 10.0),
+        ):
+            try:
+                result[key] = max(low, min(high, float(config.get(key, result[key]))))
+            except (TypeError, ValueError):
+                pass
+        return result
 
     def _normalize_project_summary_export_metric(self, metric: Any) -> str:
         """Return a supported project summary spreadsheet metric."""

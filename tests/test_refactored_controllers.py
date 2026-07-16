@@ -45,6 +45,54 @@ def test_character_stats_service_counts_episode_and_project_stats():
     ]
 
 
+def test_character_stats_service_builds_actor_summary_rows():
+    data = {
+        "episodes": {"1": "one.ass", "2": "two.ass"},
+        "replica_merge_config": {"merge": False},
+        "actors": {
+            "actor-1": {"name": "Actor One", "color": "#123456"},
+            "actor-2": {"name": "Actor Two", "color": "#654321"},
+        },
+        "global_map": {"Hero": "actor-1"},
+        "episode_actor_map": {"2": {"Hero": "actor-2"}},
+    }
+    lines_by_ep = {
+        "1": [
+            {"id": 0, "s": 0.0, "e": 1.0, "char": "Hero", "text": "one two"},
+            {"id": 1, "s": 2.0, "e": 3.0, "char": "Other", "text": "three"},
+        ],
+        "2": [
+            {"id": 2, "s": 0.0, "e": 1.0, "char": "Hero", "text": "four"},
+        ],
+    }
+    service = CharacterStatsService(data)
+
+    rows = service.actor_summary_rows(lambda ep: lines_by_ep.get(ep, []))
+
+    assert rows[0] == {
+        "actorId": "actor-1",
+        "actor": "Actor One",
+        "color": "#123456",
+        "rings": 1,
+        "words": 2,
+        "roles": ["Hero"],
+        "unassigned": False,
+    }
+    assert rows[1]["actor"] == "Actor Two"
+    assert rows[1]["rings"] == 1
+    assert rows[2]["actor"] == "НЕ РАСПРЕДЕЛЕНЫ"
+    assert rows[2]["roles"] == ["Other"]
+
+    episode_rows = service.actor_summary_rows(
+        lambda ep: lines_by_ep.get(ep, []),
+        "1",
+    )
+    assert [row["actor"] for row in episode_rows] == [
+        "Actor One",
+        "НЕ РАСПРЕДЕЛЕНЫ",
+    ]
+
+
 def test_character_stats_service_builds_google_sheets_rows():
     data = {
         "episodes": {"2": "two.ass", "1": "one.ass"},

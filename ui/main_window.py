@@ -38,7 +38,6 @@ from config.constants import (
     DEFAULT_EXPORT_CONFIG,
     MAIN_WINDOW_WIDTH,
     MAIN_WINDOW_HEIGHT,
-    AUTOSAVE_INTERVAL_MS,
     APP_VERSION,
     PROJECT_FILE_EXTENSION,
     PROJECT_FILE_FILTER,
@@ -171,6 +170,9 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
         self.teleprompter_window = None
 
         self.global_settings = self.global_settings_service.load_settings()
+        self.project_service.set_backup_config(
+            self.global_settings_service.get_backup_config()
+        )
         set_language(self.global_settings.get("language", "ru"))
 
         self.data = self.project_service.create_new_project("Новый проект")
@@ -195,7 +197,11 @@ class MainWindow(MainWindowUiMixin, QMainWindow):
 
         self.autosave_timer = QTimer(self)
         self.autosave_timer.timeout.connect(self._on_autosave_timer)
-        self.autosave_timer.start(AUTOSAVE_INTERVAL_MS)
+        backup_config = self.project_service.get_backup_config()
+        if backup_config["enabled"]:
+            self.autosave_timer.start(
+                int(backup_config["interval_minutes"]) * 60_000
+            )
 
     def _init_controllers(self) -> None:
         """Init controllers."""

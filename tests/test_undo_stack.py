@@ -9,6 +9,8 @@ from core.commands import (
     DeleteActorCommand,
     RenameActorCommand,
     UpdateActorColorCommand,
+    UpdateActorGenderCommand,
+    UpdateExportConfigCommand,
     AssignActorToCharacterCommand,
     RenameCharacterCommand,
     AddEpisodeCommand,
@@ -16,6 +18,8 @@ from core.commands import (
     DeleteEpisodeCommand,
     UpdateProjectNameCommand,
     SetProjectFolderCommand,
+    UpdateProjectFileStateCommand,
+    UpdateWorkingTextLineCommand,
 )
 
 
@@ -86,6 +90,53 @@ class TestUndoStack:
         stack.push(command2)
         
         assert not stack.can_redo()
+
+
+class TestUpdateWorkingTextLineCommand:
+    def test_execute_undo_and_redo_restore_line_metadata(self):
+        working_texts = {
+            "1": {
+                "modified_at": "before",
+                "lines": [{"id": "line-1", "text": "Old"}],
+            }
+        }
+        stack = UndoStack()
+
+        stack.push(UpdateWorkingTextLineCommand(
+            working_texts,
+            "1",
+            "line-1",
+            "New",
+        ))
+
+        line = working_texts["1"]["lines"][0]
+        assert line["text"] == "New"
+        assert line["dirty"] is True
+        assert working_texts["1"]["modified_at"] != "before"
+
+        assert stack.undo()
+        assert line == {"id": "line-1", "text": "Old"}
+        assert working_texts["1"]["modified_at"] == "before"
+
+        assert stack.redo()
+        assert line["text"] == "New"
+        assert line["dirty"] is True
+
+    def test_numeric_preview_id_can_address_line_by_index(self):
+        working_texts = {
+            "Pilot": {
+                "lines": [{"id": "stable-id", "text": "Old"}],
+            }
+        }
+
+        UpdateWorkingTextLineCommand(
+            working_texts,
+            "Pilot",
+            "0",
+            "Edited",
+        ).execute()
+
+        assert working_texts["Pilot"]["lines"][0]["text"] == "Edited"
 
 
 class TestAddActorCommand:
@@ -177,6 +228,25 @@ class TestUpdateActorColorCommand:
         command.undo()
         
         assert actors["id1"]["color"] == "#FFFFFF"
+
+
+class TestUpdateActorGenderCommand:
+    """Тесты для UpdateActorGenderCommand"""
+
+    def test_execute_updates_gender(self):
+        actors = {"id1": {"name": "Actor", "color": "#FFFFFF", "gender": "", "roles": []}}
+        command = UpdateActorGenderCommand(actors, "id1", "М")
+        command.execute()
+
+        assert actors["id1"]["gender"] == "М"
+
+    def test_undo_restores_old_gender(self):
+        actors = {"id1": {"name": "Actor", "color": "#FFFFFF", "gender": "Ж", "roles": []}}
+        command = UpdateActorGenderCommand(actors, "id1", "М")
+        command.execute()
+        command.undo()
+
+        assert actors["id1"]["gender"] == "Ж"
 
 
 class TestAssignActorToCharacterCommand:
@@ -348,6 +418,28 @@ class TestUpdateProjectNameCommand:
         assert data["project_name"] == "Old Project"
 
 
+class TestUpdateExportConfigCommand:
+    def test_execute_and_undo_replace_config_without_aliasing(self):
+        data = {"export_config": {"layout_type": "Таблица", "col_tc": True}}
+        new_config = {"layout_type": "Сценарий 2", "col_tc": False}
+        command = UpdateExportConfigCommand(data, new_config)
+
+        command.execute()
+        new_config["layout_type"] = "Сценарий 3"
+
+        assert data["export_config"] == {
+            "layout_type": "Сценарий 2",
+            "col_tc": False,
+        }
+
+        command.undo()
+
+        assert data["export_config"] == {
+            "layout_type": "Таблица",
+            "col_tc": True,
+        }
+
+
 class TestSetProjectFolderCommand:
     """Тесты для SetProjectFolderCommand"""
 
@@ -390,3 +482,34 @@ class TestSetProjectFolderCommand:
         command = SetProjectFolderCommand({}, None)
         desc = command.get_description()
         assert "очищена" in desc.lower() or "folder" in desc.lower()
+
+
+class TestUpdateProjectFileStateCommand:
+    def test_execute_undo_and_redo_do_not_alias_snapshots(self):
+        data = {
+            "project_folder": "/old",
+            "episodes": {"1": "/old/episode.srt"},
+        }
+        updates = {
+            "project_folder": "/new",
+            "episodes": {"1": "/new/episode.srt"},
+            "video_paths": {"1": "/new/episode.mp4"},
+        }
+        stack = UndoStack()
+
+        stack.push(UpdateProjectFileStateCommand(data, updates, "Файлы"))
+        updates["episodes"]["1"] = "/mutated"
+
+        assert data["project_folder"] == "/new"
+        assert data["episodes"]["1"] == "/new/episode.srt"
+        assert data["video_paths"]["1"] == "/new/episode.mp4"
+
+        stack.undo()
+
+        assert data["project_folder"] == "/old"
+        assert data["episodes"]["1"] == "/old/episode.srt"
+        assert "video_paths" not in data
+
+        stack.redo()
+
+        assert data["episodes"]["1"] == "/new/episode.srt"

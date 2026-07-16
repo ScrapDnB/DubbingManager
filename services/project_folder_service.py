@@ -16,7 +16,8 @@ class ProjectFolderService:
     """Project Folder Service implementation."""
 
     # File extensions
-    ASS_EXTENSIONS = {'.ass', '.srt'}
+    SOURCE_EXTENSIONS = {'.ass', '.srt', '.docx'}
+    ASS_EXTENSIONS = SOURCE_EXTENSIONS  # Compatibility with existing callers.
     VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv'}
     TEXT_EXTENSIONS = {'.json'}
 
@@ -51,6 +52,52 @@ class ProjectFolderService:
     def get_project_folder(self, data: Dict) -> Optional[str]:
         """Return the project folder path."""
         return data.get("project_folder")
+
+    def prepare_project_paths(self, data: Dict, project_path: str) -> bool:
+        """Rebase portable relative paths when a project is opened elsewhere."""
+        project_dir = Path(project_path).expanduser().resolve().parent
+        raw_folder = data.get("project_folder")
+        references = [
+            str(path)
+            for field in ("episodes", "video_paths", "episode_texts")
+            for path in data.get(field, {}).values()
+            if path
+        ]
+
+        if not raw_folder:
+            if any(not Path(path).expanduser().is_absolute() for path in references):
+                data["project_folder"] = str(project_dir)
+                return True
+            return False
+
+        expanded = Path(str(raw_folder)).expanduser()
+        if not expanded.is_absolute():
+            data["project_folder"] = str((project_dir / expanded).resolve())
+            return data["project_folder"] != str(raw_folder)
+        if expanded.is_dir():
+            return False
+
+        candidates = [project_dir, project_dir / expanded.name]
+        ranked = sorted(
+            (
+                sum(
+                    1
+                    for reference in references
+                    if not Path(reference).expanduser().is_absolute()
+                    and (candidate / reference).exists()
+                ),
+                candidate,
+            )
+            for candidate in candidates
+            if candidate.is_dir()
+        )
+        if not ranked:
+            return False
+        score, replacement = ranked[-1]
+        if score == 0 and replacement == project_dir:
+            return False
+        data["project_folder"] = str(replacement.resolve())
+        return True
 
     def resolve_project_path(
         self,
@@ -111,7 +158,7 @@ class ProjectFolderService:
                 episode_num = self._extract_episode_number(file)
 
                 if episode_num:
-                    if ext in self.ASS_EXTENSIONS:
+                    if ext in self.SOURCE_EXTENSIONS:
                         result["ass"][episode_num] = file_path
                     elif ext in self.VIDEO_EXTENSIONS:
                         result["video"][episode_num] = file_path
@@ -245,7 +292,9 @@ class ProjectFolderService:
 
             path = (
                 self._find_replacement_path(found["ass"], ep_num, old_path) or
-                self._find_file_by_basename(folder_path, old_path, self.ASS_EXTENSIONS)
+                self._find_file_by_basename(
+                    folder_path, old_path, self.SOURCE_EXTENSIONS
+                )
             )
             if path:
                 data["episodes"][ep_num] = path
@@ -360,7 +409,9 @@ class ProjectFolderService:
             return None
 
         found = self.find_all_media_files(folder_path)
-        return found["video"].get(episode_num)
+        return self._find_replacement_path(
+            found["video"], episode_num, None
+        )
 
     def batch_import_from_folder(
         self,
@@ -385,12 +436,16 @@ class ProjectFolderService:
                 data["episodes"][ep_num] = path
                 added_ass += 1
 
-        # Add video files
+        # Attach videos only to project episodes. Unrelated media in the folder
+        # must not create phantom rows in the project.
         if "video_paths" not in data:
             data["video_paths"] = {}
 
-        for ep_num, path in found["video"].items():
-            if ep_num not in data["video_paths"]:
+        for ep_num in data.get("episodes", {}):
+            path = self._find_replacement_path(
+                found["video"], ep_num, None
+            )
+            if path and ep_num not in data["video_paths"]:
                 data["video_paths"][ep_num] = path
                 added_video += 1
 

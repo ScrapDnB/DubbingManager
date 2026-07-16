@@ -13,13 +13,17 @@ from .commands import (
     DeleteActorCommand,
     RenameActorCommand,
     UpdateActorColorCommand,
+    UpdateActorGenderCommand,
+    UpdateExportConfigCommand,
     AssignActorToCharacterCommand,
+    AssignProjectRolesCommand,
     RenameCharacterCommand,
     AddEpisodeCommand,
     RenameEpisodeCommand,
     DeleteEpisodeCommand,
     UpdateProjectNameCommand,
     SetProjectFolderCommand,
+    UpdateProjectFileStateCommand,
 )
 
 __all__ = [
@@ -34,11 +38,15 @@ __all__ = [
     'DeleteActorCommand',
     'RenameActorCommand',
     'UpdateActorColorCommand',
+    'UpdateActorGenderCommand',
+    'UpdateExportConfigCommand',
     'AssignActorToCharacterCommand',
+    'AssignProjectRolesCommand',
     'RenameCharacterCommand',
     'AddEpisodeCommand',
     'RenameEpisodeCommand',
     'DeleteEpisodeCommand',
     'UpdateProjectNameCommand',
     'SetProjectFolderCommand',
+    'UpdateProjectFileStateCommand',
 ]
