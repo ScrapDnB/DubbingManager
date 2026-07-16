@@ -75,17 +75,13 @@ class ProjectFolderService:
             data["project_folder"] = str((project_dir / expanded).resolve())
             return data["project_folder"] != str(raw_folder)
 
-        # A portable project may retain an absolute folder from another
-        # computer. Prefer the folder containing the opened project whenever
-        # its relative references resolve there. This is also robust when a
-        # foreign POSIX path is interpreted as an absolute Windows path.
-        local_reference_count = sum(
-            1
+        # Relative project references are portable by definition: they belong
+        # to the folder containing the opened .dub. Rebase them even when a
+        # foreign absolute folder is made to look valid by the current OS.
+        if any(
+            not Path(reference).expanduser().is_absolute()
             for reference in references
-            if not Path(reference).expanduser().is_absolute()
-            and (project_dir / reference).exists()
-        )
-        if local_reference_count:
+        ):
             replacement = str(project_dir)
             if replacement != str(raw_folder):
                 data["project_folder"] = replacement
