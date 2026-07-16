@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import json
+from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QCoreApplication, QSettings
@@ -2111,7 +2112,7 @@ def test_qml_bridge_prepares_video_preview_and_filters_characters(tmp_path):
     assert video.character == "Hero"
     assert video.hasVideo is True
     assert video.videoName == "episode.mp4"
-    assert video.videoUrl.toLocalFile() == str(video_path)
+    assert Path(video.videoUrl.toLocalFile()) == video_path
     assert video.count == 1
     assert [row["value"] for row in video.characterModel.rows()] == [
         "",
@@ -2445,7 +2446,7 @@ def test_qml_ui_state_remembers_dialog_folders_and_window_values(tmp_path):
     )
     restored = UiStateBridge(restored_settings)
 
-    assert restored.folderUrl("sourceFiles").toLocalFile() == str(source_dir)
+    assert Path(restored.folderUrl("sourceFiles").toLocalFile()) == source_dir
     assert restored.intValue("main.width", 1000) == 1440
     assert restored.boolValue("main.maximized", False) is True
 

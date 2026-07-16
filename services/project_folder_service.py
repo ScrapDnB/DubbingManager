@@ -74,6 +74,22 @@ class ProjectFolderService:
         if not expanded.is_absolute():
             data["project_folder"] = str((project_dir / expanded).resolve())
             return data["project_folder"] != str(raw_folder)
+
+        # A portable project may retain an absolute folder from another
+        # computer. Prefer the folder containing the opened project whenever
+        # its relative references resolve there. This is also robust when a
+        # foreign POSIX path is interpreted as an absolute Windows path.
+        local_reference_count = sum(
+            1
+            for reference in references
+            if not Path(reference).expanduser().is_absolute()
+            and (project_dir / reference).exists()
+        )
+        if local_reference_count:
+            replacement = str(project_dir)
+            if replacement != str(raw_folder):
+                data["project_folder"] = replacement
+                return True
         if expanded.is_dir():
             return False
 
