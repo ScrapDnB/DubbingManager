@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
 ColumnLayout {
@@ -18,6 +19,31 @@ ColumnLayout {
     signal importRequested()
     signal importDocxRequested()
     signal globalSearchRequested()
+
+    FileDialog {
+        id: episodeVideoDialog
+        title: qsTr("Выберите видео серии")
+        currentFolder: controls.appBridge
+            ? controls.appBridge.uiState.folderUrl("videoFiles")
+            : ""
+        nameFilters: [
+            "Видео (*.mp4 *.mkv *.avi *.mov *.m4v *.wmv)",
+            "Все файлы (*)"
+        ]
+        onAccepted: {
+            if (!controls.appBridge || !controls.projectBackend.currentEpisode) {
+                return
+            }
+            controls.appBridge.uiState.rememberFile(
+                "videoFiles", selectedFile.toString()
+            )
+            controls.appBridge.projectFiles.relink(
+                controls.projectBackend.currentEpisode,
+                "video",
+                selectedFile.toString()
+            )
+        }
+    }
 
     NativeDialogWindow {
         id: renameEpisodeDialog
@@ -116,6 +142,14 @@ ColumnLayout {
                 MenuItem { text: qsTr("ASS / SRT..."); onTriggered: controls.importRequested() }
                 MenuItem { text: qsTr("DOCX..."); onTriggered: controls.importDocxRequested() }
             }
+        }
+
+        CompactToolButton {
+            iconSource: Qt.resolvedUrl("../icons/file-plus.svg")
+            toolTipText: qsTr("Добавить или заменить видео серии")
+            enabled: controls.projectBackend
+                && controls.projectBackend.currentEpisode.length > 0
+            onClicked: episodeVideoDialog.open()
         }
 
         CompactToolButton {

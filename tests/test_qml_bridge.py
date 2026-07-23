@@ -2626,6 +2626,23 @@ def test_qml_bridge_relinks_source_and_undoes(tmp_path):
     assert bridge._session.data["episodes"]["1"] == old_source
 
 
+def test_qml_bridge_links_current_episode_video_and_undoes(tmp_path):
+    _app()
+    bridge = AppBridge()
+    video = tmp_path / "Episode_01.mp4"
+    video.write_bytes(b"video")
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "Episode_01.srt")}
+    bridge.project.selectEpisode("1")
+
+    bridge.projectFiles.relink("1", "video", str(video))
+
+    assert bridge._session.data["video_paths"]["1"] == str(video)
+    assert bridge.project.canUndo
+
+    bridge.project.undo()
+    assert "1" not in bridge._session.data["video_paths"]
+
+
 def test_qml_bridge_regenerates_working_text_with_undo(tmp_path):
     _app()
     bridge = AppBridge()
