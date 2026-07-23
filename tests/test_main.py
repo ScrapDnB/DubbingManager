@@ -101,3 +101,25 @@ class TestProjectFileArguments:
             str(dub),
             str(legacy),
         ]) == str(dub)
+
+
+class TestQmlStartup:
+    """Tests for platform-specific QML startup configuration."""
+
+    def test_windows_webengine_disables_vulkan_without_losing_other_flags(self, monkeypatch):
+        from qml_main import configure_platform_graphics
+
+        monkeypatch.setenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu-sandbox")
+        configure_platform_graphics("win32")
+
+        flags = os.environ["QTWEBENGINE_CHROMIUM_FLAGS"].split()
+        assert "--disable-gpu-sandbox" in flags
+        assert "--disable-vulkan" in flags
+
+    def test_non_windows_webengine_flags_remain_unchanged(self, monkeypatch):
+        from qml_main import configure_platform_graphics
+
+        monkeypatch.setenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu-sandbox")
+        configure_platform_graphics("darwin")
+
+        assert os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] == "--disable-gpu-sandbox"

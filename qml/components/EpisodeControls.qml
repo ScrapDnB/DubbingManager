@@ -131,9 +131,10 @@ ColumnLayout {
             }
         }
 
-        Button {
+        CompactToolButton {
             id: importButton
-            text: qsTr("Импорт")
+            iconSource: Qt.resolvedUrl("../icons/file-plus.svg")
+            toolTipText: qsTr("Импорт")
             enabled: controls.appBridge !== null
             onClicked: importMenu.open()
             Menu {
@@ -145,7 +146,7 @@ ColumnLayout {
         }
 
         CompactToolButton {
-            iconSource: Qt.resolvedUrl("../icons/file-plus.svg")
+            iconSource: Qt.resolvedUrl("../icons/video.svg")
             toolTipText: qsTr("Добавить или заменить видео серии")
             enabled: controls.projectBackend
                 && controls.projectBackend.currentEpisode.length > 0

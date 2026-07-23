@@ -10,6 +10,7 @@ Item {
     required property color softBorder
     required property color softHeader
     required property color softMuted
+    required property color panelSurface
     signal montagePreviewRequested()
     signal reaperExportRequested()
     signal episodeSummaryRequested()
@@ -21,9 +22,21 @@ Item {
     SplitView.preferredWidth: 235
     SplitView.minimumWidth: 150
 
+    SystemPalette {
+        id: palette
+        colorGroup: SystemPalette.Active
+    }
+
+    readonly property color commandHover: Qt.rgba(
+        palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.12
+    )
+    readonly property color commandPressed: Qt.rgba(
+        palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.20
+    )
+
     Rectangle {
         anchors.fill: parent
-        color: "transparent"
+        color: sidebar.panelSurface
         border.color: sidebar.softBorder
     }
 
@@ -48,46 +61,67 @@ Item {
             Layout.fillWidth: true
             spacing: 4
 
-            Button {
+            ItemDelegate {
                 text: qsTr("Телесуфлёр")
                 Layout.fillWidth: true
-                Layout.preferredHeight: 28
+                Layout.preferredHeight: 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.teleprompterRequested()
+                contentItem: Label {
+                    leftPadding: 10
+                    text: parent.text
+                    elide: Text.ElideRight
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    radius: 4
+                    color: parent.down ? sidebar.commandPressed
+                        : parent.hovered ? sidebar.commandHover : "transparent"
+                }
             }
-            Button {
+            ItemDelegate {
                 text: qsTr("Монтажный лист")
                 Layout.fillWidth: true
-                Layout.preferredHeight: 28
+                Layout.preferredHeight: 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.montagePreviewRequested()
+                contentItem: Label { leftPadding: 10; text: parent.text; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
+                background: Rectangle { radius: 4; color: parent.down ? sidebar.commandPressed : parent.hovered ? sidebar.commandHover : "transparent" }
             }
-            Button {
+            ItemDelegate {
                 text: qsTr("Reaper")
                 Layout.fillWidth: true
-                Layout.preferredHeight: 28
+                Layout.preferredHeight: 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.reaperExportRequested()
+                contentItem: Label { leftPadding: 10; text: parent.text; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
+                background: Rectangle { radius: 4; color: parent.down ? sidebar.commandPressed : parent.hovered ? sidebar.commandHover : "transparent" }
             }
-            Button {
+            ItemDelegate {
                 text: qsTr("Аудиокнига")
                 Layout.fillWidth: true
-                Layout.preferredHeight: 28
+                Layout.preferredHeight: 32
                 onClicked: sidebar.audiobookRequested()
+                contentItem: Label { leftPadding: 10; text: parent.text; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
+                background: Rectangle { radius: 4; color: parent.down ? sidebar.commandPressed : parent.hovered ? sidebar.commandHover : "transparent" }
             }
-            Button {
+            ItemDelegate {
                 text: qsTr("Отчёт серии")
                 Layout.fillWidth: true
-                Layout.preferredHeight: 28
+                Layout.preferredHeight: 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.episodeSummaryRequested()
+                contentItem: Label { leftPadding: 10; text: parent.text; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
+                background: Rectangle { radius: 4; color: parent.down ? sidebar.commandPressed : parent.hovered ? sidebar.commandHover : "transparent" }
             }
-            Button {
+            ItemDelegate {
                 text: qsTr("Назначить роли")
                 Layout.fillWidth: true
-                Layout.preferredHeight: 28
+                Layout.preferredHeight: 32
                 enabled: sidebar.castingBackend !== null
                 onClicked: sidebar.rolesRequested()
+                contentItem: Label { leftPadding: 10; text: parent.text; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
+                background: Rectangle { radius: 4; color: parent.down ? sidebar.commandPressed : parent.hovered ? sidebar.commandHover : "transparent" }
             }
         }
 

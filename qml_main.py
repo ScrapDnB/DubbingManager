@@ -1,6 +1,7 @@
 """QML entry point for Dubbing Manager."""
 
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -15,6 +16,17 @@ from utils.i18n import JsonSourceTranslator
 
 
 logger = logging.getLogger(__name__)
+
+
+def configure_platform_graphics(platform: str | None = None) -> None:
+    """Avoid Vulkan-only virtual GPU issues in Windows WebEngine hosts."""
+    if not (platform or sys.platform).startswith("win"):
+        return
+
+    flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "").split()
+    if "--disable-vulkan" not in flags:
+        flags.append("--disable-vulkan")
+        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(flags)
 
 
 class DubbingQmlApplication(QGuiApplication):
@@ -35,6 +47,7 @@ class DubbingQmlApplication(QGuiApplication):
 
 def main() -> int:
     """Run the QML application."""
+    configure_platform_graphics()
     setup_logging()
     QtWebEngineQuick.initialize()
     app = DubbingQmlApplication(sys.argv)

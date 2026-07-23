@@ -69,7 +69,25 @@ Item {
     property string pendingCharacter: ""
     property var pendingActorIds: []
     property var collapsedActorCells: ({})
+    property var dismissedSourceWarnings: ({})
     property string renameCharacterSource: ""
+
+    readonly property string sourceWarningKey: {
+        if (!appBridge || !appBridge.projectFiles)
+            return ""
+        return appBridge.project.currentEpisode + "|"
+            + appBridge.projectFiles.currentEpisodeSourcePath
+    }
+
+    function sourceWarningDismissed() {
+        return dismissedSourceWarnings[sourceWarningKey] === true
+    }
+
+    function dismissSourceWarning() {
+        var next = Object.assign({}, dismissedSourceWarnings)
+        next[sourceWarningKey] = true
+        dismissedSourceWarnings = next
+    }
 
     function sortTitle(label, key) {
         if (!castingBackend || castingBackend.characterSortKey !== key)
@@ -191,6 +209,7 @@ Item {
         Rectangle {
             visible: table.appBridge && table.appBridge.projectFiles
                 && table.appBridge.projectFiles.currentEpisodeSourceMissing
+                && !table.sourceWarningDismissed()
             Layout.fillWidth: true
             Layout.preferredHeight: visible ? 36 : 0
             color: Qt.rgba(0.78, 0.42, 0.16, 0.12)
@@ -214,6 +233,19 @@ Item {
                     onClicked: table.relinkSourceRequested(
                         table.appBridge.project.currentEpisode
                     )
+                }
+                ToolButton {
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                    padding: 4
+                    icon.source: "../icons/x.svg"
+                    icon.width: 14
+                    icon.height: 14
+                    display: AbstractButton.IconOnly
+                    Accessible.name: qsTr("Скрыть предупреждение")
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Скрыть предупреждение")
+                    onClicked: table.dismissSourceWarning()
                 }
             }
         }

@@ -16,7 +16,7 @@ ApplicationWindow {
     minimumHeight: 620
     visible: true
     title: projectBackend.name + (projectBackend.dirty ? " *" : "") + " - Dubbing Manager"
-    color: palette.window
+    color: workspaceBackground
     property bool closeApproved: false
     property bool uiReady: false
     property string pendingRelinkEpisode: ""
@@ -126,18 +126,28 @@ ApplicationWindow {
         palette.text.r,
         palette.text.g,
         palette.text.b,
-        root.darkTheme ? 0.10 : 0.14
+        root.darkTheme ? 0.09 : 0.10
     )
     property color hairlineBorder: Qt.rgba(
         palette.text.r,
         palette.text.g,
         palette.text.b,
-        root.darkTheme ? 0.05 : 0.07
+        root.darkTheme ? 0.045 : 0.055
+    )
+    property color workspaceBackground: root.mixColor(
+        palette.window,
+        palette.highlight,
+        root.darkTheme ? 0.025 : 0.018
+    )
+    property color panelSurface: root.mixColor(
+        palette.base,
+        palette.highlight,
+        root.darkTheme ? 0.035 : 0.012
     )
     property color softHeader: root.mixColor(
         palette.base,
-        palette.text,
-        root.darkTheme ? 0.055 : 0.035
+        palette.highlight,
+        root.darkTheme ? 0.095 : 0.045
     )
     property color softRow: palette.base
     property color softAltRow: root.mixColor(
@@ -570,15 +580,28 @@ ApplicationWindow {
 
     menuBar: MenuBar {
         Menu {
-            title: qsTr("Проект")
-            Action { text: qsTr("Новый"); onTriggered: root.projectBackend.create() }
-            Action { text: qsTr("Открыть..."); onTriggered: openDialog.open() }
+            title: qsTr("Файл")
+            Action {
+                text: qsTr("Новый")
+                shortcut: StandardKey.New
+                onTriggered: root.projectBackend.create()
+            }
+            Action {
+                text: qsTr("Открыть...")
+                shortcut: StandardKey.Open
+                onTriggered: openDialog.open()
+            }
             Action {
                 text: qsTr("Сохранить")
+                shortcut: StandardKey.Save
                 enabled: root.projectBackend.path.length > 0
                 onTriggered: root.projectBackend.save()
             }
-            Action { text: qsTr("Сохранить как..."); onTriggered: saveAsDialog.open() }
+            Action {
+                text: qsTr("Сохранить как...")
+                shortcut: StandardKey.SaveAs
+                onTriggered: saveAsDialog.open()
+            }
             Action {
                 text: qsTr("Резервные копии...")
                 enabled: root.projectBackend.path.length > 0
@@ -588,18 +611,34 @@ ApplicationWindow {
             Action { text: qsTr("Файлы проекта..."); onTriggered: projectFilesDialog.openFor("files") }
             Action { text: qsTr("Проверка проекта..."); onTriggered: projectFilesDialog.openFor("health") }
             Action { text: qsTr("Настройки проекта..."); onTriggered: projectSettingsDialog.openFor(0) }
+            MenuSeparator {}
+            Action { text: qsTr("Настройки..."); onTriggered: globalSettingsDialog.openSettings() }
         }
 
         Menu {
-            title: qsTr("Программа")
-            Action { text: qsTr("Настройки..."); onTriggered: globalSettingsDialog.openSettings() }
-            MenuSeparator {}
-            Action { text: qsTr("О программе..."); onTriggered: aboutDialog.open() }
+            title: qsTr("Правка")
+            Action {
+                text: qsTr("Отменить")
+                shortcut: StandardKey.Undo
+                enabled: root.projectBackend.canUndo
+                onTriggered: root.projectBackend.undo()
+            }
+            Action {
+                text: qsTr("Повторить")
+                shortcut: StandardKey.Redo
+                enabled: root.projectBackend.canRedo
+                onTriggered: root.projectBackend.redo()
+            }
         }
 
         Menu {
             title: qsTr("Вид")
-            Action { text: qsTr("Обновить"); onTriggered: root.projectBackend.refresh() }
+            Action { text: qsTr("Обновить"); shortcut: StandardKey.Refresh; onTriggered: root.projectBackend.refresh() }
+        }
+
+        Menu {
+            title: qsTr("Справка")
+            Action { text: qsTr("О программе..."); onTriggered: aboutDialog.open() }
         }
     }
 
@@ -672,6 +711,7 @@ ApplicationWindow {
                 softAltRow: root.softAltRow
                 softHover: root.softHover
                 softMuted: root.softMuted
+                panelSurface: root.panelSurface
                 onProjectSummaryRequested: summaryDialog.openFor("")
                 onActorRolesRequested: function(actorId) {
                     actorRolesDialog.openFor(actorId)
@@ -690,7 +730,7 @@ ApplicationWindow {
 
                     Rectangle {
                         anchors.fill: parent
-                        color: "transparent"
+                        color: root.panelSurface
                         border.color: root.softBorder
                     }
 
@@ -741,6 +781,7 @@ ApplicationWindow {
                     softBorder: root.softBorder
                     softHeader: root.softHeader
                     softMuted: root.softMuted
+                    panelSurface: root.panelSurface
                     onMontagePreviewRequested: montagePreviewDialog.openFor(root.projectBackend.currentEpisode)
                     onReaperExportRequested: reaperExportDialog.openForCurrentEpisode()
                     onEpisodeSummaryRequested: summaryDialog.openFor(root.projectBackend.currentEpisode)

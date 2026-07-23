@@ -15,6 +15,7 @@ Item {
     required property color softAltRow
     required property color softHover
     required property color softMuted
+    required property color panelSurface
     signal projectSummaryRequested()
     signal actorRolesRequested(string actorId)
     signal bulkTransferRequested()
@@ -66,7 +67,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: "transparent"
+        color: panel.panelSurface
         border.color: panel.softBorder
     }
 
@@ -297,7 +298,7 @@ Item {
 
         RowLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: 32
+            Layout.preferredHeight: 34
 
             Label {
                 text: qsTr("Актёры")
@@ -319,9 +320,9 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            height: 28
+            height: 30
             color: panel.softHeader
-            border.color: panel.softBorder
+            border.color: "transparent"
 
             Item {
                 anchors.fill: parent
