@@ -9,6 +9,7 @@ ToolBar {
     readonly property var projectBackend: appBridge ? appBridge.project : null
     required property color softMuted
     property int rootWidth: width
+    implicitHeight: 34
 
     signal openProjectRequested()
     signal saveProjectAsRequested()
@@ -19,9 +20,9 @@ ToolBar {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 6
-        anchors.rightMargin: 6
-        spacing: 3
+        anchors.leftMargin: 8
+        anchors.rightMargin: 8
+        spacing: 4
 
         PlatformComboBox {
             id: recentProjectsCombo

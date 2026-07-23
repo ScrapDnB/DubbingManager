@@ -57,17 +57,17 @@ Item {
             Layout.fillWidth: true
             spacing: 2
 
-            CheckBox {
+            WinUiCheckBox {
                 text: qsTr("HTML")
                 checked: panel.backend ? panel.backend.exportHtml : false
                 onToggled: if (panel.backend) panel.backend.setFormat("html", checked)
             }
-            CheckBox {
+            WinUiCheckBox {
                 text: qsTr("DOCX")
                 checked: panel.backend ? panel.backend.exportDocx : false
                 onToggled: if (panel.backend) panel.backend.setFormat("docx", checked)
             }
-            CheckBox {
+            WinUiCheckBox {
                 text: qsTr("PDF")
                 checked: panel.backend ? panel.backend.exportPdf : false
                 onToggled: if (panel.backend) panel.backend.setFormat("pdf", checked)
@@ -78,7 +78,7 @@ Item {
             id: dropSurface
             Layout.fillWidth: true
             Layout.preferredHeight: 82
-            color: dropArea.containsDrag ? panel.softHeader : "transparent"
+            color: dropArea.containsDrag ? panel.softHeader : palette.base
             border.color: dropArea.containsDrag ? palette.highlight : panel.softBorder
             border.width: dropArea.containsDrag ? 2 : 1
             radius: 4
@@ -149,7 +149,7 @@ Item {
                 ToolTip.visible: hovered
                 ToolTip.text: Accessible.name
             }
-            Button {
+            FluentButton {
                 visible: panel.backend && panel.backend.hasResults && !panel.backend.busy
                 text: qsTr("Результаты")
                 onClicked: panel.resultsRequested()

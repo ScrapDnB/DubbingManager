@@ -320,9 +320,9 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            height: 30
+            height: 28
             color: panel.softHeader
-            border.color: "transparent"
+            border.color: panel.softBorder
 
             Item {
                 anchors.fill: parent
@@ -454,9 +454,15 @@ Item {
 
         RowLayout {
             Layout.fillWidth: true
-            Button { text: qsTr("Добавить"); onClicked: addActorDialog.open(); Layout.fillWidth: true }
-            Button {
+            FluentButton {
+                text: qsTr("Добавить")
+                primary: true
+                onClicked: addActorDialog.open()
+                Layout.fillWidth: true
+            }
+            FluentButton {
                 text: qsTr("Удалить")
+                danger: true
                 enabled: panel.selectedActorId.length > 0
                 onClicked: {
                     if (panel.globalMode) {
@@ -471,7 +477,7 @@ Item {
                 }
                 Layout.fillWidth: true
             }
-            Button {
+            FluentButton {
                 text: panel.globalMode ? "В проект" : "В базу"
                 enabled: panel.selectedActorId.length > 0
                 onClicked: {
@@ -489,7 +495,7 @@ Item {
             }
         }
 
-        Button {
+        FluentButton {
             text: panel.globalMode ? "Переименовать" : "Роли актёра"
             enabled: panel.selectedActorId.length > 0
             onClicked: {
@@ -499,7 +505,7 @@ Item {
             Layout.fillWidth: true
         }
 
-        Button {
+        FluentButton {
             text: qsTr("Объединить с...")
             visible: !panel.globalMode
             enabled: panel.selectedActorId.length > 0
@@ -507,7 +513,7 @@ Item {
             Layout.fillWidth: true
         }
 
-        Button {
+        FluentButton {
             text: qsTr("Несколько актёров в базу...")
             visible: !panel.globalMode
             onClicked: panel.bulkTransferRequested()
@@ -518,7 +524,7 @@ Item {
             Layout.fillWidth: true
             spacing: 6
 
-            Button {
+            FluentButton {
                 text: qsTr("Цвет")
                 visible: !panel.globalMode
                 enabled: panel.selectedActorId.length > 0
@@ -552,7 +558,7 @@ Item {
             }
         }
 
-        Button {
+        FluentButton {
             text: qsTr("Отчёт по проекту")
             enabled: panel.appBridge !== null
             onClicked: panel.projectSummaryRequested()

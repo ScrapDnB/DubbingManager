@@ -61,67 +61,46 @@ Item {
             Layout.fillWidth: true
             spacing: 4
 
-            ItemDelegate {
+            FluentButton {
                 text: qsTr("Телесуфлёр")
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.teleprompterRequested()
-                contentItem: Label {
-                    leftPadding: 10
-                    text: parent.text
-                    elide: Text.ElideRight
-                    verticalAlignment: Text.AlignVCenter
-                }
-                background: Rectangle {
-                    radius: 4
-                    color: parent.down ? sidebar.commandPressed
-                        : parent.hovered ? sidebar.commandHover : "transparent"
-                }
             }
-            ItemDelegate {
+            FluentButton {
                 text: qsTr("Монтажный лист")
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.montagePreviewRequested()
-                contentItem: Label { leftPadding: 10; text: parent.text; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
-                background: Rectangle { radius: 4; color: parent.down ? sidebar.commandPressed : parent.hovered ? sidebar.commandHover : "transparent" }
             }
-            ItemDelegate {
+            FluentButton {
                 text: qsTr("Reaper")
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.reaperExportRequested()
-                contentItem: Label { leftPadding: 10; text: parent.text; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
-                background: Rectangle { radius: 4; color: parent.down ? sidebar.commandPressed : parent.hovered ? sidebar.commandHover : "transparent" }
             }
-            ItemDelegate {
+            FluentButton {
                 text: qsTr("Аудиокнига")
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
                 onClicked: sidebar.audiobookRequested()
-                contentItem: Label { leftPadding: 10; text: parent.text; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
-                background: Rectangle { radius: 4; color: parent.down ? sidebar.commandPressed : parent.hovered ? sidebar.commandHover : "transparent" }
             }
-            ItemDelegate {
+            FluentButton {
                 text: qsTr("Отчёт серии")
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.episodeSummaryRequested()
-                contentItem: Label { leftPadding: 10; text: parent.text; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
-                background: Rectangle { radius: 4; color: parent.down ? sidebar.commandPressed : parent.hovered ? sidebar.commandHover : "transparent" }
             }
-            ItemDelegate {
+            FluentButton {
                 text: qsTr("Назначить роли")
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
                 enabled: sidebar.castingBackend !== null
                 onClicked: sidebar.rolesRequested()
-                contentItem: Label { leftPadding: 10; text: parent.text; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
-                background: Rectangle { radius: 4; color: parent.down ? sidebar.commandPressed : parent.hovered ? sidebar.commandHover : "transparent" }
             }
         }
 

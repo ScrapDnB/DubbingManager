@@ -123,3 +123,23 @@ class TestQmlStartup:
         configure_platform_graphics("darwin")
 
         assert os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] == "--disable-gpu-sandbox"
+
+    def test_windows_qml_controls_use_customizable_style_unless_overridden(self, monkeypatch):
+        from qml_main import configure_qml_controls_style
+
+        monkeypatch.delenv("QT_QUICK_CONTROLS_STYLE", raising=False)
+        monkeypatch.setattr("qml_main.sys.platform", "win32")
+        configure_qml_controls_style()
+        assert os.environ["QT_QUICK_CONTROLS_STYLE"] == "Basic"
+
+        monkeypatch.setenv("QT_QUICK_CONTROLS_STYLE", "Fusion")
+        configure_qml_controls_style()
+        assert os.environ["QT_QUICK_CONTROLS_STYLE"] == "Fusion"
+
+    def test_non_windows_qml_controls_keep_system_style(self, monkeypatch):
+        from qml_main import configure_qml_controls_style
+
+        monkeypatch.delenv("QT_QUICK_CONTROLS_STYLE", raising=False)
+        monkeypatch.setattr("qml_main.sys.platform", "darwin")
+        configure_qml_controls_style()
+        assert "QT_QUICK_CONTROLS_STYLE" not in os.environ

@@ -91,6 +91,7 @@ ApplicationWindow {
         + palette.base.g * 0.7152
         + palette.base.b * 0.0722
     ) < 0.5
+    readonly property bool windowsStyle: Qt.platform.os === "windows"
 
     function mixColor(baseColor, tintColor, amount) {
         return Qt.rgba(
@@ -122,44 +123,39 @@ ApplicationWindow {
         }
     }
 
-    property color softBorder: Qt.rgba(
-        palette.text.r,
-        palette.text.g,
-        palette.text.b,
-        root.darkTheme ? 0.09 : 0.10
-    )
+    property color softBorder: root.windowsStyle && !root.darkTheme
+        ? "#d9dde3" : Qt.rgba(
+            palette.text.r, palette.text.g, palette.text.b,
+            root.darkTheme ? 0.09 : 0.10
+        )
     property color hairlineBorder: Qt.rgba(
         palette.text.r,
         palette.text.g,
         palette.text.b,
         root.darkTheme ? 0.045 : 0.055
     )
-    property color workspaceBackground: root.mixColor(
-        palette.window,
-        palette.highlight,
-        root.darkTheme ? 0.025 : 0.018
-    )
-    property color panelSurface: root.mixColor(
-        palette.base,
-        palette.highlight,
-        root.darkTheme ? 0.035 : 0.012
-    )
-    property color softHeader: root.mixColor(
-        palette.base,
-        palette.highlight,
-        root.darkTheme ? 0.095 : 0.045
-    )
-    property color softRow: palette.base
-    property color softAltRow: root.mixColor(
-        palette.base,
-        palette.text,
-        root.darkTheme ? 0.028 : 0.018
-    )
-    property color softHover: root.mixColor(
-        palette.base,
-        palette.highlight,
-        root.darkTheme ? 0.14 : 0.10
-    )
+    property color workspaceBackground: root.windowsStyle && !root.darkTheme
+        ? "#f4f6f8" : root.mixColor(
+            palette.window, palette.highlight, root.darkTheme ? 0.025 : 0.018
+        )
+    property color panelSurface: root.windowsStyle && !root.darkTheme
+        ? "#ffffff" : root.mixColor(
+            palette.base, palette.highlight, root.darkTheme ? 0.035 : 0.012
+        )
+    property color softHeader: root.windowsStyle && !root.darkTheme
+        ? "#f8f9fb" : root.mixColor(
+            palette.base, palette.highlight, root.darkTheme ? 0.095 : 0.045
+        )
+    property color softRow: root.windowsStyle && !root.darkTheme
+        ? "#ffffff" : palette.base
+    property color softAltRow: root.windowsStyle && !root.darkTheme
+        ? "#fbfcfd" : root.mixColor(
+            palette.base, palette.text, root.darkTheme ? 0.028 : 0.018
+        )
+    property color softHover: root.windowsStyle && !root.darkTheme
+        ? "#eef5fc" : root.mixColor(
+            palette.base, palette.highlight, root.darkTheme ? 0.14 : 0.10
+        )
     property color softMuted: Qt.rgba(palette.text.r, palette.text.g, palette.text.b, 0.58)
 
     FileDialog {
@@ -328,27 +324,80 @@ ApplicationWindow {
             width: 380
         }
 
-        footer: DialogButtonBox {
-            anchors.fill: parent
-            Button {
-                text: qsTr("Сохранить")
-                onClicked: {
-                    saveChangesDialog.close()
-                    root.projectBackend.resolvePendingChanges("save")
+        footer: Item {
+            implicitHeight: root.windowsStyle ? 32 : nativeFooterLoader.item
+                ? nativeFooterLoader.item.implicitHeight : 0
+
+            Loader {
+                id: nativeFooterLoader
+                anchors.fill: parent
+                sourceComponent: root.windowsStyle
+                    ? saveChangesWindowsFooter : saveChangesNativeFooter
+            }
+        }
+
+        Component {
+            id: saveChangesNativeFooter
+
+            DialogButtonBox {
+                anchors.fill: parent
+                Button {
+                    text: qsTr("Сохранить")
+                    onClicked: {
+                        saveChangesDialog.close()
+                        root.projectBackend.resolvePendingChanges("save")
+                    }
+                }
+                Button {
+                    text: qsTr("Не сохранять")
+                    onClicked: {
+                        saveChangesDialog.close()
+                        root.projectBackend.resolvePendingChanges("discard")
+                    }
+                }
+                Button {
+                    text: qsTr("Отмена")
+                    onClicked: {
+                        saveChangesDialog.close()
+                        root.projectBackend.resolvePendingChanges("cancel")
+                    }
                 }
             }
-            Button {
-                text: qsTr("Не сохранять")
-                onClicked: {
-                    saveChangesDialog.close()
-                    root.projectBackend.resolvePendingChanges("discard")
+        }
+
+        Component {
+            id: saveChangesWindowsFooter
+
+            RowLayout {
+                anchors.fill: parent
+                implicitHeight: 32
+                spacing: 8
+
+                Item { Layout.fillWidth: true }
+                FluentButton {
+                    text: qsTr("Отмена")
+                    Layout.preferredWidth: 100
+                    onClicked: {
+                        saveChangesDialog.close()
+                        root.projectBackend.resolvePendingChanges("cancel")
+                    }
                 }
-            }
-            Button {
-                text: qsTr("Отмена")
-                onClicked: {
-                    saveChangesDialog.close()
-                    root.projectBackend.resolvePendingChanges("cancel")
+                FluentButton {
+                    text: qsTr("Не сохранять")
+                    Layout.preferredWidth: 128
+                    onClicked: {
+                        saveChangesDialog.close()
+                        root.projectBackend.resolvePendingChanges("discard")
+                    }
+                }
+                FluentButton {
+                    text: qsTr("Сохранить")
+                    primary: true
+                    Layout.preferredWidth: 110
+                    onClicked: {
+                        saveChangesDialog.close()
+                        root.projectBackend.resolvePendingChanges("save")
+                    }
                 }
             }
         }
@@ -579,6 +628,9 @@ ApplicationWindow {
     }
 
     menuBar: MenuBar {
+        visible: !root.windowsStyle
+        height: visible ? implicitHeight : 0
+
         Menu {
             title: qsTr("Файл")
             Action {
@@ -642,16 +694,89 @@ ApplicationWindow {
         }
     }
 
-    header: ProjectToolbar {
-        appBridge: root.appBridge
-        softMuted: root.softMuted
-        rootWidth: root.width
-        onOpenProjectRequested: openDialog.open()
-        onSaveProjectAsRequested: saveAsDialog.open()
-        onGlobalSettingsRequested: globalSettingsDialog.openSettings()
-        onProjectSettingsRequested: projectSettingsDialog.openFor(0)
-        onHealthRequested: projectFilesDialog.openFor("health")
-        onAboutRequested: aboutDialog.open()
+    header: Column {
+        width: root.width
+
+        ToolBar {
+            width: parent.width
+            height: 32
+            visible: root.windowsStyle
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 6
+                anchors.rightMargin: 6
+                spacing: 2
+
+                    WinUiMenuBarButton {
+                        objectName: "windowsFileMenuButton"
+                        text: qsTr("Файл")
+                        entries: [
+                            { text: qsTr("Новый") },
+                            { text: qsTr("Открыть...") },
+                            { text: qsTr("Сохранить"), enabled: root.projectBackend.path.length > 0 },
+                            { text: qsTr("Сохранить как...") },
+                            { text: qsTr("Резервные копии..."), enabled: root.projectBackend.path.length > 0 },
+                            { separator: true },
+                            { text: qsTr("Файлы проекта...") },
+                            { text: qsTr("Проверка проекта...") },
+                            { text: qsTr("Настройки проекта...") },
+                            { separator: true },
+                            { text: qsTr("Настройки...") }
+                        ]
+                        onItemTriggered: function(index) {
+                            if (index === 0) root.projectBackend.create()
+                            else if (index === 1) openDialog.open()
+                            else if (index === 2) root.projectBackend.save()
+                            else if (index === 3) saveAsDialog.open()
+                            else if (index === 4) backupBrowserDialog.openBrowser()
+                            else if (index === 6) projectFilesDialog.openFor("files")
+                            else if (index === 7) projectFilesDialog.openFor("health")
+                            else if (index === 8) projectSettingsDialog.openFor(0)
+                            else if (index === 10) globalSettingsDialog.openSettings()
+                        }
+                    }
+
+                WinUiMenuBarButton {
+                    text: qsTr("Правка")
+                    entries: [
+                        { text: qsTr("Отменить"), enabled: root.projectBackend.canUndo },
+                        { text: qsTr("Повторить"), enabled: root.projectBackend.canRedo }
+                    ]
+                    onItemTriggered: function(index) {
+                        if (index === 0) root.projectBackend.undo()
+                        else if (index === 1) root.projectBackend.redo()
+                    }
+                }
+
+                WinUiMenuBarButton {
+                    text: qsTr("Вид")
+                    entries: [{ text: qsTr("Обновить") }]
+                    onItemTriggered: function(index) { root.projectBackend.refresh() }
+                }
+
+                WinUiMenuBarButton {
+                    text: qsTr("Справка")
+                    entries: [{ text: qsTr("О программе...") }]
+                    onItemTriggered: function(index) { aboutDialog.open() }
+                }
+
+                Item { Layout.fillWidth: true }
+            }
+        }
+
+        ProjectToolbar {
+            width: parent.width
+            appBridge: root.appBridge
+            softMuted: root.softMuted
+            rootWidth: root.width
+            onOpenProjectRequested: openDialog.open()
+            onSaveProjectAsRequested: saveAsDialog.open()
+            onGlobalSettingsRequested: globalSettingsDialog.openSettings()
+            onProjectSettingsRequested: projectSettingsDialog.openFor(0)
+            onHealthRequested: projectFilesDialog.openFor("health")
+            onAboutRequested: aboutDialog.open()
+        }
     }
 
     footer: ToolBar {

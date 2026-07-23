@@ -117,11 +117,11 @@ NativeDialogWindow {
 
             RowLayout {
                 Layout.fillWidth: true
-                Button {
+                FluentButton {
                     text: qsTr("Выбрать всех")
                     onClicked: window.teleprompter.selectAllActors(true)
                 }
-                Button {
+                FluentButton {
                     text: qsTr("Снять выбор")
                     onClicked: window.teleprompter.selectAllActors(false)
                 }
@@ -216,7 +216,7 @@ NativeDialogWindow {
                         Layout.fillWidth: true
                         placeholderText: qsTr("Выделенная часть текста")
                     }
-                    Button {
+                    FluentButton {
                         text: qsTr("Разделить реплику")
                         enabled: splitCharacter.editText.length > 0 && splitText.text.length > 0
                         onClicked: {
@@ -241,19 +241,20 @@ NativeDialogWindow {
 
         ToolBar {
             Layout.fillWidth: true
+            Layout.preferredHeight: 40
+            implicitHeight: 40
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 6
                 anchors.rightMargin: 6
                 spacing: 6
 
-                ToolButton {
+                FluentButton {
                     text: window.sidePanelVisible
                         ? "Скрыть настройки"
                         : "Показать настройки"
+                    Layout.preferredHeight: 30
                     onClicked: window.sidePanelVisible = !window.sidePanelVisible
-                    ToolTip.visible: hovered
-                    ToolTip.text: qsTr("Панель настроек и список реплик")
                 }
                 Label { text: qsTr("Серия:") }
                 PlatformComboBox {
@@ -265,24 +266,26 @@ NativeDialogWindow {
                     Component.onCompleted: currentIndex = indexOfValue(window.teleprompter.episode)
                     onActivated: window.teleprompter.setEpisode(currentValue)
                 }
-                ToolButton {
+                FluentButton {
                     text: qsTr("Обновить каст")
+                    Layout.preferredHeight: 30
                     onClicked: window.teleprompter.refreshCast()
-                    ToolTip.visible: hovered
-                    ToolTip.text: qsTr("Перечитать назначения актёров")
                 }
                 Item { Layout.fillWidth: true }
-                ToolButton {
+                FluentButton {
                     text: qsTr("Предыдущая реплика")
+                    Layout.preferredHeight: 30
                     onClicked: window.navigate(-1)
                 }
-                ToolButton {
+                FluentButton {
                     text: qsTr("Следующая реплика")
+                    Layout.preferredHeight: 30
                     onClicked: window.navigate(1)
                 }
                 ToolButton {
                     id: floatButton
                     text: qsTr("Плавающее окно")
+                    implicitHeight: 30
                     enabled: Qt.platform.os !== "osx"
                     checkable: true
                     checked: floatWindow.visible
@@ -292,7 +295,11 @@ NativeDialogWindow {
                     ToolTip.visible: hovered
                     ToolTip.text: qsTr("Плавающий контроллер")
                 }
-                ToolButton { text: qsTr("Закрыть окно"); onClicked: window.close() }
+                FluentButton {
+                    text: qsTr("Закрыть окно")
+                    Layout.preferredHeight: 30
+                    onClicked: window.close()
+                }
             }
         }
 
@@ -366,14 +373,14 @@ NativeDialogWindow {
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                CheckBox {
+                                WinUiCheckBox {
                                     text: qsTr("Зеркально")
                                     checked: window.config.is_mirrored
                                     onToggled: window.teleprompter.setConfigValue(
                                         "is_mirrored", checked
                                     )
                                 }
-                                CheckBox {
+                                WinUiCheckBox {
                                     text: qsTr("Таймкод")
                                     checked: window.config.show_header
                                     onToggled: window.teleprompter.setConfigValue(
@@ -450,7 +457,7 @@ NativeDialogWindow {
                                             color: [window.colors.bg, window.colors.active_text, window.colors.inactive_text, window.colors.tc, window.colors.actor, window.colors.header_bg, window.colors.header_text][colorRow.index]
                                             border.color: window.softBorder
                                         }
-                                        Button {
+                                        FluentButton {
                                             text: colorRow.modelData
                                             Layout.fillWidth: true
                                             onClicked: {
@@ -510,14 +517,14 @@ NativeDialogWindow {
                                     text: qsTr("Синхронизация REAPER")
                                     color: window.softMuted
                                 }
-                                CheckBox {
+                                WinUiCheckBox {
                                     text: qsTr("Телесуфлёр следует за REAPER")
                                     checked: window.config.sync_in
                                     onToggled: window.appBridge.settings.setPrompterSyncEnabled(
                                         "sync_in", checked
                                     )
                                 }
-                                CheckBox {
+                                WinUiCheckBox {
                                     text: qsTr("REAPER следует за навигацией")
                                     checked: window.config.sync_out
                                     onToggled: window.appBridge.settings.setPrompterSyncEnabled(
@@ -552,11 +559,9 @@ NativeDialogWindow {
                             font.bold: true
                             Layout.fillWidth: true
                         }
-                        Button {
+                        FluentButton {
                             text: qsTr("Актёры...")
                             onClicked: actorFilterWindow.open()
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Выбрать актёров для телесуфлёра")
                         }
                     }
                     ListView {

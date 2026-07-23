@@ -29,6 +29,12 @@ def configure_platform_graphics(platform: str | None = None) -> None:
         os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(flags)
 
 
+def configure_qml_controls_style() -> None:
+    """Use a skinnable control style for the cross-platform QML interface."""
+    if sys.platform.startswith("win"):
+        os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
+
+
 class DubbingQmlApplication(QGuiApplication):
     """QML application that accepts project files opened by the OS."""
 
@@ -48,6 +54,7 @@ class DubbingQmlApplication(QGuiApplication):
 def main() -> int:
     """Run the QML application."""
     configure_platform_graphics()
+    configure_qml_controls_style()
     setup_logging()
     QtWebEngineQuick.initialize()
     app = DubbingQmlApplication(sys.argv)

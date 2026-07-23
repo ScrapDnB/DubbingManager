@@ -7,13 +7,13 @@ ToolButton {
     property url iconSource
     property string toolTipText
 
-    implicitWidth: 32
-    implicitHeight: 30
-    padding: 5
+    implicitWidth: 30
+    implicitHeight: 28
+    padding: 4
     display: AbstractButton.IconOnly
     icon.source: iconSource
-    icon.width: 17
-    icon.height: 17
+    icon.width: 16
+    icon.height: 16
     icon.color: palette.buttonText
     Accessible.name: toolTipText
 

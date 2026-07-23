@@ -173,7 +173,8 @@ ColumnLayout {
 
         PlatformComboBox {
             id: actorFilterCombo
-            Layout.preferredWidth: controls.narrow ? 95 : (controls.compact ? 120 : 150)
+            Layout.preferredWidth: controls.narrow ? 150
+                : (controls.compact ? 220 : 230)
             model: controls.castingBackend ? controls.castingBackend.actorFilterModel : null
             textRole: "name"
             valueRole: "id"
@@ -193,7 +194,7 @@ ColumnLayout {
             }
         }
 
-        CheckBox {
+        WinUiCheckBox {
             text: qsTr("Неназначенные")
             visible: !controls.narrow
             enabled: controls.appBridge !== null
@@ -201,8 +202,9 @@ ColumnLayout {
             onToggled: if (controls.castingBackend) controls.castingBackend.setShowUnassignedOnly(checked)
         }
 
-        TextField {
-            Layout.preferredWidth: controls.narrow ? 90 : (controls.compact ? 120 : 170)
+        WinUiTextField {
+            Layout.preferredWidth: controls.narrow ? 120
+                : (controls.compact ? 150 : 180)
             placeholderText: qsTr("Поиск")
             enabled: controls.appBridge !== null
             text: controls.castingBackend ? controls.castingBackend.searchText : ""

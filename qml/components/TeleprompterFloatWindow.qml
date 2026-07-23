@@ -105,17 +105,17 @@ Window {
         RowLayout {
             Layout.fillWidth: true
 
-            Button {
+            FluentButton {
                 text: qsTr("Назад")
                 Layout.fillWidth: true
                 onClicked: floatWindow.teleprompter.navigate(-1)
             }
-            Button {
+            FluentButton {
                 text: qsTr("Далее")
                 Layout.fillWidth: true
                 onClicked: floatWindow.teleprompter.navigate(1)
             }
-            Button {
+            FluentButton {
                 text: qsTr("Скрыть")
                 onClicked: floatWindow.close()
             }

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import QtQuick.Window
 
 Window {
@@ -10,6 +11,7 @@ Window {
     property var ownerWindow
     property alias content: contentHost.data
     property alias footer: customFooter.data
+    readonly property bool windowsStyle: Qt.platform.os === "windows"
 
     signal opened()
     signal closed()
@@ -94,8 +96,10 @@ Window {
         anchors.bottomMargin: 10
         height: customFooter.children.length > 0
             ? customFooter.children[0].implicitHeight
-            : standardFooter.visible
-                ? standardFooter.implicitHeight
+            : standardFooterHost.visible
+                ? (window.windowsStyle ? 32
+                    : standardFooterHost.item
+                        ? standardFooterHost.item.implicitHeight : 0)
                 : 0
 
         Item {
@@ -103,14 +107,76 @@ Window {
             anchors.fill: parent
         }
 
-        DialogButtonBox {
-            id: standardFooter
+        Loader {
+            id: standardFooterHost
             anchors.fill: parent
             visible: customFooter.children.length === 0
                 && window.standardButtons !== Dialog.NoButton
-            standardButtons: window.standardButtons
-            onAccepted: window.accept()
-            onRejected: window.reject()
+            sourceComponent: window.windowsStyle
+                ? windowsStandardFooter : nativeStandardFooter
+        }
+
+        Component {
+            id: nativeStandardFooter
+
+            DialogButtonBox {
+                anchors.fill: parent
+                standardButtons: window.standardButtons
+                onAccepted: window.accept()
+                onRejected: window.reject()
+            }
+        }
+
+        Component {
+            id: windowsStandardFooter
+
+            RowLayout {
+                anchors.fill: parent
+                implicitHeight: 32
+                spacing: 8
+
+                Item { Layout.fillWidth: true }
+
+                FluentButton {
+                    visible: (window.standardButtons & Dialog.Cancel) !== 0
+                    text: qsTr("Отмена")
+                    Layout.preferredWidth: 100
+                    onClicked: window.reject()
+                }
+                FluentButton {
+                    visible: (window.standardButtons & Dialog.No) !== 0
+                    text: qsTr("Нет")
+                    Layout.preferredWidth: 100
+                    onClicked: window.reject()
+                }
+                FluentButton {
+                    visible: (window.standardButtons & Dialog.Close) !== 0
+                    text: qsTr("Закрыть")
+                    Layout.preferredWidth: 100
+                    onClicked: window.reject()
+                }
+                FluentButton {
+                    visible: (window.standardButtons & Dialog.Ok) !== 0
+                    text: qsTr("ОК")
+                    primary: true
+                    Layout.preferredWidth: 100
+                    onClicked: window.accept()
+                }
+                FluentButton {
+                    visible: (window.standardButtons & Dialog.Save) !== 0
+                    text: qsTr("Сохранить")
+                    primary: true
+                    Layout.preferredWidth: 110
+                    onClicked: window.accept()
+                }
+                FluentButton {
+                    visible: (window.standardButtons & Dialog.Yes) !== 0
+                    text: qsTr("Да")
+                    primary: true
+                    Layout.preferredWidth: 100
+                    onClicked: window.accept()
+                }
+            }
         }
     }
 }

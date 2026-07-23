@@ -228,8 +228,10 @@ Item {
                             : "")
                     elide: Text.ElideMiddle
                 }
-                Button {
-                    text: qsTr("Перепривязать...")
+                FluentButton {
+                    text: qsTr("Перепривязать")
+                    Layout.preferredWidth: 132
+                    Layout.preferredHeight: 28
                     onClicked: table.relinkSourceRequested(
                         table.appBridge.project.currentEpisode
                     )
@@ -237,6 +239,10 @@ Item {
                 ToolButton {
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
+                    Layout.minimumWidth: 24
+                    Layout.minimumHeight: 24
+                    Layout.maximumWidth: 24
+                    Layout.maximumHeight: 24
                     padding: 4
                     icon.source: "../icons/x.svg"
                     icon.width: 14
