@@ -87,7 +87,7 @@ NativeDialogWindow {
 
             Label { text: qsTr("Персонаж:") }
 
-            PlatformComboBox {
+            ComboBox {
                 id: characterCombo
                 Layout.preferredWidth: 230
                 model: dialog.videoBackend ? dialog.videoBackend.characterModel : null
@@ -191,7 +191,7 @@ NativeDialogWindow {
                         Layout.preferredHeight: visible ? 36 : 0
                         spacing: 8
 
-                        Button {
+                        AdaptiveButton {
                             Layout.preferredWidth: 38
                             Layout.preferredHeight: 30
                             text: video.playbackState === MediaPlayer.PlayingState ? "Ⅱ" : "▶"
@@ -219,7 +219,7 @@ NativeDialogWindow {
                             horizontalAlignment: Text.AlignRight
                         }
 
-                        Button {
+                        AdaptiveButton {
                             Layout.preferredWidth: 38
                             Layout.preferredHeight: 30
                             text: video.muted ? "×" : "♪"
@@ -370,7 +370,7 @@ NativeDialogWindow {
 
         DialogButtonBox {
             Layout.fillWidth: true
-            Button {
+            AdaptiveButton {
                 text: qsTr("Закрыть")
                 onClicked: dialog.close()
             }

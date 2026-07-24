@@ -78,7 +78,7 @@ NativeDialogWindow {
                 elide: Text.ElideRight
             }
 
-            Button {
+            AdaptiveButton {
                 text: qsTr("Другой...")
                 onClicked: systemColorDialog.open()
             }

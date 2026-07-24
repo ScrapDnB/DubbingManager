@@ -87,13 +87,13 @@ Window {
             Layout.fillWidth: true
             spacing: 6
 
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Назад")
                 Layout.fillWidth: true
                 Layout.preferredHeight: 50
                 onClicked: floatWindow.teleprompter.navigate(-1)
             }
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Вперёд")
                 Layout.fillWidth: true
                 Layout.preferredHeight: 50
@@ -104,7 +104,7 @@ Window {
         RowLayout {
             Layout.fillWidth: true
             Label { text: qsTr("Серия:") }
-            PlatformComboBox {
+            ComboBox {
                 id: episodeBox
                 Layout.fillWidth: true
                 textRole: "name"
@@ -201,7 +201,7 @@ Window {
             }
         }
 
-        FluentButton {
+        AdaptiveButton {
             text: qsTr("Скрыть")
             Layout.fillWidth: true
             onClicked: floatWindow.close()

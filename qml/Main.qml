@@ -343,21 +343,21 @@ ApplicationWindow {
 
             DialogButtonBox {
                 anchors.fill: parent
-                Button {
+                AdaptiveButton {
                     text: qsTr("Сохранить")
                     onClicked: {
                         saveChangesDialog.close()
                         root.projectBackend.resolvePendingChanges("save")
                     }
                 }
-                Button {
+                AdaptiveButton {
                     text: qsTr("Не сохранять")
                     onClicked: {
                         saveChangesDialog.close()
                         root.projectBackend.resolvePendingChanges("discard")
                     }
                 }
-                Button {
+                AdaptiveButton {
                     text: qsTr("Отмена")
                     onClicked: {
                         saveChangesDialog.close()
@@ -376,7 +376,7 @@ ApplicationWindow {
                 spacing: 8
 
                 Item { Layout.fillWidth: true }
-                FluentButton {
+                AdaptiveButton {
                     text: qsTr("Отмена")
                     Layout.preferredWidth: 100
                     onClicked: {
@@ -384,7 +384,7 @@ ApplicationWindow {
                         root.projectBackend.resolvePendingChanges("cancel")
                     }
                 }
-                FluentButton {
+                AdaptiveButton {
                     text: qsTr("Не сохранять")
                     Layout.preferredWidth: 128
                     onClicked: {
@@ -392,9 +392,9 @@ ApplicationWindow {
                         root.projectBackend.resolvePendingChanges("discard")
                     }
                 }
-                FluentButton {
+                AdaptiveButton {
                     text: qsTr("Сохранить")
-                    primary: true
+                    highlighted: true
                     Layout.preferredWidth: 110
                     onClicked: {
                         saveChangesDialog.close()
@@ -630,8 +630,11 @@ ApplicationWindow {
     }
 
     menuBar: MenuBar {
-        visible: !root.windowsStyle
-        height: visible ? implicitHeight : 0
+        height: root.windowsStyle ? 40 : implicitHeight
+        topPadding: root.windowsStyle ? 4 : 0
+        bottomPadding: root.windowsStyle ? 4 : 0
+        leftPadding: root.windowsStyle ? 8 : 0
+        rightPadding: 0
 
         Menu {
             title: qsTr("Файл")
@@ -698,74 +701,6 @@ ApplicationWindow {
 
     header: Column {
         width: root.width
-
-        ToolBar {
-            width: parent.width
-            height: 32
-            visible: root.windowsStyle
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 6
-                anchors.rightMargin: 6
-                spacing: 2
-
-                    WinUiMenuBarButton {
-                        objectName: "windowsFileMenuButton"
-                        text: qsTr("Файл")
-                        entries: [
-                            { text: qsTr("Новый") },
-                            { text: qsTr("Открыть...") },
-                            { text: qsTr("Сохранить"), enabled: root.projectBackend.path.length > 0 },
-                            { text: qsTr("Сохранить как...") },
-                            { text: qsTr("Резервные копии..."), enabled: root.projectBackend.path.length > 0 },
-                            { separator: true },
-                            { text: qsTr("Файлы проекта...") },
-                            { text: qsTr("Проверка проекта...") },
-                            { text: qsTr("Настройки проекта...") },
-                            { separator: true },
-                            { text: qsTr("Настройки...") }
-                        ]
-                        onItemTriggered: function(index) {
-                            if (index === 0) root.projectBackend.create()
-                            else if (index === 1) openDialog.open()
-                            else if (index === 2) root.projectBackend.save()
-                            else if (index === 3) saveAsDialog.open()
-                            else if (index === 4) backupBrowserDialog.openBrowser()
-                            else if (index === 6) projectFilesDialog.openFor("files")
-                            else if (index === 7) projectFilesDialog.openFor("health")
-                            else if (index === 8) projectSettingsDialog.openFor(0)
-                            else if (index === 10) globalSettingsDialog.openSettings()
-                        }
-                    }
-
-                WinUiMenuBarButton {
-                    text: qsTr("Правка")
-                    entries: [
-                        { text: qsTr("Отменить"), enabled: root.projectBackend.canUndo },
-                        { text: qsTr("Повторить"), enabled: root.projectBackend.canRedo }
-                    ]
-                    onItemTriggered: function(index) {
-                        if (index === 0) root.projectBackend.undo()
-                        else if (index === 1) root.projectBackend.redo()
-                    }
-                }
-
-                WinUiMenuBarButton {
-                    text: qsTr("Вид")
-                    entries: [{ text: qsTr("Обновить") }]
-                    onItemTriggered: function(index) { root.projectBackend.refresh() }
-                }
-
-                WinUiMenuBarButton {
-                    text: qsTr("Справка")
-                    entries: [{ text: qsTr("О программе...") }]
-                    onItemTriggered: function(index) { aboutDialog.open() }
-                }
-
-                Item { Layout.fillWidth: true }
-            }
-        }
 
         ProjectToolbar {
             width: parent.width

@@ -46,6 +46,12 @@ Item {
     readonly property int nameColumnWidth: Math.max(
         0, genderColumnX - tableColumnSpacing - nameColumnX
     )
+    readonly property int controlHeight: Math.max(
+        40, Math.ceil(panelFontMetrics.height + 18)
+    )
+    readonly property int tableHeaderHeight: Math.max(
+        28, Math.ceil(panelFontMetrics.height + 8)
+    )
 
     function sortTitle(label, key) {
         var backend = panel.globalMode
@@ -65,6 +71,11 @@ Item {
     SystemPalette {
         id: palette
         colorGroup: SystemPalette.Active
+    }
+
+    FontMetrics {
+        id: panelFontMetrics
+        font: Application.font
     }
 
     Rectangle {
@@ -120,7 +131,7 @@ Item {
                 visible: !panel.globalMode
             }
 
-            PlatformComboBox {
+            ComboBox {
                 id: actorSourceCombo
                 visible: !panel.globalMode
                 Layout.fillWidth: true
@@ -146,7 +157,7 @@ Item {
                 visible: panel.globalMode
                     || String(actorSourceCombo.currentValue || "").length === 0
 
-                Button {
+                AdaptiveButton {
                     text: qsTr("Цвет")
                     visible: !panel.globalMode
                     onClicked: addActorColorDialog.open()
@@ -163,7 +174,7 @@ Item {
 
                 Label { text: qsTr("Пол:") }
 
-                PlatformComboBox {
+                ComboBox {
                     id: addActorGenderCombo
                     Layout.preferredWidth: 80
                     model: ["", "М", "Ж"]
@@ -212,7 +223,7 @@ Item {
                 Layout.fillWidth: true
             }
             Label { text: qsTr("Оставить актёра"); color: panel.softMuted }
-            PlatformComboBox {
+            ComboBox {
                 id: mergeTargetCombo
                 Layout.fillWidth: true
                 model: panel.actorLibraryBackend
@@ -300,7 +311,7 @@ Item {
 
         RowLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: 34
+            Layout.preferredHeight: panel.controlHeight
 
             Label {
                 text: qsTr("Актёры")
@@ -308,9 +319,13 @@ Item {
                 Layout.fillWidth: true
             }
 
-            PlatformComboBox {
+            ComboBox {
                 id: actorBaseMode
                 Layout.preferredWidth: 130
+                Layout.minimumHeight: panel.controlHeight
+                Layout.preferredHeight: panel.controlHeight
+                Layout.maximumHeight: panel.controlHeight
+                Layout.alignment: Qt.AlignVCenter
                 model: ["Проект", "Глобальная"]
                 onActivated: {
                     panel.selectedActorId = ""
@@ -322,7 +337,7 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            height: 28
+            height: panel.tableHeaderHeight
             color: panel.softHeader
             border.color: panel.softBorder
 
@@ -336,7 +351,10 @@ Item {
                     text: panel.sortTitle(qsTr("Имя"), "name")
                     font.bold: true
                     flat: true
-                    padding: 0
+                    leftPadding: 0
+                    rightPadding: 0
+                    topPadding: 0
+                    bottomPadding: 0
                     onClicked: panel.setActorSort("name")
                     Accessible.name: qsTr("Сортировать актёров по имени")
                 }
@@ -347,7 +365,10 @@ Item {
                     text: panel.sortTitle(qsTr("Пол"), "gender")
                     font.bold: true
                     flat: true
-                    padding: 0
+                    leftPadding: 0
+                    rightPadding: 0
+                    topPadding: 0
+                    bottomPadding: 0
                     onClicked: panel.setActorSort("gender")
                     Accessible.name: qsTr("Сортировать актёров по полу")
                 }
@@ -361,7 +382,10 @@ Item {
                     )
                     font.bold: true
                     flat: true
-                    padding: 0
+                    leftPadding: 0
+                    rightPadding: 0
+                    topPadding: 0
+                    bottomPadding: 0
                     onClicked: panel.setActorSort("roleCount")
                     Accessible.name: panel.globalMode
                         ? qsTr("Сортировать актёров по статусу")
@@ -456,15 +480,15 @@ Item {
 
         RowLayout {
             Layout.fillWidth: true
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Добавить")
-                primary: true
+                highlighted: true
                 onClicked: addActorDialog.open()
                 Layout.fillWidth: true
             }
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Удалить")
-                danger: true
+                palette.buttonText: "#b42318"
                 enabled: panel.selectedActorId.length > 0
                 onClicked: {
                     if (panel.globalMode) {
@@ -479,7 +503,7 @@ Item {
                 }
                 Layout.fillWidth: true
             }
-            FluentButton {
+            AdaptiveButton {
                 text: panel.globalMode ? "В проект" : "В базу"
                 enabled: panel.selectedActorId.length > 0
                 onClicked: {
@@ -497,7 +521,7 @@ Item {
             }
         }
 
-        FluentButton {
+        AdaptiveButton {
             text: panel.globalMode ? "Переименовать" : "Роли актёра"
             enabled: panel.selectedActorId.length > 0
             onClicked: {
@@ -507,7 +531,7 @@ Item {
             Layout.fillWidth: true
         }
 
-        FluentButton {
+        AdaptiveButton {
             text: qsTr("Объединить с...")
             visible: !panel.globalMode
             enabled: panel.selectedActorId.length > 0
@@ -515,7 +539,7 @@ Item {
             Layout.fillWidth: true
         }
 
-        FluentButton {
+        AdaptiveButton {
             text: qsTr("Несколько актёров в базу...")
             visible: !panel.globalMode
             onClicked: panel.bulkTransferRequested()
@@ -526,7 +550,7 @@ Item {
             Layout.fillWidth: true
             spacing: 6
 
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Цвет")
                 visible: !panel.globalMode
                 enabled: panel.selectedActorId.length > 0
@@ -534,7 +558,7 @@ Item {
                 Layout.fillWidth: true
             }
 
-            PlatformComboBox {
+            ComboBox {
                 id: selectedActorGenderCombo
                 Layout.preferredWidth: 82
                 enabled: panel.selectedActorId.length > 0
@@ -560,7 +584,7 @@ Item {
             }
         }
 
-        FluentButton {
+        AdaptiveButton {
             text: qsTr("Отчёт по проекту")
             enabled: panel.appBridge !== null
             onClicked: panel.projectSummaryRequested()

@@ -149,11 +149,11 @@ NativeDialogWindow {
                             color: dialog.softMuted
                         }
                         RowLayout {
-                            Button {
+                            AdaptiveButton {
                                 text: qsTr("Файлы проекта...")
                                 onClicked: dialog.projectFilesRequested("files")
                             }
-                            Button {
+                            AdaptiveButton {
                                 text: qsTr("Проверка проекта...")
                                 onClicked: dialog.projectFilesRequested("health")
                             }
@@ -172,7 +172,7 @@ NativeDialogWindow {
                     wrapMode: Text.WordWrap
                     color: dialog.softMuted
                 }
-                Button {
+                AdaptiveButton {
                     text: qsTr("Открыть роли проекта...")
                     onClicked: dialog.rolesRequested()
                 }
@@ -183,13 +183,13 @@ NativeDialogWindow {
                 spacing: 8
                 RowLayout {
                     Layout.fillWidth: true
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Применить глобальные")
                         onClicked: dialog.montageDraft = Object.assign(
                             {}, dialog.backend.globalMontageConfig
                         )
                     }
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Сохранить по умолчанию")
                         onClicked: dialog.backend.saveConfigAsDefault(
                             "montage", dialog.montageDraft
@@ -209,7 +209,7 @@ NativeDialogWindow {
                 spacing: 8
                 RowLayout {
                     Layout.fillWidth: true
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Применить глобальные")
                         onClicked: {
                             dialog.mergeDraft = Object.assign({}, dialog.backend.globalMergeConfig)
@@ -218,7 +218,7 @@ NativeDialogWindow {
                             dialog.docxDraft = Object.assign({}, dialog.backend.globalDocxImportConfig)
                         }
                     }
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Сохранить по умолчанию")
                         onClicked: dialog.backend.saveImportConfigAsDefault(
                             dialog.mergeDraft,
@@ -255,13 +255,13 @@ NativeDialogWindow {
                 spacing: 8
                 RowLayout {
                     Layout.fillWidth: true
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Применить глобальные")
                         onClicked: dialog.prompterDraft = Object.assign(
                             {}, dialog.backend.globalPrompterConfig
                         )
                     }
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Сохранить по умолчанию")
                         onClicked: dialog.backend.saveConfigAsDefault(
                             "prompter", dialog.prompterDraft
@@ -290,11 +290,11 @@ NativeDialogWindow {
                     Layout.fillWidth: true
                     RowLayout {
                         anchors.fill: parent
-                        Button {
+                        AdaptiveButton {
                             text: qsTr("Экспорт...")
                             onClicked: dialog.assignmentExportRequested()
                         }
-                        Button {
+                        AdaptiveButton {
                             text: qsTr("Импорт...")
                             onClicked: dialog.assignmentImportRequested()
                         }
@@ -314,7 +314,7 @@ NativeDialogWindow {
 
     footer: DialogButtonBox {
         anchors.fill: parent
-        Button {
+        AdaptiveButton {
             text: qsTr("Сохранить")
             onClicked: {
                 var saved = dialog.backend.applyProjectSettingsFull(
@@ -331,6 +331,6 @@ NativeDialogWindow {
                 if (saved) dialog.close()
             }
         }
-        Button { text: qsTr("Отмена"); onClicked: dialog.close() }
+        AdaptiveButton { text: qsTr("Отмена"); onClicked: dialog.close() }
     }
 }

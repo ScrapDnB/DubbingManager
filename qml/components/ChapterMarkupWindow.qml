@@ -122,7 +122,7 @@ NativeDialogWindow {
                     columnSpacing: 6
                     rowSpacing: 6
 
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Добавить здесь")
                         enabled: titleField.text.trim().length > 0
                         Layout.fillWidth: true
@@ -134,13 +134,13 @@ NativeDialogWindow {
                             window.callEditor("add", title)
                         }
                     }
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Переместить сюда")
                         enabled: window.backend.selectedBoundary.length > 0
                         Layout.fillWidth: true
                         onClicked: window.callEditor("moveSelected")
                     }
-                    Button {
+                    AdaptiveButton {
                         id: renameButton
                         text: qsTr("Переименовать")
                         enabled: window.backend.selectedBoundary.length > 0
@@ -148,7 +148,7 @@ NativeDialogWindow {
                         Layout.fillWidth: true
                         onClicked: window.callEditor("renameSelected", titleField.text.trim())
                     }
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Удалить границу")
                         enabled: window.backend.selectedBoundary.length > 0
                         Layout.fillWidth: true
@@ -187,11 +187,11 @@ NativeDialogWindow {
 
     footer: DialogButtonBox {
         anchors.fill: parent
-        Button {
+        AdaptiveButton {
             text: qsTr("Отмена")
             onClicked: window.close()
         }
-        Button {
+        AdaptiveButton {
             text: qsTr("Применить")
             highlighted: true
             onClicked: {

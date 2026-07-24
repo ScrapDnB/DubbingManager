@@ -37,12 +37,12 @@ NativeDialogWindow {
 
     footer: DialogButtonBox {
         anchors.fill: parent
-        Button {
+        AdaptiveButton {
             text: qsTr("Резервные копии...")
             enabled: dialog.appBridge.project.path.length > 0
             onClicked: dialog.backupsRequested()
         }
-        Button {
+        AdaptiveButton {
             text: qsTr("Закрыть")
             onClicked: dialog.close()
         }
@@ -191,20 +191,20 @@ NativeDialogWindow {
                 placeholderText: qsTr("Папка проекта не задана")
                 selectByMouse: true
             }
-            Button { text: qsTr("Выбрать..."); onClicked: folderDialog.open() }
-            Button {
+            AdaptiveButton { text: qsTr("Выбрать..."); onClicked: folderDialog.open() }
+            AdaptiveButton {
                 text: qsTr("Отвязать")
                 enabled: dialog.projectFilesBackend
                     && dialog.projectFilesBackend.folder.length > 0
                 onClicked: dialog.projectFilesBackend.clearFolder()
             }
-            Button {
+            AdaptiveButton {
                 text: qsTr("Сканировать")
                 enabled: dialog.projectFilesBackend
                     && dialog.projectFilesBackend.folder.length > 0
                 onClicked: dialog.projectFilesBackend.scanFolder()
             }
-            Button {
+            AdaptiveButton {
                 text: qsTr("Добавить серии")
                 enabled: dialog.projectFilesBackend
                     && dialog.projectFilesBackend.folder.length > 0
@@ -215,7 +215,7 @@ NativeDialogWindow {
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Добавить найденные ASS, SRT и DOCX вместе с подходящими видео")
             }
-            Button { text: qsTr("Обновить"); onClicked: dialog.projectFilesBackend.refresh() }
+            AdaptiveButton { text: qsTr("Обновить"); onClicked: dialog.projectFilesBackend.refresh() }
         }
 
         NavigationTabBar {
@@ -325,13 +325,13 @@ NativeDialogWindow {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 6
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Перепривязать...")
                         enabled: dialog.selectedEpisode.length > 0
                             && dialog.selectedCanRelink
                         onClicked: dialog.openRelinkDialog()
                     }
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Создать из источника")
                         enabled: dialog.selectedEpisode.length > 0
                             && dialog.selectedCanRegenerate
@@ -339,16 +339,16 @@ NativeDialogWindow {
                             dialog.selectedEpisode
                         )
                     }
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Создать недостающие")
                         onClicked: dialog.projectFilesBackend.createMissingWorkingTexts()
                     }
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Сохранить исходный ASS...")
                         enabled: dialog.selectedHasSourceAss
                         onClicked: saveAssDialog.open()
                     }
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Отвязать видео")
                         enabled: dialog.selectedEpisode.length > 0
                             && dialog.selectedKind === "video"
@@ -361,7 +361,7 @@ NativeDialogWindow {
                         }
                     }
                     Item { Layout.fillWidth: true }
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Удалить серию...")
                         enabled: dialog.selectedEpisode.length > 0
                         onClicked: deleteDialog.open()
@@ -380,7 +380,7 @@ NativeDialogWindow {
                             ? dialog.projectFilesBackend.healthSummary : ""
                         color: dialog.softMuted
                     }
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Обновить проверку")
                         onClicked: dialog.projectFilesBackend.refresh()
                     }

@@ -116,12 +116,12 @@ NativeDialogWindow {
     }
 
     footer: DialogButtonBox {
-        Button {
+        AdaptiveButton {
             text: qsTr("Отмена")
             DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
         }
 
-        Button {
+        AdaptiveButton {
             text: qsTr("Импортировать")
             enabled: dialog.backend && dialog.backend.canImport
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole

@@ -44,7 +44,7 @@ NativeDialogWindow {
                 elide: Text.ElideMiddle
             }
             Label { text: qsTr("Таблица:"); visible: tableCombo.count > 1 }
-            PlatformComboBox {
+            ComboBox {
                 id: tableCombo
                 visible: count > 1
                 Layout.preferredWidth: 280
@@ -53,7 +53,7 @@ NativeDialogWindow {
                 valueRole: "index"
                 onActivated: dialog.backend.setTable(currentValue)
             }
-            Button { text: qsTr("Автоопределение"); onClicked: dialog.backend.autoDetect() }
+            AdaptiveButton { text: qsTr("Автоопределение"); onClicked: dialog.backend.autoDetect() }
         }
 
         Label {
@@ -101,7 +101,7 @@ NativeDialogWindow {
                                         Layout.preferredWidth: 140
                                         elide: Text.ElideRight
                                     }
-                                    PlatformComboBox {
+                                    ComboBox {
                                         id: mappingCombo
                                         Layout.fillWidth: true
                                         Layout.minimumWidth: 120
@@ -215,17 +215,17 @@ NativeDialogWindow {
             placeholderText: qsTr("Название серии")
         }
         Item { Layout.fillWidth: true }
-        Button {
+        AdaptiveButton {
             text: dialog.width < 940 ? "Таблицу" : "Импортировать таблицу"
             enabled: dialog.backend.canImport
             onClicked: if (dialog.backend.importEpisode(episodeField.text, false)) dialog.close()
         }
-        Button {
+        AdaptiveButton {
             text: dialog.width < 940 ? "Все таблицы" : "Импортировать все"
             visible: dialog.backend.tableCount > 1
             enabled: dialog.backend.canImport
             onClicked: if (dialog.backend.importEpisode(episodeField.text, true)) dialog.close()
         }
-        Button { text: qsTr("Отмена"); onClicked: dialog.close() }
+        AdaptiveButton { text: qsTr("Отмена"); onClicked: dialog.close() }
     }
 }

@@ -102,13 +102,13 @@ NativeDialogWindow {
     footer: RowLayout {
         anchors.fill: parent
         Item { Layout.fillWidth: true }
-        Button {
+        AdaptiveButton {
             text: qsTr("Очистить")
             onClicked: {
                 dialog.backend.clear()
                 dialog.close()
             }
         }
-        Button { text: qsTr("Закрыть"); onClicked: dialog.close() }
+        AdaptiveButton { text: qsTr("Закрыть"); onClicked: dialog.close() }
     }
 }

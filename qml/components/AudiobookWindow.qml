@@ -84,13 +84,13 @@ NativeDialogWindow {
             Layout.fillWidth: true
             spacing: 8
 
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Импорт PDF")
                 Layout.preferredWidth: 105
                 enabled: !window.backend.importing
                 onClicked: pdfDialog.open()
             }
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Структура глав")
                 Layout.preferredWidth: 120
                 enabled: window.backend.canEditMarkup && !window.backend.importing
@@ -110,7 +110,7 @@ NativeDialogWindow {
                 indeterminate: window.backend.importTotal <= 0
                 Layout.preferredWidth: 180
             }
-            PlatformComboBox {
+            ComboBox {
                 id: fontBox
                 model: window.backend.fontFamilies
                 Layout.preferredWidth: 180
@@ -241,7 +241,7 @@ NativeDialogWindow {
                                         horizontalAlignment: Text.AlignHCenter
                                         Layout.preferredWidth: 18
                                     }
-                                    PlatformComboBox {
+                                    ComboBox {
                                         id: characterBox
                                         editable: true
                                         model: window.backend.characterNames
@@ -254,7 +254,7 @@ NativeDialogWindow {
                                             window.syncSlots()
                                         }
                                     }
-                                    PlatformComboBox {
+                                    ComboBox {
                                         id: actorBox
                                         model: window.backend.actorsModel
                                         textRole: "name"
@@ -297,7 +297,7 @@ NativeDialogWindow {
                         }
                     }
 
-                    FluentButton {
+                    AdaptiveButton {
                         text: qsTr("Снять разметку с выделения")
                         Layout.fillWidth: true
                         onClicked: editorView.runJavaScript("window.dmEditor.clearMarkup()")
@@ -337,20 +337,20 @@ NativeDialogWindow {
         implicitHeight: 32
         spacing: 8
         Item { Layout.fillWidth: true }
-        FluentButton {
+        AdaptiveButton {
             text: qsTr("Закрыть")
             Layout.preferredWidth: 100
             onClicked: window.close()
         }
-        FluentButton {
+        AdaptiveButton {
             text: qsTr("Сохранить главу")
             Layout.preferredWidth: 130
             enabled: window.backend.currentChapter.length > 0
             onClicked: window.backend.saveCurrent()
         }
-        FluentButton {
+        AdaptiveButton {
             text: qsTr("Сохранить всё")
-            primary: true
+            highlighted: true
             Layout.preferredWidth: 120
             enabled: window.backend.currentChapter.length > 0
             onClicked: window.backend.saveAll()

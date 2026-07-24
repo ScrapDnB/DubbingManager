@@ -277,7 +277,7 @@ Item {
                     columnSpacing: 8
                     rowSpacing: 7
 
-                    PlatformComboBox {
+                    ComboBox {
                         id: docxPresetCombo
                         Layout.fillWidth: true
                         Layout.columnSpan: 2
@@ -285,7 +285,7 @@ Item {
                         textRole: "name"
                         valueRole: "name"
                     }
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Применить")
                         enabled: docxPresetCombo.currentIndex >= 0
                         onClicked: pane.applyDocxPreset(
@@ -300,7 +300,7 @@ Item {
                         selectByMouse: true
                     }
                     RowLayout {
-                        Button {
+                        AdaptiveButton {
                             text: qsTr("Сохранить")
                             enabled: docxPresetName.text.trim().length > 0
                             onClicked: pane.saveDocxPresetRequested(
@@ -308,7 +308,7 @@ Item {
                                 pane.docxConfiguration
                             )
                         }
-                        Button {
+                        AdaptiveButton {
                             text: qsTr("Удалить")
                             enabled: docxPresetCombo.currentIndex >= 0
                             onClicked: pane.deleteDocxPresetRequested(
@@ -329,7 +329,7 @@ Item {
                     rowSpacing: 6
 
                     Label { text: qsTr("Строка заголовков:") }
-                    PlatformComboBox {
+                    ComboBox {
                         Layout.preferredWidth: 190
                         model: [
                             { text: qsTr("Определять автоматически"), value: "auto" },

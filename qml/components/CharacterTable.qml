@@ -211,7 +211,8 @@ Item {
                 && table.appBridge.projectFiles.currentEpisodeSourceMissing
                 && !table.sourceWarningDismissed()
             Layout.fillWidth: true
-            Layout.preferredHeight: visible ? 36 : 0
+            Layout.preferredHeight: visible
+                ? Math.max(44, relinkButton.implicitHeight + 8) : 0
             color: Qt.rgba(0.78, 0.42, 0.16, 0.12)
             border.color: Qt.rgba(0.78, 0.42, 0.16, 0.42)
 
@@ -228,30 +229,25 @@ Item {
                             : "")
                     elide: Text.ElideMiddle
                 }
-                FluentButton {
-                    text: qsTr("Перепривязать")
-                    Layout.preferredWidth: 132
-                    Layout.preferredHeight: 28
-                    onClicked: table.relinkSourceRequested(
-                        table.appBridge.project.currentEpisode
-                    )
-                }
-                ToolButton {
-                    Layout.preferredWidth: 24
-                    Layout.preferredHeight: 24
-                    Layout.minimumWidth: 24
-                    Layout.minimumHeight: 24
-                    Layout.maximumWidth: 24
-                    Layout.maximumHeight: 24
-                    padding: 4
-                    icon.source: "../icons/x.svg"
-                    icon.width: 14
-                    icon.height: 14
-                    display: AbstractButton.IconOnly
-                    Accessible.name: qsTr("Скрыть предупреждение")
-                    ToolTip.visible: hovered
-                    ToolTip.text: qsTr("Скрыть предупреждение")
-                    onClicked: table.dismissSourceWarning()
+                RowLayout {
+                    spacing: 4
+
+                    AdaptiveButton {
+                        id: relinkButton
+                        text: qsTr("Перепривязать")
+                        Layout.preferredWidth: 132
+                        onClicked: table.relinkSourceRequested(
+                            table.appBridge.project.currentEpisode
+                        )
+                    }
+                    CompactToolButton {
+                        buttonSize: 34
+                        glyphSize: 22
+                        iconSource: Qt.resolvedUrl("../icons/x.svg")
+                        toolTipText: qsTr("Скрыть предупреждение")
+                        Accessible.name: qsTr("Скрыть предупреждение")
+                        onClicked: table.dismissSourceWarning()
+                    }
                 }
             }
         }
@@ -266,19 +262,19 @@ Item {
             Item {
                 anchors.fill: parent
 
-                ToolButton { x: table.characterColumnX; width: table.characterColumnWidth; height: parent.height; padding: 0; text: table.sortTitle("Персонаж", "character"); font.bold: true; flat: true; onClicked: table.castingBackend.setCharacterSort("character"); Accessible.name: qsTr("Сортировать по персонажу") }
-                ToolButton { x: table.lineColumnX; width: table.lineColumnWidth; height: parent.height; padding: 0; text: table.sortTitle("Строк", "lines"); font.bold: true; flat: true; onClicked: table.castingBackend.setCharacterSort("lines"); Accessible.name: qsTr("Сортировать по строкам") }
-                ToolButton { x: table.ringsColumnX; width: table.ringsColumnWidth; height: parent.height; padding: 0; text: table.sortTitle("Колец", "rings"); font.bold: true; flat: true; onClicked: table.castingBackend.setCharacterSort("rings"); Accessible.name: qsTr("Сортировать по кольцам") }
-                ToolButton { x: table.wordsColumnX; width: table.wordsColumnWidth; height: parent.height; padding: 0; text: table.sortTitle("Слов", "words"); font.bold: true; flat: true; onClicked: table.castingBackend.setCharacterSort("words"); Accessible.name: qsTr("Сортировать по словам") }
-                ToolButton { x: table.scopeColumnX; width: table.scopeColumnWidth; height: parent.height; padding: 0; text: table.sortTitle("Область", "scope"); font.bold: true; flat: true; onClicked: table.castingBackend.setCharacterSort("scope"); Accessible.name: qsTr("Сортировать по области назначения") }
-                ToolButton { x: table.actorColumnX; width: table.actorColumnWidth; height: parent.height; padding: 0; text: table.sortTitle("Актёр", "actor"); font.bold: true; flat: true; onClicked: table.castingBackend.setCharacterSort("actor"); Accessible.name: qsTr("Сортировать по актёру") }
+                ToolButton { x: table.characterColumnX; width: table.characterColumnWidth; height: parent.height; leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0; text: table.sortTitle("Персонаж", "character"); font.bold: true; flat: true; onClicked: table.castingBackend.setCharacterSort("character"); Accessible.name: qsTr("Сортировать по персонажу") }
+                ToolButton { x: table.lineColumnX; width: table.lineColumnWidth; height: parent.height; leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0; text: table.sortTitle("Строк", "lines"); font.bold: true; flat: true; onClicked: table.castingBackend.setCharacterSort("lines"); Accessible.name: qsTr("Сортировать по строкам") }
+                ToolButton { x: table.ringsColumnX; width: table.ringsColumnWidth; height: parent.height; leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0; text: table.sortTitle("Колец", "rings"); font.bold: true; flat: true; onClicked: table.castingBackend.setCharacterSort("rings"); Accessible.name: qsTr("Сортировать по кольцам") }
+                ToolButton { x: table.wordsColumnX; width: table.wordsColumnWidth; height: parent.height; leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0; text: table.sortTitle("Слов", "words"); font.bold: true; flat: true; onClicked: table.castingBackend.setCharacterSort("words"); Accessible.name: qsTr("Сортировать по словам") }
+                ToolButton { x: table.scopeColumnX; width: table.scopeColumnWidth; height: parent.height; leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0; text: table.sortTitle("Область", "scope"); font.bold: true; flat: true; onClicked: table.castingBackend.setCharacterSort("scope"); Accessible.name: qsTr("Сортировать по области назначения") }
+                ToolButton { x: table.actorColumnX; width: table.actorColumnWidth; height: parent.height; leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0; text: table.sortTitle("Актёр", "actor"); font.bold: true; flat: true; onClicked: table.castingBackend.setCharacterSort("actor"); Accessible.name: qsTr("Сортировать по актёру") }
                 ToolButton {
                     x: table.previewColumnX
                     width: table.previewColumnWidth
                     height: parent.height
                     text: qsTr("📺")
                     Accessible.name: qsTr("Все реплики серии")
-                    padding: 0
+                    leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0
                     onClicked: table.videoPreviewRequested("")
                     ToolTip.visible: hovered
                     ToolTip.text: qsTr("Все реплики серии")
@@ -475,7 +471,7 @@ Item {
                             visible: characterHover.hovered || hovered
                             text: "+"
                             font.pixelSize: 18
-                            padding: 0
+                            leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0
                             Accessible.name: qsTr("Добавить актёра к персонажу")
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Добавить актёра")
@@ -497,7 +493,7 @@ Item {
                             visible: characterRow.hasMultipleActors
                                 && (characterHover.hovered || hovered)
                             text: characterRow.actorCellIsCollapsed ? "▸" : "▾"
-                            padding: 0
+                            leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0
                             Accessible.name: characterRow.actorCellIsCollapsed
                                 ? qsTr("Развернуть актёров")
                                 : qsTr("Свернуть актёров")
@@ -531,7 +527,7 @@ Item {
                             anchors.fill: parent
                             text: qsTr("▶")
                             Accessible.name: qsTr("Реплики персонажа ") + model.character
-                            padding: 0
+                            leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0
                             onClicked: table.videoPreviewRequested(model.character)
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Реплики персонажа")

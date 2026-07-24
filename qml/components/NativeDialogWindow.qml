@@ -14,6 +14,9 @@ Window {
     property alias content: contentHost.data
     property alias footer: customFooter.data
     readonly property bool windowsStyle: Qt.platform.os === "windows"
+    readonly property int dialogControlHeight: Math.max(
+        40, Math.ceil(dialogFontMetrics.height + 18)
+    )
 
     signal opened()
     signal closed()
@@ -79,6 +82,11 @@ Window {
         colorGroup: SystemPalette.Active
     }
 
+    FontMetrics {
+        id: dialogFontMetrics
+        font: Application.font
+    }
+
     Item {
         id: contentHost
         anchors.left: parent.left
@@ -97,9 +105,12 @@ Window {
         anchors.rightMargin: 12
         anchors.bottomMargin: 10
         height: customFooter.children.length > 0
-            ? customFooter.children[0].implicitHeight
+            ? Math.max(
+                customFooter.children[0].implicitHeight,
+                window.windowsStyle ? window.dialogControlHeight : 0
+            )
             : standardFooterHost.visible
-                ? (window.windowsStyle ? 32
+                ? (window.windowsStyle ? window.dialogControlHeight
                     : standardFooterHost.item
                         ? standardFooterHost.item.implicitHeight : 0)
                 : 0
@@ -134,47 +145,47 @@ Window {
 
             RowLayout {
                 anchors.fill: parent
-                implicitHeight: 32
+                implicitHeight: window.dialogControlHeight
                 spacing: 8
 
                 Item { Layout.fillWidth: true }
 
-                FluentButton {
+                AdaptiveButton {
                     visible: (window.standardButtons & Dialog.Cancel) !== 0
                     text: qsTr("Отмена")
                     Layout.preferredWidth: 100
                     onClicked: window.reject()
                 }
-                FluentButton {
+                AdaptiveButton {
                     visible: (window.standardButtons & Dialog.No) !== 0
                     text: qsTr("Нет")
                     Layout.preferredWidth: 100
                     onClicked: window.reject()
                 }
-                FluentButton {
+                AdaptiveButton {
                     visible: (window.standardButtons & Dialog.Close) !== 0
                     text: qsTr("Закрыть")
                     Layout.preferredWidth: 100
                     onClicked: window.reject()
                 }
-                FluentButton {
+                AdaptiveButton {
                     visible: (window.standardButtons & Dialog.Ok) !== 0
                     text: qsTr("ОК")
-                    primary: true
+                    highlighted: true
                     Layout.preferredWidth: 100
                     onClicked: window.accept()
                 }
-                FluentButton {
+                AdaptiveButton {
                     visible: (window.standardButtons & Dialog.Save) !== 0
                     text: qsTr("Сохранить")
-                    primary: true
+                    highlighted: true
                     Layout.preferredWidth: 110
                     onClicked: window.accept()
                 }
-                FluentButton {
+                AdaptiveButton {
                     visible: (window.standardButtons & Dialog.Yes) !== 0
                     text: qsTr("Да")
-                    primary: true
+                    highlighted: true
                     Layout.preferredWidth: 100
                     onClicked: window.accept()
                 }

@@ -61,41 +61,41 @@ Item {
             Layout.fillWidth: true
             spacing: 4
 
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Телесуфлёр")
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.teleprompterRequested()
             }
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Монтажный лист")
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.montagePreviewRequested()
             }
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Reaper")
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.reaperExportRequested()
             }
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Аудиокнига")
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
                 onClicked: sidebar.audiobookRequested()
             }
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Отчёт серии")
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.episodeSummaryRequested()
             }
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Назначить роли")
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32

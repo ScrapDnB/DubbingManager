@@ -57,17 +57,17 @@ Item {
             Layout.fillWidth: true
             spacing: 2
 
-            WinUiCheckBox {
+            CheckBox {
                 text: qsTr("HTML")
                 checked: panel.backend ? panel.backend.exportHtml : false
                 onToggled: if (panel.backend) panel.backend.setFormat("html", checked)
             }
-            WinUiCheckBox {
+            CheckBox {
                 text: qsTr("DOCX")
                 checked: panel.backend ? panel.backend.exportDocx : false
                 onToggled: if (panel.backend) panel.backend.setFormat("docx", checked)
             }
-            WinUiCheckBox {
+            CheckBox {
                 text: qsTr("PDF")
                 checked: panel.backend ? panel.backend.exportPdf : false
                 onToggled: if (panel.backend) panel.backend.setFormat("pdf", checked)
@@ -149,7 +149,7 @@ Item {
                 ToolTip.visible: hovered
                 ToolTip.text: Accessible.name
             }
-            FluentButton {
+            AdaptiveButton {
                 visible: panel.backend && panel.backend.hasResults && !panel.backend.busy
                 text: qsTr("Результаты")
                 onClicked: panel.resultsRequested()

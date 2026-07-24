@@ -27,12 +27,12 @@ NativeDialogWindow {
         RowLayout {
             Layout.fillWidth: true
 
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Выбрать всех")
                 Layout.preferredWidth: 110
                 onClicked: dialog.montageBackend.setAllActorsHighlighted(true)
             }
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Снять все")
                 Layout.preferredWidth: 100
                 onClicked: dialog.montageBackend.setAllActorsHighlighted(false)
@@ -102,26 +102,26 @@ NativeDialogWindow {
                         border.color: dialog.softBorder
                     }
 
-                    WinUiCheckBox {
+                    CheckBox {
                         text: actorRow.name
                         checked: actorRow.selected
                         Layout.fillWidth: true
-                        onToggled: function(value) {
+                        onToggled: {
                             dialog.montageBackend.setActorHighlighted(
                                 actorRow.actorId,
-                                value
+                                checked
                             )
                         }
                     }
 
-                    WinUiCheckBox {
+                    CheckBox {
                         Accessible.name: qsTr("Белый текст для ") + actorRow.name
                         checked: actorRow.negative
                         Layout.preferredWidth: 105
-                        onToggled: function(value) {
+                        onToggled: {
                             dialog.montageBackend.setActorNegative(
                                 actorRow.actorId,
-                                value
+                                checked
                             )
                         }
                     }

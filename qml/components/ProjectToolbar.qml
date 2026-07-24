@@ -9,7 +9,15 @@ ToolBar {
     readonly property var projectBackend: appBridge ? appBridge.project : null
     required property color softMuted
     property int rootWidth: width
-    implicitHeight: 34
+    readonly property int controlHeight: Math.max(
+        40, Math.ceil(toolbarFontMetrics.height + 18)
+    )
+    implicitHeight: controlHeight + 16
+
+    FontMetrics {
+        id: toolbarFontMetrics
+        font: toolbar.font
+    }
 
     signal openProjectRequested()
     signal saveProjectAsRequested()
@@ -22,18 +30,23 @@ ToolBar {
         anchors.fill: parent
         anchors.leftMargin: 8
         anchors.rightMargin: 8
+        anchors.topMargin: 8
+        anchors.bottomMargin: 8
         spacing: 4
 
-        PlatformComboBox {
+        ComboBox {
             id: recentProjectsCombo
             Layout.preferredWidth: 180
+            Layout.minimumHeight: toolbar.controlHeight
+            Layout.preferredHeight: toolbar.controlHeight
+            Layout.maximumHeight: toolbar.controlHeight
+            Layout.alignment: Qt.AlignVCenter
             visible: toolbar.rootWidth >= 760
             model: toolbar.projectBackend ? toolbar.projectBackend.recentProjectsModel : null
             textRole: "display"
             valueRole: "path"
             onActivated: function(index) {
                 var path = currentValue || ""
-                closePopup()
                 currentIndex = 0
                 if (path.length > 0 && toolbar.appBridge) {
                     toolbar.projectBackend.openRecent(path)

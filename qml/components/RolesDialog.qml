@@ -46,13 +46,13 @@ NativeDialogWindow {
 
         RowLayout {
             Layout.fillWidth: true
-            WinUiTextField {
+            TextField {
                 id: roleSearch
                 Layout.fillWidth: true
                 placeholderText: qsTr("Поиск по роли или актёру")
                 selectByMouse: true
             }
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Выбрать видимые")
                 Layout.preferredWidth: 125
                 onClicked: {
@@ -67,7 +67,7 @@ NativeDialogWindow {
                     dialog.selectedRoles = next
                 }
             }
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Снять выбор")
                 Layout.preferredWidth: 110
                 enabled: dialog.selectedRoleNames().length > 0
@@ -121,7 +121,7 @@ NativeDialogWindow {
                     anchors.leftMargin: 8
                     anchors.rightMargin: 8
                     spacing: 8
-                    WinUiCheckBox {
+                    CheckBox {
                         Layout.preferredWidth: 24
                         checked: dialog.selectedRoles[roleRow.name] === true
                         onToggled: dialog.toggleRole(roleRow.name, checked)
@@ -143,7 +143,7 @@ NativeDialogWindow {
         RowLayout {
             Layout.fillWidth: true
             Label { text: qsTr("Назначить:") }
-            PlatformComboBox {
+            ComboBox {
                 id: roleActorCombo
                 Layout.preferredWidth: 220
                 model: dialog.rolesBackend
@@ -151,7 +151,7 @@ NativeDialogWindow {
                 textRole: "name"
                 valueRole: "id"
             }
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Применить")
                 Layout.preferredWidth: 105
                 enabled: dialog.selectedRoleNames().length > 0

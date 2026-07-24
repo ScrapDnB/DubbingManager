@@ -73,7 +73,7 @@ NativeDialogWindow {
                 onAccepted: dialog.runSearch()
             }
 
-            Button {
+            AdaptiveButton {
                 text: qsTr("Найти")
                 enabled: searchField.text.trim().length > 0
                 onClicked: dialog.runSearch()

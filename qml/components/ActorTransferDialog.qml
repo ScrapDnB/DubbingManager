@@ -71,7 +71,7 @@ NativeDialogWindow {
                 color: dialog.softMuted
                 Layout.fillWidth: true
             }
-            Button {
+            AdaptiveButton {
                 text: qsTr("Добавить")
                 enabled: Object.keys(dialog.selectedIds).length > 0
                 onClicked: {

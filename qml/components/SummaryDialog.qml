@@ -168,7 +168,7 @@ NativeDialogWindow {
 
             Label { text: qsTr("Экспортировать:") }
 
-            PlatformComboBox {
+            ComboBox {
                 id: metricCombo
                 Layout.preferredWidth: 130
                 model: metricModel
@@ -189,7 +189,7 @@ NativeDialogWindow {
                 }
             }
 
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Экспорт для Google Sheets")
                 Layout.preferredWidth: 180
                 onClicked: exportDialog.open()

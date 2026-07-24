@@ -34,7 +34,7 @@ PersistentScrollView {
         RowLayout {
             Layout.fillWidth: true
             Label { text: qsTr("Макет:") }
-            PlatformComboBox {
+            ComboBox {
                 id: layoutCombo
                 Layout.preferredWidth: 180
                 model: ["Таблица", "Сценарий 1", "Сценарий 2", "Сценарий 3"]
@@ -54,7 +54,7 @@ PersistentScrollView {
                 CheckBox { text: qsTr("Актёр"); checked: Boolean(pane.configuration.col_actor); onToggled: pane.setValue("col_actor", checked) }
                 CheckBox { text: qsTr("Реплика"); checked: Boolean(pane.configuration.col_text); onToggled: pane.setValue("col_text", checked) }
                 Label { text: qsTr("Показывать:") }
-                PlatformComboBox {
+                ComboBox {
                     id: timeCombo
                     Layout.preferredWidth: 160
                     model: ListModel {
@@ -90,13 +90,13 @@ PersistentScrollView {
                 anchors.fill: parent
                 columns: 4
                 Label { text: qsTr("Таймкод") }
-                WinUiSpinBox { from: 8; to: 72; value: Number(pane.configuration.f_time || 21); onValueModified: pane.setValue("f_time", value) }
+                SpinBox { from: 8; to: 72; value: Number(pane.configuration.f_time || 21); onValueModified: pane.setValue("f_time", value) }
                 Label { text: qsTr("Персонаж") }
-                WinUiSpinBox { from: 8; to: 72; value: Number(pane.configuration.f_char || 20); onValueModified: pane.setValue("f_char", value) }
+                SpinBox { from: 8; to: 72; value: Number(pane.configuration.f_char || 20); onValueModified: pane.setValue("f_char", value) }
                 Label { text: qsTr("Актёр") }
-                WinUiSpinBox { from: 8; to: 72; value: Number(pane.configuration.f_actor || 14); onValueModified: pane.setValue("f_actor", value) }
+                SpinBox { from: 8; to: 72; value: Number(pane.configuration.f_actor || 14); onValueModified: pane.setValue("f_actor", value) }
                 Label { text: qsTr("Реплика") }
-                WinUiSpinBox { from: 8; to: 72; value: Number(pane.configuration.f_text || 30); onValueModified: pane.setValue("f_text", value) }
+                SpinBox { from: 8; to: 72; value: Number(pane.configuration.f_text || 30); onValueModified: pane.setValue("f_text", value) }
             }
         }
 
@@ -107,21 +107,21 @@ PersistentScrollView {
                 anchors.fill: parent
                 columns: 6
                 Label { text: qsTr("Таймкод") }
-                WinUiSpinBox {
+                SpinBox {
                     from: 10; to: 300; value: Math.round(Number(pane.configuration.table_width_time || 7) * 10)
                     textFromValue: function(value) { return (value / 10).toFixed(1) }
                     valueFromText: function(text) { return Math.round(Number(text.replace(",", ".")) * 10) }
                     onValueModified: pane.setValue("table_width_time", value / 10)
                 }
                 Label { text: qsTr("Персонаж") }
-                WinUiSpinBox {
+                SpinBox {
                     from: 10; to: 300; value: Math.round(Number(pane.configuration.table_width_char || 10) * 10)
                     textFromValue: function(value) { return (value / 10).toFixed(1) }
                     valueFromText: function(text) { return Math.round(Number(text.replace(",", ".")) * 10) }
                     onValueModified: pane.setValue("table_width_char", value / 10)
                 }
                 Label { text: qsTr("Актёр") }
-                WinUiSpinBox {
+                SpinBox {
                     from: 10; to: 300; value: Math.round(Number(pane.configuration.table_width_actor || 8.5) * 10)
                     textFromValue: function(value) { return (value / 10).toFixed(1) }
                     valueFromText: function(text) { return Math.round(Number(text.replace(",", ".")) * 10) }

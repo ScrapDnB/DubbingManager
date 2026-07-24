@@ -34,16 +34,16 @@ NativeDialogWindow {
 
     footer: DialogButtonBox {
         anchors.fill: parent
-        Button {
+        AdaptiveButton {
             text: qsTr("Обновить")
             onClicked: dialog.backend.refreshBackups()
         }
-        Button {
+        AdaptiveButton {
             text: qsTr("Восстановить")
             enabled: dialog.selectedPath.length > 0
             onClicked: restoreDialog.open()
         }
-        Button {
+        AdaptiveButton {
             text: qsTr("Закрыть")
             onClicked: dialog.close()
         }
@@ -137,7 +137,7 @@ NativeDialogWindow {
 
         footer: DialogButtonBox {
             anchors.fill: parent
-            Button {
+            AdaptiveButton {
                 text: qsTr("Восстановить")
                 onClicked: {
                     restoreDialog.close()
@@ -145,7 +145,7 @@ NativeDialogWindow {
                     dialog.backend.restoreBackup(dialog.selectedPath)
                 }
             }
-            Button {
+            AdaptiveButton {
                 text: qsTr("Отмена")
                 onClicked: restoreDialog.close()
             }

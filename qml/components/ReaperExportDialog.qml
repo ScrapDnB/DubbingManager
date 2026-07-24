@@ -153,17 +153,17 @@ NativeDialogWindow {
             implicitHeight: 32
             spacing: 8
             Item { Layout.fillWidth: true }
-            FluentButton {
+            AdaptiveButton {
                 text: dialog.batchCompleted ? "Открыть папку" : "Открыть"
                 Layout.preferredWidth: 120
-                primary: true
+                highlighted: true
                 onClicked: {
                     dialog.reaper.openLastExport()
                     completedDialog.close()
                     dialog.close()
                 }
             }
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Готово")
                 Layout.preferredWidth: 100
                 onClicked: {
@@ -265,7 +265,7 @@ NativeDialogWindow {
                         font.bold: true
                     }
 
-                    WinUiCheckBox {
+                    CheckBox {
                         id: videoCheck
                         text: dialog.batchMode
                             ? dialog.reaper.anyVideoAvailable
@@ -281,14 +281,14 @@ NativeDialogWindow {
                         onToggled: dialog.refreshPreview(outputTabs.currentIndex)
                     }
 
-                    WinUiCheckBox {
+                    CheckBox {
                         id: regionsCheck
                         text: qsTr("Создать регионы с текстом")
                         enabled: dialog.outputFormat === "rpp"
                         onToggled: dialog.refreshPreview(outputTabs.currentIndex)
                     }
 
-                    WinUiCheckBox {
+                    CheckBox {
                         id: transliterateCheck
                         text: qsTr("Имена дорожек латиницей")
                         enabled: dialog.outputFormat === "rpp"
@@ -308,28 +308,32 @@ NativeDialogWindow {
                         font.bold: true
                     }
 
-                    WinUiRadioButton {
+                    RadioButton {
                         id: mergedMarkers
                         text: qsTr("Объединённые реплики")
                         checked: true
-                        onToggled: function(value) { if (value) {
-                            sourceMarkers.checked = false
+                        ButtonGroup.group: markerSourceGroup
+                        onToggled: if (checked) {
                             dialog.refreshPreview(outputTabs.currentIndex)
-                        } }
+                        }
                     }
 
-                    WinUiRadioButton {
+                    RadioButton {
                         id: sourceMarkers
                         text: qsTr("Точные строки исходника")
+                        ButtonGroup.group: markerSourceGroup
                         enabled: dialog.batchMode
                             ? dialog.reaper.allSourceMarkersAvailable
                             : dialog.reaper.sourceMarkersAvailable
-                        onToggled: function(value) { if (value) {
-                            mergedMarkers.checked = false
+                        onToggled: if (checked) {
                             dialog.refreshPreview(outputTabs.currentIndex)
-                        } }
+                        }
                         ToolTip.visible: hovered && !enabled
                         ToolTip.text: qsTr("Точные строки доступны после импорта ASS/SRT с сохранённым исходником.")
+                    }
+
+                    ButtonGroup {
+                        id: markerSourceGroup
                     }
 
                     Label {
@@ -487,7 +491,7 @@ NativeDialogWindow {
 
             Item { Layout.fillWidth: true }
 
-            FluentButton {
+            AdaptiveButton {
                 text: dialog.batchMode
                     ? dialog.outputFormat === "csv"
                         ? "Экспортировать все CSV..."
@@ -497,13 +501,13 @@ NativeDialogWindow {
                         : "Сохранить RPP"
                 enabled: !dialog.batchMode
                     || dialog.reaper.exportableEpisodeCount > 0
-                primary: true
+                highlighted: true
                 Layout.preferredWidth: 180
                 onClicked: dialog.batchMode
                     ? batchFolderDialog.open()
                     : saveDialog.open()
             }
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Отмена")
                 Layout.preferredWidth: 100
                 onClicked: dialog.close()

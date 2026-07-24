@@ -160,7 +160,7 @@ NativeDialogWindow {
 
             Label { text: qsTr("Серия:") }
 
-            PlatformComboBox {
+            ComboBox {
                 id: episodeCombo
                 Layout.preferredWidth: 150
                 model: dialog.montageBackend ? dialog.montageBackend.episodesModel : null
@@ -230,7 +230,7 @@ NativeDialogWindow {
                         RowLayout {
                             Layout.fillWidth: true
                             Label { text: qsTr("Макет") }
-                            PlatformComboBox {
+                            ComboBox {
                                 id: layoutCombo
                                 Layout.fillWidth: true
                                 model: layoutModel
@@ -262,28 +262,28 @@ NativeDialogWindow {
                             expanded: true
                             Layout.fillWidth: true
 
-                            WinUiCheckBox {
+                            CheckBox {
                                 text: qsTr("Таймкод")
                                 checked: Boolean(dialog.config.col_tc)
                                 onToggled: dialog.montageBackend.setOption(
                                     "col_tc", checked
                                 )
                             }
-                            WinUiCheckBox {
+                            CheckBox {
                                 text: qsTr("Персонаж")
                                 checked: Boolean(dialog.config.col_char)
                                 onToggled: dialog.montageBackend.setOption(
                                     "col_char", checked
                                 )
                             }
-                            WinUiCheckBox {
+                            CheckBox {
                                 text: qsTr("Актёр")
                                 checked: Boolean(dialog.config.col_actor)
                                 onToggled: dialog.montageBackend.setOption(
                                     "col_actor", checked
                                 )
                             }
-                            WinUiCheckBox {
+                            CheckBox {
                                 text: qsTr("Реплика")
                                 checked: Boolean(dialog.config.col_text)
                                 onToggled: dialog.montageBackend.setOption(
@@ -297,7 +297,7 @@ NativeDialogWindow {
                             expanded: true
                             Layout.fillWidth: true
 
-                            PlatformComboBox {
+                            ComboBox {
                                 id: timeModeCombo
                                 Layout.fillWidth: true
                                 model: timeModeModel
@@ -323,7 +323,7 @@ NativeDialogWindow {
                                 }
                             }
 
-                            WinUiCheckBox {
+                            CheckBox {
                                 text: qsTr("Округлять")
                                 checked: Boolean(dialog.config.round_time)
                                 onToggled: dialog.montageBackend.setOption(
@@ -336,14 +336,14 @@ NativeDialogWindow {
                             title: qsTr("Цвета и подсветка")
                             Layout.fillWidth: true
 
-                            WinUiCheckBox {
+                            CheckBox {
                                 text: qsTr("Цвета актёров")
                                 checked: Boolean(dialog.config.use_color)
                                 onToggled: dialog.montageBackend.setOption(
                                     "use_color", checked
                                 )
                             }
-                            WinUiCheckBox {
+                            CheckBox {
                                 text: qsTr("Смягчать фон")
                                 enabled: Boolean(dialog.config.use_color)
                                 checked: Boolean(dialog.config.soften_colors)
@@ -351,7 +351,7 @@ NativeDialogWindow {
                                     "soften_colors", checked
                                 )
                             }
-                            FluentButton {
+                            AdaptiveButton {
                                 Layout.fillWidth: true
                                 text: qsTr("Подсветка: ")
                                     + dialog.montageBackend.highlightSummary
@@ -382,7 +382,7 @@ NativeDialogWindow {
                                         text: fontRow.modelData.label
                                         Layout.fillWidth: true
                                     }
-                                    WinUiSpinBox {
+                                    SpinBox {
                                         from: 8
                                         to: 72
                                         editable: true
@@ -400,7 +400,7 @@ NativeDialogWindow {
                             expanded: true
                             Layout.fillWidth: true
 
-                            WinUiCheckBox {
+                            CheckBox {
                                 text: qsTr("Разрешить правку текста")
                                 checked: Boolean(dialog.config.allow_edit)
                                 onToggled: dialog.montageBackend.setOption(
@@ -408,7 +408,7 @@ NativeDialogWindow {
                                 )
                             }
 
-                            WinUiCheckBox {
+                            CheckBox {
                                 text: qsTr("Открывать после экспорта")
                                 checked: Boolean(dialog.config.open_auto)
                                 onToggled: dialog.montageBackend.setOption(
@@ -459,7 +459,7 @@ NativeDialogWindow {
                     value: dialog.montageBackend
                         ? dialog.montageBackend.batchProgress : 0
                 }
-                FluentButton {
+                AdaptiveButton {
                     text: qsTr("Отменить")
                     visible: dialog.montageBackend
                         && dialog.montageBackend.batchBusy
@@ -496,25 +496,25 @@ NativeDialogWindow {
             spacing: 8
 
             Label { text: qsTr("Форматы:") }
-            WinUiCheckBox {
+            CheckBox {
                 id: formatHtml
                 text: qsTr("HTML")
                 checked: Boolean(dialog.config.format_html)
                 onToggled: dialog.montageBackend.setOption("format_html", checked)
             }
-            WinUiCheckBox {
+            CheckBox {
                 id: formatXlsx
                 text: qsTr("XLSX")
                 checked: Boolean(dialog.config.format_xls)
                 onToggled: dialog.montageBackend.setOption("format_xls", checked)
             }
-            WinUiCheckBox {
+            CheckBox {
                 id: formatDocx
                 text: qsTr("DOCX")
                 checked: Boolean(dialog.config.format_docx)
                 onToggled: dialog.montageBackend.setOption("format_docx", checked)
             }
-            WinUiCheckBox {
+            CheckBox {
                 id: formatPdf
                 text: qsTr("PDF")
                 checked: Boolean(dialog.config.format_pdf)
@@ -523,27 +523,25 @@ NativeDialogWindow {
 
             ToolSeparator {}
 
-            WinUiRadioButton {
+            RadioButton {
                 id: currentEpisode
                 text: qsTr("Текущая серия")
                 checked: true
-                onToggled: function(value) {
-                    if (value) allEpisodes.checked = false
-                }
+                ButtonGroup.group: exportScopeGroup
             }
-            WinUiRadioButton {
+            RadioButton {
                 id: allEpisodes
                 text: qsTr("Все серии")
-                onToggled: function(value) {
-                    if (value) currentEpisode.checked = false
-                }
+                ButtonGroup.group: exportScopeGroup
             }
+
+            ButtonGroup { id: exportScopeGroup }
 
             Item { Layout.fillWidth: true }
 
-            FluentButton {
+            AdaptiveButton {
                 text: qsTr("Экспортировать")
-                primary: true
+                highlighted: true
                 Layout.preferredWidth: 120
                 enabled: dialog.selectedFormatCount() > 0
                     && !dialog.montageBackend.batchBusy

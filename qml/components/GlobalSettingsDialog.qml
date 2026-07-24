@@ -104,7 +104,7 @@ NativeDialogWindow {
                     enabled: backupEnabled.checked
 
                     Label { text: qsTr("Расположение:") }
-                    PlatformComboBox {
+                    ComboBox {
                         id: backupModeCombo
                         Layout.fillWidth: true
                         textRole: "label"
@@ -148,7 +148,7 @@ NativeDialogWindow {
                                 dialog.backupDraft = next
                             }
                         }
-                        Button {
+                        AdaptiveButton {
                             text: qsTr("Выбрать...")
                             visible: backupModeCombo.currentValue === "absolute"
                             onClicked: backupFolderDialog.open()
@@ -251,12 +251,12 @@ NativeDialogWindow {
                 }
                 RowLayout {
                     Layout.fillWidth: true
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Экспорт...")
                         enabled: globalActorsView.count > 0
                         onClicked: dialog.actorBaseExportRequested()
                     }
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Импорт...")
                         onClicked: dialog.actorBaseImportRequested()
                     }
@@ -268,7 +268,7 @@ NativeDialogWindow {
                 spacing: 8
                 RowLayout {
                     Layout.fillWidth: true
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Применить к проекту")
                         onClicked: dialog.backend.applyImportConfigToProject(
                             dialog.mergeDraft,
@@ -305,7 +305,7 @@ NativeDialogWindow {
                 spacing: 8
                 RowLayout {
                     Layout.fillWidth: true
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Применить к проекту")
                         onClicked: dialog.backend.applyGlobalConfigToProject(
                             "montage", dialog.montageDraft
@@ -325,7 +325,7 @@ NativeDialogWindow {
                 spacing: 8
                 RowLayout {
                     Layout.fillWidth: true
-                    Button {
+                    AdaptiveButton {
                         text: qsTr("Применить к проекту")
                         onClicked: dialog.backend.applyGlobalConfigToProject(
                             "prompter", dialog.prompterDraft
@@ -355,7 +355,7 @@ NativeDialogWindow {
 
     footer: DialogButtonBox {
         anchors.fill: parent
-        Button {
+        AdaptiveButton {
             text: qsTr("Сохранить")
             onClicked: {
                 if (dialog.backend.applyGlobalSettingsComplete(
@@ -371,7 +371,7 @@ NativeDialogWindow {
                 )) dialog.close()
             }
         }
-        Button { text: qsTr("Отмена"); onClicked: dialog.close() }
+        AdaptiveButton { text: qsTr("Отмена"); onClicked: dialog.close() }
     }
 
     FolderDialog {

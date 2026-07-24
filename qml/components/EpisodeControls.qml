@@ -11,14 +11,22 @@ ColumnLayout {
     readonly property var castingBackend: appBridge ? appBridge.casting : null
     readonly property bool compact: width < 1020
     readonly property bool narrow: width < 780
+    readonly property int controlHeight: Math.max(
+        40, Math.ceil(controlsFontMetrics.height + 18)
+    )
 
     Layout.fillWidth: true
-    Layout.preferredHeight: 32
-    implicitHeight: 32
+    Layout.preferredHeight: controlHeight
+    implicitHeight: controlHeight
     spacing: 0
     signal importRequested()
     signal importDocxRequested()
     signal globalSearchRequested()
+
+    FontMetrics {
+        id: controlsFontMetrics
+        font: Application.font
+    }
 
     FileDialog {
         id: episodeVideoDialog
@@ -96,7 +104,7 @@ ColumnLayout {
 
     RowLayout {
         Layout.fillWidth: true
-        Layout.preferredHeight: 32
+        Layout.preferredHeight: controls.controlHeight
         spacing: 4
 
         Label {
@@ -105,9 +113,13 @@ ColumnLayout {
             visible: !controls.narrow
         }
 
-        PlatformComboBox {
+        ComboBox {
             id: episodeCombo
             Layout.preferredWidth: controls.narrow ? 105 : 140
+            Layout.minimumHeight: controls.controlHeight
+            Layout.preferredHeight: controls.controlHeight
+            Layout.maximumHeight: controls.controlHeight
+            Layout.alignment: Qt.AlignVCenter
             model: controls.projectBackend ? controls.projectBackend.episodesModel : null
             textRole: "name"
             valueRole: "name"
@@ -171,10 +183,14 @@ ColumnLayout {
 
         Label { text: qsTr("Актёр"); visible: !controls.compact }
 
-        PlatformComboBox {
+        ComboBox {
             id: actorFilterCombo
             Layout.preferredWidth: controls.narrow ? 150
                 : (controls.compact ? 220 : 230)
+            Layout.minimumHeight: controls.controlHeight
+            Layout.preferredHeight: controls.controlHeight
+            Layout.maximumHeight: controls.controlHeight
+            Layout.alignment: Qt.AlignVCenter
             model: controls.castingBackend ? controls.castingBackend.actorFilterModel : null
             textRole: "name"
             valueRole: "id"
@@ -194,7 +210,7 @@ ColumnLayout {
             }
         }
 
-        WinUiCheckBox {
+        CheckBox {
             text: qsTr("Неназначенные")
             visible: !controls.narrow
             enabled: controls.appBridge !== null
@@ -202,9 +218,13 @@ ColumnLayout {
             onToggled: if (controls.castingBackend) controls.castingBackend.setShowUnassignedOnly(checked)
         }
 
-        WinUiTextField {
+        TextField {
             Layout.preferredWidth: controls.narrow ? 120
                 : (controls.compact ? 150 : 180)
+            Layout.minimumHeight: controls.controlHeight
+            Layout.preferredHeight: controls.controlHeight
+            Layout.maximumHeight: controls.controlHeight
+            Layout.alignment: Qt.AlignVCenter
             placeholderText: qsTr("Поиск")
             enabled: controls.appBridge !== null
             text: controls.castingBackend ? controls.castingBackend.searchText : ""

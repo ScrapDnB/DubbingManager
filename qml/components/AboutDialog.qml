@@ -103,13 +103,13 @@ NativeDialogWindow {
         }
         RowLayout {
             Layout.fillWidth: true
-            Button {
+            AdaptiveButton {
                 text: dialog.updates.busy
                     ? qsTr("Проверяю...") : qsTr("Проверить обновления")
                 enabled: !dialog.updates.busy
                 onClicked: dialog.updates.check(false)
             }
-            Button {
+            AdaptiveButton {
                 text: dialog.updates.updateAvailable
                     ? qsTr("Установить ") + dialog.updates.latestVersion
                     : qsTr("Переустановить текущую")
@@ -124,14 +124,14 @@ NativeDialogWindow {
                     }
                 }
             }
-            Button {
+            AdaptiveButton {
                 text: qsTr("Страница релиза")
                 visible: dialog.updates.checked
                 enabled: !dialog.updates.busy
                 onClicked: dialog.updates.openReleasePage()
             }
             Item { Layout.fillWidth: true }
-            Button {
+            AdaptiveButton {
                 text: qsTr("Отмена")
                 visible: dialog.updates.busy
                 onClicked: dialog.updates.cancel()
@@ -148,6 +148,6 @@ NativeDialogWindow {
 
     footer: DialogButtonBox {
         anchors.fill: parent
-        Button { text: qsTr("Закрыть"); onClicked: dialog.close() }
+        AdaptiveButton { text: qsTr("Закрыть"); onClicked: dialog.close() }
     }
 }

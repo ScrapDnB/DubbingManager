@@ -124,13 +124,13 @@ class TestQmlStartup:
 
         assert os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] == "--disable-gpu-sandbox"
 
-    def test_windows_qml_controls_use_customizable_style_unless_overridden(self, monkeypatch):
+    def test_windows_qml_controls_use_fluent_style_unless_overridden(self, monkeypatch):
         from qml_main import configure_qml_controls_style
 
         monkeypatch.delenv("QT_QUICK_CONTROLS_STYLE", raising=False)
         monkeypatch.setattr("qml_main.sys.platform", "win32")
         configure_qml_controls_style()
-        assert os.environ["QT_QUICK_CONTROLS_STYLE"] == "Basic"
+        assert os.environ["QT_QUICK_CONTROLS_STYLE"] == "FluentWinUI3"
 
         monkeypatch.setenv("QT_QUICK_CONTROLS_STYLE", "Fusion")
         configure_qml_controls_style()
@@ -145,6 +145,10 @@ class TestQmlStartup:
         assert os.environ["QT_QUICK_CONTROLS_STYLE"] == "macOS"
 
         monkeypatch.setenv("QT_QUICK_CONTROLS_STYLE", "Basic")
+        configure_qml_controls_style()
+        assert os.environ["QT_QUICK_CONTROLS_STYLE"] == "macOS"
+
+        monkeypatch.setenv("QT_QUICK_CONTROLS_STYLE", "FluentWinUI3")
         configure_qml_controls_style()
         assert os.environ["QT_QUICK_CONTROLS_STYLE"] == "macOS"
 

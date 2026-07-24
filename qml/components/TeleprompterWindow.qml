@@ -34,6 +34,14 @@ NativeDialogWindow {
             : "DejaVu Sans Mono"
     readonly property var config: teleprompter.config
     readonly property var colors: config.colors
+    readonly property int toolbarControlHeight: Math.max(
+        40, Math.ceil(interfaceFontMetrics.height + 18)
+    )
+
+    FontMetrics {
+        id: interfaceFontMetrics
+        font: Application.font
+    }
 
     SystemPalette {
         id: systemPalette
@@ -119,11 +127,11 @@ NativeDialogWindow {
 
             RowLayout {
                 Layout.fillWidth: true
-                FluentButton {
+                AdaptiveButton {
                     text: qsTr("Выбрать всех")
                     onClicked: window.teleprompter.selectAllActors(true)
                 }
-                FluentButton {
+                AdaptiveButton {
                     text: qsTr("Снять выбор")
                     onClicked: window.teleprompter.selectAllActors(false)
                 }
@@ -179,7 +187,7 @@ NativeDialogWindow {
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                         }
-                        WinUiCheckBox {
+                        CheckBox {
                             checked: actorFilterRow.selected
                             Layout.preferredWidth: 28
                             onToggled: window.teleprompter.setActorSelected(
@@ -215,7 +223,7 @@ NativeDialogWindow {
             spacing: 8
 
             Label { text: qsTr("Персонаж") }
-            PlatformComboBox {
+            ComboBox {
                 id: characterEdit
                 Layout.fillWidth: true
                 editable: true
@@ -238,7 +246,7 @@ NativeDialogWindow {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    PlatformComboBox {
+                    ComboBox {
                         id: splitCharacter
                         Layout.fillWidth: true
                         editable: true
@@ -249,7 +257,7 @@ NativeDialogWindow {
                         Layout.fillWidth: true
                         placeholderText: qsTr("Выделенная часть текста")
                     }
-                    FluentButton {
+                    AdaptiveButton {
                         text: qsTr("Разделить реплику")
                         enabled: splitCharacter.editText.length > 0 && splitText.text.length > 0
                         onClicked: {
@@ -270,70 +278,74 @@ NativeDialogWindow {
 
     content: ColumnLayout {
         anchors.fill: parent
-        spacing: 0
+        spacing: 8
 
-        ToolBar {
+        RowLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: 40
-            implicitHeight: 40
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 6
-                anchors.rightMargin: 6
-                spacing: 6
+            Layout.preferredHeight: window.toolbarControlHeight
+            spacing: 8
 
-                CompactToolButton {
-                    iconSource: Qt.resolvedUrl("../icons/settings.svg")
-                    toolTipText: window.sidePanelVisible
-                        ? qsTr("Скрыть настройки")
-                        : qsTr("Показать настройки")
-                    checked: window.sidePanelVisible
-                    onClicked: window.sidePanelVisible = !window.sidePanelVisible
-                }
-                Label { text: qsTr("Серия:") }
-                PlatformComboBox {
-                    id: episodeBox
-                    Layout.preferredWidth: 150
-                    textRole: "name"
-                    valueRole: "name"
-                    model: window.teleprompter.episodesModel
-                    Component.onCompleted: currentIndex = indexOfValue(window.teleprompter.episode)
-                    onActivated: window.teleprompter.setEpisode(currentValue)
-                }
-                FluentButton {
-                    text: qsTr("Обновить каст")
-                    Layout.preferredHeight: 30
-                    onClicked: window.teleprompter.refreshCast()
-                }
-                Item { Layout.fillWidth: true }
-                FluentButton {
-                    text: qsTr("Предыдущая реплика")
-                    Layout.preferredHeight: 30
-                    onClicked: window.navigate(-1)
-                }
-                FluentButton {
-                    text: qsTr("Следующая реплика")
-                    Layout.preferredHeight: 30
-                    onClicked: window.navigate(1)
-                }
-                ToolButton {
-                    id: floatButton
-                    text: qsTr("Плавающее окно")
-                    implicitHeight: 30
-                    enabled: Qt.platform.os !== "osx"
-                    checkable: true
-                    checked: floatWindow.visible
-                    onToggled: checked
-                        ? floatWindow.openNearOwner()
-                        : floatWindow.close()
-                    ToolTip.visible: hovered
-                    ToolTip.text: qsTr("Плавающий контроллер")
-                }
-                FluentButton {
-                    text: qsTr("Закрыть окно")
-                    Layout.preferredHeight: 30
-                    onClicked: window.close()
-                }
+            CompactToolButton {
+                Layout.alignment: Qt.AlignVCenter
+                iconSource: Qt.resolvedUrl("../icons/settings.svg")
+                toolTipText: window.sidePanelVisible
+                    ? qsTr("Скрыть настройки")
+                    : qsTr("Показать настройки")
+                checked: window.sidePanelVisible
+                onClicked: window.sidePanelVisible = !window.sidePanelVisible
+            }
+            Label { text: qsTr("Серия:") }
+            ComboBox {
+                id: episodeBox
+                Layout.preferredWidth: 150
+                Layout.minimumHeight: window.toolbarControlHeight
+                Layout.preferredHeight: window.toolbarControlHeight
+                Layout.maximumHeight: window.toolbarControlHeight
+                Layout.alignment: Qt.AlignVCenter
+                textRole: "name"
+                valueRole: "name"
+                model: window.teleprompter.episodesModel
+                Component.onCompleted: currentIndex = indexOfValue(window.teleprompter.episode)
+                onActivated: window.teleprompter.setEpisode(currentValue)
+            }
+            AdaptiveButton {
+                text: qsTr("Обновить каст")
+                Layout.preferredHeight: window.toolbarControlHeight
+                Layout.alignment: Qt.AlignVCenter
+                onClicked: window.teleprompter.refreshCast()
+            }
+            Item { Layout.fillWidth: true }
+            AdaptiveButton {
+                text: qsTr("Предыдущая реплика")
+                Layout.preferredHeight: window.toolbarControlHeight
+                Layout.alignment: Qt.AlignVCenter
+                onClicked: window.navigate(-1)
+            }
+            AdaptiveButton {
+                text: qsTr("Следующая реплика")
+                Layout.preferredHeight: window.toolbarControlHeight
+                Layout.alignment: Qt.AlignVCenter
+                onClicked: window.navigate(1)
+            }
+            AdaptiveButton {
+                id: floatButton
+                text: qsTr("Плавающее окно")
+                implicitHeight: window.toolbarControlHeight
+                Layout.alignment: Qt.AlignVCenter
+                enabled: Qt.platform.os !== "osx"
+                checkable: true
+                checked: floatWindow.visible
+                onToggled: checked
+                    ? floatWindow.openNearOwner()
+                    : floatWindow.close()
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Плавающий контроллер")
+            }
+            AdaptiveButton {
+                text: qsTr("Закрыть окно")
+                Layout.preferredHeight: window.toolbarControlHeight
+                Layout.alignment: Qt.AlignVCenter
+                onClicked: window.close()
             }
         }
 
@@ -374,7 +386,7 @@ NativeDialogWindow {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Math.min(
                             settingsColumn.implicitHeight,
-                            Math.max(210, parent.height * 0.52)
+                            Math.max(260, parent.height * 0.62)
                         )
                         clip: true
                         contentWidth: availableWidth
@@ -409,14 +421,14 @@ NativeDialogWindow {
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                WinUiCheckBox {
+                                CheckBox {
                                     text: qsTr("Зеркально")
                                     checked: window.config.is_mirrored
                                     onToggled: window.teleprompter.setConfigValue(
                                         "is_mirrored", checked
                                     )
                                 }
-                                WinUiCheckBox {
+                                CheckBox {
                                     text: qsTr("Таймкод")
                                     checked: window.config.show_header
                                     onToggled: window.teleprompter.setConfigValue(
@@ -430,7 +442,7 @@ NativeDialogWindow {
                                 text: qsTr("Положение фокуса · ")
                                     + Math.round(focusSlider.value * 100) + "%"
                             }
-                            WinUiSlider {
+                            Slider {
                                 id: focusSlider
                                 Layout.fillWidth: true
                                 from: 0.1
@@ -461,7 +473,7 @@ NativeDialogWindow {
                                             text: fontRow.modelData.label
                                             Layout.fillWidth: true
                                         }
-                                        WinUiSpinBox {
+                                        SpinBox {
                                             from: 10
                                             to: fontRow.modelData.key === "f_text"
                                                 ? 300 : 150
@@ -493,7 +505,7 @@ NativeDialogWindow {
                                             color: [window.colors.bg, window.colors.active_text, window.colors.inactive_text, window.colors.tc, window.colors.actor, window.colors.header_bg, window.colors.header_text][colorRow.index]
                                             border.color: window.softBorder
                                         }
-                                        FluentButton {
+                                        AdaptiveButton {
                                             text: colorRow.modelData
                                             Layout.fillWidth: true
                                             onClicked: {
@@ -511,7 +523,7 @@ NativeDialogWindow {
                                     Label { text: qsTr("Пресеты") }
                                     Repeater {
                                         model: window.teleprompter.presetModel
-                                        delegate: Button {
+                                        delegate: AdaptiveButton {
                                             id: presetButton
                                             required property int presetIndex
                                             required property bool filled
@@ -553,14 +565,14 @@ NativeDialogWindow {
                                     text: qsTr("Синхронизация REAPER")
                                     color: window.softMuted
                                 }
-                                WinUiCheckBox {
+                                CheckBox {
                                     text: qsTr("Телесуфлёр следует за REAPER")
                                     checked: window.config.sync_in
                                     onToggled: window.appBridge.settings.setPrompterSyncEnabled(
                                         "sync_in", checked
                                     )
                                 }
-                                WinUiCheckBox {
+                                CheckBox {
                                     text: qsTr("REAPER следует за навигацией")
                                     checked: window.config.sync_out
                                     onToggled: window.appBridge.settings.setPrompterSyncEnabled(
@@ -572,12 +584,11 @@ NativeDialogWindow {
                                     text: qsTr("Плавность · ")
                                         + Math.round(smoothSlider.value)
                                 }
-                                WinUiSlider {
+                                Slider {
                                     id: smoothSlider
                                     Layout.fillWidth: true
                                     from: 0
                                     to: 100
-                                    stepSize: 1
                                     value: window.config.scroll_smoothness_slider
                                     onPressedChanged: if (!pressed)
                                         window.teleprompter.setConfigValue(
@@ -595,7 +606,7 @@ NativeDialogWindow {
                             font.bold: true
                             Layout.fillWidth: true
                         }
-                        FluentButton {
+                        AdaptiveButton {
                             text: qsTr("Актёры...")
                             onClicked: actorFilterWindow.open()
                         }

@@ -62,7 +62,7 @@ NativeDialogWindow {
 
     footer: DialogButtonBox {
         anchors.fill: parent
-        Button {
+        AdaptiveButton {
             text: qsTr("Отмена")
             DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
             onClicked: {
@@ -71,7 +71,7 @@ NativeDialogWindow {
                 dialog.close()
             }
         }
-        Button {
+        AdaptiveButton {
             text: qsTr("Экспортировать все")
             highlighted: true
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
