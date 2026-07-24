@@ -147,7 +147,12 @@ class AppBridge(QObject):
             self._script_text_service,
             self,
         )
-        self._converter = ConverterBridge(self._session, self)
+        self._converter = ConverterBridge(
+            self._session,
+            self._global_settings_service,
+            self._global_settings,
+            self,
+        )
         self._reports = ReportsBridge(
             self._session,
             self._script_text_service,

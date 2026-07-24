@@ -14,6 +14,11 @@ Window {
     property alias content: contentHost.data
     property alias footer: customFooter.data
     readonly property bool windowsStyle: Qt.platform.os === "windows"
+    readonly property bool darkPalette: (
+        palette.base.r * 0.2126
+        + palette.base.g * 0.7152
+        + palette.base.b * 0.0722
+    ) < 0.5
     readonly property int dialogControlHeight: Math.max(
         40, Math.ceil(dialogFontMetrics.height + 18)
     )
@@ -29,7 +34,22 @@ Window {
     modality: modal && Qt.platform.os !== "osx"
         ? Qt.ApplicationModal
         : Qt.NonModal
-    color: palette.window
+    color: windowsStyle
+        ? mixColor(
+            palette.window,
+            palette.highlight,
+            darkPalette ? 0.025 : 0.018
+        )
+        : palette.window
+
+    function mixColor(baseColor, tintColor, amount) {
+        return Qt.rgba(
+            baseColor.r * (1 - amount) + tintColor.r * amount,
+            baseColor.g * (1 - amount) + tintColor.g * amount,
+            baseColor.b * (1 - amount) + tintColor.b * amount,
+            1
+        )
+    }
 
     function boundedWidth(preferredWidth, margin) {
         if (!ownerWindow) {

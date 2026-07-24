@@ -176,7 +176,7 @@ NativeDialogWindow {
                 anchors.fill: parent
                 anchors.margins: 1
                 webChannel: chapterChannel
-                backgroundColor: "#ecebea"
+                backgroundColor: palette.base
                 onLoadingChanged: function(request) {
                     if (request.status === WebEngineView.LoadSucceededStatus)
                         window.callEditor("selectTitle", window.backend.selectedBoundary)

@@ -37,7 +37,7 @@ class ScopeComboDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         self._editing_index = QPersistentModelIndex(index)
         combo = QComboBox(parent)
-        combo.addItem(translate_source("Глобально"), ASSIGNMENT_SCOPE_GLOBAL)
+        combo.addItem(translate_source("Проект"), ASSIGNMENT_SCOPE_GLOBAL)
         combo.addItem(translate_source("Серия"), ASSIGNMENT_SCOPE_EPISODE)
         return combo
 
@@ -275,7 +275,7 @@ class MainTableModel(QAbstractTableModel):
             return (
                 translate_source("Серия")
                 if row.get("scope") == ASSIGNMENT_SCOPE_EPISODE
-                else translate_source("Глобально")
+                else translate_source("Проект")
             )
         if column == 5:
             return self._actor_name(row.get("actor_id"))

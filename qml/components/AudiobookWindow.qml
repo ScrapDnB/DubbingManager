@@ -191,7 +191,7 @@ NativeDialogWindow {
                     anchors.fill: parent
                     anchors.margins: 1
                     webChannel: editorChannel
-                    backgroundColor: "#ecebea"
+                    backgroundColor: palette.base
                     onLoadingChanged: function(request) {
                         if (request.status === WebEngineView.LoadSucceededStatus)
                             window.syncSlots()

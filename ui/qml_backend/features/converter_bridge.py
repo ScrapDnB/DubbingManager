@@ -8,6 +8,7 @@ from PySide6.QtCore import QObject, Property, QTimer, QUrl, Signal, Slot, Qt
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 
 from services.episode_service import EpisodeService
+from services.global_settings_service import GlobalSettingsService
 from services.quick_subtitle_service import QuickSubtitleService
 from ui.qml_backend.export_config import normalize_export_option
 from ui.qml_backend.models import DictListModel
@@ -25,21 +26,29 @@ class ConverterBridge(QObject):
     def __init__(
         self,
         session: ProjectSession,
+        global_settings_service: GlobalSettingsService,
+        global_settings: dict[str, Any],
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
         self._session = session
+        self._global_settings_service = global_settings_service
+        self._global_settings = global_settings
         self._rows: list[dict[str, Any]] = []
         self._queue: list[int] = []
         self._queue_position = 0
         self._cancel_requested = False
         self._busy = False
         self._awaiting_preview = False
+        self._settings_preview = False
         self._preview_html = ""
         self._preview_title = ""
         self._preview_path = ""
         self._conversion_config: dict[str, Any] = {}
-        config = session.data.get("export_config", {})
+        self._quick_converter_config = (
+            global_settings_service.get_quick_converter_config()
+        )
+        config = self._quick_converter_config
         self._formats = {
             "html": bool(config.get("format_html", True)),
             "docx": bool(config.get("format_docx", False)),
@@ -111,11 +120,16 @@ class ConverterBridge(QObject):
     def previewConfig(self) -> dict[str, Any]:
         return deepcopy(self._conversion_config)
 
+    @Property(bool, notify=previewChanged)
+    def previewSettingsMode(self) -> bool:
+        return self._settings_preview
+
     @Slot(str, bool)
     def setFormat(self, name: str, enabled: bool) -> None:
         if name not in self._formats or self._formats[name] == bool(enabled):
             return
         self._formats[name] = bool(enabled)
+        self._quick_converter_config[f"format_{name}"] = bool(enabled)
         self.changed.emit()
 
     @Slot("QVariantList", bool, result=bool)
@@ -160,9 +174,7 @@ class ConverterBridge(QObject):
         if preview_first:
             first_path = self._rows[self._queue[0]]["path"]
             try:
-                self._conversion_config = service.export_config()
-                self._conversion_config["allow_edit"] = False
-                self._conversion_config["open_auto"] = False
+                self._conversion_config = self._current_export_config(service)
                 self._preview_path = first_path
                 self._preview_html = service.preview_html(
                     first_path, self._conversion_config
@@ -172,12 +184,38 @@ class ConverterBridge(QObject):
                 self.errorRequested.emit(f"Не удалось открыть предпросмотр: {exc}")
                 return False
             self._awaiting_preview = True
+            self._settings_preview = False
             self.previewChanged.emit()
             self.previewRequested.emit()
             return True
 
-        self._conversion_config = service.export_config()
+        self._conversion_config = self._current_export_config(service)
         self._start_queue()
+        return True
+
+    @Slot(result=bool)
+    def openSettingsPreview(self) -> bool:
+        """Open a demo preview for the isolated quick-converter profile."""
+        if self._busy or self._awaiting_preview:
+            self.errorRequested.emit("Дождитесь завершения текущей конвертации")
+            return False
+        service = self._service()
+        try:
+            self._conversion_config = self._current_export_config(service)
+            self._preview_path = ""
+            self._preview_title = "Настройки быстрого конвертера"
+            self._preview_html = service.demo_preview_html(
+                self._conversion_config
+            )
+        except Exception as exc:
+            self.errorRequested.emit(
+                f"Не удалось открыть демонстрационный предпросмотр: {exc}"
+            )
+            return False
+        self._awaiting_preview = True
+        self._settings_preview = True
+        self.previewChanged.emit()
+        self.previewRequested.emit()
         return True
 
     @Slot("QVariantList", result=bool)
@@ -189,7 +227,7 @@ class ConverterBridge(QObject):
 
     @Slot()
     def continueAfterPreview(self) -> None:
-        if not self._awaiting_preview:
+        if not self._awaiting_preview or self._settings_preview:
             return
         self._awaiting_preview = False
         self._start_queue()
@@ -197,6 +235,14 @@ class ConverterBridge(QObject):
     @Slot()
     def cancelPreview(self) -> None:
         if not self._awaiting_preview:
+            return
+        if self._settings_preview:
+            self._awaiting_preview = False
+            self._settings_preview = False
+            self._preview_path = ""
+            self._preview_html = ""
+            self._preview_title = ""
+            self.previewChanged.emit()
             return
         self._awaiting_preview = False
         for row_index in self._queue:
@@ -208,20 +254,60 @@ class ConverterBridge(QObject):
         self._queue = []
         self._queue_position = 0
         self._preview_path = ""
+        self._settings_preview = False
         self.changed.emit()
         self.previewChanged.emit()
 
+    @Slot(result=bool)
+    def savePreviewSettings(self) -> bool:
+        """Persist the demo profile without touching the open project."""
+        if not self._awaiting_preview or not self._settings_preview:
+            return False
+        updated = deepcopy(self._global_settings)
+        config = deepcopy(self._conversion_config)
+        config.update({
+            "format_html": self._formats["html"],
+            "format_docx": self._formats["docx"],
+            "format_pdf": self._formats["pdf"],
+        })
+        updated["quick_converter_config"] = config
+        if not self._global_settings_service.save_settings(updated):
+            self.errorRequested.emit(
+                "Не удалось сохранить настройки быстрого конвертера"
+            )
+            return False
+        self._global_settings.clear()
+        self._global_settings.update(
+            self._global_settings_service.get_settings()
+        )
+        self._quick_converter_config = (
+            self._global_settings_service.get_quick_converter_config()
+        )
+        self._awaiting_preview = False
+        self._settings_preview = False
+        self._preview_path = ""
+        self._preview_html = ""
+        self._preview_title = ""
+        self.previewChanged.emit()
+        self.statusRequested.emit("Настройки быстрого конвертера сохранены")
+        return True
+
     @Slot(str, "QVariant")
     def setPreviewOption(self, key: str, value: Any) -> None:
-        if not self._awaiting_preview or not self._preview_path:
+        if not self._awaiting_preview:
             return
         normalized = normalize_export_option(key, value)
         if normalized is None or self._conversion_config.get(key) == normalized:
             return
         self._conversion_config[key] = normalized
         try:
-            self._preview_html = self._service().preview_html(
-                self._preview_path, self._conversion_config
+            service = self._service()
+            self._preview_html = (
+                service.demo_preview_html(self._conversion_config)
+                if self._settings_preview
+                else service.preview_html(
+                    self._preview_path, self._conversion_config
+                )
             )
         except Exception as exc:
             self.errorRequested.emit(f"Не удалось обновить предпросмотр: {exc}")
@@ -319,6 +405,17 @@ class ConverterBridge(QObject):
             self._session.data.get("srt_import_config", {}),
         )
         return QuickSubtitleService(episode_service, self._session.data)
+
+    def _current_export_config(
+        self, service: QuickSubtitleService
+    ) -> dict[str, Any]:
+        config = deepcopy(self._quick_converter_config)
+        config.update({
+            "format_html": self._formats["html"],
+            "format_docx": self._formats["docx"],
+            "format_pdf": self._formats["pdf"],
+        })
+        return service.export_config(config)
 
     @staticmethod
     def _local_path(value: Any) -> str:

@@ -125,39 +125,32 @@ ApplicationWindow {
         }
     }
 
-    property color softBorder: root.windowsStyle && !root.darkTheme
-        ? "#d9dde3" : Qt.rgba(
-            palette.text.r, palette.text.g, palette.text.b,
-            root.darkTheme ? 0.09 : 0.10
-        )
+    property color softBorder: Qt.rgba(
+        palette.text.r, palette.text.g, palette.text.b,
+        root.darkTheme ? 0.09 : 0.10
+    )
     property color hairlineBorder: Qt.rgba(
         palette.text.r,
         palette.text.g,
         palette.text.b,
         root.darkTheme ? 0.045 : 0.055
     )
-    property color workspaceBackground: root.windowsStyle && !root.darkTheme
-        ? "#f4f6f8" : root.mixColor(
-            palette.window, palette.highlight, root.darkTheme ? 0.025 : 0.018
-        )
-    property color panelSurface: root.windowsStyle && !root.darkTheme
-        ? "#ffffff" : root.mixColor(
-            palette.base, palette.highlight, root.darkTheme ? 0.035 : 0.012
-        )
-    property color softHeader: root.windowsStyle && !root.darkTheme
-        ? "#f8f9fb" : root.mixColor(
-            palette.base, palette.highlight, root.darkTheme ? 0.095 : 0.045
-        )
-    property color softRow: root.windowsStyle && !root.darkTheme
-        ? "#ffffff" : palette.base
-    property color softAltRow: root.windowsStyle && !root.darkTheme
-        ? "#fbfcfd" : root.mixColor(
-            palette.base, palette.text, root.darkTheme ? 0.028 : 0.018
-        )
-    property color softHover: root.windowsStyle && !root.darkTheme
-        ? "#eef5fc" : root.mixColor(
-            palette.base, palette.highlight, root.darkTheme ? 0.14 : 0.10
-        )
+    property color workspaceBackground: root.mixColor(
+        palette.window, palette.highlight, root.darkTheme ? 0.025 : 0.018
+    )
+    property color panelSurface: root.mixColor(
+        palette.base, palette.highlight, root.darkTheme ? 0.035 : 0.012
+    )
+    property color softHeader: root.mixColor(
+        palette.base, palette.highlight, root.darkTheme ? 0.095 : 0.045
+    )
+    property color softRow: palette.base
+    property color softAltRow: root.mixColor(
+        palette.base, palette.text, root.darkTheme ? 0.028 : 0.018
+    )
+    property color softHover: root.mixColor(
+        palette.base, palette.highlight, root.darkTheme ? 0.14 : 0.10
+    )
     property color softMuted: Qt.rgba(palette.text.r, palette.text.g, palette.text.b, 0.58)
 
     FileDialog {

@@ -80,6 +80,12 @@ class GlobalSettingsService:
                     loaded.get('default_export_config', {})
                 )
 
+            settings['quick_converter_config'] = (
+                self._normalize_quick_converter_config(
+                    loaded.get('quick_converter_config', {})
+                )
+            )
+
             if 'default_prompter_config' in loaded:
                 settings['default_prompter_config'] = (
                     self._normalize_prompter_config(
@@ -159,6 +165,9 @@ class GlobalSettingsService:
                 'default_export_config': self._normalize_export_config(
                     settings.get('default_export_config', {})
                 ),
+                'quick_converter_config': self._normalize_quick_converter_config(
+                    settings.get('quick_converter_config', {})
+                ),
                 'default_prompter_config': self._normalize_prompter_config(
                     settings.get('default_prompter_config', {})
                 ),
@@ -232,6 +241,7 @@ class GlobalSettingsService:
             'recent_projects': [],
             'global_actor_base': {},
             'default_export_config': deepcopy(DEFAULT_EXPORT_CONFIG),
+            'quick_converter_config': self._normalize_quick_converter_config({}),
             'default_prompter_config': deepcopy(DEFAULT_PROMPTER_CONFIG),
             'prompter_color_presets': [None, None, None, None],
             'audiobook_config': deepcopy(DEFAULT_AUDIOBOOK_CONFIG),
@@ -267,6 +277,18 @@ class GlobalSettingsService:
         """Set default export settings for new projects."""
         self.settings['default_export_config'] = self._normalize_export_config(
             config
+        )
+
+    def get_quick_converter_config(self) -> Dict[str, Any]:
+        """Return standalone quick-converter export settings."""
+        return self._normalize_quick_converter_config(
+            self.get_settings().get('quick_converter_config', {})
+        )
+
+    def set_quick_converter_config(self, config: Dict[str, Any]) -> None:
+        """Update standalone quick-converter export settings in memory."""
+        self.settings['quick_converter_config'] = (
+            self._normalize_quick_converter_config(config)
         )
 
     def get_prompter_config(self) -> Dict[str, Any]:
@@ -644,6 +666,17 @@ class GlobalSettingsService:
             for key in DEFAULT_EXPORT_CONFIG:
                 if key in config:
                     result[key] = deepcopy(config[key])
+        return result
+
+    def _normalize_quick_converter_config(
+        self, config: Any
+    ) -> Dict[str, Any]:
+        """Return export settings isolated from project montage settings."""
+        result = self._normalize_export_config(config)
+        result['format_xls'] = False
+        result['use_color'] = False
+        result['allow_edit'] = False
+        result['open_auto'] = False
         return result
 
     def _normalize_prompter_config(self, config: Any) -> Dict[str, Any]:

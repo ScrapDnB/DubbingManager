@@ -431,7 +431,7 @@ NativeDialogWindow {
                     anchors.fill: parent
                     anchors.margins: 1
                     webChannel: previewChannel
-                    backgroundColor: "#f6f7f8"
+                    backgroundColor: palette.base
                 }
             }
         }

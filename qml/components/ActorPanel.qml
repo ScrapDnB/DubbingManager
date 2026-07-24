@@ -68,6 +68,45 @@ Item {
             panel.castingBackend.setActorSort(key)
     }
 
+    function selectActor(actorId, actorName, actorColor, actorGender) {
+        panel.selectedActorId = actorId
+        panel.selectedActorName = actorName
+        panel.selectedActorColor = actorColor
+        panel.selectedActorGender = actorGender
+    }
+
+    function transferSelectedActor() {
+        if (panel.selectedActorId.length === 0)
+            return
+        if (panel.globalMode) {
+            panel.actorLibraryBackend.addGlobalActorToProject(
+                panel.selectedActorId
+            )
+        } else {
+            panel.actorLibraryBackend.addProjectActorToGlobal(
+                panel.selectedActorId
+            )
+        }
+    }
+
+    function updateSelectedActorGender(gender) {
+        if (panel.selectedActorId.length === 0)
+            return
+        panel.selectedActorGender = gender
+        if (panel.globalMode) {
+            panel.actorLibraryBackend.updateGlobalActor(
+                panel.selectedActorId,
+                panel.selectedActorName,
+                gender
+            )
+        } else {
+            panel.castingBackend.updateActorGender(
+                panel.selectedActorId,
+                gender
+            )
+        }
+    }
+
     SystemPalette {
         id: palette
         colorGroup: SystemPalette.Active
@@ -93,7 +132,7 @@ Item {
             : qsTr("Добавить актёра в проект")
         standardButtons: Dialog.Ok | Dialog.Cancel
         width: 360
-        height: panel.globalMode ? 190 : 250
+        height: 250
 
         onOpened: {
             actorNameField.text = ""
@@ -124,6 +163,38 @@ Item {
         content: ColumnLayout {
             anchors.fill: parent
             spacing: 8
+
+            RowLayout {
+                Layout.fillWidth: true
+                visible: panel.globalMode
+
+                Label {
+                    text: qsTr("Добавить существующих актёров")
+                    color: panel.softMuted
+                    Layout.fillWidth: true
+                }
+
+                AdaptiveButton {
+                    text: qsTr("Из проекта...")
+                    onClicked: {
+                        addActorDialog.close()
+                        panel.bulkTransferRequested()
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                color: panel.softBorder
+                visible: panel.globalMode
+            }
+
+            Label {
+                text: qsTr("Создать нового актёра")
+                color: panel.softMuted
+                visible: panel.globalMode
+            }
 
             Label {
                 text: qsTr("Источник")
@@ -417,10 +488,9 @@ Item {
 
                 TapHandler {
                     onTapped: {
-                        panel.selectedActorId = model.id
-                        panel.selectedActorName = model.name
-                        panel.selectedActorColor = model.color
-                        panel.selectedActorGender = model.gender
+                        panel.selectActor(
+                            model.id, model.name, model.color, model.gender
+                        )
                     }
                     onDoubleTapped: if (!panel.globalMode) {
                         panel.actorRolesRequested(model.id)
@@ -438,11 +508,25 @@ Item {
                         color: model.color
                         border.color: panel.softBorder
                         visible: !panel.globalMode
+
+                        TapHandler {
+                            onTapped: {
+                                panel.selectActor(
+                                    model.id, model.name,
+                                    model.color, model.gender
+                                )
+                                actorColorDialog.open()
+                            }
+                        }
                     }
 
                     Label {
                         x: panel.nameColumnX
-                        width: panel.nameColumnWidth
+                        width: Math.max(
+                            0,
+                            panel.nameColumnWidth
+                                - (rowActions.visible ? rowActions.width + 4 : 0)
+                        )
                         height: parent.height
                         text: model.name
                         elide: Text.ElideRight
@@ -465,6 +549,86 @@ Item {
                         text: panel.globalMode ? model.status : model.roleCount
                         horizontalAlignment: Text.AlignRight
                         verticalAlignment: Text.AlignVCenter
+                    }
+
+                    Row {
+                        id: rowActions
+                        x: panel.nameColumnX + panel.nameColumnWidth - width - 2
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: 28
+                        spacing: 2
+                        visible: actorHover.hovered
+                            || moreActorButton.hovered
+                            || actorActionsMenu.visible
+
+                        ToolButton {
+                            id: moreActorButton
+                            width: 28
+                            height: 28
+                            text: "⋯"
+                            font.pixelSize: 18
+                            leftPadding: 0
+                            rightPadding: 0
+                            topPadding: 0
+                            bottomPadding: 0
+                            Accessible.name: qsTr("Действия с актёром")
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            ToolTip.delay: 500
+                            onClicked: {
+                                panel.selectActor(
+                                    model.id, model.name,
+                                    model.color, model.gender
+                                )
+                                actorActionsMenu.popup()
+                            }
+                        }
+                    }
+
+                    Menu {
+                        id: actorActionsMenu
+
+                        MenuItem {
+                            text: panel.globalMode
+                                ? qsTr("Добавить в проект")
+                                : qsTr("Добавить в глобальную базу")
+                            onTriggered: panel.transferSelectedActor()
+                        }
+                        MenuSeparator { }
+                        MenuItem {
+                            text: qsTr("Переименовать...")
+                            visible: panel.globalMode
+                            height: visible ? implicitHeight : 0
+                            onTriggered: renameActorDialog.open()
+                        }
+                        MenuItem {
+                            text: qsTr("Объединить с...")
+                            visible: !panel.globalMode
+                            height: visible ? implicitHeight : 0
+                            onTriggered: mergeActorDialog.open()
+                        }
+                        MenuSeparator { }
+                        MenuItem {
+                            text: qsTr("Пол: не указан")
+                            checkable: true
+                            checked: panel.selectedActorGender.length === 0
+                            autoExclusive: true
+                            onTriggered: panel.updateSelectedActorGender("")
+                        }
+                        MenuItem {
+                            text: qsTr("Пол: М")
+                            checkable: true
+                            checked: panel.selectedActorGender === "М"
+                            autoExclusive: true
+                            onTriggered: panel.updateSelectedActorGender("М")
+                        }
+                        MenuItem {
+                            text: qsTr("Пол: Ж")
+                            checkable: true
+                            checked: panel.selectedActorGender === "Ж"
+                            autoExclusive: true
+                            onTriggered: panel.updateSelectedActorGender("Ж")
+                        }
                     }
                 }
             }
@@ -502,85 +666,6 @@ Item {
                     panel.selectedActorName = ""
                 }
                 Layout.fillWidth: true
-            }
-            AdaptiveButton {
-                text: panel.globalMode ? "В проект" : "В базу"
-                enabled: panel.selectedActorId.length > 0
-                onClicked: {
-                    if (panel.globalMode) {
-                        panel.actorLibraryBackend.addGlobalActorToProject(
-                            panel.selectedActorId
-                        )
-                    } else {
-                        panel.actorLibraryBackend.addProjectActorToGlobal(
-                            panel.selectedActorId
-                        )
-                    }
-                }
-                Layout.fillWidth: true
-            }
-        }
-
-        AdaptiveButton {
-            text: panel.globalMode ? "Переименовать" : "Роли актёра"
-            enabled: panel.selectedActorId.length > 0
-            onClicked: {
-                if (panel.globalMode) renameActorDialog.open()
-                else panel.actorRolesRequested(panel.selectedActorId)
-            }
-            Layout.fillWidth: true
-        }
-
-        AdaptiveButton {
-            text: qsTr("Объединить с...")
-            visible: !panel.globalMode
-            enabled: panel.selectedActorId.length > 0
-            onClicked: mergeActorDialog.open()
-            Layout.fillWidth: true
-        }
-
-        AdaptiveButton {
-            text: qsTr("Несколько актёров в базу...")
-            visible: !panel.globalMode
-            onClicked: panel.bulkTransferRequested()
-            Layout.fillWidth: true
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 6
-
-            AdaptiveButton {
-                text: qsTr("Цвет")
-                visible: !panel.globalMode
-                enabled: panel.selectedActorId.length > 0
-                onClicked: actorColorDialog.open()
-                Layout.fillWidth: true
-            }
-
-            ComboBox {
-                id: selectedActorGenderCombo
-                Layout.preferredWidth: 82
-                enabled: panel.selectedActorId.length > 0
-                model: ["", "М", "Ж"]
-                currentIndex: Math.max(0, indexOfValue(panel.selectedActorGender))
-                onActivated: {
-                    panel.selectedActorGender = currentText
-                    if (panel.appBridge && panel.selectedActorId.length > 0) {
-                        if (panel.globalMode) {
-                            panel.actorLibraryBackend.updateGlobalActor(
-                                panel.selectedActorId,
-                                panel.selectedActorName,
-                                currentText
-                            )
-                        } else {
-                            panel.castingBackend.updateActorGender(
-                                panel.selectedActorId,
-                                currentText
-                            )
-                        }
-                    }
-                }
             }
         }
 

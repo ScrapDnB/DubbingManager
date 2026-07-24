@@ -40,6 +40,8 @@ class TestGlobalSettingsService:
         assert 'prompter_config' not in settings
         assert 'replica_merge_config' not in settings
         assert settings['default_export_config'] == DEFAULT_EXPORT_CONFIG
+        assert settings['quick_converter_config']['layout_type'] == 'Таблица'
+        assert settings['quick_converter_config']['use_color'] is False
         assert settings['default_prompter_config'] == DEFAULT_PROMPTER_CONFIG
         assert settings['language'] == 'ru'
         assert settings['backup_config'] == {
@@ -57,6 +59,11 @@ class TestGlobalSettingsService:
             'default_export_config': {
                 'layout_type': 'Сценарий 1',
                 'col_tc': False,
+            },
+            'quick_converter_config': {
+                'layout_type': 'Сценарий 2',
+                'f_text': 38,
+                'use_color': True,
             },
             'default_prompter_config': {
                 'f_text': 48,
@@ -82,6 +89,9 @@ class TestGlobalSettingsService:
         assert settings['default_export_config']['layout_type'] == 'Сценарий 1'
         assert settings['default_export_config']['col_tc'] is False
         assert settings['default_export_config']['col_char'] is True
+        assert settings['quick_converter_config']['layout_type'] == 'Сценарий 2'
+        assert settings['quick_converter_config']['f_text'] == 38
+        assert settings['quick_converter_config']['use_color'] is False
         assert settings['default_prompter_config']['f_text'] == 48
         assert settings['default_prompter_config']['osc_enabled'] is True
         assert settings['default_prompter_config']['sync_in'] is False
@@ -128,6 +138,11 @@ class TestGlobalSettingsService:
                 'layout_type': 'Сценарий 1',
                 'col_tc': False,
             },
+            'quick_converter_config': {
+                'layout_type': 'Сценарий 2',
+                'f_text': 38,
+                'use_color': True,
+            },
             'default_prompter_config': {
                 'f_text': 42,
                 'osc_enabled': True,
@@ -171,6 +186,9 @@ class TestGlobalSettingsService:
         assert saved_data['default_export_config']['layout_type'] == 'Сценарий 1'
         assert saved_data['default_export_config']['col_tc'] is False
         assert saved_data['default_export_config']['col_char'] is True
+        assert saved_data['quick_converter_config']['layout_type'] == 'Сценарий 2'
+        assert saved_data['quick_converter_config']['f_text'] == 38
+        assert saved_data['quick_converter_config']['use_color'] is False
         assert saved_data['default_prompter_config']['f_text'] == 42
         assert saved_data['default_prompter_config']['osc_enabled'] is True
         assert saved_data['default_prompter_config']['sync_out'] is True

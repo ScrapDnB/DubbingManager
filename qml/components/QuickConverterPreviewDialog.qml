@@ -10,7 +10,9 @@ NativeDialogWindow {
     readonly property var backend: appBridge ? appBridge.converter : null
 
     modal: true
-    title: qsTr("Предпросмотр: ") + (backend ? backend.previewTitle : "")
+    title: backend && backend.previewSettingsMode
+        ? qsTr("Настройки быстрого конвертера")
+        : qsTr("Предпросмотр: ") + (backend ? backend.previewTitle : "")
     width: boundedWidth(1080, 32)
     height: boundedHeight(720, 32)
     property bool decisionMade: false
@@ -38,8 +40,8 @@ NativeDialogWindow {
         orientation: Qt.Horizontal
 
         MontageSettingsPane {
-            SplitView.preferredWidth: 340
-            SplitView.minimumWidth: 280
+            SplitView.preferredWidth: 380
+            SplitView.minimumWidth: 320
             configuration: dialog.backend ? dialog.backend.previewConfig : ({})
             showFormatSettings: false
             showOpenAfterExport: false
@@ -60,11 +62,15 @@ NativeDialogWindow {
         }
     }
 
-    footer: DialogButtonBox {
+    footer: RowLayout {
         anchors.fill: parent
+        spacing: 8
+
+        Item { Layout.fillWidth: true }
+
         AdaptiveButton {
             text: qsTr("Отмена")
-            DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+            Layout.preferredWidth: 120
             onClicked: {
                 dialog.decisionMade = true
                 if (dialog.backend) dialog.backend.cancelPreview()
@@ -72,13 +78,24 @@ NativeDialogWindow {
             }
         }
         AdaptiveButton {
-            text: qsTr("Экспортировать все")
+            text: dialog.backend && dialog.backend.previewSettingsMode
+                ? qsTr("Сохранить настройки")
+                : qsTr("Экспортировать все")
             highlighted: true
-            DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+            Layout.preferredWidth: 180
             onClicked: {
-                dialog.decisionMade = true
-                if (dialog.backend) dialog.backend.continueAfterPreview()
-                dialog.close()
+                if (!dialog.backend)
+                    return
+                if (dialog.backend.previewSettingsMode) {
+                    if (dialog.backend.savePreviewSettings()) {
+                        dialog.decisionMade = true
+                        dialog.close()
+                    }
+                } else {
+                    dialog.decisionMade = true
+                    dialog.backend.continueAfterPreview()
+                    dialog.close()
+                }
             }
         }
     }

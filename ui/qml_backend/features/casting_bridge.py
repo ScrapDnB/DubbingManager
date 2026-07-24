@@ -390,7 +390,7 @@ class CastingBridge(QObject):
             local_map, character, stored
         ), "assignments")
         self.statusRequested.emit(
-            f"{character}: {'Серия' if scope == ASSIGNMENT_SCOPE_EPISODE else 'Глобально'}"
+            f"{character}: {'Серия' if scope == ASSIGNMENT_SCOPE_EPISODE else 'Проект'}"
         )
 
     @Slot(str, str)
@@ -532,7 +532,7 @@ class CastingBridge(QObject):
             if not self._matches(character, actor_ids, actor_name, item):
                 continue
             rows.append({
-                **item, "scope": "Серия" if character in local else "Глобально",
+                **item, "scope": "Серия" if character in local else "Проект",
                 "scopeId": ASSIGNMENT_SCOPE_EPISODE if character in local else ASSIGNMENT_SCOPE_GLOBAL,
                 "actor": actor_name,
                 "color": actor.get("color", "transparent") if len(actor_ids) == 1 else "transparent",
@@ -612,7 +612,7 @@ class CastingBridge(QObject):
                     "rings": rings, "words": words,
                     "actor": self._actor_names(actor_ids),
                     "scope": "Серия" if self._selected_character in local
-                        else "Глобально",
+                        else "Проект",
                 })
                 total_lines += line_count
                 total_rings += rings

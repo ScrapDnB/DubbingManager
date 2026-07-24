@@ -28,7 +28,8 @@ PersistentScrollView {
     onConfigurationChanged: Qt.callLater(syncCombos)
 
     ColumnLayout {
-        width: pane.availableWidth
+        x: 12
+        width: Math.max(0, pane.availableWidth - 24)
         spacing: 10
 
         RowLayout {
@@ -48,7 +49,7 @@ PersistentScrollView {
             Layout.fillWidth: true
             GridLayout {
                 anchors.fill: parent
-                columns: 4
+                columns: 2
                 CheckBox { text: qsTr("Таймкод"); checked: Boolean(pane.configuration.col_tc); onToggled: pane.setValue("col_tc", checked) }
                 CheckBox { text: qsTr("Персонаж"); checked: Boolean(pane.configuration.col_char); onToggled: pane.setValue("col_char", checked) }
                 CheckBox { text: qsTr("Актёр"); checked: Boolean(pane.configuration.col_actor); onToggled: pane.setValue("col_actor", checked) }
@@ -56,7 +57,7 @@ PersistentScrollView {
                 Label { text: qsTr("Показывать:") }
                 ComboBox {
                     id: timeCombo
-                    Layout.preferredWidth: 160
+                    Layout.fillWidth: true
                     model: ListModel {
                         ListElement { label: "Диапазон"; value: "range" }
                         ListElement { label: "Только начало"; value: "start" }
@@ -75,7 +76,7 @@ PersistentScrollView {
             Layout.fillWidth: true
             GridLayout {
                 anchors.fill: parent
-                columns: 4
+                columns: 2
                 CheckBox { text: qsTr("Цвета актёров"); checked: Boolean(pane.configuration.use_color); onToggled: pane.setValue("use_color", checked) }
                 CheckBox { text: qsTr("Смягчать фон"); enabled: Boolean(pane.configuration.use_color); checked: Boolean(pane.configuration.soften_colors); onToggled: pane.setValue("soften_colors", checked) }
                 CheckBox { visible: pane.showEditableHtml; text: qsTr("Разрешить правку"); checked: Boolean(pane.configuration.allow_edit); onToggled: pane.setValue("allow_edit", checked) }
@@ -88,15 +89,15 @@ PersistentScrollView {
             Layout.fillWidth: true
             GridLayout {
                 anchors.fill: parent
-                columns: 4
+                columns: 2
                 Label { text: qsTr("Таймкод") }
-                SpinBox { from: 8; to: 72; value: Number(pane.configuration.f_time || 21); onValueModified: pane.setValue("f_time", value) }
+                SpinBox { Layout.fillWidth: true; from: 8; to: 72; value: Number(pane.configuration.f_time || 21); onValueModified: pane.setValue("f_time", value) }
                 Label { text: qsTr("Персонаж") }
-                SpinBox { from: 8; to: 72; value: Number(pane.configuration.f_char || 20); onValueModified: pane.setValue("f_char", value) }
+                SpinBox { Layout.fillWidth: true; from: 8; to: 72; value: Number(pane.configuration.f_char || 20); onValueModified: pane.setValue("f_char", value) }
                 Label { text: qsTr("Актёр") }
-                SpinBox { from: 8; to: 72; value: Number(pane.configuration.f_actor || 14); onValueModified: pane.setValue("f_actor", value) }
+                SpinBox { Layout.fillWidth: true; from: 8; to: 72; value: Number(pane.configuration.f_actor || 14); onValueModified: pane.setValue("f_actor", value) }
                 Label { text: qsTr("Реплика") }
-                SpinBox { from: 8; to: 72; value: Number(pane.configuration.f_text || 30); onValueModified: pane.setValue("f_text", value) }
+                SpinBox { Layout.fillWidth: true; from: 8; to: 72; value: Number(pane.configuration.f_text || 30); onValueModified: pane.setValue("f_text", value) }
             }
         }
 
@@ -105,9 +106,10 @@ PersistentScrollView {
             Layout.fillWidth: true
             GridLayout {
                 anchors.fill: parent
-                columns: 6
+                columns: 2
                 Label { text: qsTr("Таймкод") }
                 SpinBox {
+                    Layout.fillWidth: true
                     from: 10; to: 300; value: Math.round(Number(pane.configuration.table_width_time || 7) * 10)
                     textFromValue: function(value) { return (value / 10).toFixed(1) }
                     valueFromText: function(text) { return Math.round(Number(text.replace(",", ".")) * 10) }
@@ -115,6 +117,7 @@ PersistentScrollView {
                 }
                 Label { text: qsTr("Персонаж") }
                 SpinBox {
+                    Layout.fillWidth: true
                     from: 10; to: 300; value: Math.round(Number(pane.configuration.table_width_char || 10) * 10)
                     textFromValue: function(value) { return (value / 10).toFixed(1) }
                     valueFromText: function(text) { return Math.round(Number(text.replace(",", ".")) * 10) }
@@ -122,6 +125,7 @@ PersistentScrollView {
                 }
                 Label { text: qsTr("Актёр") }
                 SpinBox {
+                    Layout.fillWidth: true
                     from: 10; to: 300; value: Math.round(Number(pane.configuration.table_width_actor || 8.5) * 10)
                     textFromValue: function(value) { return (value / 10).toFixed(1) }
                     valueFromText: function(text) { return Math.round(Number(text.replace(",", ".")) * 10) }
@@ -134,13 +138,13 @@ PersistentScrollView {
             title: qsTr("Форматы экспорта по умолчанию")
             visible: pane.showFormatSettings
             Layout.fillWidth: true
-            RowLayout {
+            GridLayout {
                 anchors.fill: parent
+                columns: 2
                 CheckBox { text: qsTr("HTML"); checked: Boolean(pane.configuration.format_html); onToggled: pane.setValue("format_html", checked) }
                 CheckBox { text: qsTr("XLSX"); checked: Boolean(pane.configuration.format_xls); onToggled: pane.setValue("format_xls", checked) }
                 CheckBox { text: qsTr("DOCX"); checked: Boolean(pane.configuration.format_docx); onToggled: pane.setValue("format_docx", checked) }
                 CheckBox { text: qsTr("PDF"); checked: Boolean(pane.configuration.format_pdf); onToggled: pane.setValue("format_pdf", checked) }
-                Item { Layout.fillWidth: true }
             }
         }
     }

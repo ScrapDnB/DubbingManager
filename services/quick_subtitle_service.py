@@ -67,6 +67,58 @@ class QuickSubtitleService:
             is_editable=False,
         )
 
+    def demo_preview_html(
+        self,
+        config: Dict[str, Any] | None = None,
+    ) -> str:
+        """Build a preview from representative standalone subtitle lines."""
+        lines = [
+            {
+                "id": 0,
+                "s": 5.0,
+                "e": 8.2,
+                "char": "ДИКТОР",
+                "text": "Демонстрационная реплика для настройки макета.",
+            },
+            {
+                "id": 1,
+                "s": 10.0,
+                "e": 13.4,
+                "char": "АЛИСА",
+                "text": "Здесь можно оценить размер текста и ширину колонок.",
+            },
+            {
+                "id": 2,
+                "s": 15.0,
+                "e": 17.6,
+                "char": "БОРИС",
+                "text": "Изменения сразу появляются в предпросмотре.",
+            },
+        ]
+        cfg = self.export_config(config)
+        project_data = {
+            "project_name": "Демонстрация быстрого конвертера",
+            "actors": {},
+            "global_map": {},
+            "episode_actor_map": {},
+            "export_config": cfg,
+            "replica_merge_config": deepcopy(
+                self.data_ref.get("replica_merge_config", {})
+            ),
+        }
+        export_service = ExportService(project_data)
+        processed = export_service.process_merge_logic(
+            lines, project_data["replica_merge_config"]
+        )
+        return export_service.generate_html(
+            "1",
+            processed,
+            cfg,
+            highlight_ids=[],
+            layout_type=cfg.get("layout_type", "Таблица"),
+            is_editable=False,
+        )
+
     def export_montage(
         self,
         path: str,

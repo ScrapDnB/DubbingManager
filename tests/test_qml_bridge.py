@@ -1231,6 +1231,37 @@ def test_qml_quick_converter_previews_then_converts(tmp_path):
     assert (tmp_path / "preview.html").exists()
 
 
+def test_qml_quick_converter_demo_settings_are_project_independent(
+    tmp_path, monkeypatch,
+):
+    _app()
+    settings_path = tmp_path / "global_settings.json"
+    monkeypatch.setattr(
+        "services.global_settings_service.SETTINGS_FILE", settings_path
+    )
+    bridge = AppBridge()
+    converter = bridge.converter
+    project_before = deepcopy(bridge._session.data)
+    previews = []
+    converter.previewRequested.connect(lambda: previews.append(True))
+
+    assert converter.openSettingsPreview()
+    assert converter.previewSettingsMode
+    assert previews == [True]
+    assert "Демонстрационная реплика" in converter.previewHtml
+
+    converter.setPreviewOption("layout_type", "Сценарий 2")
+    converter.setPreviewOption("f_text", 41)
+    assert converter.savePreviewSettings()
+    assert not converter.previewSettingsMode
+    assert bridge._session.data == project_before
+
+    saved = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert saved["quick_converter_config"]["layout_type"] == "Сценарий 2"
+    assert saved["quick_converter_config"]["f_text"] == 41
+    assert saved["default_export_config"] == project_before["export_config"]
+
+
 def test_qml_quick_converter_applies_preview_settings_to_all_files(tmp_path):
     _app()
     bridge = AppBridge()
@@ -1547,9 +1578,9 @@ def test_qml_character_stats_cover_every_episode_and_sorting(tmp_path):
 
     assert casting.characterEpisodeStatsModel.rows() == [
         {"episode": "1", "lines": 1, "rings": 1, "words": 2,
-         "actor": "Voice", "scope": "Глобально"},
+         "actor": "Voice", "scope": "Проект"},
         {"episode": "2", "lines": 1, "rings": 1, "words": 3,
-         "actor": "Voice", "scope": "Глобально"},
+         "actor": "Voice", "scope": "Проект"},
     ]
     assert "Реплик: 2" in casting.selectedCharacterStats
     casting.setCharacterSort("words")

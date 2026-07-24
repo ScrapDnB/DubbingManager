@@ -83,6 +83,10 @@ Item {
             border.width: dropArea.containsDrag ? 2 : 1
             radius: 4
 
+            HoverHandler {
+                id: dropHover
+            }
+
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 8
@@ -99,7 +103,9 @@ Item {
                 Label {
                     Layout.fillWidth: true
                     visible: !(panel.backend && panel.backend.busy)
-                    text: qsTr("Option/Alt — сначала просмотр")
+                    text: Qt.platform.os === "osx"
+                        ? qsTr("С зажатым Option — сначала просмотр")
+                        : qsTr("С зажатым Alt — сначала просмотр")
                     color: panel.softMuted
                     font.pixelSize: 11
                     horizontalAlignment: Text.AlignHCenter
@@ -123,8 +129,26 @@ Item {
                 }
             }
 
+            CompactToolButton {
+                id: settingsPreviewButton
+                anchors.bottom: parent.bottom
+                anchors.right: parent.right
+                anchors.margins: 5
+                buttonSize: 38
+                glyphSize: 23
+                visible: dropHover.hovered
+                    && !dropArea.containsDrag
+                    && !(panel.backend && panel.backend.busy)
+                iconSource: Qt.resolvedUrl("../icons/settings.svg")
+                toolTipText: qsTr("Настройки быстрого конвертера")
+                onClicked: if (panel.backend) {
+                    panel.backend.openSettingsPreview()
+                }
+            }
+
             TapHandler {
                 enabled: !(panel.backend && panel.backend.busy)
+                    && !settingsPreviewButton.hovered
                 onTapped: sourceDialog.open()
             }
         }

@@ -115,7 +115,7 @@ Item {
         id: scopeMenu
 
         MenuItem {
-            text: qsTr("Глобально")
+            text: qsTr("Проект")
             onTriggered: if (table.castingBackend) table.castingBackend.setAssignmentScope(table.pendingCharacter, "global")
         }
 

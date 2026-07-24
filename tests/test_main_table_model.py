@@ -55,7 +55,7 @@ def test_main_table_model_exposes_assignment_roles_and_actor_color():
     model, _window = make_model()
 
     assert model.data(model.index(0, 0), Qt.DisplayRole) == "Hero"
-    assert model.data(model.index(0, 4), Qt.DisplayRole) == "Глобально"
+    assert model.data(model.index(0, 4), Qt.DisplayRole) == "Проект"
     assert model.data(model.index(0, 4), SCOPE_ROLE) == ASSIGNMENT_SCOPE_GLOBAL
     assert model.data(model.index(0, 5), Qt.DisplayRole) == "Alice"
     assert model.data(model.index(0, 5), ACTOR_ID_ROLE) == "actor-1"
