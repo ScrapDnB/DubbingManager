@@ -289,7 +289,7 @@ class ProjectService:
                     )
                     if prefix is None or path.name.startswith(prefix)
                 ),
-                key=lambda p: p.stat().st_mtime,
+                key=lambda p: (p.stat().st_mtime_ns, p.name),
                 reverse=True
             )
             
