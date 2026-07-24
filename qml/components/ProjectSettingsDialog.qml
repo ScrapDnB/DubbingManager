@@ -48,7 +48,7 @@ NativeDialogWindow {
 
         SettingsNavigation {
             id: projectNavigation
-            Layout.preferredWidth: 174
+            Layout.preferredWidth: implicitWidth
             Layout.fillHeight: true
             sections: [
                 "Проект",
@@ -75,7 +75,7 @@ NativeDialogWindow {
                     width: projectPage.availableWidth
                     spacing: 12
 
-                    GroupBox {
+                    FormSection {
                         title: qsTr("Сведения о проекте")
                         Layout.fillWidth: true
                         GridLayout {
@@ -107,7 +107,7 @@ NativeDialogWindow {
                         }
                     }
 
-                    GroupBox {
+                    FormSection {
                         title: qsTr("Хранилище")
                         Layout.fillWidth: true
                         GridLayout {
@@ -137,7 +137,7 @@ NativeDialogWindow {
                     wrapMode: Text.WordWrap
                     color: dialog.softMuted
                 }
-                GroupBox {
+                FormSection {
                     title: qsTr("Файлы проекта")
                     Layout.fillWidth: true
                     ColumnLayout {
@@ -285,7 +285,7 @@ NativeDialogWindow {
                     wrapMode: Text.WordWrap
                     color: dialog.softMuted
                 }
-                GroupBox {
+                FormSection {
                     title: qsTr("Распределение актёров")
                     Layout.fillWidth: true
                     RowLayout {
@@ -316,6 +316,8 @@ NativeDialogWindow {
         anchors.fill: parent
         AdaptiveButton {
             text: qsTr("Сохранить")
+            highlighted: dialog.macOSStyle
+            DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
             onClicked: {
                 var saved = dialog.backend.applyProjectSettingsFull(
                     projectNameField.text,
@@ -331,6 +333,10 @@ NativeDialogWindow {
                 if (saved) dialog.close()
             }
         }
-        AdaptiveButton { text: qsTr("Отмена"); onClicked: dialog.close() }
+        AdaptiveButton {
+            text: qsTr("Отмена")
+            DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+            onClicked: dialog.close()
+        }
     }
 }

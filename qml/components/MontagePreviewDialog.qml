@@ -24,8 +24,9 @@ NativeDialogWindow {
     readonly property var config: montageBackend ? montageBackend.config : ({})
 
     modal: true
+    macOSDocumentWindow: true
     title: qsTr("Монтажный лист: серия ") + (montageBackend ? montageBackend.episode : "")
-    standardButtons: Dialog.Close
+    standardButtons: macOSStyle ? Dialog.NoButton : Dialog.Close
     width: boundedWidth(1160, 28)
     height: boundedHeight(760, 28)
 
@@ -154,13 +155,14 @@ NativeDialogWindow {
                 iconSource: Qt.resolvedUrl("../icons/settings.svg")
                 toolTipText: dialog.settingsVisible
                     ? qsTr("Скрыть настройки") : qsTr("Показать настройки")
+                checkable: true
                 checked: dialog.settingsVisible
                 onClicked: dialog.settingsVisible = !dialog.settingsVisible
             }
 
             Label { text: qsTr("Серия:") }
 
-            ComboBox {
+            PlatformComboBox {
                 id: episodeCombo
                 Layout.preferredWidth: 150
                 model: dialog.montageBackend ? dialog.montageBackend.episodesModel : null
@@ -200,8 +202,8 @@ NativeDialogWindow {
                 visible: dialog.settingsVisible
                 SplitView.preferredWidth: dialog.settingsWidth
                 SplitView.minimumWidth: 300
-                color: palette.window
-                border.width: 1
+                color: dialog.macOSStyle ? "transparent" : palette.window
+                border.width: dialog.macOSStyle ? 0 : 1
                 border.color: dialog.softBorder
                 clip: true
                 onWidthChanged: {
@@ -230,7 +232,7 @@ NativeDialogWindow {
                         RowLayout {
                             Layout.fillWidth: true
                             Label { text: qsTr("Макет") }
-                            ComboBox {
+                            PlatformComboBox {
                                 id: layoutCombo
                                 Layout.fillWidth: true
                                 model: layoutModel
@@ -297,7 +299,7 @@ NativeDialogWindow {
                             expanded: true
                             Layout.fillWidth: true
 
-                            ComboBox {
+                            PlatformComboBox {
                                 id: timeModeCombo
                                 Layout.fillWidth: true
                                 model: timeModeModel
@@ -418,18 +420,33 @@ NativeDialogWindow {
                         }
                     }
                 }
+
+                Rectangle {
+                    visible: dialog.macOSStyle
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.right: parent.right
+                    width: 1
+                    color: Qt.rgba(
+                        palette.text.r,
+                        palette.text.g,
+                        palette.text.b,
+                        0.14
+                    )
+                }
             }
 
             Rectangle {
                 SplitView.fillWidth: true
                 color: palette.base
-                border.color: dialog.softBorder
+                border.color: dialog.macOSStyle
+                    ? "transparent" : dialog.softBorder
                 clip: true
 
                 WebEngineView {
                     id: previewBrowser
                     anchors.fill: parent
-                    anchors.margins: 1
+                    anchors.margins: dialog.macOSStyle ? 0 : 1
                     webChannel: previewChannel
                     backgroundColor: palette.base
                 }
@@ -470,22 +487,27 @@ NativeDialogWindow {
             PersistentListView {
                 id: batchResults
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(96, count * 30)
+                Layout.preferredHeight: Math.min(
+                    96, count * (dialog.macOSStyle ? 28 : 30)
+                )
                 visible: count > 0
                 clip: true
                 model: dialog.montageBackend
                     ? dialog.montageBackend.batchResultModel : null
 
                 delegate: ItemDelegate {
+                    id: batchResultDelegate
                     required property int index
                     required property string fileName
                     required property string status
                     required property string detail
                     width: batchResults.viewportWidth
-                    height: 30
+                    height: dialog.macOSStyle ? 28 : 30
                     text: fileName + " · " + status
-                    ToolTip.visible: hovered
-                    ToolTip.text: detail
+                    PlatformToolTip {
+                        target: batchResultDelegate
+                        text: batchResultDelegate.detail
+                    }
                     onClicked: dialog.montageBackend.openBatchResult(index)
                 }
             }

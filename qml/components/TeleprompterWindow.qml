@@ -35,7 +35,8 @@ NativeDialogWindow {
     readonly property var config: teleprompter.config
     readonly property var colors: config.colors
     readonly property int toolbarControlHeight: Math.max(
-        40, Math.ceil(interfaceFontMetrics.height + 18)
+        macOSStyle ? 28 : 40,
+        Math.ceil(interfaceFontMetrics.height + (macOSStyle ? 10 : 18))
     )
 
     FontMetrics {
@@ -119,7 +120,7 @@ NativeDialogWindow {
         title: qsTr("Актёры телесуфлёра")
         width: boundedWidth(440, 40)
         height: boundedHeight(560, 50)
-        standardButtons: Dialog.Close
+        standardButtons: macOSStyle ? Dialog.NoButton : Dialog.Close
 
         content: ColumnLayout {
             anchors.fill: parent
@@ -155,7 +156,7 @@ NativeDialogWindow {
                     required property int roleCount
 
                     width: actorFilterList.viewportWidth
-                    height: 34
+                    height: actorFilterWindow.compactRowHeight
 
                     Rectangle {
                         anchors.fill: parent
@@ -223,7 +224,7 @@ NativeDialogWindow {
             spacing: 8
 
             Label { text: qsTr("Персонаж") }
-            ComboBox {
+            PlatformComboBox {
                 id: characterEdit
                 Layout.fillWidth: true
                 editable: true
@@ -240,13 +241,13 @@ NativeDialogWindow {
                 }
             }
 
-            GroupBox {
+            FormSection {
                 title: qsTr("Передать часть текста другому персонажу")
                 Layout.fillWidth: true
 
                 ColumnLayout {
                     anchors.fill: parent
-                    ComboBox {
+                    PlatformComboBox {
                         id: splitCharacter
                         Layout.fillWidth: true
                         editable: true
@@ -291,11 +292,12 @@ NativeDialogWindow {
                 toolTipText: window.sidePanelVisible
                     ? qsTr("Скрыть настройки")
                     : qsTr("Показать настройки")
+                checkable: true
                 checked: window.sidePanelVisible
                 onClicked: window.sidePanelVisible = !window.sidePanelVisible
             }
             Label { text: qsTr("Серия:") }
-            ComboBox {
+            PlatformComboBox {
                 id: episodeBox
                 Layout.preferredWidth: 150
                 Layout.minimumHeight: window.toolbarControlHeight
@@ -329,6 +331,7 @@ NativeDialogWindow {
             }
             AdaptiveButton {
                 id: floatButton
+                visible: Qt.platform.os !== "osx"
                 text: qsTr("Плавающее окно")
                 implicitHeight: window.toolbarControlHeight
                 Layout.alignment: Qt.AlignVCenter
@@ -338,10 +341,13 @@ NativeDialogWindow {
                 onToggled: checked
                     ? floatWindow.openNearOwner()
                     : floatWindow.close()
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Плавающий контроллер")
+                PlatformToolTip {
+                    target: floatButton
+                    text: qsTr("Плавающий контроллер")
+                }
             }
             AdaptiveButton {
+                visible: !window.macOSStyle
                 text: qsTr("Закрыть окно")
                 Layout.preferredHeight: window.toolbarControlHeight
                 Layout.alignment: Qt.AlignVCenter
@@ -373,8 +379,9 @@ NativeDialogWindow {
                 visible: window.sidePanelVisible
                 Layout.preferredWidth: visible ? 350 : 0
                 Layout.fillHeight: true
-                color: systemPalette.window
-                border.color: window.softBorder
+                color: window.macOSStyle ? "transparent" : systemPalette.window
+                border.color: window.macOSStyle
+                    ? "transparent" : window.softBorder
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -400,6 +407,7 @@ NativeDialogWindow {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Label {
+                                    id: oscStatusLabel
                                     text: qsTr("Просмотр")
                                     font.bold: true
                                     Layout.fillWidth: true
@@ -413,9 +421,12 @@ NativeDialogWindow {
                                     font.pixelSize: 11
                                     elide: Text.ElideRight
                                     Layout.maximumWidth: 150
-                                    ToolTip.visible: oscStatusHover.hovered
-                                    ToolTip.text: window.teleprompter.oscStatus
                                     HoverHandler { id: oscStatusHover }
+                                    PlatformToolTip {
+                                        target: oscStatusLabel
+                                        active: oscStatusHover.hovered
+                                        text: window.teleprompter.oscStatus
+                                    }
                                 }
                             }
 
@@ -531,10 +542,12 @@ NativeDialogWindow {
                                             required property string presetForeground
                                             Layout.fillWidth: true
                                             text: String(presetIndex + 1)
-                                            ToolTip.visible: hovered
-                                            ToolTip.text: filled
-                                                ? "Применить пресет"
-                                                : "Сохранить текущие цвета"
+                                            PlatformToolTip {
+                                                target: presetButton
+                                                text: presetButton.filled
+                                                    ? "Применить пресет"
+                                                    : "Сохранить текущие цвета"
+                                            }
                                             onClicked: window.teleprompter.applyOrSavePreset(
                                                 presetIndex
                                             )
@@ -692,6 +705,20 @@ NativeDialogWindow {
                             }
                         }
                     }
+                }
+
+                Rectangle {
+                    visible: window.macOSStyle
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.right: parent.right
+                    width: 1
+                    color: Qt.rgba(
+                        systemPalette.text.r,
+                        systemPalette.text.g,
+                        systemPalette.text.b,
+                        0.14
+                    )
                 }
             }
 

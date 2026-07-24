@@ -154,4 +154,4 @@ class TestQmlStartup:
 
         monkeypatch.setenv("QT_QUICK_CONTROLS_STYLE", "Fusion")
         configure_qml_controls_style()
-        assert os.environ["QT_QUICK_CONTROLS_STYLE"] == "Fusion"
+        assert os.environ["QT_QUICK_CONTROLS_STYLE"] == "macOS"

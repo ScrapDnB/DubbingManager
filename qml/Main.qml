@@ -9,6 +9,7 @@ import "components"
 ApplicationWindow {
     id: root
     required property var appBridge
+    property var macOSIntegration: null
     readonly property var projectBackend: appBridge.project
     readonly property var uiState: appBridge.uiState
 
@@ -18,7 +19,7 @@ ApplicationWindow {
     minimumHeight: 620
     visible: true
     title: projectBackend.name + (projectBackend.dirty ? " *" : "") + " - Dubbing Manager"
-    color: workspaceBackground
+    color: macOSStyle ? "transparent" : workspaceBackground
     property bool closeApproved: false
     property bool uiReady: false
     property string pendingRelinkEpisode: ""
@@ -94,6 +95,7 @@ ApplicationWindow {
         + palette.base.b * 0.0722
     ) < 0.5
     readonly property bool windowsStyle: Qt.platform.os === "windows"
+    readonly property bool macOSStyle: Qt.platform.os === "osx"
 
     function mixColor(baseColor, tintColor, amount) {
         return Qt.rgba(
@@ -136,13 +138,21 @@ ApplicationWindow {
         root.darkTheme ? 0.045 : 0.055
     )
     property color workspaceBackground: root.mixColor(
-        palette.window, palette.highlight, root.darkTheme ? 0.025 : 0.018
+        palette.window,
+        palette.highlight,
+        root.macOSStyle ? 0 : (root.darkTheme ? 0.025 : 0.018)
     )
     property color panelSurface: root.mixColor(
-        palette.base, palette.highlight, root.darkTheme ? 0.035 : 0.012
+        palette.base,
+        palette.highlight,
+        root.macOSStyle ? 0 : (root.darkTheme ? 0.035 : 0.012)
     )
     property color softHeader: root.mixColor(
-        palette.base, palette.highlight, root.darkTheme ? 0.095 : 0.045
+        palette.base,
+        palette.highlight,
+        root.macOSStyle
+            ? (root.darkTheme ? 0.035 : 0.018)
+            : (root.darkTheme ? 0.095 : 0.045)
     )
     property color softRow: palette.base
     property color softAltRow: root.mixColor(
@@ -321,7 +331,7 @@ ApplicationWindow {
 
         footer: Item {
             implicitHeight: root.windowsStyle ? 32 : nativeFooterLoader.item
-                ? nativeFooterLoader.item.implicitHeight : 0
+                ? (nativeFooterLoader.item as Item).implicitHeight : 0
 
             Loader {
                 id: nativeFooterLoader
@@ -338,6 +348,8 @@ ApplicationWindow {
                 anchors.fill: parent
                 AdaptiveButton {
                     text: qsTr("Сохранить")
+                    highlighted: root.macOSStyle
+                    DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
                     onClicked: {
                         saveChangesDialog.close()
                         root.projectBackend.resolvePendingChanges("save")
@@ -345,6 +357,7 @@ ApplicationWindow {
                 }
                 AdaptiveButton {
                     text: qsTr("Не сохранять")
+                    DialogButtonBox.buttonRole: DialogButtonBox.DestructiveRole
                     onClicked: {
                         saveChangesDialog.close()
                         root.projectBackend.resolvePendingChanges("discard")
@@ -352,6 +365,7 @@ ApplicationWindow {
                 }
                 AdaptiveButton {
                     text: qsTr("Отмена")
+                    DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
                     onClicked: {
                         saveChangesDialog.close()
                         root.projectBackend.resolvePendingChanges("cancel")
@@ -520,6 +534,7 @@ ApplicationWindow {
         ownerWindow: root
         appBridge: root.appBridge
         softHeader: root.softHeader
+        softBorder: root.softBorder
         softAltRow: root.softAltRow
         softMuted: root.softMuted
     }
@@ -622,6 +637,17 @@ ApplicationWindow {
         }
     }
 
+    Connections {
+        target: root.macOSIntegration
+        ignoreUnknownSignals: true
+        function onOpenProjectRequested() { openDialog.open() }
+        function onSaveProjectAsRequested() { saveAsDialog.open() }
+        function onGlobalSettingsRequested() { globalSettingsDialog.openSettings() }
+        function onProjectSettingsRequested() { projectSettingsDialog.openFor(0) }
+        function onHealthRequested() { projectFilesDialog.openFor("health") }
+        function onAboutRequested() { aboutDialog.open() }
+    }
+
     menuBar: MenuBar {
         height: root.windowsStyle ? 40 : implicitHeight
         topPadding: root.windowsStyle ? 4 : 0
@@ -662,7 +688,15 @@ ApplicationWindow {
             Action { text: qsTr("Проверка проекта..."); onTriggered: projectFilesDialog.openFor("health") }
             Action { text: qsTr("Настройки проекта..."); onTriggered: projectSettingsDialog.openFor(0) }
             MenuSeparator {}
-            Action { text: qsTr("Настройки..."); onTriggered: globalSettingsDialog.openSettings() }
+            MenuItem {
+                visible: !root.macOSStyle
+                action: Action {
+                    text: root.macOSStyle
+                        ? qsTr("Параметры...") : qsTr("Настройки...")
+                    shortcut: StandardKey.Preferences
+                    onTriggered: globalSettingsDialog.openSettings()
+                }
+            }
         }
 
         Menu {
@@ -688,6 +722,7 @@ ApplicationWindow {
 
         Menu {
             title: qsTr("Справка")
+            visible: !root.macOSStyle
             Action { text: qsTr("О программе..."); onTriggered: aboutDialog.open() }
         }
     }
@@ -697,6 +732,9 @@ ApplicationWindow {
 
         ProjectToolbar {
             width: parent.width
+            visible: !(root.macOSIntegration
+                && root.macOSIntegration.nativeToolbarActive)
+            height: visible ? implicitHeight : 0
             appBridge: root.appBridge
             softMuted: root.softMuted
             rootWidth: root.width
@@ -710,6 +748,8 @@ ApplicationWindow {
     }
 
     footer: ToolBar {
+        visible: !root.macOSStyle
+        height: visible ? implicitHeight : 0
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: 8
@@ -726,8 +766,8 @@ ApplicationWindow {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 6
-        spacing: 6
+        anchors.margins: root.macOSStyle ? 0 : 6
+        spacing: root.macOSStyle ? 0 : 6
 
         TabBar {
             id: compactSections
@@ -786,13 +826,14 @@ ApplicationWindow {
                     Rectangle {
                         anchors.fill: parent
                         color: root.panelSurface
-                        border.color: root.softBorder
+                        border.color: root.macOSStyle
+                            ? "transparent" : root.softBorder
                     }
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: 6
-                        spacing: 6
+                        anchors.margins: root.macOSStyle ? 8 : 6
+                        spacing: root.macOSStyle ? 5 : 6
 
                         EpisodeControls {
                             appBridge: root.appBridge

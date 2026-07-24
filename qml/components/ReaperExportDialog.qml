@@ -293,8 +293,10 @@ NativeDialogWindow {
                         text: qsTr("Имена дорожек латиницей")
                         enabled: dialog.outputFormat === "rpp"
                         onToggled: dialog.refreshPreview(outputTabs.currentIndex)
-                        ToolTip.visible: hovered
-                        ToolTip.text: qsTr("Транслитерация применяется только к именам актёрских дорожек.")
+                        PlatformToolTip {
+                            target: transliterateCheck
+                            text: qsTr("Транслитерация применяется только к именам актёрских дорожек.")
+                        }
                     }
 
                     Rectangle {
@@ -328,8 +330,11 @@ NativeDialogWindow {
                         onToggled: if (checked) {
                             dialog.refreshPreview(outputTabs.currentIndex)
                         }
-                        ToolTip.visible: hovered && !enabled
-                        ToolTip.text: qsTr("Точные строки доступны после импорта ASS/SRT с сохранённым исходником.")
+                        PlatformToolTip {
+                            target: sourceMarkers
+                            active: sourceMarkers.hovered && !sourceMarkers.enabled
+                            text: qsTr("Точные строки доступны после импорта ASS/SRT с сохранённым исходником.")
+                        }
                     }
 
                     ButtonGroup {
@@ -365,12 +370,12 @@ NativeDialogWindow {
             Rectangle {
                 SplitView.fillWidth: true
                 SplitView.minimumWidth: 320
-                color: dialog.softRow
-                border.color: dialog.softBorder
+                color: Qt.platform.os === "osx" ? "transparent" : dialog.softRow
+                border.color: Qt.platform.os === "osx" ? "transparent" : dialog.softBorder
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 12
+                    anchors.margins: Qt.platform.os === "osx" ? 16 : 12
                     spacing: 10
 
                     Label {
@@ -491,26 +496,32 @@ NativeDialogWindow {
 
             Item { Layout.fillWidth: true }
 
-            AdaptiveButton {
-                text: dialog.batchMode
-                    ? dialog.outputFormat === "csv"
-                        ? "Экспортировать все CSV..."
-                        : "Экспортировать все RPP..."
-                    : dialog.outputFormat === "csv"
-                        ? "Сохранить CSV"
-                        : "Сохранить RPP"
-                enabled: !dialog.batchMode
-                    || dialog.reaper.exportableEpisodeCount > 0
-                highlighted: true
-                Layout.preferredWidth: 180
-                onClicked: dialog.batchMode
-                    ? batchFolderDialog.open()
-                    : saveDialog.open()
-            }
-            AdaptiveButton {
-                text: qsTr("Отмена")
-                Layout.preferredWidth: 100
-                onClicked: dialog.close()
+            RowLayout {
+                spacing: 8
+                LayoutMirroring.enabled: dialog.macOSStyle
+                LayoutMirroring.childrenInherit: true
+
+                AdaptiveButton {
+                    text: dialog.batchMode
+                        ? dialog.outputFormat === "csv"
+                            ? "Экспортировать все CSV..."
+                            : "Экспортировать все RPP..."
+                        : dialog.outputFormat === "csv"
+                            ? "Сохранить CSV"
+                            : "Сохранить RPP"
+                    enabled: !dialog.batchMode
+                        || dialog.reaper.exportableEpisodeCount > 0
+                    highlighted: true
+                    Layout.preferredWidth: 180
+                    onClicked: dialog.batchMode
+                        ? batchFolderDialog.open()
+                        : saveDialog.open()
+                }
+                AdaptiveButton {
+                    text: qsTr("Отмена")
+                    Layout.preferredWidth: 100
+                    onClicked: dialog.close()
+                }
             }
         }
     }

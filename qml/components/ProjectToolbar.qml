@@ -9,10 +9,11 @@ ToolBar {
     readonly property var projectBackend: appBridge ? appBridge.project : null
     required property color softMuted
     property int rootWidth: width
+    readonly property bool macOSStyle: Qt.platform.os === "osx"
     readonly property int controlHeight: Math.max(
         40, Math.ceil(toolbarFontMetrics.height + 18)
     )
-    implicitHeight: controlHeight + 16
+    implicitHeight: controlHeight + (macOSStyle ? 8 : 16)
 
     FontMetrics {
         id: toolbarFontMetrics
@@ -28,13 +29,13 @@ ToolBar {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 8
-        anchors.rightMargin: 8
-        anchors.topMargin: 8
-        anchors.bottomMargin: 8
+        anchors.leftMargin: toolbar.macOSStyle ? 6 : 8
+        anchors.rightMargin: toolbar.macOSStyle ? 6 : 8
+        anchors.topMargin: toolbar.macOSStyle ? 4 : 8
+        anchors.bottomMargin: toolbar.macOSStyle ? 4 : 8
         spacing: 4
 
-        ComboBox {
+        PlatformComboBox {
             id: recentProjectsCombo
             Layout.preferredWidth: 180
             Layout.minimumHeight: toolbar.controlHeight

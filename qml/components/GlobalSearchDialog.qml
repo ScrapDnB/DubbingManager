@@ -28,8 +28,9 @@ NativeDialogWindow {
     }
 
     modal: true
+    macOSDocumentWindow: true
     title: qsTr("Глобальный поиск по проекту")
-    standardButtons: Dialog.Close
+    standardButtons: macOSStyle ? Dialog.NoButton : Dialog.Close
     width: boundedWidth(920, 40)
     height: boundedHeight(620, 40)
 
@@ -89,11 +90,11 @@ NativeDialogWindow {
             color: dialog.softMuted
         }
 
-        Rectangle {
+        TableHeaderSurface {
             Layout.fillWidth: true
-            Layout.preferredHeight: 30
-            color: dialog.softHeader
-            border.color: dialog.softBorder
+            Layout.preferredHeight: dialog.tableHeaderHeight
+            softHeader: dialog.softHeader
+            softBorder: dialog.softBorder
 
             RowLayout {
                 anchors.fill: parent
@@ -101,10 +102,10 @@ NativeDialogWindow {
                 anchors.rightMargin: 8
                 spacing: 10
 
-                ToolButton { text: dialog.sortTitle(qsTr("Серия"), "episode"); font.bold: true; flat: true; padding: 0; Layout.preferredWidth: 64; onClicked: dialog.reportsBackend.setSearchSort("episode") }
-                ToolButton { text: dialog.sortTitle(qsTr("Таймкод"), "time"); font.bold: true; flat: true; padding: 0; Layout.preferredWidth: 90; onClicked: dialog.reportsBackend.setSearchSort("time") }
-                ToolButton { text: dialog.sortTitle(qsTr("Персонаж"), "character"); font.bold: true; flat: true; padding: 0; Layout.preferredWidth: 150; onClicked: dialog.reportsBackend.setSearchSort("character") }
-                ToolButton { text: dialog.sortTitle(qsTr("Текст"), "text"); font.bold: true; flat: true; padding: 0; Layout.fillWidth: true; onClicked: dialog.reportsBackend.setSearchSort("text") }
+                TableHeaderButton { text: dialog.sortTitle(qsTr("Серия"), "episode"); Layout.preferredWidth: 64; onClicked: dialog.reportsBackend.setSearchSort("episode") }
+                TableHeaderButton { text: dialog.sortTitle(qsTr("Таймкод"), "time"); Layout.preferredWidth: 90; onClicked: dialog.reportsBackend.setSearchSort("time") }
+                TableHeaderButton { text: dialog.sortTitle(qsTr("Персонаж"), "character"); Layout.preferredWidth: 150; onClicked: dialog.reportsBackend.setSearchSort("character") }
+                TableHeaderButton { text: dialog.sortTitle(qsTr("Текст"), "text"); Layout.fillWidth: true; onClicked: dialog.reportsBackend.setSearchSort("text") }
             }
         }
 
@@ -123,7 +124,7 @@ NativeDialogWindow {
             delegate: Rectangle {
                 id: resultRow
                 width: resultsView.viewportWidth
-                height: 36
+                height: dialog.regularRowHeight
                 color: resultsView.currentIndex === index
                     ? dialog.selectedRow : resultHover.hovered
                     ? dialog.softHover

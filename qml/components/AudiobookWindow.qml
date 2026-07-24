@@ -110,7 +110,7 @@ NativeDialogWindow {
                 indeterminate: window.backend.importTotal <= 0
                 Layout.preferredWidth: 180
             }
-            ComboBox {
+            PlatformComboBox {
                 id: fontBox
                 model: window.backend.fontFamilies
                 Layout.preferredWidth: 180
@@ -118,10 +118,13 @@ NativeDialogWindow {
                 onActivated: window.backend.setFontFamily(currentText)
             }
             ToolButton {
+                id: zoomOutButton
                 text: qsTr("−")
                 enabled: window.backend.zoom > -5
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Уменьшить текст")
+                PlatformToolTip {
+                    target: zoomOutButton
+                    text: qsTr("Уменьшить текст")
+                }
                 onClicked: window.backend.setZoom(window.backend.zoom - 1)
             }
             Label {
@@ -130,10 +133,13 @@ NativeDialogWindow {
                 Layout.preferredWidth: 46
             }
             ToolButton {
+                id: zoomInButton
                 text: qsTr("+")
                 enabled: window.backend.zoom < 10
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Увеличить текст")
+                PlatformToolTip {
+                    target: zoomInButton
+                    text: qsTr("Увеличить текст")
+                }
                 onClicked: window.backend.setZoom(window.backend.zoom + 1)
             }
         }
@@ -148,6 +154,11 @@ NativeDialogWindow {
                 SplitView.minimumWidth: 180
                 SplitView.maximumWidth: 330
                 padding: 6
+                background: Rectangle {
+                    color: window.macOSStyle ? "transparent" : palette.window
+                    border.color: window.macOSStyle
+                        ? "transparent" : window.softBorder
+                }
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -164,7 +175,7 @@ NativeDialogWindow {
                             required property string title
                             required property bool selected
                             width: chaptersView.viewportWidth
-                            height: 32
+                            height: window.macOSStyle ? 28 : 32
                             text: title
                             highlighted: selected
                             onClicked: window.backend.selectChapter(title)
@@ -183,13 +194,14 @@ NativeDialogWindow {
                 SplitView.fillWidth: true
                 SplitView.minimumWidth: 400
                 color: palette.base
-                border.color: window.softBorder
+                border.color: window.macOSStyle
+                    ? "transparent" : window.softBorder
                 clip: true
 
                 WebEngineView {
                     id: editorView
                     anchors.fill: parent
-                    anchors.margins: 1
+                    anchors.margins: window.macOSStyle ? 0 : 1
                     webChannel: editorChannel
                     backgroundColor: palette.base
                     onLoadingChanged: function(request) {
@@ -204,6 +216,11 @@ NativeDialogWindow {
                 SplitView.minimumWidth: 285
                 SplitView.maximumWidth: 430
                 padding: 8
+                background: Rectangle {
+                    color: window.macOSStyle ? "transparent" : palette.window
+                    border.color: window.macOSStyle
+                        ? "transparent" : window.softBorder
+                }
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -241,7 +258,7 @@ NativeDialogWindow {
                                         horizontalAlignment: Text.AlignHCenter
                                         Layout.preferredWidth: 18
                                     }
-                                    ComboBox {
+                                    PlatformComboBox {
                                         id: characterBox
                                         editable: true
                                         model: window.backend.characterNames
@@ -254,7 +271,7 @@ NativeDialogWindow {
                                             window.syncSlots()
                                         }
                                     }
-                                    ComboBox {
+                                    PlatformComboBox {
                                         id: actorBox
                                         model: window.backend.actorsModel
                                         textRole: "name"
@@ -275,10 +292,13 @@ NativeDialogWindow {
                                         }
                                     }
                                     ToolButton {
+                                        id: applyMarkupButton
                                         text: qsTr("✓")
                                         enabled: characterBox.editText.trim().length > 0
-                                        ToolTip.visible: hovered
-                                        ToolTip.text: qsTr("Разметить выделение")
+                                        PlatformToolTip {
+                                            target: applyMarkupButton
+                                            text: qsTr("Разметить выделение")
+                                        }
                                         onClicked: {
                                             var actor = window.backend.actorsModel.get(actorBox.currentIndex)
                                             var character = characterBox.editText
@@ -320,7 +340,7 @@ NativeDialogWindow {
                             required property string character
                             required property string summary
                             width: markedItemsView.viewportWidth
-                            height: 32
+                            height: window.macOSStyle ? 28 : 32
                             contentItem: RowLayout {
                                 Label { text: markedRow.character; Layout.fillWidth: true; elide: Text.ElideRight }
                                 Label { text: markedRow.summary; color: window.softMuted }
@@ -338,6 +358,7 @@ NativeDialogWindow {
         spacing: 8
         Item { Layout.fillWidth: true }
         AdaptiveButton {
+            visible: !window.macOSStyle
             text: qsTr("Закрыть")
             Layout.preferredWidth: 100
             onClicked: window.close()

@@ -31,7 +31,7 @@ PersistentScrollView {
             color: pane.softMuted
         }
 
-        GroupBox {
+        FormSection {
             title: qsTr("Подключение")
             Layout.fillWidth: true
 
@@ -121,7 +121,7 @@ PersistentScrollView {
             }
         }
 
-        GroupBox {
+        FormSection {
             title: qsTr("Как настроить REAPER")
             Layout.fillWidth: true
 

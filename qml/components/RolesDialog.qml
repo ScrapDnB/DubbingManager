@@ -75,20 +75,20 @@ NativeDialogWindow {
             }
         }
 
-        Rectangle {
+        TableHeaderSurface {
             Layout.fillWidth: true
-            Layout.preferredHeight: 30
-            color: dialog.softHeader
-            border.color: dialog.softBorder
+            Layout.preferredHeight: dialog.tableHeaderHeight
+            softHeader: dialog.softHeader
+            softBorder: dialog.softBorder
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 8
                 anchors.rightMargin: 8
                 spacing: 8
                 Label { text: qsTr(""); Layout.preferredWidth: 24 }
-                Label { text: qsTr("Роль"); font.bold: true; Layout.fillWidth: true }
-                Label { text: qsTr("Текущий актёр"); font.bold: true; Layout.preferredWidth: 180 }
-                Label { text: qsTr("Серии"); font.bold: true; Layout.preferredWidth: 180 }
+                TableHeaderLabel { text: qsTr("Роль"); Layout.fillWidth: true }
+                TableHeaderLabel { text: qsTr("Текущий актёр"); Layout.preferredWidth: 180 }
+                TableHeaderLabel { text: qsTr("Серии"); Layout.preferredWidth: 180 }
             }
         }
 
@@ -143,7 +143,7 @@ NativeDialogWindow {
         RowLayout {
             Layout.fillWidth: true
             Label { text: qsTr("Назначить:") }
-            ComboBox {
+            PlatformComboBox {
                 id: roleActorCombo
                 Layout.preferredWidth: 220
                 model: dialog.rolesBackend

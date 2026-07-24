@@ -39,7 +39,7 @@ NativeDialogWindow {
                 required property string label
                 required property bool exists
                 width: transferView.viewportWidth
-                height: 36
+                height: dialog.regularRowHeight
                 color: index % 2 === 0 ? dialog.softRow : dialog.softAltRow
                 RowLayout {
                     anchors.fill: parent

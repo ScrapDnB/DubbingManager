@@ -11,12 +11,17 @@ ColumnLayout {
     readonly property var castingBackend: appBridge ? appBridge.casting : null
     readonly property bool compact: width < 1020
     readonly property bool narrow: width < 780
+    readonly property bool macOSStyle: Qt.platform.os === "osx"
     readonly property int controlHeight: Math.max(
-        40, Math.ceil(controlsFontMetrics.height + 18)
+        macOSStyle ? 28 : 40,
+        Math.ceil(controlsFontMetrics.height + (macOSStyle ? 8 : 18))
     )
 
     Layout.fillWidth: true
+    Layout.fillHeight: false
+    Layout.minimumHeight: controlHeight
     Layout.preferredHeight: controlHeight
+    Layout.maximumHeight: controlHeight
     implicitHeight: controlHeight
     spacing: 0
     signal importRequested()
@@ -105,15 +110,15 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         Layout.preferredHeight: controls.controlHeight
-        spacing: 4
+        spacing: controls.macOSStyle ? 6 : 4
 
         Label {
             text: qsTr("Серия")
-            font.bold: true
+            font.weight: Font.DemiBold
             visible: !controls.narrow
         }
 
-        ComboBox {
+        PlatformComboBox {
             id: episodeCombo
             Layout.preferredWidth: controls.narrow ? 105 : 140
             Layout.minimumHeight: controls.controlHeight
@@ -179,11 +184,19 @@ ColumnLayout {
             onClicked: deleteEpisodeDialog.open()
         }
 
+        ToolSeparator {
+            visible: controls.macOSStyle && !controls.narrow
+            Layout.fillHeight: true
+        }
+
         Item { Layout.fillWidth: true }
 
-        Label { text: qsTr("Актёр"); visible: !controls.compact }
+        Label {
+            text: qsTr("Актёр")
+            visible: !controls.compact && !controls.macOSStyle
+        }
 
-        ComboBox {
+        PlatformComboBox {
             id: actorFilterCombo
             Layout.preferredWidth: controls.narrow ? 150
                 : (controls.compact ? 220 : 230)

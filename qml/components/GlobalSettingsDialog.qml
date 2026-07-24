@@ -51,7 +51,7 @@ NativeDialogWindow {
 
         SettingsNavigation {
             id: globalNavigation
-            Layout.preferredWidth: 174
+            Layout.preferredWidth: implicitWidth
             Layout.fillHeight: true
             sections: [
                 "Интерфейс",
@@ -104,7 +104,7 @@ NativeDialogWindow {
                     enabled: backupEnabled.checked
 
                     Label { text: qsTr("Расположение:") }
-                    ComboBox {
+                    PlatformComboBox {
                         id: backupModeCombo
                         Layout.fillWidth: true
                         textRole: "label"
@@ -357,6 +357,8 @@ NativeDialogWindow {
         anchors.fill: parent
         AdaptiveButton {
             text: qsTr("Сохранить")
+            highlighted: dialog.macOSStyle
+            DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
             onClicked: {
                 if (dialog.backend.applyGlobalSettingsComplete(
                     "ru",
@@ -371,7 +373,11 @@ NativeDialogWindow {
                 )) dialog.close()
             }
         }
-        AdaptiveButton { text: qsTr("Отмена"); onClicked: dialog.close() }
+        AdaptiveButton {
+            text: qsTr("Отмена")
+            DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+            onClicked: dialog.close()
+        }
     }
 
     FolderDialog {

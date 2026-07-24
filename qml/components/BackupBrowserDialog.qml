@@ -36,15 +36,19 @@ NativeDialogWindow {
         anchors.fill: parent
         AdaptiveButton {
             text: qsTr("Обновить")
+            DialogButtonBox.buttonRole: DialogButtonBox.ActionRole
             onClicked: dialog.backend.refreshBackups()
         }
         AdaptiveButton {
             text: qsTr("Восстановить")
             enabled: dialog.selectedPath.length > 0
+            highlighted: dialog.macOSStyle
+            DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
             onClicked: restoreDialog.open()
         }
         AdaptiveButton {
             text: qsTr("Закрыть")
+            DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
             onClicked: dialog.close()
         }
     }
@@ -60,19 +64,19 @@ NativeDialogWindow {
             color: dialog.softMuted
         }
 
-        Rectangle {
+        TableHeaderSurface {
             Layout.fillWidth: true
-            Layout.preferredHeight: 28
-            color: dialog.softHeader
-            border.color: dialog.softBorder
+            Layout.preferredHeight: dialog.tableHeaderHeight
+            softHeader: dialog.softHeader
+            softBorder: dialog.softBorder
 
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 10
                 anchors.rightMargin: 10
-                Label { text: qsTr("Копия"); font.bold: true; Layout.fillWidth: true }
-                Label { text: qsTr("Изменена"); font.bold: true; Layout.preferredWidth: 140 }
-                Label { text: qsTr("Размер"); font.bold: true; Layout.preferredWidth: 70; horizontalAlignment: Text.AlignRight }
+                TableHeaderLabel { text: qsTr("Копия"); Layout.fillWidth: true }
+                TableHeaderLabel { text: qsTr("Изменена"); Layout.preferredWidth: 140 }
+                TableHeaderLabel { text: qsTr("Размер"); Layout.preferredWidth: 70; horizontalAlignment: Text.AlignRight }
             }
         }
 
@@ -90,7 +94,7 @@ NativeDialogWindow {
                 required property int index
                 required property var model
                 width: backupsView.viewportWidth
-                height: 34
+                height: dialog.compactRowHeight
                 color: dialog.selectedPath === model.path
                     ? Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.22)
                     : (hover.hovered ? dialog.softHover
@@ -139,6 +143,8 @@ NativeDialogWindow {
             anchors.fill: parent
             AdaptiveButton {
                 text: qsTr("Восстановить")
+                highlighted: restoreDialog.macOSStyle
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
                 onClicked: {
                     restoreDialog.close()
                     dialog.close()
@@ -147,6 +153,7 @@ NativeDialogWindow {
             }
             AdaptiveButton {
                 text: qsTr("Отмена")
+                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
                 onClicked: restoreDialog.close()
             }
         }

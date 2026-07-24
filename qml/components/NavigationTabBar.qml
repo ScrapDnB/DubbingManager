@@ -10,11 +10,12 @@ FocusScope {
     property int currentIndex: 0
     property real tabWidth: 120
     property color softMuted: tabPalette.placeholderText
+    readonly property bool macOSStyle: Qt.platform.os === "osx"
 
     signal activated(int index)
 
     implicitWidth: Math.max(1, model.length) * tabWidth
-    implicitHeight: 34
+    implicitHeight: macOSStyle ? 28 : 34
     activeFocusOnTab: true
 
     function select(index) {
@@ -46,16 +47,38 @@ FocusScope {
     }
 
     Rectangle {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: 1
-        color: Qt.rgba(
-            tabPalette.mid.r,
-            tabPalette.mid.g,
-            tabPalette.mid.b,
-            0.45
-        )
+        anchors.fill: parent
+        radius: tabs.macOSStyle ? 7 : 0
+        color: tabs.macOSStyle
+            ? Qt.rgba(
+                tabPalette.text.r,
+                tabPalette.text.g,
+                tabPalette.text.b,
+                0.075
+            )
+            : "transparent"
+        border.color: tabs.macOSStyle
+            ? Qt.rgba(
+                tabPalette.text.r,
+                tabPalette.text.g,
+                tabPalette.text.b,
+                0.10
+            )
+            : "transparent"
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: 1
+            visible: !tabs.macOSStyle
+            color: Qt.rgba(
+                tabPalette.mid.r,
+                tabPalette.mid.g,
+                tabPalette.mid.b,
+                0.45
+            )
+        }
     }
 
     Row {
@@ -80,13 +103,25 @@ FocusScope {
 
                 Rectangle {
                     anchors.fill: parent
-                    anchors.bottomMargin: 1
-                    color: tabMouse.containsMouse && !tabItem.selected
-                        ? Qt.rgba(
+                    anchors.margins: tabs.macOSStyle ? 2 : 0
+                    anchors.bottomMargin: tabs.macOSStyle ? 2 : 1
+                    radius: tabs.macOSStyle ? 5 : 0
+                    color: tabItem.selected && tabs.macOSStyle
+                        ? tabPalette.button
+                        : tabMouse.containsMouse && !tabItem.selected
+                            ? Qt.rgba(
                             tabPalette.text.r,
                             tabPalette.text.g,
                             tabPalette.text.b,
                             0.055
+                        )
+                        : "transparent"
+                    border.color: tabItem.selected && tabs.macOSStyle
+                        ? Qt.rgba(
+                            tabPalette.text.r,
+                            tabPalette.text.g,
+                            tabPalette.text.b,
+                            0.12
                         )
                         : "transparent"
                 }
@@ -114,7 +149,7 @@ FocusScope {
                     anchors.rightMargin: 8
                     height: 2
                     radius: 1
-                    visible: tabItem.selected
+                    visible: tabItem.selected && !tabs.macOSStyle
                     color: tabPalette.highlight
                 }
 

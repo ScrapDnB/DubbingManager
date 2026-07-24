@@ -27,6 +27,7 @@ Item {
     property color selectedActorColor: "#4F81BD"
     property string selectedActorGender: ""
     property color addActorColor: "#4F81BD"
+    readonly property bool macOSStyle: Qt.platform.os === "osx"
     property bool globalMode: actorBaseMode.currentIndex === 1
     property color selectedRow: Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.22)
     readonly property int tablePadding: 6
@@ -47,10 +48,12 @@ Item {
         0, genderColumnX - tableColumnSpacing - nameColumnX
     )
     readonly property int controlHeight: Math.max(
-        40, Math.ceil(panelFontMetrics.height + 18)
+        macOSStyle ? 28 : 40,
+        Math.ceil(panelFontMetrics.height + (macOSStyle ? 8 : 18))
     )
     readonly property int tableHeaderHeight: Math.max(
-        28, Math.ceil(panelFontMetrics.height + 8)
+        macOSStyle ? 24 : 28,
+        Math.ceil(panelFontMetrics.height + (macOSStyle ? 4 : 8))
     )
 
     function sortTitle(label, key) {
@@ -119,8 +122,24 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: panel.panelSurface
-        border.color: panel.softBorder
+        color: panel.macOSStyle
+            ? Qt.rgba(
+                palette.window.r,
+                palette.window.g,
+                palette.window.b,
+                0.72
+            )
+            : panel.panelSurface
+        border.color: panel.macOSStyle ? "transparent" : panel.softBorder
+
+        Rectangle {
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.right: parent.right
+            width: 1
+            visible: panel.macOSStyle
+            color: panel.softBorder
+        }
     }
 
     NativeDialogWindow {
@@ -202,7 +221,7 @@ Item {
                 visible: !panel.globalMode
             }
 
-            ComboBox {
+            PlatformComboBox {
                 id: actorSourceCombo
                 visible: !panel.globalMode
                 Layout.fillWidth: true
@@ -245,7 +264,7 @@ Item {
 
                 Label { text: qsTr("Пол:") }
 
-                ComboBox {
+                PlatformComboBox {
                     id: addActorGenderCombo
                     Layout.preferredWidth: 80
                     model: ["", "М", "Ж"]
@@ -294,7 +313,7 @@ Item {
                 Layout.fillWidth: true
             }
             Label { text: qsTr("Оставить актёра"); color: panel.softMuted }
-            ComboBox {
+            PlatformComboBox {
                 id: mergeTargetCombo
                 Layout.fillWidth: true
                 model: panel.actorLibraryBackend
@@ -377,8 +396,8 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 6
-        spacing: 6
+        anchors.margins: panel.macOSStyle ? 8 : 6
+        spacing: panel.macOSStyle ? 5 : 6
 
         RowLayout {
             Layout.fillWidth: true
@@ -390,7 +409,7 @@ Item {
                 Layout.fillWidth: true
             }
 
-            ComboBox {
+            PlatformComboBox {
                 id: actorBaseMode
                 Layout.preferredWidth: 130
                 Layout.minimumHeight: panel.controlHeight
@@ -406,44 +425,33 @@ Item {
             }
         }
 
-        Rectangle {
+        TableHeaderSurface {
             Layout.fillWidth: true
-            height: panel.tableHeaderHeight
-            color: panel.softHeader
-            border.color: panel.softBorder
+            Layout.preferredHeight: panel.tableHeaderHeight
+            softHeader: panel.softHeader
+            softBorder: panel.softBorder
 
             Item {
                 anchors.fill: parent
 
-                ToolButton {
+                TableHeaderButton {
                     x: panel.nameColumnX
                     width: panel.nameColumnWidth
                     height: parent.height
                     text: panel.sortTitle(qsTr("Имя"), "name")
-                    font.bold: true
-                    flat: true
-                    leftPadding: 0
-                    rightPadding: 0
-                    topPadding: 0
-                    bottomPadding: 0
                     onClicked: panel.setActorSort("name")
                     Accessible.name: qsTr("Сортировать актёров по имени")
                 }
-                ToolButton {
+                TableHeaderButton {
                     x: panel.genderColumnX
                     width: panel.genderColumnWidth
                     height: parent.height
                     text: panel.sortTitle(qsTr("Пол"), "gender")
-                    font.bold: true
-                    flat: true
-                    leftPadding: 0
-                    rightPadding: 0
-                    topPadding: 0
-                    bottomPadding: 0
+                    textAlignment: Text.AlignHCenter
                     onClicked: panel.setActorSort("gender")
                     Accessible.name: qsTr("Сортировать актёров по полу")
                 }
-                ToolButton {
+                TableHeaderButton {
                     x: panel.trailingColumnX
                     width: panel.trailingColumnWidth
                     height: parent.height
@@ -451,12 +459,7 @@ Item {
                         panel.globalMode ? qsTr("Статус") : qsTr("Роли"),
                         panel.globalMode ? "status" : "roleCount"
                     )
-                    font.bold: true
-                    flat: true
-                    leftPadding: 0
-                    rightPadding: 0
-                    topPadding: 0
-                    bottomPadding: 0
+                    textAlignment: Text.AlignRight
                     onClicked: panel.setActorSort("roleCount")
                     Accessible.name: panel.globalMode
                         ? qsTr("Сортировать актёров по статусу")
@@ -479,7 +482,7 @@ Item {
             delegate: Rectangle {
                 id: actorRow
                 width: actorsView.viewportWidth
-                height: 32
+                height: panel.macOSStyle ? 28 : 32
                 color: panel.selectedActorId === model.id ? panel.selectedRow : (actorHover.hovered ? panel.softHover : (index % 2 === 0 ? panel.softRow : panel.softAltRow))
 
                 HoverHandler {
@@ -555,26 +558,14 @@ Item {
                         id: rowActions
                         x: panel.nameColumnX + panel.nameColumnWidth - width - 2
                         anchors.verticalCenter: parent.verticalCenter
-                        height: 28
+                        height: moreActorButton.implicitHeight
                         spacing: 2
-                        visible: actorHover.hovered
-                            || moreActorButton.hovered
-                            || actorActionsMenu.visible
+                        visible: true
 
-                        ToolButton {
+                        RowAccessoryButton {
                             id: moreActorButton
-                            width: 28
-                            height: 28
-                            text: "⋯"
-                            font.pixelSize: 18
-                            leftPadding: 0
-                            rightPadding: 0
-                            topPadding: 0
-                            bottomPadding: 0
-                            Accessible.name: qsTr("Действия с актёром")
-                            ToolTip.visible: hovered
-                            ToolTip.text: Accessible.name
-                            ToolTip.delay: 500
+                            iconSource: Qt.resolvedUrl("../icons/ellipsis.svg")
+                            toolTipText: qsTr("Действия с актёром")
                             onClicked: {
                                 panel.selectActor(
                                     model.id, model.name,
@@ -644,15 +635,17 @@ Item {
 
         RowLayout {
             Layout.fillWidth: true
+            spacing: 8
             AdaptiveButton {
                 text: qsTr("Добавить")
-                highlighted: true
+                highlighted: !panel.macOSStyle
                 onClicked: addActorDialog.open()
-                Layout.fillWidth: true
+                Layout.fillWidth: !panel.macOSStyle
             }
             AdaptiveButton {
                 text: qsTr("Удалить")
-                palette.buttonText: "#b42318"
+                palette.buttonText: panel.macOSStyle
+                    ? palette.text : "#b42318"
                 enabled: panel.selectedActorId.length > 0
                 onClicked: {
                     if (panel.globalMode) {
@@ -665,15 +658,19 @@ Item {
                     panel.selectedActorId = ""
                     panel.selectedActorName = ""
                 }
-                Layout.fillWidth: true
+                Layout.fillWidth: !panel.macOSStyle
             }
-        }
-
-        AdaptiveButton {
-            text: qsTr("Отчёт по проекту")
-            enabled: panel.appBridge !== null
-            onClicked: panel.projectSummaryRequested()
-            Layout.fillWidth: true
+            Item { Layout.fillWidth: true }
+            AdaptiveButton {
+                id: reportButton
+                text: qsTr("Отчёт")
+                enabled: panel.appBridge !== null
+                onClicked: panel.projectSummaryRequested()
+                PlatformToolTip {
+                    target: reportButton
+                    text: qsTr("Отчёт по проекту")
+                }
+            }
         }
     }
 }

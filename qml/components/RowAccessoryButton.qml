@@ -9,19 +9,14 @@ ToolButton {
     property url iconSource
     property string toolTipText
     readonly property bool macOSStyle: Qt.platform.os === "osx"
-    property int buttonSize: Math.max(
-        macOSStyle ? 28 : 40,
-        Math.ceil(controlFontMetrics.height + (macOSStyle ? 10 : 18))
-    )
-    property int glyphSize: Math.max(
-        macOSStyle ? 16 : 24,
-        Math.round(controlFontMetrics.height * (macOSStyle ? 1.0 : 1.35))
-    )
+    readonly property int controlSize: macOSStyle ? 22 : 28
+    readonly property int glyphSize: macOSStyle ? 13 : 16
 
-    implicitWidth: buttonSize
-    implicitHeight: buttonSize
-    padding: macOSStyle ? 4 : 6
+    implicitWidth: controlSize
+    implicitHeight: controlSize
+    padding: macOSStyle ? 4 : 5
     hoverEnabled: true
+    focusPolicy: Qt.StrongFocus
     display: AbstractButton.IconOnly
     icon.source: iconSource
     icon.width: glyphSize
@@ -37,7 +32,7 @@ ToolButton {
         id: macOSBackground
 
         Rectangle {
-            radius: 6
+            radius: width / 2
             color: {
                 if (!control.enabled)
                     return "transparent"
@@ -48,14 +43,7 @@ ToolButton {
                         control.palette.text.b,
                         0.16
                     )
-                if (control.checked)
-                    return Qt.rgba(
-                        control.palette.highlight.r,
-                        control.palette.highlight.g,
-                        control.palette.highlight.b,
-                        control.hovered ? 0.26 : 0.20
-                    )
-                if (control.hovered)
+                if (control.hovered || control.visualFocus)
                     return Qt.rgba(
                         control.palette.text.r,
                         control.palette.text.g,
@@ -64,19 +52,7 @@ ToolButton {
                     )
                 return "transparent"
             }
-            border.width: control.checked ? 1 : 0
-            border.color: Qt.rgba(
-                control.palette.highlight.r,
-                control.palette.highlight.g,
-                control.palette.highlight.b,
-                0.34
-            )
         }
-    }
-
-    FontMetrics {
-        id: controlFontMetrics
-        font: control.font
     }
 
     PlatformToolTip {

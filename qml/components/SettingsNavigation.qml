@@ -13,8 +13,9 @@ Item {
     readonly property bool darkPalette: (
         navPalette.window.r + navPalette.window.g + navPalette.window.b
     ) < 1.5
+    readonly property bool macOSStyle: Qt.platform.os === "osx"
 
-    implicitWidth: 174
+    implicitWidth: macOSStyle ? 188 : 174
 
     SystemPalette {
         id: navPalette
@@ -23,16 +24,23 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: navigation.darkPalette
-            ? Qt.lighter(navPalette.window, 1.13)
-            : Qt.darker(navPalette.window, 1.035)
-        radius: 6
+        color: navigation.macOSStyle
+            ? Qt.rgba(
+                navPalette.window.r,
+                navPalette.window.g,
+                navPalette.window.b,
+                navigation.darkPalette ? 0.72 : 0.82
+            )
+            : navigation.darkPalette
+                ? Qt.lighter(navPalette.window, 1.13)
+                : Qt.darker(navPalette.window, 1.035)
+        radius: navigation.macOSStyle ? 9 : 6
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 6
-        spacing: 2
+        anchors.margins: navigation.macOSStyle ? 8 : 6
+        spacing: navigation.macOSStyle ? 3 : 2
 
         Label {
             text: qsTr("Разделы")
@@ -61,7 +69,7 @@ Item {
                 readonly property bool selected: index === sectionList.currentIndex
 
                 width: sectionList.viewportWidth
-                height: 34
+                height: navigation.macOSStyle ? 30 : 34
 
                 Accessible.name: modelData
                 Accessible.role: Accessible.PageTab
@@ -69,13 +77,15 @@ Item {
 
                 Rectangle {
                     anchors.fill: parent
-                    radius: 4
+                    radius: navigation.macOSStyle ? 7 : 4
                     color: sectionDelegate.selected
                         ? Qt.rgba(
                             navPalette.highlight.r,
                             navPalette.highlight.g,
                             navPalette.highlight.b,
-                            navigation.darkPalette ? 0.42 : 0.20
+                            navigation.macOSStyle
+                                ? (navigation.darkPalette ? 0.72 : 0.82)
+                                : (navigation.darkPalette ? 0.42 : 0.20)
                         )
                         : sectionMouse.containsMouse
                             ? Qt.rgba(
@@ -98,6 +108,9 @@ Item {
                     font.weight: sectionDelegate.selected
                         ? Font.DemiBold
                         : Font.Normal
+                    color: sectionDelegate.selected && navigation.macOSStyle
+                        ? navPalette.highlightedText
+                        : navPalette.text
                 }
 
                 MouseArea {

@@ -9,6 +9,7 @@ NativeDialogWindow {
 
     required property var appBridge
     required property color softHeader
+    required property color softBorder
     required property color softAltRow
     required property color softMuted
     readonly property var backend: appBridge ? appBridge.converter : null
@@ -28,19 +29,20 @@ NativeDialogWindow {
             font.bold: true
         }
 
-        Rectangle {
+        TableHeaderSurface {
             Layout.fillWidth: true
-            Layout.preferredHeight: 30
-            color: dialog.softHeader
+            Layout.preferredHeight: dialog.tableHeaderHeight
+            softHeader: dialog.softHeader
+            softBorder: dialog.softBorder
 
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 8
                 anchors.rightMargin: 8
                 spacing: 10
-                Label { Layout.preferredWidth: 210; text: qsTr("Файл"); font.bold: true }
-                Label { Layout.preferredWidth: 90; text: qsTr("Статус"); font.bold: true }
-                Label { Layout.fillWidth: true; text: qsTr("Результат"); font.bold: true }
+                TableHeaderLabel { Layout.preferredWidth: 210; text: qsTr("Файл") }
+                TableHeaderLabel { Layout.preferredWidth: 90; text: qsTr("Статус") }
+                TableHeaderLabel { Layout.fillWidth: true; text: qsTr("Результат") }
             }
         }
 
@@ -87,12 +89,15 @@ NativeDialogWindow {
                         elide: Text.ElideMiddle
                     }
                     ToolButton {
+                        id: openResultButton
                         visible: resultRow.outputPath.length > 0
                         text: qsTr("↗")
                         Accessible.name: qsTr("Открыть результат")
                         onClicked: dialog.backend.openResult(resultRow.index)
-                        ToolTip.visible: hovered
-                        ToolTip.text: Accessible.name
+                        PlatformToolTip {
+                            target: openResultButton
+                            text: openResultButton.Accessible.name
+                        }
                     }
                 }
             }

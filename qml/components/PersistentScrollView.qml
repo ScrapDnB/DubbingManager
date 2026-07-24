@@ -1,9 +1,10 @@
+import QtQuick
 import QtQuick.Controls
 
 ScrollView {
     id: scrollView
 
-    rightPadding: verticalScrollBar.size < 1.0
+    rightPadding: Qt.platform.os !== "osx" && verticalScrollBar.size < 1.0
         ? verticalScrollBar.width + 4 : 0
 
     ScrollBar.vertical: VisibleScrollBar {

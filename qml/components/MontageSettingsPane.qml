@@ -35,7 +35,7 @@ PersistentScrollView {
         RowLayout {
             Layout.fillWidth: true
             Label { text: qsTr("Макет:") }
-            ComboBox {
+            PlatformComboBox {
                 id: layoutCombo
                 Layout.preferredWidth: 180
                 model: ["Таблица", "Сценарий 1", "Сценарий 2", "Сценарий 3"]
@@ -44,7 +44,7 @@ PersistentScrollView {
             Item { Layout.fillWidth: true }
         }
 
-        GroupBox {
+        FormSection {
             title: qsTr("Колонки и таймкод")
             Layout.fillWidth: true
             GridLayout {
@@ -55,7 +55,7 @@ PersistentScrollView {
                 CheckBox { text: qsTr("Актёр"); checked: Boolean(pane.configuration.col_actor); onToggled: pane.setValue("col_actor", checked) }
                 CheckBox { text: qsTr("Реплика"); checked: Boolean(pane.configuration.col_text); onToggled: pane.setValue("col_text", checked) }
                 Label { text: qsTr("Показывать:") }
-                ComboBox {
+                PlatformComboBox {
                     id: timeCombo
                     Layout.fillWidth: true
                     model: ListModel {
@@ -71,7 +71,7 @@ PersistentScrollView {
             }
         }
 
-        GroupBox {
+        FormSection {
             title: qsTr("Оформление")
             Layout.fillWidth: true
             GridLayout {
@@ -84,7 +84,7 @@ PersistentScrollView {
             }
         }
 
-        GroupBox {
+        FormSection {
             title: qsTr("Размер текста")
             Layout.fillWidth: true
             GridLayout {
@@ -101,7 +101,7 @@ PersistentScrollView {
             }
         }
 
-        GroupBox {
+        FormSection {
             title: qsTr("Ширина колонок таблицы")
             Layout.fillWidth: true
             GridLayout {
@@ -134,7 +134,7 @@ PersistentScrollView {
             }
         }
 
-        GroupBox {
+        FormSection {
             title: qsTr("Форматы экспорта по умолчанию")
             visible: pane.showFormatSettings
             Layout.fillWidth: true

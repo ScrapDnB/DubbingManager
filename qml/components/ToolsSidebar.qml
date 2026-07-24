@@ -21,6 +21,7 @@ Item {
 
     SplitView.preferredWidth: 235
     SplitView.minimumWidth: 150
+    readonly property bool macOSStyle: Qt.platform.os === "osx"
 
     SystemPalette {
         id: palette
@@ -36,18 +37,34 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: sidebar.panelSurface
-        border.color: sidebar.softBorder
+        color: sidebar.macOSStyle
+            ? Qt.rgba(
+                palette.window.r,
+                palette.window.g,
+                palette.window.b,
+                0.72
+            )
+            : sidebar.panelSurface
+        border.color: sidebar.macOSStyle ? "transparent" : sidebar.softBorder
+
+        Rectangle {
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            width: 1
+            visible: sidebar.macOSStyle
+            color: sidebar.softBorder
+        }
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 6
-        spacing: 6
+        anchors.margins: sidebar.macOSStyle ? 8 : 6
+        spacing: sidebar.macOSStyle ? 5 : 6
 
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: 32
+            Layout.preferredHeight: sidebar.macOSStyle ? 26 : 32
 
             Label {
                 anchors.fill: parent
@@ -61,68 +78,60 @@ Item {
             Layout.fillWidth: true
             spacing: 4
 
-            AdaptiveButton {
+            SidebarCommandButton {
                 text: qsTr("Телесуфлёр")
                 Layout.fillWidth: true
-                Layout.preferredHeight: 32
+                Layout.preferredHeight: sidebar.macOSStyle ? 28 : 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.teleprompterRequested()
             }
-            AdaptiveButton {
+            SidebarCommandButton {
                 text: qsTr("Монтажный лист")
                 Layout.fillWidth: true
-                Layout.preferredHeight: 32
+                Layout.preferredHeight: sidebar.macOSStyle ? 28 : 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.montagePreviewRequested()
             }
-            AdaptiveButton {
+            SidebarCommandButton {
                 text: qsTr("Reaper")
                 Layout.fillWidth: true
-                Layout.preferredHeight: 32
+                Layout.preferredHeight: sidebar.macOSStyle ? 28 : 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.reaperExportRequested()
             }
-            AdaptiveButton {
+            SidebarCommandButton {
                 text: qsTr("Аудиокнига")
                 Layout.fillWidth: true
-                Layout.preferredHeight: 32
+                Layout.preferredHeight: sidebar.macOSStyle ? 28 : 32
                 onClicked: sidebar.audiobookRequested()
             }
-            AdaptiveButton {
+            SidebarCommandButton {
                 text: qsTr("Отчёт серии")
                 Layout.fillWidth: true
-                Layout.preferredHeight: 32
+                Layout.preferredHeight: sidebar.macOSStyle ? 28 : 32
                 enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
                 onClicked: sidebar.episodeSummaryRequested()
             }
-            AdaptiveButton {
+            SidebarCommandButton {
                 text: qsTr("Назначить роли")
                 Layout.fillWidth: true
-                Layout.preferredHeight: 32
+                Layout.preferredHeight: sidebar.macOSStyle ? 28 : 32
                 enabled: sidebar.castingBackend !== null
                 onClicked: sidebar.rolesRequested()
             }
         }
 
-        QuickConverterPanel {
-            appBridge: sidebar.appBridge
-            softBorder: sidebar.softBorder
-            softHeader: sidebar.softHeader
-            softMuted: sidebar.softMuted
-            Layout.fillWidth: true
-            onResultsRequested: sidebar.converterResultsRequested()
-        }
-
-        Item { Layout.fillHeight: true }
-
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: 230
+            Layout.fillHeight: true
+            Layout.minimumHeight: 230
+            Layout.preferredHeight: 320
 
             Rectangle {
                 anchors.fill: parent
                 color: "transparent"
-                border.color: sidebar.softBorder
+                border.color: sidebar.macOSStyle
+                    ? "transparent" : sidebar.softBorder
             }
 
             ColumnLayout {
@@ -132,8 +141,19 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 28
-                    color: sidebar.softHeader
-                    border.color: sidebar.softBorder
+                    color: sidebar.macOSStyle
+                        ? "transparent" : sidebar.softHeader
+                    border.color: sidebar.macOSStyle
+                        ? "transparent" : sidebar.softBorder
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: 1
+                        visible: sidebar.macOSStyle
+                        color: sidebar.softBorder
+                    }
 
                     Label {
                         anchors.fill: parent
@@ -193,6 +213,15 @@ Item {
                     }
                 }
             }
+        }
+
+        QuickConverterPanel {
+            appBridge: sidebar.appBridge
+            softBorder: sidebar.softBorder
+            softHeader: sidebar.softHeader
+            softMuted: sidebar.softMuted
+            Layout.fillWidth: true
+            onResultsRequested: sidebar.converterResultsRequested()
         }
     }
 }

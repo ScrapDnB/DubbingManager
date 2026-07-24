@@ -44,11 +44,11 @@ NativeDialogWindow {
             color: dialog.softMuted
         }
 
-        Rectangle {
+        TableHeaderSurface {
             Layout.fillWidth: true
-            Layout.preferredHeight: 30
-            color: dialog.softHeader
-            border.color: dialog.softBorder
+            Layout.preferredHeight: dialog.tableHeaderHeight
+            softHeader: dialog.softHeader
+            softBorder: dialog.softBorder
 
             RowLayout {
                 anchors.fill: parent
@@ -56,9 +56,9 @@ NativeDialogWindow {
                 anchors.rightMargin: 8
                 spacing: 12
 
-                Label { Layout.preferredWidth: 250; text: qsTr("Файл"); font.bold: true }
-                Label { Layout.fillWidth: true; text: qsTr("Название серии"); font.bold: true }
-                Label { Layout.preferredWidth: 130; text: qsTr("Статус"); font.bold: true }
+                TableHeaderLabel { Layout.preferredWidth: 250; text: qsTr("Файл") }
+                TableHeaderLabel { Layout.fillWidth: true; text: qsTr("Название серии") }
+                TableHeaderLabel { Layout.preferredWidth: 130; text: qsTr("Статус") }
             }
         }
 
@@ -79,7 +79,7 @@ NativeDialogWindow {
                 required property string statusKind
 
                 width: importList.viewportWidth
-                height: 42
+                height: dialog.editingRowHeight
                 color: importRow.index % 2 === 0 ? "transparent" : dialog.softHeader
 
                 RowLayout {
@@ -124,6 +124,7 @@ NativeDialogWindow {
         AdaptiveButton {
             text: qsTr("Импортировать")
             enabled: dialog.backend && dialog.backend.canImport
+            highlighted: dialog.macOSStyle
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
         }
 

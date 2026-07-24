@@ -27,10 +27,11 @@ NativeDialogWindow {
     }
 
     modal: true
+    macOSDocumentWindow: true
     title: targetEpisode.length > 0
         ? "Отчёт: серия " + targetEpisode
         : "Сводный отчёт проекта"
-    standardButtons: Dialog.Close
+    standardButtons: macOSStyle ? Dialog.NoButton : Dialog.Close
     width: boundedWidth(920, 40)
     height: boundedHeight(620, 40)
 
@@ -69,11 +70,11 @@ NativeDialogWindow {
         anchors.fill: parent
         spacing: 8
 
-        Rectangle {
+        TableHeaderSurface {
             Layout.fillWidth: true
-            Layout.preferredHeight: 30
-            color: dialog.softHeader
-            border.color: dialog.softBorder
+            Layout.preferredHeight: dialog.tableHeaderHeight
+            softHeader: dialog.softHeader
+            softBorder: dialog.softBorder
 
             RowLayout {
                 anchors.fill: parent
@@ -82,10 +83,10 @@ NativeDialogWindow {
                 spacing: 10
 
                 Label { text: qsTr(""); Layout.preferredWidth: 20 }
-                ToolButton { text: dialog.sortTitle(qsTr("Актёр"), "actor"); font.bold: true; flat: true; padding: 0; Layout.preferredWidth: 190; onClicked: dialog.reportsBackend.setSummarySort("actor") }
-                ToolButton { text: dialog.sortTitle(qsTr("Колец"), "rings"); font.bold: true; flat: true; padding: 0; Layout.preferredWidth: 60; onClicked: dialog.reportsBackend.setSummarySort("rings") }
-                ToolButton { text: dialog.sortTitle(qsTr("Слов"), "words"); font.bold: true; flat: true; padding: 0; Layout.preferredWidth: 70; onClicked: dialog.reportsBackend.setSummarySort("words") }
-                ToolButton { text: dialog.sortTitle(qsTr("Персонажи"), "roles"); font.bold: true; flat: true; padding: 0; Layout.fillWidth: true; onClicked: dialog.reportsBackend.setSummarySort("roles") }
+                TableHeaderButton { text: dialog.sortTitle(qsTr("Актёр"), "actor"); Layout.preferredWidth: 190; onClicked: dialog.reportsBackend.setSummarySort("actor") }
+                TableHeaderButton { text: dialog.sortTitle(qsTr("Колец"), "rings"); textAlignment: Text.AlignRight; Layout.preferredWidth: 60; onClicked: dialog.reportsBackend.setSummarySort("rings") }
+                TableHeaderButton { text: dialog.sortTitle(qsTr("Слов"), "words"); textAlignment: Text.AlignRight; Layout.preferredWidth: 70; onClicked: dialog.reportsBackend.setSummarySort("words") }
+                TableHeaderButton { text: dialog.sortTitle(qsTr("Персонажи"), "roles"); Layout.fillWidth: true; onClicked: dialog.reportsBackend.setSummarySort("roles") }
             }
         }
 
@@ -168,7 +169,7 @@ NativeDialogWindow {
 
             Label { text: qsTr("Экспортировать:") }
 
-            ComboBox {
+            PlatformComboBox {
                 id: metricCombo
                 Layout.preferredWidth: 130
                 model: metricModel

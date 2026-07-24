@@ -40,10 +40,12 @@ NativeDialogWindow {
         AdaptiveButton {
             text: qsTr("Резервные копии...")
             enabled: dialog.appBridge.project.path.length > 0
+            DialogButtonBox.buttonRole: DialogButtonBox.ActionRole
             onClicked: dialog.backupsRequested()
         }
         AdaptiveButton {
             text: qsTr("Закрыть")
+            DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
             onClicked: dialog.close()
         }
     }
@@ -205,6 +207,7 @@ NativeDialogWindow {
                 onClicked: dialog.projectFilesBackend.scanFolder()
             }
             AdaptiveButton {
+                id: batchImportButton
                 text: qsTr("Добавить серии")
                 enabled: dialog.projectFilesBackend
                     && dialog.projectFilesBackend.folder.length > 0
@@ -212,8 +215,10 @@ NativeDialogWindow {
                     dialog.clearSelection()
                     dialog.projectFilesBackend.batchImportFolder()
                 }
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Добавить найденные ASS, SRT и DOCX вместе с подходящими видео")
+                PlatformToolTip {
+                    target: batchImportButton
+                    text: qsTr("Добавить найденные ASS, SRT и DOCX вместе с подходящими видео")
+                }
             }
             AdaptiveButton { text: qsTr("Обновить"); onClicked: dialog.projectFilesBackend.refresh() }
         }
@@ -241,21 +246,21 @@ NativeDialogWindow {
                     color: dialog.softMuted
                 }
 
-                Rectangle {
+                TableHeaderSurface {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 30
-                    color: dialog.softHeader
-                    border.color: dialog.softBorder
+                    Layout.preferredHeight: dialog.tableHeaderHeight
+                    softHeader: dialog.softHeader
+                    softBorder: dialog.softBorder
 
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 8
                         anchors.rightMargin: 8
                         spacing: 8
-                        Label { text: qsTr("Серия"); font.bold: true; Layout.preferredWidth: 70 }
-                        Label { text: qsTr("Файл"); font.bold: true; Layout.preferredWidth: 125 }
-                        Label { text: qsTr("Статус"); font.bold: true; Layout.preferredWidth: 120 }
-                        Label { text: qsTr("Путь"); font.bold: true; Layout.fillWidth: true }
+                        TableHeaderLabel { text: qsTr("Серия"); Layout.preferredWidth: 70 }
+                        TableHeaderLabel { text: qsTr("Файл"); Layout.preferredWidth: 125 }
+                        TableHeaderLabel { text: qsTr("Статус"); Layout.preferredWidth: 120 }
+                        TableHeaderLabel { text: qsTr("Путь"); Layout.fillWidth: true }
                     }
                 }
 
@@ -283,7 +288,7 @@ NativeDialogWindow {
                         required property bool canRelink
 
                         width: filesView.viewportWidth
-                        height: 34
+                        height: dialog.compactRowHeight
                         color: filesView.currentIndex === index
                             ? Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.22)
                             : (rowHover.hovered ? dialog.softHover
@@ -386,22 +391,22 @@ NativeDialogWindow {
                     }
                 }
 
-                Rectangle {
+                TableHeaderSurface {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 30
-                    color: dialog.softHeader
-                    border.color: dialog.softBorder
+                    Layout.preferredHeight: dialog.tableHeaderHeight
+                    softHeader: dialog.softHeader
+                    softBorder: dialog.softBorder
 
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 8
                         anchors.rightMargin: 8
                         spacing: 8
-                        Label { text: qsTr("Уровень"); font.bold: true; Layout.preferredWidth: 115 }
-                        Label { text: qsTr("Серия"); font.bold: true; Layout.preferredWidth: 65 }
-                        Label { text: qsTr("Категория"); font.bold: true; Layout.preferredWidth: 125 }
-                        Label { text: qsTr("Сообщение"); font.bold: true; Layout.fillWidth: true }
-                        Label { text: qsTr("Путь"); font.bold: true; Layout.preferredWidth: 250 }
+                        TableHeaderLabel { text: qsTr("Уровень"); Layout.preferredWidth: 115 }
+                        TableHeaderLabel { text: qsTr("Серия"); Layout.preferredWidth: 65 }
+                        TableHeaderLabel { text: qsTr("Категория"); Layout.preferredWidth: 125 }
+                        TableHeaderLabel { text: qsTr("Сообщение"); Layout.fillWidth: true }
+                        TableHeaderLabel { text: qsTr("Путь"); Layout.preferredWidth: 250 }
                     }
                 }
 

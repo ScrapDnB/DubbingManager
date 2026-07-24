@@ -8,6 +8,8 @@ pyside6-essentials==6.10.2
 python-osc==1.9.3
 requests==2.32.5
 shiboken6==6.10.2
+pyobjc-core==12.1; sys_platform == "darwin"
+pyobjc-framework-Cocoa==12.1; sys_platform == "darwin"
 urllib3==2.6.3
 
 # Optional dependencies

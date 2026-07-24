@@ -44,7 +44,7 @@ NativeDialogWindow {
                 elide: Text.ElideMiddle
             }
             Label { text: qsTr("Таблица:"); visible: tableCombo.count > 1 }
-            ComboBox {
+            PlatformComboBox {
                 id: tableCombo
                 visible: count > 1
                 Layout.preferredWidth: 280
@@ -80,7 +80,7 @@ NativeDialogWindow {
                     width: settingsScroll.availableWidth
                     spacing: 10
 
-                    GroupBox {
+                    FormSection {
                         title: qsTr("Колонки")
                         Layout.fillWidth: true
 
@@ -101,7 +101,7 @@ NativeDialogWindow {
                                         Layout.preferredWidth: 140
                                         elide: Text.ElideRight
                                     }
-                                    ComboBox {
+                                    PlatformComboBox {
                                         id: mappingCombo
                                         Layout.fillWidth: true
                                         Layout.minimumWidth: 120
@@ -115,20 +115,23 @@ NativeDialogWindow {
                                         onActivated: dialog.backend.setMapping(mappingRow.modelData.key, currentValue)
                                     }
                                     ToolButton {
+                                        id: clearMappingButton
                                         text: qsTr("×")
                                         Layout.preferredWidth: 28
                                         Layout.preferredHeight: 28
                                         enabled: mappingCombo.currentIndex >= 0
                                         onClicked: dialog.backend.setMapping(mappingRow.modelData.key, -1)
-                                        ToolTip.visible: hovered
-                                        ToolTip.text: qsTr("Не использовать колонку")
+                                        PlatformToolTip {
+                                            target: clearMappingButton
+                                            text: qsTr("Не использовать колонку")
+                                        }
                                     }
                                 }
                             }
                         }
                     }
 
-                    GroupBox {
+                    FormSection {
                         title: qsTr("Тайминг")
                         Layout.fillWidth: true
 
@@ -153,19 +156,20 @@ NativeDialogWindow {
                 SplitView.minimumWidth: 500
                 spacing: 0
 
-                Rectangle {
+                TableHeaderSurface {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 30
-                    color: dialog.softHeader
+                    Layout.preferredHeight: dialog.tableHeaderHeight
+                    softHeader: dialog.softHeader
+                    softBorder: dialog.softBorder
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 8
                         anchors.rightMargin: 8
                         spacing: 10
-                        Label { text: qsTr("Персонаж"); font.bold: true; Layout.preferredWidth: 140 }
-                        Label { text: qsTr("Тайминг"); font.bold: true; Layout.preferredWidth: 125 }
-                        Label { text: qsTr("Реплика"); font.bold: true; Layout.fillWidth: true }
-                        Label { text: qsTr("Статус"); font.bold: true; Layout.preferredWidth: 85 }
+                        TableHeaderLabel { text: qsTr("Персонаж"); Layout.preferredWidth: 140 }
+                        TableHeaderLabel { text: qsTr("Тайминг"); Layout.preferredWidth: 125 }
+                        TableHeaderLabel { text: qsTr("Реплика"); Layout.fillWidth: true }
+                        TableHeaderLabel { text: qsTr("Статус"); Layout.preferredWidth: 85 }
                     }
                 }
                 PersistentListView {
@@ -182,7 +186,7 @@ NativeDialogWindow {
                         required property string text
                         required property string status
                         width: previewView.viewportWidth
-                        height: 36
+                        height: dialog.regularRowHeight
                         color: index % 2 === 0 ? dialog.softRow : dialog.softAltRow
                         RowLayout {
                             anchors.fill: parent
@@ -215,17 +219,23 @@ NativeDialogWindow {
             placeholderText: qsTr("Название серии")
         }
         Item { Layout.fillWidth: true }
-        AdaptiveButton {
-            text: dialog.width < 940 ? "Таблицу" : "Импортировать таблицу"
-            enabled: dialog.backend.canImport
-            onClicked: if (dialog.backend.importEpisode(episodeField.text, false)) dialog.close()
+        RowLayout {
+            spacing: 8
+            LayoutMirroring.enabled: dialog.macOSStyle
+            LayoutMirroring.childrenInherit: true
+
+            AdaptiveButton {
+                text: dialog.width < 940 ? "Таблицу" : "Импортировать таблицу"
+                enabled: dialog.backend.canImport
+                onClicked: if (dialog.backend.importEpisode(episodeField.text, false)) dialog.close()
+            }
+            AdaptiveButton {
+                text: dialog.width < 940 ? "Все таблицы" : "Импортировать все"
+                visible: dialog.backend.tableCount > 1
+                enabled: dialog.backend.canImport
+                onClicked: if (dialog.backend.importEpisode(episodeField.text, true)) dialog.close()
+            }
+            AdaptiveButton { text: qsTr("Отмена"); onClicked: dialog.close() }
         }
-        AdaptiveButton {
-            text: dialog.width < 940 ? "Все таблицы" : "Импортировать все"
-            visible: dialog.backend.tableCount > 1
-            enabled: dialog.backend.canImport
-            onClicked: if (dialog.backend.importEpisode(episodeField.text, true)) dialog.close()
-        }
-        AdaptiveButton { text: qsTr("Отмена"); onClicked: dialog.close() }
     }
 }

@@ -15,6 +15,7 @@ Item {
     signal resultsRequested()
 
     readonly property var backend: appBridge ? appBridge.converter : null
+    readonly property bool macOSStyle: Qt.platform.os === "osx"
     implicitHeight: content.implicitHeight
 
     FileDialog {
@@ -39,14 +40,14 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 28
-            color: panel.softHeader
-            border.color: panel.softBorder
+            Layout.preferredHeight: panel.macOSStyle ? 24 : 28
+            color: panel.macOSStyle ? "transparent" : panel.softHeader
+            border.color: panel.macOSStyle ? "transparent" : panel.softBorder
 
             Label {
                 anchors.fill: parent
-                anchors.leftMargin: 6
-                anchors.rightMargin: 6
+                anchors.leftMargin: panel.macOSStyle ? 0 : 6
+                anchors.rightMargin: panel.macOSStyle ? 0 : 6
                 text: qsTr("Быстрый конвертер")
                 font.bold: true
                 verticalAlignment: Text.AlignVCenter
@@ -78,10 +79,18 @@ Item {
             id: dropSurface
             Layout.fillWidth: true
             Layout.preferredHeight: 82
-            color: dropArea.containsDrag ? panel.softHeader : palette.base
-            border.color: dropArea.containsDrag ? palette.highlight : panel.softBorder
+            color: dropArea.containsDrag
+                ? Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.10)
+                : (panel.macOSStyle
+                    ? Qt.rgba(palette.base.r, palette.base.g, palette.base.b, 0.45)
+                    : palette.base)
+            border.color: dropArea.containsDrag
+                ? palette.highlight
+                : (panel.macOSStyle
+                    ? Qt.rgba(palette.text.r, palette.text.g, palette.text.b, 0.14)
+                    : panel.softBorder)
             border.width: dropArea.containsDrag ? 2 : 1
-            radius: 4
+            radius: panel.macOSStyle ? 8 : 4
 
             HoverHandler {
                 id: dropHover
@@ -166,12 +175,15 @@ Item {
                 elide: Text.ElideRight
             }
             ToolButton {
+                id: cancelConversionButton
                 visible: panel.backend && panel.backend.busy
                 text: qsTr("×")
                 Accessible.name: qsTr("Отменить конвертацию")
                 onClicked: panel.backend.cancel()
-                ToolTip.visible: hovered
-                ToolTip.text: Accessible.name
+                PlatformToolTip {
+                    target: cancelConversionButton
+                    text: cancelConversionButton.Accessible.name
+                }
             }
             AdaptiveButton {
                 visible: panel.backend && panel.backend.hasResults && !panel.backend.busy

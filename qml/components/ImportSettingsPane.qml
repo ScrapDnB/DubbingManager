@@ -137,7 +137,7 @@ Item {
                 color: pane.softMuted
             }
 
-            GroupBox {
+            FormSection {
                 title: qsTr("Объединение реплик")
                 Layout.fillWidth: true
                 GridLayout {
@@ -192,7 +192,7 @@ Item {
                 }
             }
 
-            GroupBox {
+            FormSection {
                 title: qsTr("ASS")
                 Layout.fillWidth: true
                 GridLayout {
@@ -225,7 +225,7 @@ Item {
                 }
             }
 
-            GroupBox {
+            FormSection {
                 title: qsTr("SRT")
                 Layout.fillWidth: true
                 GridLayout {
@@ -267,7 +267,7 @@ Item {
                 }
             }
 
-            GroupBox {
+            FormSection {
                 title: qsTr("DOCX: пресеты")
                 Layout.fillWidth: true
 
@@ -277,7 +277,7 @@ Item {
                     columnSpacing: 8
                     rowSpacing: 7
 
-                    ComboBox {
+                    PlatformComboBox {
                         id: docxPresetCombo
                         Layout.fillWidth: true
                         Layout.columnSpan: 2
@@ -319,7 +319,7 @@ Item {
                 }
             }
 
-            GroupBox {
+            FormSection {
                 title: qsTr("DOCX: автоматическое распознавание")
                 Layout.fillWidth: true
                 GridLayout {
@@ -329,7 +329,7 @@ Item {
                     rowSpacing: 6
 
                     Label { text: qsTr("Строка заголовков:") }
-                    ComboBox {
+                    PlatformComboBox {
                         Layout.preferredWidth: 190
                         model: [
                             { text: qsTr("Определять автоматически"), value: "auto" },
@@ -390,7 +390,7 @@ Item {
                 }
             }
 
-            GroupBox {
+            FormSection {
                 title: qsTr("DOCX: порядок распознавания")
                 Layout.fillWidth: true
 
@@ -419,29 +419,35 @@ Item {
                                 Layout.fillWidth: true
                             }
                             ToolButton {
+                                id: movePriorityUpButton
                                 text: qsTr("↑")
                                 enabled: priorityRow.index > 0
                                 onClicked: pane.moveDocxPriority(
                                     priorityRow.index, -1
                                 )
-                                ToolTip.visible: hovered
-                                ToolTip.text: qsTr("Поднять приоритет")
+                                PlatformToolTip {
+                                    target: movePriorityUpButton
+                                    text: qsTr("Поднять приоритет")
+                                }
                             }
                             ToolButton {
+                                id: movePriorityDownButton
                                 text: qsTr("↓")
                                 enabled: priorityRow.index < 4
                                 onClicked: pane.moveDocxPriority(
                                     priorityRow.index, 1
                                 )
-                                ToolTip.visible: hovered
-                                ToolTip.text: qsTr("Опустить приоритет")
+                                PlatformToolTip {
+                                    target: movePriorityDownButton
+                                    text: qsTr("Опустить приоритет")
+                                }
                             }
                         }
                     }
                 }
             }
 
-            GroupBox {
+            FormSection {
                 title: qsTr("DOCX: столбцы без заголовков")
                 Layout.fillWidth: true
 
@@ -498,7 +504,7 @@ Item {
                 }
             }
 
-            GroupBox {
+            FormSection {
                 title: qsTr("DOCX: названия столбцов")
                 Layout.fillWidth: true
                 GridLayout {

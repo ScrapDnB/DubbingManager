@@ -4,7 +4,8 @@ import QtQuick.Controls
 ListView {
     id: listView
 
-    readonly property real scrollBarGutter: verticalScrollBar.size < 1.0
+    readonly property real scrollBarGutter: Qt.platform.os !== "osx"
+        && verticalScrollBar.size < 1.0
         ? verticalScrollBar.width + 4 : 0
     readonly property real viewportWidth: Math.max(0, width - scrollBarGutter)
 

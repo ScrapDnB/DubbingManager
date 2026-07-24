@@ -17,6 +17,7 @@ NativeDialogWindow {
 
     title: qsTr("Структура глав")
     modal: true
+    macOSDocumentWindow: true
     width: boundedWidth(1220, 24)
     height: boundedHeight(820, 24)
     minimumWidth: 820
@@ -72,6 +73,11 @@ NativeDialogWindow {
             SplitView.minimumWidth: 245
             SplitView.maximumWidth: 390
             padding: 8
+            background: Rectangle {
+                color: window.macOSStyle ? "transparent" : palette.window
+                border.color: window.macOSStyle
+                    ? "transparent" : window.softBorder
+            }
 
             ColumnLayout {
                 anchors.fill: parent
@@ -168,13 +174,14 @@ NativeDialogWindow {
         Rectangle {
             SplitView.fillWidth: true
             color: palette.base
-            border.color: window.softBorder
+            border.color: window.macOSStyle
+                ? "transparent" : window.softBorder
             clip: true
 
             WebEngineView {
                 id: sourceView
                 anchors.fill: parent
-                anchors.margins: 1
+                anchors.margins: window.macOSStyle ? 0 : 1
                 webChannel: chapterChannel
                 backgroundColor: palette.base
                 onLoadingChanged: function(request) {
@@ -189,11 +196,13 @@ NativeDialogWindow {
         anchors.fill: parent
         AdaptiveButton {
             text: qsTr("Отмена")
+            DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
             onClicked: window.close()
         }
         AdaptiveButton {
             text: qsTr("Применить")
             highlighted: true
+            DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
             onClicked: {
                 sourceView.runJavaScript("window.dmChapters.send()", function() {
                     if (window.backend.applyChapterMarkup())

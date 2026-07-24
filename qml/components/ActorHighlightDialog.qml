@@ -44,21 +44,20 @@ NativeDialogWindow {
             }
         }
 
-        Rectangle {
+        TableHeaderSurface {
             Layout.fillWidth: true
-            Layout.preferredHeight: 32
-            color: dialog.softHeader
-            border.color: dialog.softBorder
+            Layout.preferredHeight: dialog.tableHeaderHeight
+            softHeader: dialog.softHeader
+            softBorder: dialog.softBorder
 
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 8
                 anchors.rightMargin: 8
                 spacing: 8
-                Label { text: qsTr("Актёр"); font.bold: true; Layout.fillWidth: true }
-                Label {
+                TableHeaderLabel { text: qsTr("Актёр"); Layout.fillWidth: true }
+                TableHeaderLabel {
                     text: qsTr("Белый текст")
-                    font.bold: true
                     Layout.preferredWidth: 105
                 }
             }
@@ -83,7 +82,7 @@ NativeDialogWindow {
                 required property bool negative
 
                 width: actorList.viewportWidth
-                height: 34
+                height: dialog.compactRowHeight
                 color: actorRow.index % 2 === 0
                     ? dialog.softRow
                     : dialog.softAltRow

@@ -11,6 +11,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtWebEngineQuick import QtWebEngineQuick
 
 from app_startup import initial_project_path, setup_logging
+from ui.macos_integration import MacOSIntegration
 from ui.qml_backend.app_bridge import AppBridge
 from utils.i18n import JsonSourceTranslator
 
@@ -34,9 +35,9 @@ def configure_qml_controls_style() -> None:
     if sys.platform.startswith("win"):
         os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "FluentWinUI3")
     elif sys.platform == "darwin":
-        current_style = os.environ.get("QT_QUICK_CONTROLS_STYLE")
-        if not current_style or current_style in ("Basic", "FluentWinUI3"):
-            os.environ["QT_QUICK_CONTROLS_STYLE"] = "macOS"
+        # A parent shell or a previous Windows test must not leak Fluent/Fusion
+        # controls into the macOS application.
+        os.environ["QT_QUICK_CONTROLS_STYLE"] = "macOS"
 
 
 class DubbingQmlApplication(QGuiApplication):
@@ -67,6 +68,10 @@ def main() -> int:
 
     engine = QQmlApplicationEngine()
     bridge = AppBridge()
+    macos_integration = MacOSIntegration(app)
+    engine.rootContext().setContextProperty(
+        "platformIntegration", macos_integration
+    )
     translator = JsonSourceTranslator(app)
     app.installTranslator(translator)
     app._source_translator = translator
@@ -74,13 +79,23 @@ def main() -> int:
     start_project = initial_project_path(sys.argv)
     if start_project:
         bridge.project.open(start_project)
-    engine.setInitialProperties({"appBridge": bridge})
+    engine.setInitialProperties({
+        "appBridge": bridge,
+        "macOSIntegration": macos_integration,
+    })
 
     qml_file = Path(__file__).resolve().parent / "qml" / "Main.qml"
     engine.load(QUrl.fromLocalFile(str(qml_file)))
     if not engine.rootObjects():
         logger.error("Could not load QML interface from %s", qml_file)
         return 1
+    macos_integration.configure_main_window(
+        engine.rootObjects()[0], bridge.project
+    )
+    if sys.platform == "darwin":
+        app.focusWindowChanged.connect(macos_integration.configure_window)
+        for window in app.allWindows():
+            macos_integration.configure_window(window)
     return app.exec()
 
 

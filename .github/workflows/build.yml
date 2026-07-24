@@ -83,7 +83,7 @@ jobs:
 
   build-macos:
     name: Build macOS
-    runs-on: macos-latest
+    runs-on: macos-26
 
     steps:
       - name: Checkout code
@@ -99,7 +99,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -m pip install "pyinstaller==${{ env.PYINSTALLER_VERSION }}"
+          PYINSTALLER_COMPILE_BOOTLOADER=1 python -m pip install \
+            --no-cache-dir --no-binary=pyinstaller \
+            "pyinstaller==${{ env.PYINSTALLER_VERSION }}"
 
       - name: Run tests
         env:
@@ -117,6 +119,7 @@ jobs:
           test -d "dist/Dubbing Manager.app"
           test -f "dist/Dubbing Manager.app/Contents/Resources/DubbingManager.icns"
           /usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "dist/Dubbing Manager.app/Contents/Info.plist" | grep -x "DubbingManager.icns"
+          python scripts/verify_macos_sdk.py "dist/Dubbing Manager.app/Contents/MacOS/Dubbing Manager"
 
       - name: Sign macOS app ad-hoc
         run: |

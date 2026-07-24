@@ -12,9 +12,10 @@ NativeDialogWindow {
     readonly property var updates: appBridge.updates
 
     modal: true
+    macOSDocumentWindow: true
     title: qsTr("О программе")
     width: boundedWidth(520, 32)
-    height: boundedHeight(460, 40)
+    height: boundedHeight(macOSStyle ? 560 : 460, 40)
     standardButtons: Dialog.NoButton
 
     NativeDialogWindow {
@@ -40,16 +41,33 @@ NativeDialogWindow {
         anchors.fill: parent
         spacing: 12
 
+        Image {
+            visible: dialog.macOSStyle
+            source: Qt.resolvedUrl(
+                "../../resources/icons/Icon Exports/Icon-macOS-Default-1024x1024@1x.png"
+            )
+            sourceSize.width: 96
+            sourceSize.height: 96
+            fillMode: Image.PreserveAspectFit
+            Layout.preferredWidth: 96
+            Layout.preferredHeight: 96
+            Layout.alignment: Qt.AlignHCenter
+        }
+
         Label {
             text: qsTr("Dubbing Manager")
             font.pixelSize: 24
             font.bold: true
             Layout.fillWidth: true
+            horizontalAlignment: dialog.macOSStyle
+                ? Text.AlignHCenter : Text.AlignLeft
         }
         Label {
             text: qsTr("Управление проектами дубляжа и озвучивания")
             color: dialog.softMuted
             Layout.fillWidth: true
+            horizontalAlignment: dialog.macOSStyle
+                ? Text.AlignHCenter : Text.AlignLeft
         }
 
         GridLayout {
@@ -142,12 +160,24 @@ NativeDialogWindow {
             text: qsTr("© 2026 Юрий Романов")
             color: dialog.softMuted
             Layout.fillWidth: true
+            horizontalAlignment: dialog.macOSStyle
+                ? Text.AlignHCenter : Text.AlignLeft
         }
         Item { Layout.fillHeight: true }
     }
 
-    footer: DialogButtonBox {
-        anchors.fill: parent
-        AdaptiveButton { text: qsTr("Закрыть"); onClicked: dialog.close() }
+    footer: Item {
+        implicitHeight: dialog.macOSStyle ? 0 : aboutButtons.implicitHeight
+
+        DialogButtonBox {
+            id: aboutButtons
+            anchors.fill: parent
+            visible: !dialog.macOSStyle
+            AdaptiveButton {
+                text: qsTr("Закрыть")
+                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+                onClicked: dialog.close()
+            }
+        }
     }
 }

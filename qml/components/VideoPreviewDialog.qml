@@ -27,6 +27,7 @@ NativeDialogWindow {
     readonly property int replicaColumnX: actorColumnX + actorColumnWidth + columnSpacing
 
     modal: true
+    macOSDocumentWindow: true
     title: qsTr("Просмотр · серия ") + (videoBackend ? videoBackend.episode : "")
     standardButtons: Dialog.NoButton
     width: boundedWidth(1020, 32)
@@ -87,7 +88,7 @@ NativeDialogWindow {
 
             Label { text: qsTr("Персонаж:") }
 
-            ComboBox {
+            PlatformComboBox {
                 id: characterCombo
                 Layout.preferredWidth: 230
                 model: dialog.videoBackend ? dialog.videoBackend.characterModel : null
@@ -192,14 +193,17 @@ NativeDialogWindow {
                         spacing: 8
 
                         AdaptiveButton {
+                            id: playbackButton
                             Layout.preferredWidth: 38
                             Layout.preferredHeight: 30
                             text: video.playbackState === MediaPlayer.PlayingState ? "Ⅱ" : "▶"
                             onClicked: dialog.togglePlayback()
-                            ToolTip.visible: hovered
-                            ToolTip.text: video.playbackState === MediaPlayer.PlayingState
-                                ? "Пауза"
-                                : "Воспроизвести"
+                            PlatformToolTip {
+                                target: playbackButton
+                                text: video.playbackState === MediaPlayer.PlayingState
+                                    ? "Пауза"
+                                    : "Воспроизвести"
+                            }
                         }
 
                         Slider {
@@ -220,37 +224,42 @@ NativeDialogWindow {
                         }
 
                         AdaptiveButton {
+                            id: muteButton
                             Layout.preferredWidth: 38
                             Layout.preferredHeight: 30
                             text: video.muted ? "×" : "♪"
                             onClicked: video.muted = !video.muted
-                            ToolTip.visible: hovered
-                            ToolTip.text: video.muted ? "Включить звук" : "Выключить звук"
+                            PlatformToolTip {
+                                target: muteButton
+                                text: video.muted ? "Включить звук" : "Выключить звук"
+                            }
                         }
 
                         CheckBox {
                             id: syncCheck
                             text: qsTr("Переходить по клику")
                             checked: true
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Клик по реплике перематывает видео к её началу.")
+                            PlatformToolTip {
+                                target: syncCheck
+                                text: qsTr("Клик по реплике перематывает видео к её началу.")
+                            }
                         }
                     }
 
-                    Rectangle {
+                    TableHeaderSurface {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 30
-                        color: dialog.softHeader
-                        border.color: dialog.softBorder
+                        Layout.preferredHeight: dialog.tableHeaderHeight
+                        softHeader: dialog.softHeader
+                        softBorder: dialog.softBorder
                         clip: true
 
                         Item {
                             anchors.fill: parent
 
-                            Label { x: dialog.rowPadding; width: dialog.timeColumnWidth; height: parent.height; text: qsTr("Время"); font.bold: true; verticalAlignment: Text.AlignVCenter }
-                            Label { x: dialog.characterColumnX; width: dialog.characterColumnWidth; height: parent.height; text: qsTr("Персонаж"); font.bold: true; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
-                            Label { x: dialog.actorColumnX; width: dialog.actorColumnWidth; height: parent.height; text: qsTr("Актёр"); font.bold: true; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
-                            Label { x: dialog.replicaColumnX; width: Math.max(0, parent.width - x - dialog.rowPadding); height: parent.height; text: qsTr("Реплика"); font.bold: true; horizontalAlignment: Text.AlignLeft; verticalAlignment: Text.AlignVCenter }
+                            TableHeaderLabel { x: dialog.rowPadding; width: dialog.timeColumnWidth; height: parent.height; text: qsTr("Время") }
+                            TableHeaderLabel { x: dialog.characterColumnX; width: dialog.characterColumnWidth; height: parent.height; text: qsTr("Персонаж") }
+                            TableHeaderLabel { x: dialog.actorColumnX; width: dialog.actorColumnWidth; height: parent.height; text: qsTr("Актёр") }
+                            TableHeaderLabel { x: dialog.replicaColumnX; width: Math.max(0, parent.width - x - dialog.rowPadding); height: parent.height; text: qsTr("Реплика") }
                         }
                     }
 
@@ -369,9 +378,11 @@ NativeDialogWindow {
         }
 
         DialogButtonBox {
+            visible: !dialog.macOSStyle
             Layout.fillWidth: true
             AdaptiveButton {
                 text: qsTr("Закрыть")
+                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
                 onClicked: dialog.close()
             }
         }

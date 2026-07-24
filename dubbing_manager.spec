@@ -28,7 +28,7 @@ mac_info_plist = {
     'CFBundleShortVersionString': app_version,
     'NSHumanReadableCopyright': 'Copyright © 2026 Yuri Romanov. All rights reserved.',
     'NSHighResolutionCapable': True,
-    'LSMinimumSystemVersion': '10.15',
+    'LSMinimumSystemVersion': '13.0',
     'NSPrincipalClass': 'NSApplication',
     'CFBundlePackageType': 'APPL',
     'CFBundleSignature': '????',

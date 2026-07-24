@@ -39,7 +39,7 @@ PersistentScrollView {
         width: pane.availableWidth
         spacing: 10
 
-        GroupBox {
+        FormSection {
             title: qsTr("Отображение")
             Layout.fillWidth: true
             GridLayout {
@@ -55,7 +55,7 @@ PersistentScrollView {
             }
         }
 
-        GroupBox {
+        FormSection {
             title: qsTr("Размер текста")
             Layout.fillWidth: true
             GridLayout {
@@ -72,7 +72,7 @@ PersistentScrollView {
             }
         }
 
-        GroupBox {
+        FormSection {
             title: qsTr("Цветовая схема")
             Layout.fillWidth: true
             GridLayout {
@@ -94,6 +94,7 @@ PersistentScrollView {
                         Layout.columnSpan: 2
                         Label { text: colorRow.modelData.label; Layout.fillWidth: true }
                         AdaptiveButton {
+                            id: colorButton
                             text: qsTr("")
                             implicitWidth: 42
                             Rectangle {
@@ -113,15 +114,17 @@ PersistentScrollView {
                                 ] || "#000000"
                                 colorDialog.open()
                             }
-                            ToolTip.visible: hovered
-                            ToolTip.text: colorRow.modelData.label
+                            PlatformToolTip {
+                                target: colorButton
+                                text: colorRow.modelData.label
+                            }
                         }
                     }
                 }
             }
         }
 
-        GroupBox {
+        FormSection {
             title: qsTr("Навигация")
             Layout.fillWidth: true
             GridLayout {

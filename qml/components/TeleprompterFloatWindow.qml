@@ -104,7 +104,7 @@ Window {
         RowLayout {
             Layout.fillWidth: true
             Label { text: qsTr("Серия:") }
-            ComboBox {
+            PlatformComboBox {
                 id: episodeBox
                 Layout.fillWidth: true
                 textRole: "name"

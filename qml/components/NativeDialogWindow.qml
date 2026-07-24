@@ -9,11 +9,22 @@ Window {
     id: window
 
     property bool modal: true
+    // Large, long-lived tools are independent windows on macOS rather than sheets.
+    property bool macOSDocumentWindow: false
     property int standardButtons: Dialog.NoButton
     property var ownerWindow
     property alias content: contentHost.data
     property alias footer: customFooter.data
     readonly property bool windowsStyle: Qt.platform.os === "windows"
+    readonly property bool macOSStyle: Qt.platform.os === "osx"
+    readonly property bool presentedAsSheet: macOSStyle
+        && modal && !macOSDocumentWindow && ownerWindow
+    readonly property int contentMargin: macOSStyle ? 16 : 12
+    readonly property int footerSideMargin: macOSStyle ? 16 : 12
+    readonly property int compactRowHeight: macOSStyle ? 28 : 34
+    readonly property int regularRowHeight: macOSStyle ? 30 : 36
+    readonly property int editingRowHeight: macOSStyle ? 34 : 42
+    readonly property int tableHeaderHeight: macOSStyle ? 24 : 30
     readonly property bool darkPalette: (
         palette.base.r * 0.2126
         + palette.base.g * 0.7152
@@ -29,10 +40,10 @@ Window {
     signal rejected()
 
     visible: false
-    transientParent: Qt.platform.os === "osx" ? null : ownerWindow
+    transientParent: ownerWindow
     flags: Qt.Window
-    modality: modal && Qt.platform.os !== "osx"
-        ? Qt.ApplicationModal
+    modality: modal && !(macOSStyle && macOSDocumentWindow)
+        ? (macOSStyle ? Qt.WindowModal : Qt.ApplicationModal)
         : Qt.NonModal
     color: windowsStyle
         ? mixColor(
@@ -40,7 +51,7 @@ Window {
             palette.highlight,
             darkPalette ? 0.025 : 0.018
         )
-        : palette.window
+        : "transparent"
 
     function mixColor(baseColor, tintColor, amount) {
         return Qt.rgba(
@@ -113,7 +124,7 @@ Window {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.bottom: footerArea.top
-        anchors.margins: 12
+        anchors.margins: window.contentMargin
     }
 
     Item {
@@ -121,9 +132,9 @@ Window {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.leftMargin: 12
-        anchors.rightMargin: 12
-        anchors.bottomMargin: 10
+        anchors.leftMargin: window.footerSideMargin
+        anchors.rightMargin: window.footerSideMargin
+        anchors.bottomMargin: window.macOSStyle ? 14 : 10
         height: customFooter.children.length > 0
             ? Math.max(
                 customFooter.children[0].implicitHeight,
@@ -132,7 +143,7 @@ Window {
             : standardFooterHost.visible
                 ? (window.windowsStyle ? window.dialogControlHeight
                     : standardFooterHost.item
-                        ? standardFooterHost.item.implicitHeight : 0)
+                        ? (standardFooterHost.item as Item).implicitHeight : 0)
                 : 0
 
         Item {

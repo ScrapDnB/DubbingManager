@@ -33,6 +33,20 @@ GitHub Actions собирает самодостаточные артефакт�
 
 Скрипт собирает `.app`, подписывает его ad-hoc подписью, проверяет подпись и удаляет служебную папку PyInstaller `dist/Dubbing Manager`, оставляя финальный `dist/Dubbing Manager.app`.
 
+Релизная macOS-сборка выполняется на runner `macos-26`. PyInstaller bootloader
+компилируется из исходников текущим Xcode, чтобы executable был связан с SDK 26
+и системные AppKit-контролы получали актуальное оформление macOS, включая
+Liquid Glass. Локальная сборка для проверки нового оформления также должна
+использовать Xcode 26 и bootloader, собранный из исходников.
+
+Если `./build.sh` обнаружит старый bootloader, он остановится до сборки. Его
+можно пересобрать текущим Xcode командой:
+
+```bash
+PYINSTALLER_COMPILE_BOOTLOADER=1 .venv/bin/python -m pip install \
+  --force-reinstall --no-cache-dir --no-binary=pyinstaller pyinstaller
+```
+
 ## Windows-сборка
 
 Windows-артефакт собирается на Windows runner. PyInstaller обычно не умеет корректно собирать Windows `.exe` с macOS.
@@ -82,8 +96,8 @@ Register_DUB_File_Association.ps1
 ## Публикация релиза
 
 ```bash
-git tag v2.0.0-beta2
-git push origin v2.0.0-beta2
+git tag v2.0.0-beta3
+git push origin v2.0.0-beta3
 ```
 
 После этого workflow соберёт Windows и macOS артефакты и прикрепит их к
