@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-ScrollView {
+PersistentScrollView {
     id: pane
 
     required property var configuration
@@ -90,13 +90,13 @@ ScrollView {
                 anchors.fill: parent
                 columns: 4
                 Label { text: qsTr("Таймкод") }
-                SpinBox { from: 8; to: 72; value: Number(pane.configuration.f_time || 21); onValueModified: pane.setValue("f_time", value) }
+                WinUiSpinBox { from: 8; to: 72; value: Number(pane.configuration.f_time || 21); onValueModified: pane.setValue("f_time", value) }
                 Label { text: qsTr("Персонаж") }
-                SpinBox { from: 8; to: 72; value: Number(pane.configuration.f_char || 20); onValueModified: pane.setValue("f_char", value) }
+                WinUiSpinBox { from: 8; to: 72; value: Number(pane.configuration.f_char || 20); onValueModified: pane.setValue("f_char", value) }
                 Label { text: qsTr("Актёр") }
-                SpinBox { from: 8; to: 72; value: Number(pane.configuration.f_actor || 14); onValueModified: pane.setValue("f_actor", value) }
+                WinUiSpinBox { from: 8; to: 72; value: Number(pane.configuration.f_actor || 14); onValueModified: pane.setValue("f_actor", value) }
                 Label { text: qsTr("Реплика") }
-                SpinBox { from: 8; to: 72; value: Number(pane.configuration.f_text || 30); onValueModified: pane.setValue("f_text", value) }
+                WinUiSpinBox { from: 8; to: 72; value: Number(pane.configuration.f_text || 30); onValueModified: pane.setValue("f_text", value) }
             }
         }
 
@@ -107,21 +107,21 @@ ScrollView {
                 anchors.fill: parent
                 columns: 6
                 Label { text: qsTr("Таймкод") }
-                SpinBox {
+                WinUiSpinBox {
                     from: 10; to: 300; value: Math.round(Number(pane.configuration.table_width_time || 7) * 10)
                     textFromValue: function(value) { return (value / 10).toFixed(1) }
                     valueFromText: function(text) { return Math.round(Number(text.replace(",", ".")) * 10) }
                     onValueModified: pane.setValue("table_width_time", value / 10)
                 }
                 Label { text: qsTr("Персонаж") }
-                SpinBox {
+                WinUiSpinBox {
                     from: 10; to: 300; value: Math.round(Number(pane.configuration.table_width_char || 10) * 10)
                     textFromValue: function(value) { return (value / 10).toFixed(1) }
                     valueFromText: function(text) { return Math.round(Number(text.replace(",", ".")) * 10) }
                     onValueModified: pane.setValue("table_width_char", value / 10)
                 }
                 Label { text: qsTr("Актёр") }
-                SpinBox {
+                WinUiSpinBox {
                     from: 10; to: 300; value: Math.round(Number(pane.configuration.table_width_actor || 8.5) * 10)
                     textFromValue: function(value) { return (value / 10).toFixed(1) }
                     valueFromText: function(text) { return Math.round(Number(text.replace(",", ".")) * 10) }

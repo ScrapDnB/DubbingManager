@@ -30,9 +30,13 @@ def configure_platform_graphics(platform: str | None = None) -> None:
 
 
 def configure_qml_controls_style() -> None:
-    """Use a skinnable control style for the cross-platform QML interface."""
+    """Use platform-appropriate Qt Quick Controls styles."""
     if sys.platform.startswith("win"):
         os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
+    elif sys.platform == "darwin":
+        current_style = os.environ.get("QT_QUICK_CONTROLS_STYLE")
+        if not current_style or current_style == "Basic":
+            os.environ["QT_QUICK_CONTROLS_STYLE"] = "macOS"
 
 
 class DubbingQmlApplication(QGuiApplication):

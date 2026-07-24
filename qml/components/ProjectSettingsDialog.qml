@@ -67,7 +67,7 @@ NativeDialogWindow {
             Layout.fillHeight: true
             currentIndex: projectNavigation.currentIndex
 
-            ScrollView {
+            PersistentScrollView {
                 id: projectPage
                 clip: true
                 contentWidth: availableWidth

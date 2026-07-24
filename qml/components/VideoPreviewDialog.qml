@@ -254,7 +254,7 @@ NativeDialogWindow {
                         }
                     }
 
-                    ListView {
+                    PersistentListView {
                         id: replicaList
                         objectName: "videoPreviewReplicaList"
                         Layout.fillWidth: true
@@ -278,7 +278,7 @@ NativeDialogWindow {
                                 && video.position >= startMs
                                 && video.position < endMs
 
-                            width: replicaList.width
+                            width: replicaList.viewportWidth
                             height: Math.max(38, replicaText.implicitHeight + 12)
                             color: activeLine
                                 ? Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.24)

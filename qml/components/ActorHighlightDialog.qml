@@ -27,12 +27,14 @@ NativeDialogWindow {
         RowLayout {
             Layout.fillWidth: true
 
-            Button {
+            FluentButton {
                 text: qsTr("Выбрать всех")
+                Layout.preferredWidth: 110
                 onClicked: dialog.montageBackend.setAllActorsHighlighted(true)
             }
-            Button {
+            FluentButton {
                 text: qsTr("Снять все")
+                Layout.preferredWidth: 100
                 onClicked: dialog.montageBackend.setAllActorsHighlighted(false)
             }
             Item { Layout.fillWidth: true }
@@ -62,7 +64,7 @@ NativeDialogWindow {
             }
         }
 
-        ListView {
+        PersistentListView {
             id: actorList
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -70,8 +72,6 @@ NativeDialogWindow {
             model: dialog.montageBackend
                 ? dialog.montageBackend.highlightModel
                 : null
-            ScrollBar.vertical: ScrollBar {}
-
             delegate: Rectangle {
                 id: actorRow
 
@@ -82,8 +82,8 @@ NativeDialogWindow {
                 required property bool selected
                 required property bool negative
 
-                width: actorList.width
-                height: 42
+                width: actorList.viewportWidth
+                height: 34
                 color: actorRow.index % 2 === 0
                     ? dialog.softRow
                     : dialog.softAltRow
@@ -102,24 +102,28 @@ NativeDialogWindow {
                         border.color: dialog.softBorder
                     }
 
-                    CheckBox {
+                    WinUiCheckBox {
                         text: actorRow.name
                         checked: actorRow.selected
                         Layout.fillWidth: true
-                        onClicked: dialog.montageBackend.setActorHighlighted(
-                            actorRow.actorId,
-                            checked
-                        )
+                        onToggled: function(value) {
+                            dialog.montageBackend.setActorHighlighted(
+                                actorRow.actorId,
+                                value
+                            )
+                        }
                     }
 
-                    CheckBox {
+                    WinUiCheckBox {
                         Accessible.name: qsTr("Белый текст для ") + actorRow.name
                         checked: actorRow.negative
                         Layout.preferredWidth: 105
-                        onClicked: dialog.montageBackend.setActorNegative(
-                            actorRow.actorId,
-                            checked
-                        )
+                        onToggled: function(value) {
+                            dialog.montageBackend.setActorNegative(
+                                actorRow.actorId,
+                                value
+                            )
+                        }
                     }
                 }
             }

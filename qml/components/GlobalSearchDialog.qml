@@ -108,7 +108,7 @@ NativeDialogWindow {
             }
         }
 
-        ListView {
+        PersistentListView {
             id: resultsView
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -122,7 +122,7 @@ NativeDialogWindow {
 
             delegate: Rectangle {
                 id: resultRow
-                width: resultsView.width
+                width: resultsView.viewportWidth
                 height: 36
                 color: resultsView.currentIndex === index
                     ? dialog.selectedRow : resultHover.hovered

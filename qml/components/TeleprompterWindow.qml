@@ -80,6 +80,8 @@ NativeDialogWindow {
         id: floatWindow
         ownerWindow: window
         teleprompter: window.teleprompter
+        softBorder: window.softBorder
+        softMuted: window.softMuted
     }
 
     Connections {
@@ -128,33 +130,64 @@ NativeDialogWindow {
                 Item { Layout.fillWidth: true }
             }
 
-            ListView {
+            PersistentListView {
+                id: actorFilterList
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
                 model: window.teleprompter.actorModel
 
-                delegate: CheckDelegate {
+                delegate: Item {
+                    id: actorFilterRow
+
                     required property string actorId
                     required property string name
                     required property string color
                     required property bool selected
                     required property int roleCount
 
-                    width: ListView.view.width
-                    text: name + "  (" + roleCount + ")"
-                    checked: selected
-                    onToggled: window.teleprompter.setActorSelected(actorId, checked)
+                    width: actorFilterList.viewportWidth
+                    height: 34
 
                     Rectangle {
-                        width: 5
-                        height: parent.height - 8
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: parent.color
+                        anchors.fill: parent
+                        color: rowHover.hovered ? Qt.rgba(
+                            systemPalette.highlight.r,
+                            systemPalette.highlight.g,
+                            systemPalette.highlight.b,
+                            0.08
+                        ) : "transparent"
+                    }
+
+                    HoverHandler { id: rowHover }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        spacing: 8
+
+                        Rectangle {
+                            Layout.preferredWidth: 4
+                            Layout.fillHeight: true
+                            Layout.topMargin: 3
+                            Layout.bottomMargin: 3
+                            radius: 1
+                            color: actorFilterRow.color
+                        }
+                        Label {
+                            text: actorFilterRow.name + "  ("
+                                + actorFilterRow.roleCount + ")"
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                        }
+                        WinUiCheckBox {
+                            checked: actorFilterRow.selected
+                            Layout.preferredWidth: 28
+                            onToggled: window.teleprompter.setActorSelected(
+                                actorFilterRow.actorId, checked
+                            )
+                        }
                     }
                 }
-                ScrollBar.vertical: ScrollBar {}
             }
         }
     }
@@ -189,7 +222,7 @@ NativeDialogWindow {
                 model: window.teleprompter.characterNames
             }
             Label { text: qsTr("Текст") }
-            ScrollView {
+            PersistentScrollView {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 TextArea {
@@ -249,11 +282,12 @@ NativeDialogWindow {
                 anchors.rightMargin: 6
                 spacing: 6
 
-                FluentButton {
-                    text: window.sidePanelVisible
-                        ? "Скрыть настройки"
-                        : "Показать настройки"
-                    Layout.preferredHeight: 30
+                CompactToolButton {
+                    iconSource: Qt.resolvedUrl("../icons/settings.svg")
+                    toolTipText: window.sidePanelVisible
+                        ? qsTr("Скрыть настройки")
+                        : qsTr("Показать настройки")
+                    checked: window.sidePanelVisible
                     onClicked: window.sidePanelVisible = !window.sidePanelVisible
                 }
                 Label { text: qsTr("Серия:") }
@@ -335,7 +369,8 @@ NativeDialogWindow {
                     anchors.margins: 8
                     spacing: 8
 
-                    ScrollView {
+                    PersistentScrollView {
+                        id: settingsScroll
                         Layout.fillWidth: true
                         Layout.preferredHeight: Math.min(
                             settingsColumn.implicitHeight,
@@ -343,10 +378,11 @@ NativeDialogWindow {
                         )
                         clip: true
                         contentWidth: availableWidth
+                        contentHeight: settingsColumn.implicitHeight
 
                         ColumnLayout {
                             id: settingsColumn
-                            width: parent.width
+                            width: settingsScroll.availableWidth
                             spacing: 5
 
                             RowLayout {
@@ -394,7 +430,7 @@ NativeDialogWindow {
                                 text: qsTr("Положение фокуса · ")
                                     + Math.round(focusSlider.value * 100) + "%"
                             }
-                            Slider {
+                            WinUiSlider {
                                 id: focusSlider
                                 Layout.fillWidth: true
                                 from: 0.1
@@ -425,7 +461,7 @@ NativeDialogWindow {
                                             text: fontRow.modelData.label
                                             Layout.fillWidth: true
                                         }
-                                        SpinBox {
+                                        WinUiSpinBox {
                                             from: 10
                                             to: fontRow.modelData.key === "f_text"
                                                 ? 300 : 150
@@ -536,7 +572,7 @@ NativeDialogWindow {
                                     text: qsTr("Плавность · ")
                                         + Math.round(smoothSlider.value)
                                 }
-                                Slider {
+                                WinUiSlider {
                                     id: smoothSlider
                                     Layout.fillWidth: true
                                     from: 0
@@ -564,29 +600,86 @@ NativeDialogWindow {
                             onClicked: actorFilterWindow.open()
                         }
                     }
-                    ListView {
+                    Rectangle {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        radius: 4
+                        color: systemPalette.base
+                        border.width: 1
+                        border.color: window.softBorder
                         clip: true
-                        model: window.teleprompter.model
-                        currentIndex: window.teleprompter.currentIndex
-                        delegate: ItemDelegate {
-                            required property int index
-                            required property real start
-                            required property string time
-                            required property string character
-                            required property bool active
-                            width: ListView.view.width
-                            height: active ? implicitHeight : 0
-                            visible: active
-                            text: time + " - " + character
-                            highlighted: index === ListView.view.currentIndex
-                            onClicked: {
-                                window.followEnabled = true
-                                window.teleprompter.jumpTo(start)
+
+                        PersistentListView {
+                            id: navigationList
+                            anchors.fill: parent
+                            anchors.margins: 1
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            model: window.teleprompter.model
+                            currentIndex: window.teleprompter.currentIndex
+
+                            delegate: Rectangle {
+                                id: navigationRow
+
+                                required property int index
+                                required property real start
+                                required property string time
+                                required property string character
+                                required property bool active
+
+                                width: navigationList.viewportWidth
+                                height: active ? 30 : 0
+                                visible: active
+                                color: index === navigationList.currentIndex
+                                    ? Qt.rgba(
+                                        systemPalette.highlight.r,
+                                        systemPalette.highlight.g,
+                                        systemPalette.highlight.b,
+                                        0.14
+                                    ) : navigationHover.hovered ? Qt.rgba(
+                                        systemPalette.highlight.r,
+                                        systemPalette.highlight.g,
+                                        systemPalette.highlight.b,
+                                        0.07
+                                    ) : index % 2 === 0 ? "transparent"
+                                        : Qt.rgba(
+                                            systemPalette.text.r,
+                                            systemPalette.text.g,
+                                            systemPalette.text.b,
+                                            0.025
+                                        )
+
+                                HoverHandler { id: navigationHover }
+                                TapHandler {
+                                    onTapped: {
+                                        window.followEnabled = true
+                                        window.teleprompter.jumpTo(
+                                            navigationRow.start
+                                        )
+                                    }
+                                }
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 8
+                                    anchors.rightMargin: 6
+                                    spacing: 7
+
+                                    Label {
+                                        text: navigationRow.time
+                                        color: window.softMuted
+                                        Layout.preferredWidth: 56
+                                        horizontalAlignment: Text.AlignRight
+                                        elide: Text.ElideRight
+                                    }
+                                    Label {
+                                        text: navigationRow.character
+                                        Layout.fillWidth: true
+                                        elide: Text.ElideRight
+                                    }
+                                }
                             }
                         }
-                        ScrollBar.vertical: ScrollBar {}
                     }
                 }
             }
@@ -597,7 +690,7 @@ NativeDialogWindow {
                 color: window.colors.bg
                 clip: true
 
-                ListView {
+                PersistentListView {
                     id: replicaView
                     anchors.fill: parent
                     anchors.leftMargin: Math.max(20, parent.width * 0.025)
@@ -648,11 +741,11 @@ NativeDialogWindow {
                         required property var sourceIds
 
                         readonly property real horizontalMargin: Math.max(
-                            8, ListView.view.width * 0.015
+                            8, replicaView.viewportWidth * 0.015
                         )
 
                         x: horizontalMargin
-                        width: ListView.view.width - horizontalMargin * 2
+                        width: replicaView.viewportWidth - horizontalMargin * 2
                         height: replicaColumn.implicitHeight + 18
                         opacity: active ? 1 : 0.72
 

@@ -62,7 +62,7 @@ NativeDialogWindow {
             }
         }
 
-        ListView {
+        PersistentListView {
             id: importList
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -78,7 +78,7 @@ NativeDialogWindow {
                 required property string status
                 required property string statusKind
 
-                width: importList.width
+                width: importList.viewportWidth
                 height: 42
                 color: importRow.index % 2 === 0 ? "transparent" : dialog.softHeader
 

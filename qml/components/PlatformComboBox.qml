@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 
@@ -31,6 +33,11 @@ Item {
         return comboLoader.item ? comboLoader.item.find(value) : -1
     }
 
+    function closePopup() {
+        if (comboLoader.item && comboLoader.item.popup)
+            comboLoader.item.popup.close()
+    }
+
     onCurrentIndexChanged: {
         if (comboLoader.item && comboLoader.item.currentIndex !== currentIndex)
             comboLoader.item.currentIndex = currentIndex
@@ -61,7 +68,7 @@ Item {
             onEditTextChanged: if (control.editText !== editText)
                 control.editText = editText
             onCountChanged: control.count = count
-            onActivated: control.activated(index)
+            onActivated: function(index) { control.activated(index) }
             onAccepted: control.accepted()
             Component.onCompleted: control.count = count
         }
@@ -89,7 +96,7 @@ Item {
             onEditTextChanged: if (control.editText !== editText)
                 control.editText = editText
             onCountChanged: control.count = count
-            onActivated: control.activated(index)
+            onActivated: function(index) { control.activated(index) }
             onAccepted: control.accepted()
             Component.onCompleted: control.count = count
 
@@ -119,23 +126,22 @@ Item {
             }
 
             delegate: ItemDelegate {
+                id: comboDelegate
+
+                required property int index
+
                 width: combo.width - 8
-                height: 28
-                text: combo.textAt(index)
-                highlighted: combo.highlightedIndex === index
+                implicitHeight: 28
+                text: combo.textAt(comboDelegate.index)
+                highlighted: combo.highlightedIndex === comboDelegate.index
                 leftPadding: 8
                 rightPadding: 8
-                onClicked: {
-                    combo.currentIndex = index
-                    combo.activated(index)
-                    combo.popup.close()
-                }
                 background: Rectangle {
                     radius: 3
-                    color: parent.down ? Qt.rgba(
+                    color: comboDelegate.down ? Qt.rgba(
                         combo.palette.highlight.r, combo.palette.highlight.g,
                         combo.palette.highlight.b, 0.16
-                    ) : parent.highlighted ? Qt.rgba(
+                    ) : comboDelegate.highlighted ? Qt.rgba(
                         combo.palette.highlight.r, combo.palette.highlight.g,
                         combo.palette.highlight.b, 0.09
                     ) : "transparent"
@@ -148,7 +154,7 @@ Item {
                 implicitHeight: Math.min(contentItem.implicitHeight + 8, 260)
                 padding: 4
 
-                contentItem: ListView {
+                contentItem: PersistentListView {
                     clip: true
                     implicitHeight: contentHeight
                     model: combo.popup.visible ? combo.delegateModel : null

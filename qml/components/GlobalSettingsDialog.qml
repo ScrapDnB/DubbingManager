@@ -229,7 +229,7 @@ NativeDialogWindow {
                     wrapMode: Text.WordWrap
                     color: dialog.softMuted
                 }
-                ListView {
+                PersistentListView {
                     id: globalActorsView
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -239,7 +239,7 @@ NativeDialogWindow {
                         id: actorRow
                         required property string name
                         required property string gender
-                        width: globalActorsView.width
+                        width: globalActorsView.viewportWidth
                         text: name + (gender ? " · " + gender : "")
                     }
                     Label {

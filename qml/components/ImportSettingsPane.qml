@@ -120,7 +120,7 @@ Item {
         docxEdited(JSON.parse(JSON.stringify(config)))
     }
 
-    ScrollView {
+    PersistentScrollView {
         id: importScroll
         anchors.fill: parent
         clip: true

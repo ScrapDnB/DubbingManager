@@ -33,6 +33,7 @@ ToolBar {
             valueRole: "path"
             onActivated: function(index) {
                 var path = currentValue || ""
+                closePopup()
                 currentIndex = 0
                 if (path.length > 0 && toolbar.appBridge) {
                     toolbar.projectBackend.openRecent(path)

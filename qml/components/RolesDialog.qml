@@ -46,14 +46,15 @@ NativeDialogWindow {
 
         RowLayout {
             Layout.fillWidth: true
-            TextField {
+            WinUiTextField {
                 id: roleSearch
                 Layout.fillWidth: true
                 placeholderText: qsTr("Поиск по роли или актёру")
                 selectByMouse: true
             }
-            Button {
+            FluentButton {
                 text: qsTr("Выбрать видимые")
+                Layout.preferredWidth: 125
                 onClicked: {
                     var next = Object.assign({}, dialog.selectedRoles)
                     var query = roleSearch.text.trim().toLowerCase()
@@ -66,8 +67,9 @@ NativeDialogWindow {
                     dialog.selectedRoles = next
                 }
             }
-            Button {
+            FluentButton {
                 text: qsTr("Снять выбор")
+                Layout.preferredWidth: 110
                 enabled: dialog.selectedRoleNames().length > 0
                 onClicked: dialog.selectedRoles = ({})
             }
@@ -90,7 +92,7 @@ NativeDialogWindow {
             }
         }
 
-        ListView {
+        PersistentListView {
             id: rolesView
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -108,8 +110,8 @@ NativeDialogWindow {
                     return !query || (name + " " + actorName).toLowerCase().indexOf(query) >= 0
                 }
                 visible: matches
-                width: rolesView.width
-                height: visible ? 34 : 0
+                width: rolesView.viewportWidth
+                height: visible ? 32 : 0
                 color: rowHover.hovered ? dialog.softHover
                     : (index % 2 === 0 ? dialog.softRow : dialog.softAltRow)
 
@@ -119,7 +121,7 @@ NativeDialogWindow {
                     anchors.leftMargin: 8
                     anchors.rightMargin: 8
                     spacing: 8
-                    CheckBox {
+                    WinUiCheckBox {
                         Layout.preferredWidth: 24
                         checked: dialog.selectedRoles[roleRow.name] === true
                         onToggled: dialog.toggleRole(roleRow.name, checked)
@@ -149,8 +151,9 @@ NativeDialogWindow {
                 textRole: "name"
                 valueRole: "id"
             }
-            Button {
+            FluentButton {
                 text: qsTr("Применить")
+                Layout.preferredWidth: 105
                 enabled: dialog.selectedRoleNames().length > 0
                 onClicked: {
                     dialog.rolesBackend.assign(

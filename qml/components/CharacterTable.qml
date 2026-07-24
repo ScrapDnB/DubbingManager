@@ -56,7 +56,7 @@ Item {
     readonly property int scopeColumnWidth: 70
     readonly property int previewColumnWidth: 30
     readonly property int fixedColumnsWidth: lineColumnWidth + ringsColumnWidth + wordsColumnWidth + scopeColumnWidth + previewColumnWidth
-    readonly property int flexibleWidth: Math.max(0, characterView.width - tableHorizontalPadding - tableSpacing - fixedColumnsWidth)
+    readonly property int flexibleWidth: Math.max(0, characterView.viewportWidth - tableHorizontalPadding - tableSpacing - fixedColumnsWidth)
     readonly property int characterColumnWidth: Math.floor(flexibleWidth * 0.55)
     readonly property int actorColumnWidth: Math.max(0, flexibleWidth - characterColumnWidth)
     readonly property int characterColumnX: 8
@@ -286,7 +286,7 @@ Item {
             }
         }
 
-        ListView {
+        PersistentListView {
             id: characterView
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -325,7 +325,7 @@ Item {
                 id: characterRow
                 required property int index
                 required property var model
-                width: characterView.width
+                width: characterView.viewportWidth
                 readonly property bool hasMultipleActors: model.actorEntries.length > 1
                 readonly property bool actorCellIsCollapsed: hasMultipleActors
                     && table.actorCellCollapsed(model.character)

@@ -82,7 +82,7 @@ NativeDialogWindow {
                     font.bold: true
                 }
 
-                ListView {
+                PersistentListView {
                     id: chapterList
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -93,7 +93,7 @@ NativeDialogWindow {
                     delegate: ItemDelegate {
                         required property string title
                         required property bool selected
-                        width: ListView.view.width
+                        width: chapterList.viewportWidth
                         text: title
                         highlighted: selected
                         onClicked: {

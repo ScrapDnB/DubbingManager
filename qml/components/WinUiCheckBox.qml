@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 
@@ -8,6 +10,8 @@ Item {
     property bool enabled: true
     property bool checked: false
     readonly property bool windowsStyle: Qt.platform.os === "windows"
+    readonly property bool hovered: checkboxLoader.item
+        ? checkboxLoader.item.hovered : false
     implicitWidth: checkboxLoader.item ? checkboxLoader.item.implicitWidth : 120
     implicitHeight: checkboxLoader.item ? checkboxLoader.item.implicitHeight : 28
     Accessible.name: text
@@ -27,7 +31,11 @@ Item {
             text: control.text
             enabled: control.enabled
             checked: control.checked
-            onToggled: control.toggled(checked)
+            onToggled: {
+                if (control.checked !== checked)
+                    control.checked = checked
+                control.toggled(checked)
+            }
         }
     }
 
@@ -43,7 +51,11 @@ Item {
             implicitHeight: 28
             spacing: 7
             hoverEnabled: true
-            onToggled: control.toggled(checked)
+            onToggled: {
+                if (control.checked !== checked)
+                    control.checked = checked
+                control.toggled(checked)
+            }
 
             indicator: Rectangle {
                 x: checkbox.leftPadding

@@ -43,7 +43,7 @@ Item {
             bottomPadding: 5
         }
 
-        ListView {
+        PersistentListView {
             id: sectionList
 
             Layout.fillWidth: true
@@ -60,7 +60,7 @@ Item {
                 required property string modelData
                 readonly property bool selected: index === sectionList.currentIndex
 
-                width: ListView.view.width
+                width: sectionList.viewportWidth
                 height: 34
 
                 Accessible.name: modelData

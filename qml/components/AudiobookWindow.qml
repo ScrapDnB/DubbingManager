@@ -84,13 +84,15 @@ NativeDialogWindow {
             Layout.fillWidth: true
             spacing: 8
 
-            Button {
+            FluentButton {
                 text: qsTr("Импорт PDF")
+                Layout.preferredWidth: 105
                 enabled: !window.backend.importing
                 onClicked: pdfDialog.open()
             }
-            Button {
+            FluentButton {
                 text: qsTr("Структура глав")
+                Layout.preferredWidth: 120
                 enabled: window.backend.canEditMarkup && !window.backend.importing
                 onClicked: markupWindow.openEditor()
             }
@@ -151,7 +153,8 @@ NativeDialogWindow {
                     anchors.fill: parent
                     spacing: 6
                     Label { text: qsTr("Главы"); font.bold: true }
-                    ListView {
+                    PersistentListView {
+                        id: chaptersView
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         model: window.backend.chaptersModel
@@ -160,7 +163,8 @@ NativeDialogWindow {
                         delegate: ItemDelegate {
                             required property string title
                             required property bool selected
-                            width: ListView.view.width
+                            width: chaptersView.viewportWidth
+                            height: 32
                             text: title
                             highlighted: selected
                             onClicked: window.backend.selectChapter(title)
@@ -211,7 +215,7 @@ NativeDialogWindow {
                         Label { text: qsTr("Клавиши 1–9"); color: window.softMuted }
                     }
 
-                    ScrollView {
+                    PersistentScrollView {
                         id: slotsScroll
                         Layout.fillWidth: true
                         Layout.preferredHeight: 330
@@ -293,7 +297,7 @@ NativeDialogWindow {
                         }
                     }
 
-                    Button {
+                    FluentButton {
                         text: qsTr("Снять разметку с выделения")
                         Layout.fillWidth: true
                         onClicked: editorView.runJavaScript("window.dmEditor.clearMarkup()")
@@ -305,7 +309,8 @@ NativeDialogWindow {
                         Label { text: qsTr("В главе"); font.bold: true; Layout.fillWidth: true }
                         Label { text: window.backend.statsSummary; color: window.softMuted }
                     }
-                    ListView {
+                    PersistentListView {
+                        id: markedItemsView
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         model: window.backend.markedModel
@@ -314,7 +319,8 @@ NativeDialogWindow {
                             id: markedRow
                             required property string character
                             required property string summary
-                            width: ListView.view.width
+                            width: markedItemsView.viewportWidth
+                            height: 32
                             contentItem: RowLayout {
                                 Label { text: markedRow.character; Layout.fillWidth: true; elide: Text.ElideRight }
                                 Label { text: markedRow.summary; color: window.softMuted }
@@ -326,17 +332,26 @@ NativeDialogWindow {
         }
     }
 
-    footer: DialogButtonBox {
+    footer: RowLayout {
         anchors.fill: parent
-        Button { text: qsTr("Закрыть"); onClicked: window.close() }
-        Button {
+        implicitHeight: 32
+        spacing: 8
+        Item { Layout.fillWidth: true }
+        FluentButton {
+            text: qsTr("Закрыть")
+            Layout.preferredWidth: 100
+            onClicked: window.close()
+        }
+        FluentButton {
             text: qsTr("Сохранить главу")
+            Layout.preferredWidth: 130
             enabled: window.backend.currentChapter.length > 0
             onClicked: window.backend.saveCurrent()
         }
-        Button {
+        FluentButton {
             text: qsTr("Сохранить всё")
-            highlighted: true
+            primary: true
+            Layout.preferredWidth: 120
             enabled: window.backend.currentChapter.length > 0
             onClicked: window.backend.saveAll()
         }

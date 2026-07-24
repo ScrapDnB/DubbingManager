@@ -21,7 +21,7 @@ NativeDialogWindow {
         open()
     }
 
-    content: ListView {
+    content: PersistentListView {
         id: statsView
         anchors.fill: parent
         clip: true
@@ -32,7 +32,7 @@ NativeDialogWindow {
             required property string name
             required property int rings
             required property int words
-            width: statsView.width
+            width: statsView.viewportWidth
             height: 36
             color: index % 2 === 0 ? dialog.softRow : dialog.softAltRow
             RowLayout {

@@ -76,7 +76,7 @@ NativeDialogWindow {
             }
         }
 
-        ListView {
+        PersistentListView {
             id: backupsView
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -89,7 +89,7 @@ NativeDialogWindow {
                 id: backupRow
                 required property int index
                 required property var model
-                width: backupsView.width
+                width: backupsView.viewportWidth
                 height: 34
                 color: dialog.selectedPath === model.path
                     ? Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.22)

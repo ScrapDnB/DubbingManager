@@ -160,7 +160,8 @@ Item {
                         wrapMode: Text.WordWrap
                     }
 
-                    ListView {
+                    PersistentListView {
+                        id: characterStatsList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
@@ -173,7 +174,7 @@ Item {
                             required property int rings
                             required property int words
                             required property string actor
-                            width: ListView.view.width
+                            width: characterStatsList.viewportWidth
                             height: 38
                             contentItem: Column {
                                 Label {

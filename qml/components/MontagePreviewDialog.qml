@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -17,7 +19,7 @@ NativeDialogWindow {
     required property color softMuted
     property string singleFormat: "html"
     property bool settingsVisible: true
-    property real settingsWidth: 270
+    property real settingsWidth: 350
     readonly property var montageBackend: appBridge ? appBridge.montage : null
     readonly property var config: montageBackend ? montageBackend.config : ({})
 
@@ -40,8 +42,6 @@ NativeDialogWindow {
         ListElement { label: "Диапазон"; value: "range" }
         ListElement { label: "Только начало"; value: "start" }
     }
-
-    ButtonGroup { id: scopeGroup }
 
     QtObject {
         id: previewBackend
@@ -150,6 +150,14 @@ NativeDialogWindow {
             Layout.fillWidth: true
             spacing: 8
 
+            CompactToolButton {
+                iconSource: Qt.resolvedUrl("../icons/settings.svg")
+                toolTipText: dialog.settingsVisible
+                    ? qsTr("Скрыть настройки") : qsTr("Показать настройки")
+                checked: dialog.settingsVisible
+                onClicked: dialog.settingsVisible = !dialog.settingsVisible
+            }
+
             Label { text: qsTr("Серия:") }
 
             PlatformComboBox {
@@ -181,14 +189,6 @@ NativeDialogWindow {
             }
 
             Item { Layout.fillWidth: true }
-
-            CompactToolButton {
-                iconSource: Qt.resolvedUrl("../icons/settings.svg")
-                toolTipText: dialog.settingsVisible
-                    ? qsTr("Скрыть настройки") : qsTr("Показать настройки")
-                checked: dialog.settingsVisible
-                onClicked: dialog.settingsVisible = !dialog.settingsVisible
-            }
         }
 
         SplitView {
@@ -196,77 +196,106 @@ NativeDialogWindow {
             Layout.fillHeight: true
             orientation: Qt.Horizontal
 
-            ScrollView {
-                id: settingsPane
+            Rectangle {
                 visible: dialog.settingsVisible
                 SplitView.preferredWidth: dialog.settingsWidth
-                SplitView.minimumWidth: 220
+                SplitView.minimumWidth: 300
+                color: palette.window
+                border.width: 1
+                border.color: dialog.softBorder
                 clip: true
                 onWidthChanged: {
-                    if (visible && width >= 220)
+                    if (visible && width >= 300)
                         dialog.settingsWidth = width
                 }
 
-                ColumnLayout {
-                    width: Math.max(220, parent.width - 12)
-                    spacing: 8
+                PersistentScrollView {
+                    id: settingsPane
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    clip: true
+                    contentWidth: availableWidth
+                    contentHeight: settingsColumn.implicitHeight
 
-                    Label { text: qsTr("Настройки вида"); font.bold: true }
+                    ColumnLayout {
+                        id: settingsColumn
+                        width: settingsPane.availableWidth
+                        spacing: 5
 
-                    PlatformComboBox {
-                        id: layoutCombo
-                        Layout.fillWidth: true
-                        model: layoutModel
-                        textRole: "label"
-                        valueRole: "value"
-                        onActivated: dialog.montageBackend.setOption("layout_type", currentValue)
-
-                        function syncValue() {
-                            var layoutIndex = indexOfValue(dialog.config.layout_type)
-                            currentIndex = layoutIndex >= 0 ? layoutIndex : 0
+                        Label {
+                            text: qsTr("Просмотр")
+                            font.bold: true
                         }
 
-                        Connections {
-                            target: dialog.montageBackend
-                            function onConfigChanged() { layoutCombo.syncValue() }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label { text: qsTr("Макет") }
+                            PlatformComboBox {
+                                id: layoutCombo
+                                Layout.fillWidth: true
+                                model: layoutModel
+                                textRole: "label"
+                                valueRole: "value"
+                                onActivated: dialog.montageBackend.setOption(
+                                    "layout_type", currentValue
+                                )
+
+                                function syncValue() {
+                                    var layoutIndex = indexOfValue(
+                                        dialog.config.layout_type
+                                    )
+                                    currentIndex = layoutIndex >= 0
+                                        ? layoutIndex : 0
+                                }
+
+                                Connections {
+                                    target: dialog.montageBackend
+                                    function onConfigChanged() {
+                                        layoutCombo.syncValue()
+                                    }
+                                }
+                            }
                         }
-                    }
 
-                    GroupBox {
-                        title: qsTr("Колонки")
-                        Layout.fillWidth: true
+                        CollapsibleSection {
+                            title: qsTr("Колонки")
+                            expanded: true
+                            Layout.fillWidth: true
 
-                        ColumnLayout {
-                            anchors.fill: parent
-                            CheckBox {
+                            WinUiCheckBox {
                                 text: qsTr("Таймкод")
                                 checked: Boolean(dialog.config.col_tc)
-                                onToggled: dialog.montageBackend.setOption("col_tc", checked)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "col_tc", checked
+                                )
                             }
-                            CheckBox {
+                            WinUiCheckBox {
                                 text: qsTr("Персонаж")
                                 checked: Boolean(dialog.config.col_char)
-                                onToggled: dialog.montageBackend.setOption("col_char", checked)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "col_char", checked
+                                )
                             }
-                            CheckBox {
+                            WinUiCheckBox {
                                 text: qsTr("Актёр")
                                 checked: Boolean(dialog.config.col_actor)
-                                onToggled: dialog.montageBackend.setOption("col_actor", checked)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "col_actor", checked
+                                )
                             }
-                            CheckBox {
+                            WinUiCheckBox {
                                 text: qsTr("Реплика")
                                 checked: Boolean(dialog.config.col_text)
-                                onToggled: dialog.montageBackend.setOption("col_text", checked)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "col_text", checked
+                                )
                             }
                         }
-                    }
 
-                    GroupBox {
-                        title: qsTr("Таймкод")
-                        Layout.fillWidth: true
-
-                        ColumnLayout {
-                            anchors.fill: parent
+                        CollapsibleSection {
+                            title: qsTr("Таймкод")
+                            expanded: true
+                            Layout.fillWidth: true
 
                             PlatformComboBox {
                                 id: timeModeCombo
@@ -274,45 +303,55 @@ NativeDialogWindow {
                                 model: timeModeModel
                                 textRole: "label"
                                 valueRole: "value"
-                                onActivated: dialog.montageBackend.setOption("time_display", currentValue)
+                                onActivated: dialog.montageBackend.setOption(
+                                    "time_display", currentValue
+                                )
 
                                 function syncValue() {
-                                    var modeIndex = indexOfValue(dialog.config.time_display)
-                                    currentIndex = modeIndex >= 0 ? modeIndex : 0
+                                    var modeIndex = indexOfValue(
+                                        dialog.config.time_display
+                                    )
+                                    currentIndex = modeIndex >= 0
+                                        ? modeIndex : 0
                                 }
 
                                 Connections {
                                     target: dialog.montageBackend
-                                    function onConfigChanged() { timeModeCombo.syncValue() }
+                                    function onConfigChanged() {
+                                        timeModeCombo.syncValue()
+                                    }
                                 }
                             }
 
-                            CheckBox {
+                            WinUiCheckBox {
                                 text: qsTr("Округлять")
                                 checked: Boolean(dialog.config.round_time)
-                                onToggled: dialog.montageBackend.setOption("round_time", checked)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "round_time", checked
+                                )
                             }
                         }
-                    }
 
-                    GroupBox {
-                        title: qsTr("Цвета")
-                        Layout.fillWidth: true
+                        CollapsibleSection {
+                            title: qsTr("Цвета и подсветка")
+                            Layout.fillWidth: true
 
-                        ColumnLayout {
-                            anchors.fill: parent
-                            CheckBox {
+                            WinUiCheckBox {
                                 text: qsTr("Цвета актёров")
                                 checked: Boolean(dialog.config.use_color)
-                                onToggled: dialog.montageBackend.setOption("use_color", checked)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "use_color", checked
+                                )
                             }
-                            CheckBox {
+                            WinUiCheckBox {
                                 text: qsTr("Смягчать фон")
                                 enabled: Boolean(dialog.config.use_color)
                                 checked: Boolean(dialog.config.soften_colors)
-                                onToggled: dialog.montageBackend.setOption("soften_colors", checked)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "soften_colors", checked
+                                )
                             }
-                            Button {
+                            FluentButton {
                                 Layout.fillWidth: true
                                 text: qsTr("Подсветка: ")
                                     + dialog.montageBackend.highlightSummary
@@ -321,53 +360,62 @@ NativeDialogWindow {
                                 onClicked: actorHighlightDialog.open()
                             }
                         }
-                    }
 
-                    GroupBox {
-                        title: qsTr("Размер текста")
-                        Layout.fillWidth: true
+                        CollapsibleSection {
+                            title: qsTr("Размер текста")
+                            Layout.fillWidth: true
 
-                        GridLayout {
-                            anchors.fill: parent
-                            columns: 2
+                            Repeater {
+                                model: [
+                                    { label: "Таймкод", key: "f_time", value: Number(dialog.config.f_time || 21) },
+                                    { label: "Персонаж", key: "f_char", value: Number(dialog.config.f_char || 20) },
+                                    { label: "Актёр", key: "f_actor", value: Number(dialog.config.f_actor || 14) },
+                                    { label: "Реплика", key: "f_text", value: Number(dialog.config.f_text || 30) }
+                                ]
 
-                            Label { text: qsTr("Таймкод") }
-                            SpinBox {
-                                from: 8; to: 72
-                                value: Number(dialog.config.f_time || 21)
-                                onValueModified: dialog.montageBackend.setOption("f_time", value)
-                            }
-                            Label { text: qsTr("Персонаж") }
-                            SpinBox {
-                                from: 8; to: 72
-                                value: Number(dialog.config.f_char || 20)
-                                onValueModified: dialog.montageBackend.setOption("f_char", value)
-                            }
-                            Label { text: qsTr("Актёр") }
-                            SpinBox {
-                                from: 8; to: 72
-                                value: Number(dialog.config.f_actor || 14)
-                                onValueModified: dialog.montageBackend.setOption("f_actor", value)
-                            }
-                            Label { text: qsTr("Реплика") }
-                            SpinBox {
-                                from: 8; to: 72
-                                value: Number(dialog.config.f_text || 30)
-                                onValueModified: dialog.montageBackend.setOption("f_text", value)
+                                delegate: RowLayout {
+                                    id: fontRow
+                                    required property var modelData
+                                    Layout.fillWidth: true
+
+                                    Label {
+                                        text: fontRow.modelData.label
+                                        Layout.fillWidth: true
+                                    }
+                                    WinUiSpinBox {
+                                        from: 8
+                                        to: 72
+                                        editable: true
+                                        value: fontRow.modelData.value
+                                        onValueModified: dialog.montageBackend.setOption(
+                                            fontRow.modelData.key, value
+                                        )
+                                    }
+                                }
                             }
                         }
-                    }
 
-                    CheckBox {
-                        text: qsTr("Разрешить правку текста")
-                        checked: Boolean(dialog.config.allow_edit)
-                        onToggled: dialog.montageBackend.setOption("allow_edit", checked)
-                    }
+                        CollapsibleSection {
+                            title: qsTr("Экспорт")
+                            expanded: true
+                            Layout.fillWidth: true
 
-                    CheckBox {
-                        text: qsTr("Открывать после экспорта")
-                        checked: Boolean(dialog.config.open_auto)
-                        onToggled: dialog.montageBackend.setOption("open_auto", checked)
+                            WinUiCheckBox {
+                                text: qsTr("Разрешить правку текста")
+                                checked: Boolean(dialog.config.allow_edit)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "allow_edit", checked
+                                )
+                            }
+
+                            WinUiCheckBox {
+                                text: qsTr("Открывать после экспорта")
+                                checked: Boolean(dialog.config.open_auto)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "open_auto", checked
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -411,7 +459,7 @@ NativeDialogWindow {
                     value: dialog.montageBackend
                         ? dialog.montageBackend.batchProgress : 0
                 }
-                Button {
+                FluentButton {
                     text: qsTr("Отменить")
                     visible: dialog.montageBackend
                         && dialog.montageBackend.batchBusy
@@ -419,7 +467,7 @@ NativeDialogWindow {
                 }
             }
 
-            ListView {
+            PersistentListView {
                 id: batchResults
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.min(96, count * 30)
@@ -433,7 +481,7 @@ NativeDialogWindow {
                     required property string fileName
                     required property string status
                     required property string detail
-                    width: ListView.view.width
+                    width: batchResults.viewportWidth
                     height: 30
                     text: fileName + " · " + status
                     ToolTip.visible: hovered
@@ -448,25 +496,25 @@ NativeDialogWindow {
             spacing: 8
 
             Label { text: qsTr("Форматы:") }
-            CheckBox {
+            WinUiCheckBox {
                 id: formatHtml
                 text: qsTr("HTML")
                 checked: Boolean(dialog.config.format_html)
                 onToggled: dialog.montageBackend.setOption("format_html", checked)
             }
-            CheckBox {
+            WinUiCheckBox {
                 id: formatXlsx
                 text: qsTr("XLSX")
                 checked: Boolean(dialog.config.format_xls)
                 onToggled: dialog.montageBackend.setOption("format_xls", checked)
             }
-            CheckBox {
+            WinUiCheckBox {
                 id: formatDocx
                 text: qsTr("DOCX")
                 checked: Boolean(dialog.config.format_docx)
                 onToggled: dialog.montageBackend.setOption("format_docx", checked)
             }
-            CheckBox {
+            WinUiCheckBox {
                 id: formatPdf
                 text: qsTr("PDF")
                 checked: Boolean(dialog.config.format_pdf)
@@ -475,22 +523,28 @@ NativeDialogWindow {
 
             ToolSeparator {}
 
-            RadioButton {
+            WinUiRadioButton {
                 id: currentEpisode
                 text: qsTr("Текущая серия")
                 checked: true
-                ButtonGroup.group: scopeGroup
+                onToggled: function(value) {
+                    if (value) allEpisodes.checked = false
+                }
             }
-            RadioButton {
+            WinUiRadioButton {
                 id: allEpisodes
                 text: qsTr("Все серии")
-                ButtonGroup.group: scopeGroup
+                onToggled: function(value) {
+                    if (value) currentEpisode.checked = false
+                }
             }
 
             Item { Layout.fillWidth: true }
 
-            Button {
+            FluentButton {
                 text: qsTr("Экспортировать")
+                primary: true
+                Layout.preferredWidth: 120
                 enabled: dialog.selectedFormatCount() > 0
                     && !dialog.montageBackend.batchBusy
                 onClicked: dialog.runExport()

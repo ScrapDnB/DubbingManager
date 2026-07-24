@@ -5,7 +5,7 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 
-ScrollView {
+PersistentScrollView {
     id: pane
 
     required property var configuration
@@ -49,9 +49,9 @@ ScrollView {
                 CheckBox { text: qsTr("Показывать заголовок"); checked: Boolean(pane.configuration.show_header); onToggled: pane.setValue("show_header", checked) }
                 CheckBox { text: qsTr("Системный пульт macOS"); checked: Boolean(pane.configuration.use_cocoa_float_window); onToggled: pane.setValue("use_cocoa_float_window", checked) }
                 Label { text: qsTr("Позиция фокуса: ") + Math.round(Number(pane.configuration.focus_ratio || 0.5) * 100) + "%"; Layout.columnSpan: 2 }
-                Slider { from: 0.1; to: 0.9; stepSize: 0.01; value: Number(pane.configuration.focus_ratio || 0.5); onMoved: pane.setValue("focus_ratio", value); Layout.fillWidth: true }
+                WinUiSlider { from: 0.1; to: 0.9; stepSize: 0.01; value: Number(pane.configuration.focus_ratio || 0.5); onMoved: pane.setValue("focus_ratio", value); Layout.fillWidth: true }
                 Label { text: qsTr("Плавность: ") + Number(pane.configuration.scroll_smoothness_slider || 18); Layout.columnSpan: 2 }
-                Slider { from: 0; to: 100; stepSize: 1; value: Number(pane.configuration.scroll_smoothness_slider || 18); onMoved: pane.setValue("scroll_smoothness_slider", Math.round(value)); Layout.fillWidth: true }
+                WinUiSlider { from: 0; to: 100; stepSize: 1; value: Number(pane.configuration.scroll_smoothness_slider || 18); onMoved: pane.setValue("scroll_smoothness_slider", Math.round(value)); Layout.fillWidth: true }
             }
         }
 
@@ -62,13 +62,13 @@ ScrollView {
                 anchors.fill: parent
                 columns: 4
                 Label { text: qsTr("Таймкод") }
-                SpinBox { from: 10; to: 150; value: Number(pane.configuration.f_tc || 20); onValueModified: pane.setValue("f_tc", value) }
+                WinUiSpinBox { from: 10; to: 150; value: Number(pane.configuration.f_tc || 20); onValueModified: pane.setValue("f_tc", value) }
                 Label { text: qsTr("Персонаж") }
-                SpinBox { from: 10; to: 150; value: Number(pane.configuration.f_char || 24); onValueModified: pane.setValue("f_char", value) }
+                WinUiSpinBox { from: 10; to: 150; value: Number(pane.configuration.f_char || 24); onValueModified: pane.setValue("f_char", value) }
                 Label { text: qsTr("Актёр") }
-                SpinBox { from: 10; to: 150; value: Number(pane.configuration.f_actor || 18); onValueModified: pane.setValue("f_actor", value) }
+                WinUiSpinBox { from: 10; to: 150; value: Number(pane.configuration.f_actor || 18); onValueModified: pane.setValue("f_actor", value) }
                 Label { text: qsTr("Реплика") }
-                SpinBox { from: 10; to: 300; value: Number(pane.configuration.f_text || 36); onValueModified: pane.setValue("f_text", value) }
+                WinUiSpinBox { from: 10; to: 300; value: Number(pane.configuration.f_text || 36); onValueModified: pane.setValue("f_text", value) }
             }
         }
 

@@ -148,18 +148,24 @@ NativeDialogWindow {
             }
         }
 
-        footer: DialogButtonBox {
+        footer: RowLayout {
             anchors.fill: parent
-            Button {
+            implicitHeight: 32
+            spacing: 8
+            Item { Layout.fillWidth: true }
+            FluentButton {
                 text: dialog.batchCompleted ? "Открыть папку" : "Открыть"
+                Layout.preferredWidth: 120
+                primary: true
                 onClicked: {
                     dialog.reaper.openLastExport()
                     completedDialog.close()
                     dialog.close()
                 }
             }
-            Button {
+            FluentButton {
                 text: qsTr("Готово")
+                Layout.preferredWidth: 100
                 onClicked: {
                     completedDialog.close()
                     dialog.close()
@@ -216,7 +222,7 @@ NativeDialogWindow {
             Layout.fillHeight: true
             orientation: Qt.Horizontal
 
-            ScrollView {
+            PersistentScrollView {
                 id: optionsScroll
                 SplitView.preferredWidth: 300
                 SplitView.minimumWidth: 245
@@ -259,7 +265,7 @@ NativeDialogWindow {
                         font.bold: true
                     }
 
-                    CheckBox {
+                    WinUiCheckBox {
                         id: videoCheck
                         text: dialog.batchMode
                             ? dialog.reaper.anyVideoAvailable
@@ -275,14 +281,14 @@ NativeDialogWindow {
                         onToggled: dialog.refreshPreview(outputTabs.currentIndex)
                     }
 
-                    CheckBox {
+                    WinUiCheckBox {
                         id: regionsCheck
                         text: qsTr("Создать регионы с текстом")
                         enabled: dialog.outputFormat === "rpp"
                         onToggled: dialog.refreshPreview(outputTabs.currentIndex)
                     }
 
-                    CheckBox {
+                    WinUiCheckBox {
                         id: transliterateCheck
                         text: qsTr("Имена дорожек латиницей")
                         enabled: dialog.outputFormat === "rpp"
@@ -302,24 +308,26 @@ NativeDialogWindow {
                         font.bold: true
                     }
 
-                    ButtonGroup { id: markerGroup }
-
-                    RadioButton {
+                    WinUiRadioButton {
                         id: mergedMarkers
                         text: qsTr("Объединённые реплики")
                         checked: true
-                        ButtonGroup.group: markerGroup
-                        onToggled: if (checked) dialog.refreshPreview(outputTabs.currentIndex)
+                        onToggled: function(value) { if (value) {
+                            sourceMarkers.checked = false
+                            dialog.refreshPreview(outputTabs.currentIndex)
+                        } }
                     }
 
-                    RadioButton {
+                    WinUiRadioButton {
                         id: sourceMarkers
                         text: qsTr("Точные строки исходника")
                         enabled: dialog.batchMode
                             ? dialog.reaper.allSourceMarkersAvailable
                             : dialog.reaper.sourceMarkersAvailable
-                        ButtonGroup.group: markerGroup
-                        onToggled: if (checked) dialog.refreshPreview(outputTabs.currentIndex)
+                        onToggled: function(value) { if (value) {
+                            mergedMarkers.checked = false
+                            dialog.refreshPreview(outputTabs.currentIndex)
+                        } }
                         ToolTip.visible: hovered && !enabled
                         ToolTip.text: qsTr("Точные строки доступны после импорта ASS/SRT с сохранённым исходником.")
                     }
@@ -430,7 +438,7 @@ NativeDialogWindow {
                         font.bold: true
                     }
 
-                    ListView {
+                    PersistentListView {
                         id: sampleList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
@@ -444,7 +452,7 @@ NativeDialogWindow {
                             id: sampleDelegate
                             required property int index
                             required property string modelData
-                            width: sampleList.width
+                            width: sampleList.viewportWidth
                             height: sampleText.implicitHeight + 12
                             color: index % 2 === 0
                                 ? dialog.softRow
@@ -472,10 +480,14 @@ NativeDialogWindow {
             }
         }
 
-        DialogButtonBox {
+        RowLayout {
             Layout.fillWidth: true
+            Layout.preferredHeight: 32
+            spacing: 8
 
-            Button {
+            Item { Layout.fillWidth: true }
+
+            FluentButton {
                 text: dialog.batchMode
                     ? dialog.outputFormat === "csv"
                         ? "Экспортировать все CSV..."
@@ -485,12 +497,15 @@ NativeDialogWindow {
                         : "Сохранить RPP"
                 enabled: !dialog.batchMode
                     || dialog.reaper.exportableEpisodeCount > 0
+                primary: true
+                Layout.preferredWidth: 180
                 onClicked: dialog.batchMode
                     ? batchFolderDialog.open()
                     : saveDialog.open()
             }
-            Button {
+            FluentButton {
                 text: qsTr("Отмена")
+                Layout.preferredWidth: 100
                 onClicked: dialog.close()
             }
         }

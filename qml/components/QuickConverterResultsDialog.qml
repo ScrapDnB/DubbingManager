@@ -44,7 +44,7 @@ NativeDialogWindow {
             }
         }
 
-        ListView {
+        PersistentListView {
             id: resultsView
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -60,7 +60,7 @@ NativeDialogWindow {
                 required property string outputPath
                 required property string statusKind
 
-                width: resultsView.width
+                width: resultsView.viewportWidth
                 height: 48
                 color: index % 2 === 0 ? "transparent" : dialog.softAltRow
 

@@ -259,7 +259,7 @@ NativeDialogWindow {
                     }
                 }
 
-                ListView {
+                PersistentListView {
                     id: filesView
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -282,7 +282,7 @@ NativeDialogWindow {
                         required property bool hasSourceAss
                         required property bool canRelink
 
-                        width: filesView.width
+                        width: filesView.viewportWidth
                         height: 34
                         color: filesView.currentIndex === index
                             ? Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.22)
@@ -405,7 +405,8 @@ NativeDialogWindow {
                     }
                 }
 
-                ListView {
+                PersistentListView {
+                    id: healthView
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
@@ -423,7 +424,7 @@ NativeDialogWindow {
                         required property string message
                         required property string path
 
-                        width: ListView.view.width
+                        width: healthView.viewportWidth
                         height: Math.max(36, messageLabel.implicitHeight + 12)
                         color: index % 2 === 0 ? dialog.softRow : dialog.softAltRow
 

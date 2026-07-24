@@ -136,10 +136,18 @@ class TestQmlStartup:
         configure_qml_controls_style()
         assert os.environ["QT_QUICK_CONTROLS_STYLE"] == "Fusion"
 
-    def test_non_windows_qml_controls_keep_system_style(self, monkeypatch):
+    def test_macos_qml_controls_use_native_style(self, monkeypatch):
         from qml_main import configure_qml_controls_style
 
         monkeypatch.delenv("QT_QUICK_CONTROLS_STYLE", raising=False)
         monkeypatch.setattr("qml_main.sys.platform", "darwin")
         configure_qml_controls_style()
-        assert "QT_QUICK_CONTROLS_STYLE" not in os.environ
+        assert os.environ["QT_QUICK_CONTROLS_STYLE"] == "macOS"
+
+        monkeypatch.setenv("QT_QUICK_CONTROLS_STYLE", "Basic")
+        configure_qml_controls_style()
+        assert os.environ["QT_QUICK_CONTROLS_STYLE"] == "macOS"
+
+        monkeypatch.setenv("QT_QUICK_CONTROLS_STYLE", "Fusion")
+        configure_qml_controls_style()
+        assert os.environ["QT_QUICK_CONTROLS_STYLE"] == "Fusion"

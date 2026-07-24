@@ -26,7 +26,7 @@ NativeDialogWindow {
 
     content: ColumnLayout {
         anchors.fill: parent
-        ListView {
+        PersistentListView {
             id: transferView
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -38,7 +38,7 @@ NativeDialogWindow {
                 required property string actorId
                 required property string label
                 required property bool exists
-                width: transferView.width
+                width: transferView.viewportWidth
                 height: 36
                 color: index % 2 === 0 ? dialog.softRow : dialog.softAltRow
                 RowLayout {

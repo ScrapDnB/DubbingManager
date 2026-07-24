@@ -68,7 +68,7 @@ NativeDialogWindow {
             Layout.fillHeight: true
             orientation: Qt.Horizontal
 
-            ScrollView {
+            PersistentScrollView {
                 id: settingsScroll
                 SplitView.preferredWidth: 390
                 SplitView.minimumWidth: 340
@@ -168,7 +168,7 @@ NativeDialogWindow {
                         Label { text: qsTr("Статус"); font.bold: true; Layout.preferredWidth: 85 }
                     }
                 }
-                ListView {
+                PersistentListView {
                     id: previewView
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -181,7 +181,7 @@ NativeDialogWindow {
                         required property string timing
                         required property string text
                         required property string status
-                        width: previewView.width
+                        width: previewView.viewportWidth
                         height: 36
                         color: index % 2 === 0 ? dialog.softRow : dialog.softAltRow
                         RowLayout {

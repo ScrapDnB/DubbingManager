@@ -34,7 +34,9 @@ Item {
     readonly property int colorColumnWidth: panel.globalMode ? 0 : 16
     readonly property int genderColumnWidth: 34
     readonly property int trailingColumnWidth: panel.globalMode ? 76 : 46
-    readonly property int tableContentWidth: Math.max(0, width - 12)
+    readonly property int tableContentWidth: Math.max(
+        0, actorsView.viewportWidth
+    )
     readonly property int nameColumnX: tablePadding + colorColumnWidth
         + (colorColumnWidth > 0 ? tableColumnSpacing : 0)
     readonly property int trailingColumnX: tableContentWidth - tablePadding
@@ -368,7 +370,7 @@ Item {
             }
         }
 
-        ListView {
+        PersistentListView {
             id: actorsView
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -381,7 +383,7 @@ Item {
 
             delegate: Rectangle {
                 id: actorRow
-                width: actorsView.width
+                width: actorsView.viewportWidth
                 height: 32
                 color: panel.selectedActorId === model.id ? panel.selectedRow : (actorHover.hovered ? panel.softHover : (index % 2 === 0 ? panel.softRow : panel.softAltRow))
 

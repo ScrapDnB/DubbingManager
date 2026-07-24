@@ -89,7 +89,7 @@ NativeDialogWindow {
             }
         }
 
-        ListView {
+        PersistentListView {
             id: summaryView
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -100,8 +100,8 @@ NativeDialogWindow {
                 ? dialog.reportsBackend.summaryModel : null
 
             delegate: Rectangle {
-                width: summaryView.width
-                height: Math.max(38, rolesLabel.implicitHeight + 12)
+                width: summaryView.viewportWidth
+                height: Math.max(32, rolesLabel.implicitHeight + 8)
                 color: summaryView.currentIndex === index
                     ? dialog.selectedRow
                     : (index % 2 === 0 ? dialog.softRow : dialog.softAltRow)
@@ -189,8 +189,9 @@ NativeDialogWindow {
                 }
             }
 
-            Button {
+            FluentButton {
                 text: qsTr("Экспорт для Google Sheets")
+                Layout.preferredWidth: 180
                 onClicked: exportDialog.open()
             }
 
