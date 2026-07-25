@@ -59,6 +59,7 @@ NativeDialogWindow {
 
     function navigate(direction) {
         followEnabled = true
+        replicaView.cancelPageHold()
         teleprompter.navigate(direction)
     }
 
@@ -81,6 +82,9 @@ NativeDialogWindow {
             episodeBox.currentIndex = episodeBox.indexOfValue(
                 window.teleprompter.episode
             )
+        }
+        function onPositionChanged() {
+            replicaView.resumePageFollowWhenBoundaryEnds()
         }
     }
 
@@ -454,20 +458,37 @@ NativeDialogWindow {
                                     font.bold: true
                                     Layout.fillWidth: true
                                 }
-                                Label {
+                                RowLayout {
                                     visible: window.config.osc_enabled
-                                    text: window.teleprompter.oscStatus.startsWith("OSC:")
-                                        ? "REAPER подключён"
-                                        : window.teleprompter.oscStatus
-                                    color: window.softMuted
-                                    font.pixelSize: 11
-                                    elide: Text.ElideRight
-                                    Layout.maximumWidth: 150
+                                    spacing: 5
+                                    Layout.maximumWidth: 190
+
+                                    Rectangle {
+                                        implicitWidth: 8
+                                        implicitHeight: 8
+                                        Layout.preferredWidth: implicitWidth
+                                        Layout.preferredHeight: implicitHeight
+                                        radius: 4
+                                        color: window.teleprompter.reaperConnectionState
+                                            === "active" ? "#2E9E5B"
+                                            : window.teleprompter.reaperConnectionState
+                                                === "lost" || window.teleprompter.reaperConnectionState === "error"
+                                                || window.teleprompter.reaperConnectionState === "unavailable"
+                                                ? "#D65D4A" : window.softMuted
+                                    }
+                                    Label {
+                                        text: window.teleprompter.reaperConnectionText
+                                        color: window.softMuted
+                                        font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
                                     HoverHandler { id: oscStatusHover }
                                     PlatformToolTip {
-                                        target: oscStatusLabel
+                                        target: parent
                                         active: oscStatusHover.hovered
-                                        text: window.teleprompter.oscStatus
+                                        text: window.teleprompter.reaperConnectionText
+                                            + "\n" + window.teleprompter.oscStatus
                                     }
                                 }
                             }
@@ -634,6 +655,17 @@ NativeDialogWindow {
                                         "sync_out", checked
                                     )
                                 }
+                                CheckBox {
+                                    text: qsTr("Постраничный режим")
+                                    checked: Boolean(window.config.page_scroll_mode)
+                                    onToggled: window.appBridge.settings.setPrompterPageScrollMode(
+                                        checked
+                                    )
+                                    PlatformToolTip {
+                                        target: parent
+                                        text: qsTr("Прокручивать после последней полностью видимой реплики")
+                                    }
+                                }
 
                                 Label {
                                     text: qsTr("Плавность · ")
@@ -719,6 +751,7 @@ NativeDialogWindow {
                                 TapHandler {
                                     onTapped: {
                                         window.followEnabled = true
+                                        replicaView.cancelPageHold()
                                         window.teleprompter.jumpTo(
                                             navigationRow.start
                                         )
@@ -781,12 +814,120 @@ NativeDialogWindow {
                     currentIndex: window.followEnabled
                         ? window.teleprompter.currentIndex
                         : -1
+                    readonly property bool pageScrollMode: Boolean(
+                        window.config.page_scroll_mode
+                    )
+                    property real pageScrollHoldUntil: -1
                     preferredHighlightBegin: height * focusSlider.value
                     preferredHighlightEnd: preferredHighlightBegin
-                    highlightRangeMode: ListView.StrictlyEnforceRange
+                    highlightRangeMode: pageScrollMode
+                        ? ListView.NoHighlightRange
+                        : ListView.StrictlyEnforceRange
                     highlightMoveDuration: Math.round(
                         smoothSlider.value * 12
                     )
+
+                    NumberAnimation {
+                        id: pageScrollAnimation
+                        target: replicaView
+                        property: "contentY"
+                        duration: Math.max(120, Math.round(
+                            120 + smoothSlider.value * 10
+                        ))
+                        easing.type: Easing.OutCubic
+                    }
+
+                    function followCurrentReplicaByPage() {
+                        if (!pageScrollMode || !window.followEnabled
+                                || currentIndex < 0
+                                || pageScrollHoldUntil >= 0) {
+                            return
+                        }
+                        // positionViewAtIndex resolves the real delegate
+                        // geometry, including wrapped text after a resize.
+                        var sourceY = contentY
+                        pageScrollAnimation.stop()
+                        positionViewAtIndex(currentIndex, ListView.Beginning)
+                        var targetY = contentY
+                        var targetItem = currentItem
+                        var itemTop = targetItem ? targetItem.y : targetY
+                        var itemBottom = targetItem
+                            ? itemTop + targetItem.height : itemTop
+                        contentY = sourceY
+                        if (itemTop < sourceY || itemBottom > sourceY + height) {
+                            pageScrollAnimation.from = sourceY
+                            pageScrollAnimation.to = targetY
+                            pageScrollAnimation.start()
+                        }
+                    }
+
+                    function pausePageFollowAtVisibleBoundary() {
+                        if (!pageScrollMode) {
+                            return
+                        }
+                        var viewportBottom = contentY + height
+                        var index = -1
+                        for (var probeY = viewportBottom - 1;
+                                probeY >= contentY; probeY -= 4) {
+                            index = indexAt(width / 2, probeY)
+                            if (index >= 0) {
+                                break
+                            }
+                        }
+                        if (index < 0) {
+                            pageScrollHoldUntil = -1
+                            return
+                        }
+                        var item = itemAtIndex(index)
+                        if (item && item.y + item.height > viewportBottom) {
+                            index -= 1
+                            item = itemAtIndex(index)
+                        }
+                        if (!item || item.y < contentY
+                                || item.y + item.height > viewportBottom) {
+                            pageScrollHoldUntil = -1
+                            return
+                        }
+                        pageScrollHoldUntil = Number(
+                            window.teleprompter.model.get(index).end
+                        )
+                    }
+
+                    function resumePageFollowWhenBoundaryEnds() {
+                        if (!pageScrollMode || pageScrollHoldUntil < 0
+                                || window.teleprompter.time < pageScrollHoldUntil) {
+                            return
+                        }
+                        pageScrollHoldUntil = -1
+                        Qt.callLater(followCurrentReplicaByPage)
+                    }
+
+                    function cancelPageHold() {
+                        pageScrollHoldUntil = -1
+                    }
+
+                    onCurrentIndexChanged: Qt.callLater(
+                        followCurrentReplicaByPage
+                    )
+                    onHeightChanged: Qt.callLater(
+                        pageScrollHoldUntil >= 0
+                            ? pausePageFollowAtVisibleBoundary
+                            : followCurrentReplicaByPage
+                    )
+                    onWidthChanged: Qt.callLater(
+                        pageScrollHoldUntil >= 0
+                            ? pausePageFollowAtVisibleBoundary
+                            : followCurrentReplicaByPage
+                    )
+                    onContentHeightChanged: if (pageScrollHoldUntil >= 0)
+                        Qt.callLater(pausePageFollowAtVisibleBoundary)
+                    onPageScrollModeChanged: {
+                        if (!pageScrollMode) {
+                            pageScrollAnimation.stop()
+                        }
+                        cancelPageHold()
+                        Qt.callLater(followCurrentReplicaByPage)
+                    }
                     transform: Scale {
                         origin.x: replicaView.width / 2
                         xScale: window.config.is_mirrored ? -1 : 1
@@ -795,7 +936,7 @@ NativeDialogWindow {
                     WheelHandler {
                         target: null
                         onWheel: function(event) {
-                            window.followEnabled = false
+                            pageScrollAnimation.stop()
                             replicaView.contentY = Math.max(
                                 0,
                                 Math.min(
@@ -803,6 +944,13 @@ NativeDialogWindow {
                                     replicaView.contentY - event.angleDelta.y
                                 )
                             )
+                            if (replicaView.pageScrollMode) {
+                                Qt.callLater(
+                                    replicaView.pausePageFollowAtVisibleBoundary
+                                )
+                            } else {
+                                window.followEnabled = false
+                            }
                             event.accepted = true
                         }
                     }
@@ -835,6 +983,7 @@ NativeDialogWindow {
                             anchors.fill: parent
                             onClicked: {
                                 window.followEnabled = true
+                                replicaView.cancelPageHold()
                                 window.teleprompter.jumpTo(replicaDelegate.start)
                             }
                             onDoubleClicked: window.openReplicaEditor(

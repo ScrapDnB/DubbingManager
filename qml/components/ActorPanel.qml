@@ -30,11 +30,23 @@ Item {
     readonly property bool macOSStyle: Qt.platform.os === "osx"
     property bool globalMode: actorBaseMode.currentIndex === 1
     property color selectedRow: Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.22)
-    readonly property int tablePadding: 6
-    readonly property int tableColumnSpacing: 6
-    readonly property int colorColumnWidth: panel.globalMode ? 0 : 16
-    readonly property int genderColumnWidth: 34
-    readonly property int trailingColumnWidth: panel.globalMode ? 76 : 46
+    readonly property int tablePadding: Math.max(
+        6, Math.ceil(panelFontMetrics.height * 0.45)
+    )
+    readonly property int tableColumnSpacing: tablePadding
+    readonly property int colorColumnWidth: panel.globalMode ? 0 : Math.max(
+        16, panelFontMetrics.height + 2
+    )
+    readonly property int genderColumnWidth: Math.max(
+        42, Math.ceil(genderHeaderMetrics.width + tablePadding)
+    )
+    readonly property int trailingColumnWidth: Math.max(
+        panel.globalMode ? 64 : 42,
+        Math.ceil(
+            (panel.globalMode ? statusHeaderMetrics.width : rolesHeaderMetrics.width)
+                + tablePadding
+        )
+    )
     readonly property int tableContentWidth: Math.max(
         0, actorsView.viewportWidth
     )
@@ -54,6 +66,10 @@ Item {
     readonly property int tableHeaderHeight: Math.max(
         macOSStyle ? 24 : 28,
         Math.ceil(panelFontMetrics.height + (macOSStyle ? 4 : 8))
+    )
+    readonly property int actorRowHeight: Math.max(
+        macOSStyle ? 28 : 32,
+        panelFontMetrics.height + (macOSStyle ? 12 : 16)
     )
 
     function sortTitle(label, key) {
@@ -132,6 +148,23 @@ Item {
     FontMetrics {
         id: panelFontMetrics
         font: Application.font
+    }
+
+    TextMetrics {
+        id: genderHeaderMetrics
+        // Account for the sort arrow as well as the header text.
+        text: qsTr("Пол ↑")
+        font: panelFontMetrics.font
+    }
+    TextMetrics {
+        id: rolesHeaderMetrics
+        text: qsTr("Роли")
+        font: panelFontMetrics.font
+    }
+    TextMetrics {
+        id: statusHeaderMetrics
+        text: qsTr("Статус")
+        font: panelFontMetrics.font
     }
 
     Rectangle {
@@ -510,7 +543,7 @@ Item {
             delegate: Rectangle {
                 id: actorRow
                 width: actorsView.viewportWidth
-                height: panel.macOSStyle ? 28 : 32
+                height: panel.actorRowHeight
                 color: panel.selectedActorId === model.id ? panel.selectedRow : (actorHover.hovered ? panel.softHover : (index % 2 === 0 ? panel.softRow : panel.softAltRow))
 
                 HoverHandler {

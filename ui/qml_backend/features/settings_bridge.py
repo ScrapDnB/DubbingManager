@@ -637,6 +637,26 @@ class SettingsBridge(QObject):
     def setPrompterSyncEnabled(self, key: str, enabled: bool) -> bool:
         if key not in {"sync_in", "sync_out"}:
             return False
+        return self._set_global_prompter_flag(
+            key,
+            enabled,
+            "Настройки синхронизации REAPER сохранены",
+        )
+
+    @Slot(bool, result=bool)
+    def setPrompterPageScrollMode(self, enabled: bool) -> bool:
+        return self._set_global_prompter_flag(
+            "page_scroll_mode",
+            enabled,
+            "Постраничный режим телесуфлёра сохранён",
+        )
+
+    def _set_global_prompter_flag(
+        self,
+        key: str,
+        enabled: bool,
+        status_message: str,
+    ) -> bool:
         config = self.globalPrompterConfig
         enabled = bool(enabled)
         if config.get(key) == enabled:
@@ -655,7 +675,7 @@ class SettingsBridge(QObject):
         )
         self.globalPrompterConfigChanged.emit()
         self.changed.emit()
-        self.statusRequested.emit("Настройки синхронизации REAPER сохранены")
+        self.statusRequested.emit(status_message)
         return True
 
     @Slot(str, "QVariantMap", result=bool)

@@ -50,6 +50,21 @@ PersistentScrollView {
                 CheckBox { text: qsTr("Системный пульт macOS"); checked: Boolean(pane.configuration.use_cocoa_float_window); onToggled: pane.setValue("use_cocoa_float_window", checked) }
                 Label { text: qsTr("Позиция фокуса: ") + Math.round(Number(pane.configuration.focus_ratio || 0.5) * 100) + "%"; Layout.columnSpan: 2 }
                 Slider { from: 0.1; to: 0.9; value: Number(pane.configuration.focus_ratio || 0.5); onMoved: pane.setValue("focus_ratio", value); Layout.fillWidth: true }
+            }
+        }
+
+        FormSection {
+            title: qsTr("Прокрутка")
+            Layout.fillWidth: true
+            GridLayout {
+                anchors.fill: parent
+                columns: 3
+                CheckBox {
+                    text: qsTr("Постраничный режим")
+                    checked: Boolean(pane.configuration.page_scroll_mode)
+                    onToggled: pane.setValue("page_scroll_mode", checked)
+                    Layout.columnSpan: 3
+                }
                 Label { text: qsTr("Плавность: ") + Number(pane.configuration.scroll_smoothness_slider || 18); Layout.columnSpan: 2 }
                 Slider { from: 0; to: 100; value: Number(pane.configuration.scroll_smoothness_slider || 18); onMoved: pane.setValue("scroll_smoothness_slider", Math.round(value)); Layout.fillWidth: true }
             }

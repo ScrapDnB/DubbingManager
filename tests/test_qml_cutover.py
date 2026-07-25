@@ -60,11 +60,27 @@ def test_teleprompter_transfers_the_current_text_selection():
     assert "Передать выделенное" in source
 
 
+def test_teleprompter_has_a_page_scroll_mode():
+    source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Постраничный режим" in source
+    assert "followCurrentReplicaByPage" in source
+    assert "ListView.NoHighlightRange" in source
+    assert "pageScrollAnimation" in source
+    assert "pausePageFollowAtVisibleBoundary" in source
+    assert "resumePageFollowWhenBoundaryEnds" in source
+
+
 def test_macos_main_window_waits_for_native_chrome_before_showing():
     source = (ROOT / "qml" / "Main.qml").read_text(encoding="utf-8")
 
     assert "property bool startupChromeReady: !macOSStyle" in source
     assert "function showInitialWindow()" in source
+    assert "property int macOSChromeHeightDelta: 0" in source
+    assert "startupGeometryTimer.restart()" in source
+    assert "height - macOSChromeHeightDelta" in source
 
 
 def test_main_tables_can_clear_their_selection():

@@ -95,6 +95,15 @@ class TestProjectFileArguments:
 class TestQmlStartup:
     """Tests for platform-specific QML startup configuration."""
 
+    def test_windows_dpi_awareness_is_configured_before_qt_import(self):
+        source = Path("qml_main.py").read_text(encoding="utf-8")
+
+        assert source.index("configure_windows_dpi_awareness()") < source.index(
+            "from PySide6.QtCore"
+        )
+        assert "SetProcessDpiAwarenessContext" in source
+        assert "DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2" in source
+
     def test_windows_webengine_disables_vulkan_without_losing_other_flags(self, monkeypatch):
         from qml_main import configure_platform_graphics
 

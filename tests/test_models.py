@@ -95,6 +95,7 @@ class TestPrompterConfig:
         assert config.f_text == 36
         assert config.focus_ratio == 0.5
         assert config.is_mirrored == False
+        assert config.page_scroll_mode == False
         assert config.port_in == 8000
         assert config.port_out == 9000
 

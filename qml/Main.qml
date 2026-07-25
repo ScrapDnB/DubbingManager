@@ -15,6 +15,11 @@ ApplicationWindow {
 
     width: uiState.intValue("main.width", 1350)
     height: uiState.intValue("main.height", 850)
+    // AppKit expands the native frame when the unified toolbar settles. Keep
+    // that chrome delta out of the persisted QML height, otherwise it is
+    // added again every time the application starts.
+    readonly property int restoredWindowHeight: uiState.intValue("main.height", 850)
+    property int macOSChromeHeightDelta: 0
     minimumWidth: 680
     minimumHeight: 620
     visible: false
@@ -44,7 +49,14 @@ ApplicationWindow {
             uiState.setIntValue("main.x", x)
             uiState.setIntValue("main.y", y)
             uiState.setIntValue("main.width", width)
-            uiState.setIntValue("main.height", height)
+            uiState.setIntValue(
+                "main.height",
+                macOSStyle && !uiReady
+                    ? restoredWindowHeight
+                    : Math.round(Math.max(
+                        minimumHeight, height - macOSChromeHeightDelta
+                    ))
+            )
         }
         if (actorPanel.width > 0)
             uiState.setIntValue("main.actorPanelWidth", actorPanel.width)
@@ -61,11 +73,9 @@ ApplicationWindow {
         } else {
             show()
         }
-        Qt.callLater(function() {
-            if (root.windowsStyle)
-                root.dismissStartupMenus()
-            root.uiReady = true
-        })
+        if (root.windowsStyle)
+            root.dismissStartupMenus()
+        startupGeometryTimer.restart()
     }
 
     Component.onCompleted: {
@@ -99,6 +109,21 @@ ApplicationWindow {
         id: windowStateTimer
         interval: 350
         onTriggered: root.persistWindowState()
+    }
+
+    Timer {
+        id: startupGeometryTimer
+        interval: root.macOSStyle ? 700 : 0
+        repeat: false
+        onTriggered: {
+            if (root.macOSStyle) {
+                root.macOSChromeHeightDelta = Math.max(
+                    0,
+                    Math.round(root.height - root.restoredWindowHeight)
+                )
+            }
+            root.uiReady = true
+        }
     }
 
     Timer {

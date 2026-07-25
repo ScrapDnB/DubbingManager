@@ -1,6 +1,7 @@
 """Tests for the experimental QML bridge."""
 
 from copy import deepcopy
+from time import monotonic
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,9 @@ from PySide6.QtCore import QCoreApplication, QSettings
 from config.constants import MY_PALETTE
 from services.audiobook_document_service import AudiobookDocumentService
 from ui.qml_backend.app_bridge import AppBridge
+from ui.qml_backend.features.teleprompter_bridge import (
+    REAPER_ACTIVITY_TIMEOUT_SECONDS,
+)
 from ui.qml_backend.features.ui_state_bridge import UiStateBridge
 
 
@@ -322,6 +326,23 @@ def test_qml_bridge_prepares_and_navigates_teleprompter(tmp_path):
     prompter.navigate(1)
     assert bridge.teleprompter.time == 1.0
 
+    prompter.setActorSelected("actor-1", False)
+    rows = bridge.teleprompter.model.rows()
+    assert [row["active"] for row in rows] == [True, True]
+    assert [row["colorActive"] for row in rows] == [False, False]
+
+
+def test_qml_teleprompter_keeps_replicas_active_without_actors(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.data["actors"] = {}
+
+    assert bridge.teleprompter.prepare("1")
+    rows = bridge.teleprompter.model.rows()
+    assert [row["active"] for row in rows] == [True, True]
+    assert [row["colorActive"] for row in rows] == [False, False]
+
 
 def test_qml_bridge_teleprompter_edits_and_splits_with_undo(tmp_path):
     _app()
@@ -514,14 +535,43 @@ def test_qml_teleprompter_sync_toggles_update_global_settings(tmp_path):
 
     assert bridge.settings.setPrompterSyncEnabled("sync_in", True)
     assert bridge.settings.setPrompterSyncEnabled("sync_out", True)
+    assert bridge.settings.setPrompterPageScrollMode(True)
 
     saved = bridge._global_settings_service.load_settings()
     assert saved["default_prompter_config"]["sync_in"] is True
     assert saved["default_prompter_config"]["sync_out"] is True
+    assert saved["default_prompter_config"]["page_scroll_mode"] is True
     assert bridge.teleprompter.config["sync_in"] is True
     assert bridge.teleprompter.config["sync_out"] is True
+    assert bridge.teleprompter.config["page_scroll_mode"] is True
     assert bridge._session.data["prompter_config"]["sync_in"] is False
+    assert bridge._session.data["prompter_config"]["page_scroll_mode"] is False
     assert not bridge.settings.setPrompterSyncEnabled("port_in", True)
+
+
+def test_qml_teleprompter_reaper_indicator_tracks_osc_activity(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+    global_config = bridge._global_settings_service.get_default_prompter_config()
+    global_config["osc_enabled"] = True
+    bridge._global_settings_service.set_default_prompter_config(global_config)
+    prompter._osc_worker = object()
+
+    prompter._refresh_reaper_connection_state()
+    assert prompter.reaperConnectionState == "waiting"
+
+    prompter._last_osc_activity = monotonic()
+    prompter._refresh_reaper_connection_state()
+    assert prompter.reaperConnectionState == "active"
+    assert prompter.reaperConnectionText == "REAPER: синхронизация активна"
+
+    prompter._last_osc_activity = (
+        monotonic() - REAPER_ACTIVITY_TIMEOUT_SECONDS - 0.1
+    )
+    prompter._refresh_reaper_connection_state()
+    assert prompter.reaperConnectionState == "lost"
 
 
 def test_qml_bridge_normalizes_legacy_scenario_layout():

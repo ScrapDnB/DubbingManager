@@ -29,10 +29,6 @@ ToolBar {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: toolbar.macOSStyle ? 6 : 8
-        anchors.rightMargin: toolbar.macOSStyle ? 6 : 8
-        anchors.topMargin: toolbar.macOSStyle ? 4 : 8
-        anchors.bottomMargin: toolbar.macOSStyle ? 4 : 8
         spacing: 4
 
         PlatformComboBox {

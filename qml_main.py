@@ -5,6 +5,43 @@ import os
 import sys
 from pathlib import Path
 
+
+def configure_windows_dpi_awareness(platform: str | None = None) -> None:
+    """Opt into Windows per-monitor DPI before Qt creates its first window."""
+    target_platform = platform or sys.platform
+    if not target_platform.startswith("win"):
+        return
+
+    # The packaged executable has no custom application manifest.  Marking the
+    # process as Per Monitor V2 here lets Qt receive the same logical DPI that
+    # Explorer and Windows Settings use, including after moving a window
+    # between displays with different scaling.
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        set_context = user32.SetProcessDpiAwarenessContext
+        set_context.argtypes = [ctypes.c_void_p]
+        set_context.restype = ctypes.c_bool
+        if set_context(ctypes.c_void_p(-4)):  # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+            return
+    except (AttributeError, OSError):
+        pass
+
+    # Windows 8.1 and older Windows 10 versions do not expose Per Monitor V2.
+    try:
+        shcore = ctypes.windll.shcore
+        if shcore.SetProcessDpiAwareness(2) == 0:  # PROCESS_PER_MONITOR_DPI_AWARE
+            return
+    except (AttributeError, OSError):
+        pass
+
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except (AttributeError, OSError):
+        pass
+
+
 def configure_platform_graphics(platform: str | None = None) -> None:
     """Select stable Qt WebEngine graphics paths for each desktop platform."""
     target_platform = platform or sys.platform
@@ -34,6 +71,7 @@ def configure_platform_graphics(platform: str | None = None) -> None:
 # QtWebEngine may probe its graphics stack while its Python module is loaded.
 # Set the process-wide backend choice before importing any PySide6 module.
 configure_platform_graphics()
+configure_windows_dpi_awareness()
 
 
 from PySide6.QtCore import QEvent, QUrl
@@ -79,6 +117,7 @@ class DubbingQmlApplication(QGuiApplication):
 def main() -> int:
     """Run the QML application."""
     configure_platform_graphics()
+    configure_windows_dpi_awareness()
     configure_qml_controls_style()
     setup_logging()
     QtWebEngineQuick.initialize()

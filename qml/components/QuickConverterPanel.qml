@@ -17,6 +17,10 @@ Item {
     readonly property var backend: appBridge ? appBridge.converter : null
     readonly property bool macOSStyle: Qt.platform.os === "osx"
     implicitHeight: content.implicitHeight
+    // The sidebar owns the available width. In particular, Fluent metrics on
+    // Windows 10 can make three check boxes wider than a narrow sidebar.
+    implicitWidth: 0
+    Layout.minimumWidth: 0
 
     FileDialog {
         id: sourceDialog
@@ -54,9 +58,10 @@ Item {
             }
         }
 
-        RowLayout {
+        Flow {
             Layout.fillWidth: true
-            spacing: 2
+            Layout.minimumWidth: 0
+            spacing: 4
 
             CheckBox {
                 text: qsTr("HTML")

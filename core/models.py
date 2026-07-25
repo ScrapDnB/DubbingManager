@@ -65,6 +65,7 @@ class PrompterConfig:
     key_prev: str = "Left"
     key_next: str = "Right"
     scroll_smoothness_slider: int = 18
+    page_scroll_mode: bool = False
     colors: PrompterColors = field(default_factory=PrompterColors)
 
     def __post_init__(self) -> None:

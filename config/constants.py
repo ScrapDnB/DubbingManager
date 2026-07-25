@@ -173,6 +173,7 @@ DEFAULT_PROMPTER_CONFIG = {
     "key_prev": "Left",
     "key_next": "Right",
     "scroll_smoothness_slider": 18,
+    "page_scroll_mode": False,
     "use_cocoa_float_window": True,
     "colors": {
         "bg": "#000000",

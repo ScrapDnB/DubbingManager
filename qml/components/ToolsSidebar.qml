@@ -221,6 +221,7 @@ Item {
             softHeader: sidebar.softHeader
             softMuted: sidebar.softMuted
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
             onResultsRequested: sidebar.converterResultsRequested()
         }
     }

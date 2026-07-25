@@ -33,6 +33,39 @@ Item {
         colorGroup: SystemPalette.Active
     }
 
+    // The table is custom because Qt Quick Controls does not provide a native
+    // data grid. Keep its geometry tied to the active font instead of a
+    // snapshot of one monitor's logical pixels.
+    FontMetrics {
+        id: tableFontMetrics
+        font: Application.font
+    }
+
+    TextMetrics {
+        id: linesHeaderMetrics
+        text: qsTr("Строк")
+        font.pixelSize: table.macOSStyle ? 11 : 13
+        font.weight: table.macOSStyle ? Font.Medium : Font.DemiBold
+    }
+    TextMetrics {
+        id: ringsHeaderMetrics
+        text: qsTr("Колец")
+        font.pixelSize: table.macOSStyle ? 11 : 13
+        font.weight: table.macOSStyle ? Font.Medium : Font.DemiBold
+    }
+    TextMetrics {
+        id: wordsHeaderMetrics
+        text: qsTr("Слов")
+        font.pixelSize: table.macOSStyle ? 11 : 13
+        font.weight: table.macOSStyle ? Font.Medium : Font.DemiBold
+    }
+    TextMetrics {
+        id: scopeHeaderMetrics
+        text: qsTr("Область")
+        font.pixelSize: table.macOSStyle ? 11 : 13
+        font.weight: table.macOSStyle ? Font.Medium : Font.DemiBold
+    }
+
     SplitView.fillWidth: true
     Layout.minimumWidth: 0
     clip: true
@@ -58,31 +91,63 @@ Item {
         }
     }
 
-    readonly property int tableHorizontalPadding: 16
-    readonly property int tableSpacing: 48
-    readonly property int lineColumnWidth: 58
-    readonly property int ringsColumnWidth: 54
-    readonly property int wordsColumnWidth: 52
-    readonly property int scopeColumnWidth: 70
-    readonly property int previewColumnWidth: 30
-    readonly property int fixedColumnsWidth: lineColumnWidth + ringsColumnWidth + wordsColumnWidth + scopeColumnWidth + previewColumnWidth
-    readonly property int flexibleWidth: Math.max(0, characterView.viewportWidth - tableHorizontalPadding - tableSpacing - fixedColumnsWidth)
-    // Actor cells need room for names, colour markers, and row actions. Give
-    // them a progressively larger share while the table is being narrowed.
+    readonly property int columnGap: Math.max(
+        6, Math.ceil(tableFontMetrics.height * 0.45)
+    )
+    readonly property int cellPadding: Math.max(
+        12, Math.ceil(tableFontMetrics.height * 0.9)
+    )
+    readonly property int lineColumnWidth: Math.max(
+        48, Math.ceil(linesHeaderMetrics.width + cellPadding)
+    )
+    readonly property int ringsColumnWidth: Math.max(
+        50, Math.ceil(ringsHeaderMetrics.width + cellPadding)
+    )
+    readonly property int wordsColumnWidth: Math.max(
+        46, Math.ceil(wordsHeaderMetrics.width + cellPadding)
+    )
+    readonly property int scopeColumnWidth: Math.max(
+        66, Math.ceil(scopeHeaderMetrics.width + cellPadding + tableFontMetrics.height)
+    )
+    readonly property int previewColumnWidth: Math.max(
+        26, tableFontMetrics.height + 12
+    )
+    readonly property int rowVerticalPadding: Math.max(
+        4, Math.ceil(tableFontMetrics.height * 0.3)
+    )
+    readonly property int actorEntrySpacing: Math.max(
+        2, Math.ceil(tableFontMetrics.height * 0.15)
+    )
+    readonly property int actorEntryHeight: Math.max(
+        macOSStyle ? 20 : 22,
+        tableFontMetrics.height + (macOSStyle ? 6 : 8)
+    )
+    readonly property int baseRowHeight: Math.max(
+        macOSStyle ? 28 : 32,
+        tableFontMetrics.height + (macOSStyle ? 12 : 16)
+    )
+    readonly property int fixedColumnsWidth: lineColumnWidth + ringsColumnWidth
+        + wordsColumnWidth + scopeColumnWidth + previewColumnWidth
+    readonly property int flexibleWidth: Math.max(
+        0, characterView.viewportWidth - columnGap * 8 - fixedColumnsWidth
+    )
+    // Actor cells contain names, colours and actions. They deliberately get
+    // the larger share on narrow windows, rather than truncating first.
     readonly property real characterColumnShare: Math.min(
-        0.55, Math.max(0.42, 0.42 + flexibleWidth / 5000)
+        0.48, Math.max(0.38, 0.38 + flexibleWidth / 7500)
     )
     readonly property int characterColumnWidth: Math.floor(
         flexibleWidth * characterColumnShare
     )
     readonly property int actorColumnWidth: Math.max(0, flexibleWidth - characterColumnWidth)
-    readonly property int characterColumnX: 8
-    readonly property int lineColumnX: characterColumnX + characterColumnWidth + 8
-    readonly property int ringsColumnX: lineColumnX + lineColumnWidth + 8
-    readonly property int wordsColumnX: ringsColumnX + ringsColumnWidth + 8
-    readonly property int scopeColumnX: wordsColumnX + wordsColumnWidth + 8
-    readonly property int actorColumnX: scopeColumnX + scopeColumnWidth + 8
-    readonly property int previewColumnX: actorColumnX + actorColumnWidth + 8
+    readonly property int characterColumnX: columnGap
+    readonly property int lineColumnX: characterColumnX + characterColumnWidth
+        + columnGap
+    readonly property int ringsColumnX: lineColumnX + lineColumnWidth + columnGap
+    readonly property int wordsColumnX: ringsColumnX + ringsColumnWidth + columnGap
+    readonly property int scopeColumnX: wordsColumnX + wordsColumnWidth + columnGap
+    readonly property int actorColumnX: scopeColumnX + scopeColumnWidth + columnGap
+    readonly property int previewColumnX: actorColumnX + actorColumnWidth + columnGap
     property string pendingCharacter: ""
     property var pendingActorIds: []
     property var collapsedActorCells: ({})
@@ -381,8 +446,14 @@ Item {
                 readonly property bool actorCellIsCollapsed: hasMultipleActors
                     && table.actorCellCollapsed(model.character)
                 height: actorCellIsCollapsed
-                    ? 32
-                    : Math.max(32, (model.actorEntries.length || 1) * 24 + 8)
+                    ? table.baseRowHeight
+                    : Math.max(
+                        table.baseRowHeight,
+                        (model.actorEntries.length || 1) * table.actorEntryHeight
+                            + table.rowVerticalPadding * 2
+                            + Math.max(0, model.actorEntries.length - 1)
+                                * table.actorEntrySpacing
+                    )
                 color: table.castingBackend && table.castingBackend.selectedCharacter === model.character ? table.selectedRow : (characterHover.hovered ? table.softHover : (index % 2 === 0 ? table.softRow : table.softAltRow))
                 clip: true
                 Accessible.role: Accessible.ListItem
@@ -510,17 +581,18 @@ Item {
 
                         Column {
                             anchors.fill: parent
-                            anchors.leftMargin: 6
+                            anchors.leftMargin: table.columnGap
                             anchors.rightMargin: (
                                 collapseActorsButton.visible
                                     ? addActorButton.width
                                         + collapseActorsButton.width + 8
                                     : addActorButton.visible
-                                        ? addActorButton.width + 8 : 6
+                                        ? addActorButton.width + table.columnGap
+                                        : table.columnGap
                             )
-                            anchors.topMargin: 4
-                            anchors.bottomMargin: 4
-                            spacing: 2
+                            anchors.topMargin: table.rowVerticalPadding
+                            anchors.bottomMargin: table.rowVerticalPadding
+                            spacing: table.actorEntrySpacing
                             visible: !characterRow.actorCellIsCollapsed
 
                             Repeater {
@@ -528,7 +600,7 @@ Item {
 
                                 delegate: Item {
                                     width: parent.width
-                                    height: 22
+                                    height: table.actorEntryHeight
 
                                     Rectangle {
                                         anchors.fill: parent

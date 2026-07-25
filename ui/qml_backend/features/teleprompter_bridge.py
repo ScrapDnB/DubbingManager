@@ -1,9 +1,10 @@
 """QML backend for the teleprompter workflow."""
 
 from copy import deepcopy
+from time import monotonic
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QObject, Property, Signal, Slot, Qt
+from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot, Qt
 
 from config.constants import DEFAULT_PROMPTER_CONFIG
 from core.commands import ReplaceMappingValueCommand, UpdateProjectFileStateCommand
@@ -17,15 +18,18 @@ from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
 
 
-GLOBAL_OSC_KEYS = {
+GLOBAL_PROMPTER_KEYS = {
     "osc_enabled",
     "port_in",
     "port_out",
     "sync_in",
     "sync_out",
+    "page_scroll_mode",
     "reaper_offset_enabled",
     "reaper_offset_seconds",
 }
+
+REAPER_ACTIVITY_TIMEOUT_SECONDS = 3.0
 
 
 def _format_time(seconds: Any, include_milliseconds: bool = False) -> str:
@@ -77,6 +81,13 @@ class TeleprompterBridge(QObject):
         self._osc_status = "OSC выключен"
         self._osc_worker: Optional[OscWorker] = None
         self._osc_client = None
+        self._last_osc_activity: Optional[float] = None
+        self._reaper_connection_state = "disabled"
+        self._osc_activity_timer = QTimer(self)
+        self._osc_activity_timer.setInterval(500)
+        self._osc_activity_timer.timeout.connect(
+            self._refresh_reaper_connection_state
+        )
         self._model = DictListModel({
             "rowIndex": Qt.UserRole + 1,
             "start": Qt.UserRole + 2,
@@ -130,6 +141,22 @@ class TeleprompterBridge(QObject):
     @Property(str, notify=oscChanged)
     def oscStatus(self) -> str:
         return self._osc_status
+
+    @Property(str, notify=oscChanged)
+    def reaperConnectionState(self) -> str:
+        return self._reaper_connection_state
+
+    @Property(str, notify=oscChanged)
+    def reaperConnectionText(self) -> str:
+        labels = {
+            "active": "REAPER: синхронизация активна",
+            "waiting": "REAPER: ожидание сигнала",
+            "lost": "REAPER: сигнал потерян",
+            "error": "REAPER: ошибка OSC",
+            "unavailable": "REAPER: OSC недоступен",
+            "disabled": "REAPER: синхронизация выключена",
+        }
+        return labels[self._reaper_connection_state]
 
     @Property(bool, constant=True)
     def oscAvailable(self) -> bool:
@@ -248,7 +275,7 @@ class TeleprompterBridge(QObject):
 
     @Slot(str, "QVariant")
     def setConfigValue(self, key: str, value: Any) -> None:
-        if key in GLOBAL_OSC_KEYS:
+        if key in GLOBAL_PROMPTER_KEYS:
             return
         config = self.config
         normalized = self._normalize_option(key, value)
@@ -475,6 +502,7 @@ class TeleprompterBridge(QObject):
             self._start_osc()
         else:
             self._stop_osc()
+        self._refresh_reaper_connection_state()
 
     def refresh(self) -> None:
         project_data = self._session.data
@@ -502,6 +530,9 @@ class TeleprompterBridge(QObject):
             if self._selected_actor_ids is None
             else set(self._selected_actor_ids)
         )
+        # An empty cast or an empty selection means that the operator wants to
+        # see the complete script, without assigning a highlight colour.
+        show_all_as_active = not all_actor_ids or not selected_actor_ids
         rows = []
         actor_role_counts: Dict[str, int] = {actor_id: 0 for actor_id in actors}
         for index, replica in enumerate(processed):
@@ -540,7 +571,7 @@ class TeleprompterBridge(QObject):
                 ) or "-",
                 "replicaText": str(replica.get("text") or ""),
                 "actorColor": str(color_actor.get("color") or "#FFFFFF"),
-                "active": bool(selected_for_replica),
+                "active": show_all_as_active or bool(selected_for_replica),
                 "colorActive": bool(color_actor_id),
                 "sourceIds": list(source_ids),
             })
@@ -587,14 +618,15 @@ class TeleprompterBridge(QObject):
             })
             if isinstance(source.get("colors"), dict):
                 config["colors"].update(source["colors"])
-        for key in GLOBAL_OSC_KEYS:
+        for key in GLOBAL_PROMPTER_KEYS:
             config[key] = deepcopy(defaults.get(key, DEFAULT_PROMPTER_CONFIG[key]))
         return config
 
     def _normalize_option(self, key: str, value: Any) -> Any:
         if key in {
             "is_mirrored", "show_header", "osc_enabled", "sync_in",
-            "sync_out", "reaper_offset_enabled", "use_cocoa_float_window",
+            "sync_out", "reaper_offset_enabled", "page_scroll_mode",
+            "use_cocoa_float_window",
         }:
             return bool(value)
         limits = {
@@ -704,8 +736,10 @@ class TeleprompterBridge(QObject):
 
     def _start_osc(self) -> None:
         self._stop_osc()
+        self._last_osc_activity = None
         if not OSC_AVAILABLE:
             self._osc_status = "OSC недоступен: установите python-osc"
+            self._refresh_reaper_connection_state()
             self.oscChanged.emit()
             return
         config = self.config
@@ -723,26 +757,55 @@ class TeleprompterBridge(QObject):
             self._osc_status = (
                 f"OSC: {config['port_in']} -> {config['port_out']}"
             )
+            self._osc_activity_timer.start()
         except Exception as exc:
             self._osc_status = f"Ошибка OSC: {exc}"
             self._osc_worker = None
             self._osc_client = None
+        self._refresh_reaper_connection_state()
         self.oscChanged.emit()
 
     def _stop_osc(self) -> None:
+        self._osc_activity_timer.stop()
         if self._osc_worker is not None:
             self._osc_worker.stop()
             self._osc_worker.deleteLater()
         self._osc_worker = None
         self._osc_client = None
+        self._last_osc_activity = None
         self._osc_status = "OSC выключен"
+        self._refresh_reaper_connection_state()
         self.oscChanged.emit()
+
+    def _refresh_reaper_connection_state(self) -> None:
+        if not self.config.get("osc_enabled"):
+            state = "disabled"
+        elif self._osc_worker is None:
+            if self._osc_status.startswith("OSC недоступен"):
+                state = "unavailable"
+            else:
+                state = "error" if self._osc_status.startswith("Ошибка") else "waiting"
+        elif self._last_osc_activity is None:
+            state = "waiting"
+        elif monotonic() - self._last_osc_activity <= REAPER_ACTIVITY_TIMEOUT_SECONDS:
+            state = "active"
+        else:
+            state = "lost"
+        if state != self._reaper_connection_state:
+            self._reaper_connection_state = state
+            self.oscChanged.emit()
+
+    def _mark_osc_activity(self) -> None:
+        self._last_osc_activity = monotonic()
+        self._refresh_reaper_connection_state()
 
     @Slot(float)
     def _on_osc_time(self, seconds: float) -> None:
+        self._mark_osc_activity()
         if self.config.get("sync_in"):
             self._set_time(seconds)
 
     @Slot(str)
     def _on_osc_navigation(self, direction: str) -> None:
+        self._mark_osc_activity()
         self.navigate(1 if direction == "next" else -1)
