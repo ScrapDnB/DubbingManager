@@ -45,6 +45,8 @@ if sys.platform == "darwin":
         NSVisualEffectStateFollowsWindowActiveState,
         NSVisualEffectStateActive,
         NSVisualEffectView,
+        NSWindowCloseButton,
+        NSWindowTitleHidden,
         NSWindowStyleMaskBorderless,
         NSWindowStyleMaskNonactivatingPanel,
         NSWindowToolbarStyleUnified,
@@ -241,6 +243,7 @@ class MacOSIntegration(QObject):
         self._toolbar = None
         self._delegate = None
         self._ns_window = None
+        self._main_window_number: Optional[int] = None
         self._effect_views: dict[int, Any] = {}
         self._tooltip_panel = None
         self._tooltip_label = None
@@ -340,6 +343,7 @@ class MacOSIntegration(QObject):
             project.pathChanged.connect(self._validate_toolbar)
             project.undoStateChanged.connect(self._validate_toolbar)
             self._ns_window = ns_window
+            self._main_window_number = int(ns_window.windowNumber())
             self._toolbar = toolbar
             self._delegate = delegate
             self._native_toolbar_active = True
@@ -348,15 +352,16 @@ class MacOSIntegration(QObject):
             logger.exception("Could not configure native macOS toolbar")
 
     def configure_window(self, window: Optional[QObject]) -> None:
-        """Give every QML window a native macOS material substrate."""
+        """Apply native chrome without extending dialogs into their title bars."""
         if sys.platform != "darwin" or window is None:
             return
         try:
             native_view = objc.objc_object(c_void_p=int(window.winId()))
             ns_window = native_view.window()
             if ns_window is not None:
-                ns_window.setTitlebarAppearsTransparent_(True)
-                ns_window.setTitlebarSeparatorStyle_(NSTitlebarSeparatorStyleNone)
+                window_number = int(ns_window.windowNumber())
+                if window_number != self._main_window_number:
+                    self._configure_auxiliary_window(ns_window)
                 ns_window.setBackgroundColor_(NSColor.windowBackgroundColor())
                 self._install_visual_effect(native_view, ns_window)
         except Exception:
@@ -364,6 +369,17 @@ class MacOSIntegration(QObject):
                 "Could not configure macOS material for an auxiliary window",
                 exc_info=True,
             )
+
+    @staticmethod
+    def _configure_auxiliary_window(ns_window: Any) -> None:
+        """Use clean native chrome without Qt's misplaced auxiliary title."""
+        ns_window.setTitlebarAppearsTransparent_(True)
+        ns_window.setTitleVisibility_(NSWindowTitleHidden)
+        ns_window.setTitlebarSeparatorStyle_(NSTitlebarSeparatorStyleNone)
+        ns_window.setMovableByWindowBackground_(False)
+        close_button = ns_window.standardWindowButton_(NSWindowCloseButton)
+        if close_button is not None:
+            close_button.setEnabled_(True)
 
     def _install_visual_effect(self, native_view: Any, ns_window: Any) -> None:
         key = int(ns_window.windowNumber())

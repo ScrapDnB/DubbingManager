@@ -1,4 +1,4 @@
-"""Shared startup helpers for the Widgets and QML entry points."""
+"""Shared startup helpers for the QML application entry point."""
 
 import logging
 import os

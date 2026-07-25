@@ -78,6 +78,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: Dubbing_Manager_Windows.zip
+          prerelease: ${{ contains(github.ref_name, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -149,5 +150,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: Dubbing_Manager_macOS.dmg
+          prerelease: ${{ contains(github.ref_name, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -5,6 +5,37 @@ import os
 import sys
 from pathlib import Path
 
+def configure_platform_graphics(platform: str | None = None) -> None:
+    """Select stable Qt WebEngine graphics paths for each desktop platform."""
+    target_platform = platform or sys.platform
+    if target_platform == "darwin":
+        # Chromium enables experimental Skia Graphite on Apple Silicon, but
+        # Qt WebEngine's bundled backend can fall back to Ganesh at each start.
+        # Select that stable path directly without disabling GPU acceleration.
+        flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "").split()
+        if "--disable-skia-graphite" not in flags:
+            flags.append("--disable-skia-graphite")
+            os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(flags)
+        return
+
+    if not target_platform.startswith("win"):
+        return
+
+    flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "").split()
+    if "--disable-vulkan" not in flags:
+        flags.append("--disable-vulkan")
+        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(flags)
+
+    # Qt Quick can select Vulkan independently of Chromium. Direct3D 11 is
+    # the native Windows RHI backend and remains reliable in virtual GPUs.
+    os.environ.setdefault("QSG_RHI_BACKEND", "d3d11")
+
+
+# QtWebEngine may probe its graphics stack while its Python module is loaded.
+# Set the process-wide backend choice before importing any PySide6 module.
+configure_platform_graphics()
+
+
 from PySide6.QtCore import QEvent, QUrl
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
@@ -17,17 +48,6 @@ from utils.i18n import JsonSourceTranslator
 
 
 logger = logging.getLogger(__name__)
-
-
-def configure_platform_graphics(platform: str | None = None) -> None:
-    """Avoid Vulkan-only virtual GPU issues in Windows WebEngine hosts."""
-    if not (platform or sys.platform).startswith("win"):
-        return
-
-    flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "").split()
-    if "--disable-vulkan" not in flags:
-        flags.append("--disable-vulkan")
-        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(flags)
 
 
 def configure_qml_controls_style() -> None:
@@ -89,13 +109,15 @@ def main() -> int:
     if not engine.rootObjects():
         logger.error("Could not load QML interface from %s", qml_file)
         return 1
-    macos_integration.configure_main_window(
-        engine.rootObjects()[0], bridge.project
-    )
+    root_window = engine.rootObjects()[0]
+    macos_integration.configure_main_window(root_window, bridge.project)
     if sys.platform == "darwin":
         app.focusWindowChanged.connect(macos_integration.configure_window)
         for window in app.allWindows():
             macos_integration.configure_window(window)
+        # The QML shell intentionally stays hidden until the native toolbar is
+        # attached. This keeps AppKit's frame adjustment out of persisted size.
+        root_window.setProperty("startupChromeReady", True)
     return app.exec()
 
 

@@ -51,7 +51,7 @@ class _UpdateWorker(QObject):
 
 
 class UpdateBridge(QObject):
-    """Expose the existing update service without any Widgets dependency."""
+    """Expose the update service to the QML interface."""
 
     changed = Signal()
     statusRequested = Signal(str)

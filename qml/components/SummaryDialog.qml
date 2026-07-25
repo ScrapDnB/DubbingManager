@@ -120,12 +120,11 @@ NativeDialogWindow {
                     anchors.rightMargin: 8
                     spacing: 10
 
-                    Rectangle {
+                    ActorColorSwatch {
                         Layout.preferredWidth: 16
                         Layout.preferredHeight: 16
-                        radius: 2
-                        color: model.color
-                        border.color: model.unassigned ? "transparent" : dialog.softBorder
+                        swatchColor: model.color
+                        opacity: model.unassigned ? 0 : 1
                     }
 
                     Label {

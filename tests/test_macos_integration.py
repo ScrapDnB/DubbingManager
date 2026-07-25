@@ -52,3 +52,25 @@ def test_native_toolbar_defines_every_project_action_once():
 
     assert set(integration.ACTIONS) == expected
     assert all(label and symbol for label, symbol, _callback in integration.ACTIONS.values())
+
+
+def test_auxiliary_window_keeps_standard_macos_title_bar(monkeypatch):
+    monkeypatch.setattr(macos_integration, "NSWindowTitleHidden", 1, raising=False)
+    monkeypatch.setattr(
+        macos_integration,
+        "NSTitlebarSeparatorStyleNone",
+        0,
+        raising=False,
+    )
+    monkeypatch.setattr(macos_integration, "NSWindowCloseButton", 0, raising=False)
+    ns_window = Mock()
+    close_button = Mock()
+    ns_window.standardWindowButton_.return_value = close_button
+
+    macos_integration.MacOSIntegration._configure_auxiliary_window(ns_window)
+
+    ns_window.setTitlebarAppearsTransparent_.assert_called_once_with(True)
+    ns_window.setTitleVisibility_.assert_called_once_with(1)
+    ns_window.setTitlebarSeparatorStyle_.assert_called_once_with(0)
+    ns_window.setMovableByWindowBackground_.assert_called_once_with(False)
+    close_button.setEnabled_.assert_called_once_with(True)

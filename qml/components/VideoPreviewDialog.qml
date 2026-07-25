@@ -340,11 +340,10 @@ NativeDialogWindow {
                                     width: dialog.actorColumnWidth
                                     height: parent.height
                                     spacing: 6
-                                    Rectangle {
+                                    ActorColorSwatch {
                                         Layout.preferredWidth: 12
                                         Layout.preferredHeight: 12
-                                        radius: 2
-                                        color: replicaRow.actorColor
+                                        swatchColor: replicaRow.actorColor
                                     }
                                     Label {
                                         text: replicaRow.actor

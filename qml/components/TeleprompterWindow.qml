@@ -62,6 +62,14 @@ NativeDialogWindow {
         teleprompter.navigate(direction)
     }
 
+    function openReplicaEditor(sourceIds, character, replicaText) {
+        editingSourceIds = sourceIds
+        characterEdit.editText = character
+        textEdit.text = replicaText
+        splitCharacter.editText = ""
+        editWindow.open()
+    }
+
     onClosed: {
         floatWindow.close()
         teleprompter.close()
@@ -207,8 +215,43 @@ NativeDialogWindow {
         modal: true
         title: qsTr("Редактировать реплику")
         width: boundedWidth(680, 40)
-        height: boundedHeight(500, 50)
+        // Keep the compact editor by default and grow only for wrapped lines
+        // in the transfer preview, so the text editor never has to shrink.
+        height: boundedHeight(
+            500 + Math.max(0, splitPreview.implicitHeight
+                - splitPreviewMetrics.height),
+            50
+        )
         standardButtons: Dialog.Save | Dialog.Cancel
+
+        FontMetrics {
+            id: splitPreviewMetrics
+            font: Application.font
+        }
+
+        readonly property string selectedReplicaText: textEdit.selectedText
+            .replace(/\u2029/g, "\n").trim()
+        readonly property string splitCharacterName: String(
+            splitCharacter.editText || splitCharacter.currentText || ""
+        ).trim()
+
+        function transferSelectedText() {
+            if (window.editingSourceIds.length !== 1
+                    || !selectedReplicaText.length
+                    || !splitCharacterName.length) {
+                return
+            }
+
+            var remaining = textEdit.text.slice(0, textEdit.selectionStart)
+                + textEdit.text.slice(textEdit.selectionEnd)
+            if (window.teleprompter.splitReplica(
+                    window.editingSourceIds,
+                    remaining,
+                    selectedReplicaText,
+                    splitCharacterName)) {
+                editWindow.close()
+            }
+        }
 
         onAccepted: {
             if (window.teleprompter.editReplica(
@@ -253,24 +296,23 @@ NativeDialogWindow {
                         editable: true
                         model: window.teleprompter.characterNames
                     }
-                    TextField {
-                        id: splitText
+                    Label {
+                        id: splitPreview
                         Layout.fillWidth: true
-                        placeholderText: qsTr("Выделенная часть текста")
+                        text: editWindow.selectedReplicaText.length > 0
+                            ? qsTr("Будет передано: ")
+                                + editWindow.selectedReplicaText
+                            : qsTr("Выделите часть текста выше")
+                        color: editWindow.selectedReplicaText.length > 0
+                            ? palette.text : window.softMuted
+                        wrapMode: Text.WordWrap
                     }
                     AdaptiveButton {
-                        text: qsTr("Разделить реплику")
-                        enabled: splitCharacter.editText.length > 0 && splitText.text.length > 0
-                        onClicked: {
-                            var remaining = textEdit.text.replace(splitText.text, "").trim()
-                            if (window.teleprompter.splitReplica(
-                                    window.editingSourceIds,
-                                    remaining,
-                                    splitText.text,
-                                    splitCharacter.editText)) {
-                                editWindow.close()
-                            }
-                        }
+                        text: qsTr("Передать выделенное")
+                        enabled: window.editingSourceIds.length === 1
+                            && editWindow.selectedReplicaText.length > 0
+                            && editWindow.splitCharacterName.length > 0
+                        onClicked: editWindow.transferSelectedText()
                     }
                 }
             }
@@ -787,6 +829,21 @@ NativeDialogWindow {
                         height: replicaColumn.implicitHeight + 18
                         opacity: active ? 1 : 0.72
 
+                        // The background remains a navigation target; the
+                        // character and dialogue themselves open the editor.
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: {
+                                window.followEnabled = true
+                                window.teleprompter.jumpTo(replicaDelegate.start)
+                            }
+                            onDoubleClicked: window.openReplicaEditor(
+                                replicaDelegate.sourceIds,
+                                replicaDelegate.character,
+                                replicaDelegate.replicaText
+                            )
+                        }
+
                         ColumnLayout {
                             id: replicaColumn
                             anchors.left: parent.left
@@ -798,6 +855,7 @@ NativeDialogWindow {
                                 Layout.fillWidth: true
                                 spacing: 10
                                 Text {
+                                    id: characterText
                                     text: replicaDelegate.character
                                     color: replicaDelegate.colorActive
                                         ? replicaDelegate.actorColor
@@ -806,6 +864,24 @@ NativeDialogWindow {
                                             : window.colors.inactive_text)
                                     font.pixelSize: window.config.f_char
                                     font.bold: true
+                                    font.underline: characterEditArea.containsMouse
+
+                                    MouseArea {
+                                        id: characterEditArea
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: window.openReplicaEditor(
+                                            replicaDelegate.sourceIds,
+                                            replicaDelegate.character,
+                                            replicaDelegate.replicaText
+                                        )
+                                    }
+
+                                    PlatformToolTip {
+                                        target: characterEditArea
+                                        text: qsTr("Изменить реплику")
+                                    }
                                 }
                                 Text {
                                     text: qsTr("[") + replicaDelegate.time + "]"
@@ -829,22 +905,6 @@ NativeDialogWindow {
                                 wrapMode: Text.WordWrap
                                 horizontalAlignment: Text.AlignLeft
                                 Layout.fillWidth: true
-                            }
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: {
-                                window.followEnabled = true
-                                window.teleprompter.jumpTo(replicaDelegate.start)
-                            }
-                            onDoubleClicked: {
-                                window.editingSourceIds = replicaDelegate.sourceIds
-                                characterEdit.editText = replicaDelegate.character
-                                textEdit.text = replicaDelegate.replicaText
-                                splitCharacter.editText = ""
-                                splitText.text = ""
-                                editWindow.open()
                             }
                         }
                     }

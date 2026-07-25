@@ -44,7 +44,7 @@ NativeDialogWindow {
 
     content: RowLayout {
         anchors.fill: parent
-        spacing: 12
+        spacing: dialog.macOSStyle ? 16 : 12
 
         SettingsNavigation {
             id: projectNavigation
@@ -74,6 +74,11 @@ NativeDialogWindow {
                 ColumnLayout {
                     width: projectPage.availableWidth
                     spacing: 12
+
+                    SettingsPageHeader {
+                        title: qsTr("Проект")
+                        subtitle: qsTr("Основные сведения и расположение файлов проекта.")
+                    }
 
                     FormSection {
                         title: qsTr("Сведения о проекте")
@@ -131,11 +136,9 @@ NativeDialogWindow {
 
             ColumnLayout {
                 spacing: 12
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Управление исходниками, рабочими текстами, видео и диагностикой проекта.")
-                    wrapMode: Text.WordWrap
-                    color: dialog.softMuted
+                SettingsPageHeader {
+                    title: qsTr("Серии и файлы")
+                    subtitle: qsTr("Исходники, рабочие тексты, видео и диагностика проекта.")
                 }
                 FormSection {
                     title: qsTr("Файлы проекта")
@@ -166,11 +169,9 @@ NativeDialogWindow {
 
             ColumnLayout {
                 spacing: 12
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Просмотр ролей всего проекта и массовое назначение актёров.")
-                    wrapMode: Text.WordWrap
-                    color: dialog.softMuted
+                SettingsPageHeader {
+                    title: qsTr("Роли")
+                    subtitle: qsTr("Просмотр ролей всего проекта и массовое назначение актёров.")
                 }
                 AdaptiveButton {
                     text: qsTr("Открыть роли проекта...")
@@ -181,6 +182,10 @@ NativeDialogWindow {
 
             ColumnLayout {
                 spacing: 8
+                SettingsPageHeader {
+                    title: qsTr("Монтажный лист")
+                    subtitle: qsTr("Параметры экспорта для этого проекта.")
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     AdaptiveButton {
@@ -207,6 +212,10 @@ NativeDialogWindow {
 
             ColumnLayout {
                 spacing: 8
+                SettingsPageHeader {
+                    title: qsTr("Импорт")
+                    subtitle: qsTr("Правила импорта и объединения реплик для этого проекта.")
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     AdaptiveButton {
@@ -253,6 +262,10 @@ NativeDialogWindow {
 
             ColumnLayout {
                 spacing: 8
+                SettingsPageHeader {
+                    title: qsTr("Телесуфлёр")
+                    subtitle: qsTr("Параметры отображения и прокрутки для этого проекта.")
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     AdaptiveButton {
@@ -279,11 +292,9 @@ NativeDialogWindow {
 
             ColumnLayout {
                 spacing: 12
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Переносит актёров проекта, глобальные назначения персонажей и назначения по сериям. При импорте актёры сопоставляются по имени.")
-                    wrapMode: Text.WordWrap
-                    color: dialog.softMuted
+                SettingsPageHeader {
+                    title: qsTr("Перенос")
+                    subtitle: qsTr("Актёры и назначения по проекту и сериям. При импорте актёры сопоставляются по имени.")
                 }
                 FormSection {
                     title: qsTr("Распределение актёров")

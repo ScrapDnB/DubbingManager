@@ -12,10 +12,5 @@ ListView {
     ScrollBar.vertical: VisibleScrollBar {
         id: verticalScrollBar
         contentOverflow: listView.hasVerticalOverflow
-        parent: listView
-        anchors.top: listView.top
-        anchors.right: listView.right
-        anchors.bottom: listView.bottom
-        width: Math.max(10, implicitWidth)
     }
 }

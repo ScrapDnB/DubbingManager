@@ -34,28 +34,18 @@ NativeDialogWindow {
             Repeater {
                 model: dialog.appBridge ? dialog.appBridge.casting.actorPalette : []
 
-                Rectangle {
+                ActorColorSwatch {
                     id: swatch
                     required property string modelData
-                    readonly property bool selected: dialog.selectedColor.toString().toUpperCase() === modelData.toUpperCase()
-                    readonly property bool hovered: swatchHover.hovered
 
                     Layout.preferredWidth: 34
                     Layout.preferredHeight: 34
-                    radius: 4
-                    color: modelData
-                    border.width: selected ? 3 : 1
-                    border.color: selected
-                        ? palette.highlight
-                        : Qt.rgba(palette.text.r, palette.text.g, palette.text.b, hovered ? 0.55 : 0.28)
-
-                    HoverHandler {
-                        id: swatchHover
-                    }
-
-                    TapHandler {
-                        onTapped: dialog.selectedColor = swatch.modelData
-                    }
+                    swatchColor: modelData
+                    selected: dialog.selectedColor.toString().toUpperCase()
+                        === modelData.toUpperCase()
+                    well: true
+                    interactive: true
+                    onClicked: dialog.selectedColor = swatch.modelData
                 }
             }
         }
@@ -64,12 +54,11 @@ NativeDialogWindow {
             Layout.fillWidth: true
             spacing: 8
 
-            Rectangle {
+            ActorColorSwatch {
                 Layout.preferredWidth: 28
                 Layout.preferredHeight: 28
-                radius: 4
-                color: dialog.selectedColor
-                border.color: Qt.rgba(palette.text.r, palette.text.g, palette.text.b, 0.28)
+                swatchColor: dialog.selectedColor
+                well: true
             }
 
             Label {

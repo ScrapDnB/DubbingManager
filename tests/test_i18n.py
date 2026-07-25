@@ -1,4 +1,4 @@
-"""Tests for the shared Widgets/QML translation catalog."""
+"""Tests for the shared application translation catalog."""
 
 from utils.i18n import JsonSourceTranslator, set_language, translate_source
 

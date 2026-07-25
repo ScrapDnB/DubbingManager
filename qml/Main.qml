@@ -22,9 +22,16 @@ ApplicationWindow {
     color: macOSStyle ? "transparent" : workspaceBackground
     property bool closeApproved: false
     property bool uiReady: false
+    // AppKit adds native toolbar chrome to the main window on macOS. Wait for
+    // that step before the first show, otherwise the adjusted frame height is
+    // persisted and grows again on the next launch.
+    property bool startupChromeReady: !macOSStyle
+    property bool startupShown: false
     property string pendingRelinkEpisode: ""
     readonly property bool compactLayout: width < 980
     property string compactSection: "workspace"
+    property string actorColorDisplayMode:
+        uiState.boolValue("actorColorCellFill", false) ? "cell" : "marker"
 
     onCompactLayoutChanged: {
         if (!compactLayout)
@@ -45,13 +52,10 @@ ApplicationWindow {
             uiState.setIntValue("main.toolsPanelWidth", toolsSidebar.width)
     }
 
-    Component.onCompleted: {
-        var savedX = uiState.intValue("main.x", -1)
-        var savedY = uiState.intValue("main.y", -1)
-        if (savedX >= 0 && savedY >= 0) {
-            x = savedX
-            y = savedY
-        }
+    function showInitialWindow() {
+        if (startupShown)
+            return
+        startupShown = true
         if (uiState.boolValue("main.maximized", false)) {
             showMaximized()
         } else {
@@ -63,6 +67,19 @@ ApplicationWindow {
             root.uiReady = true
         })
     }
+
+    Component.onCompleted: {
+        var savedX = uiState.intValue("main.x", -1)
+        var savedY = uiState.intValue("main.y", -1)
+        if (savedX >= 0 && savedY >= 0) {
+            x = savedX
+            y = savedY
+        }
+        if (startupChromeReady)
+            showInitialWindow()
+    }
+
+    onStartupChromeReadyChanged: if (startupChromeReady) showInitialWindow()
 
     function dismissStartupMenus() {
         fileMenu.close()
@@ -613,8 +630,12 @@ ApplicationWindow {
         ownerWindow: root
         appBridge: root.appBridge
         softMuted: root.softMuted
+        actorColorDisplayMode: root.actorColorDisplayMode
         onActorBaseExportRequested: exportGlobalActorsDialog.open()
         onActorBaseImportRequested: importGlobalActorsDialog.open()
+        onActorColorDisplayModeAccepted: function(mode) {
+            root.actorColorDisplayMode = mode
+        }
     }
 
     TeleprompterWindow {
@@ -789,23 +810,21 @@ ApplicationWindow {
         anchors.margins: root.macOSStyle ? 0 : 6
         spacing: root.macOSStyle ? 0 : 6
 
-        TabBar {
+        NavigationTabBar {
             id: compactSections
             objectName: "compactSections"
             visible: root.compactLayout
             Layout.fillWidth: true
-            Layout.preferredHeight: 32
+            Layout.preferredHeight: implicitHeight
+            model: [qsTr("Актёры"), qsTr("Реплики"), qsTr("Сценарии")]
+            tabWidth: width / Math.max(1, model.length)
             currentIndex: root.compactSection === "actors"
                 ? 0 : root.compactSection === "tools" ? 2 : 1
 
-            onCurrentIndexChanged: {
-                root.compactSection = currentIndex === 0
-                    ? "actors" : currentIndex === 2 ? "tools" : "workspace"
+            onActivated: function(index) {
+                root.compactSection = index === 0
+                    ? "actors" : index === 2 ? "tools" : "workspace"
             }
-
-            TabButton { text: qsTr("Актёры") }
-            TabButton { text: qsTr("Реплики") }
-            TabButton { text: qsTr("Сценарии") }
         }
 
         SplitView {
@@ -842,6 +861,8 @@ ApplicationWindow {
                 Item {
                     visible: !root.compactLayout || root.compactSection === "workspace"
                     SplitView.fillWidth: true
+                    SplitView.minimumWidth: 0
+                    clip: true
 
                     Rectangle {
                         anchors.fill: parent
@@ -856,6 +877,8 @@ ApplicationWindow {
                         spacing: root.macOSStyle ? 5 : 6
 
                         EpisodeControls {
+                            Layout.minimumWidth: 0
+                            Layout.maximumWidth: parent.width
                             appBridge: root.appBridge
                             onImportRequested: importSubtitleDialog.open()
                             onImportDocxRequested: importDocxDialog.open()
@@ -865,8 +888,11 @@ ApplicationWindow {
                         CharacterTable {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
+                            Layout.minimumWidth: 0
+                            Layout.maximumWidth: parent.width
                             framed: false
                             appBridge: root.appBridge
+                            actorColorDisplayMode: root.actorColorDisplayMode
                             softBorder: root.softBorder
                             softHeader: root.softHeader
                             softRow: root.softRow

@@ -17,7 +17,15 @@ Item {
     signal videoPreviewRequested(string character)
     signal filesDropped(var urls)
     property bool framed: true
+    property string actorColorDisplayMode: "marker"
     readonly property bool macOSStyle: Qt.platform.os === "osx"
+    readonly property bool actorCellColorFill:
+        actorColorDisplayMode === "cell"
+    readonly property bool darkTheme: (
+        palette.base.r * 0.2126
+        + palette.base.g * 0.7152
+        + palette.base.b * 0.0722
+    ) < 0.5
     property color selectedRow: Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.22)
 
     SystemPalette {
@@ -26,6 +34,7 @@ Item {
     }
 
     SplitView.fillWidth: true
+    Layout.minimumWidth: 0
     clip: true
 
     Rectangle {
@@ -58,7 +67,14 @@ Item {
     readonly property int previewColumnWidth: 30
     readonly property int fixedColumnsWidth: lineColumnWidth + ringsColumnWidth + wordsColumnWidth + scopeColumnWidth + previewColumnWidth
     readonly property int flexibleWidth: Math.max(0, characterView.viewportWidth - tableHorizontalPadding - tableSpacing - fixedColumnsWidth)
-    readonly property int characterColumnWidth: Math.floor(flexibleWidth * 0.55)
+    // Actor cells need room for names, colour markers, and row actions. Give
+    // them a progressively larger share while the table is being narrowed.
+    readonly property real characterColumnShare: Math.min(
+        0.55, Math.max(0.42, 0.42 + flexibleWidth / 5000)
+    )
+    readonly property int characterColumnWidth: Math.floor(
+        flexibleWidth * characterColumnShare
+    )
     readonly property int actorColumnWidth: Math.max(0, flexibleWidth - characterColumnWidth)
     readonly property int characterColumnX: 8
     readonly property int lineColumnX: characterColumnX + characterColumnWidth + 8
@@ -100,6 +116,23 @@ Item {
         if (!castingBackend || index < 0)
             return ""
         return castingBackend.charactersModel.get(index).character || ""
+    }
+
+    function clearCharacterSelection() {
+        characterView.currentIndex = -1
+        if (castingBackend)
+            castingBackend.selectCharacter("")
+    }
+
+    function toggleCharacterSelection(character, index) {
+        if (castingBackend && castingBackend.selectedCharacter === character) {
+            clearCharacterSelection()
+            return
+        }
+        characterView.currentIndex = index
+        characterView.forceActiveFocus()
+        if (castingBackend)
+            castingBackend.selectCharacter(character)
     }
 
     function actorCellCollapsed(character) {
@@ -273,7 +306,7 @@ Item {
                 TableHeaderButton { x: table.lineColumnX; width: table.lineColumnWidth; height: parent.height; textAlignment: Text.AlignRight; text: table.sortTitle("Строк", "lines"); onClicked: table.castingBackend.setCharacterSort("lines"); Accessible.name: qsTr("Сортировать по строкам") }
                 TableHeaderButton { x: table.ringsColumnX; width: table.ringsColumnWidth; height: parent.height; textAlignment: Text.AlignRight; text: table.sortTitle("Колец", "rings"); onClicked: table.castingBackend.setCharacterSort("rings"); Accessible.name: qsTr("Сортировать по кольцам") }
                 TableHeaderButton { x: table.wordsColumnX; width: table.wordsColumnWidth; height: parent.height; textAlignment: Text.AlignRight; text: table.sortTitle("Слов", "words"); onClicked: table.castingBackend.setCharacterSort("words"); Accessible.name: qsTr("Сортировать по словам") }
-                TableHeaderButton { x: table.scopeColumnX; width: table.scopeColumnWidth; height: parent.height; text: table.sortTitle("Область", "scope"); onClicked: table.castingBackend.setCharacterSort("scope"); Accessible.name: qsTr("Сортировать по области назначения") }
+                TableHeaderButton { x: table.scopeColumnX; width: table.scopeColumnWidth; height: parent.height; textAlignment: Text.AlignHCenter; text: table.sortTitle("Область", "scope"); onClicked: table.castingBackend.setCharacterSort("scope"); Accessible.name: qsTr("Сортировать по области назначения") }
                 TableHeaderButton { x: table.actorColumnX; width: table.actorColumnWidth; height: parent.height; text: table.sortTitle("Актёр", "actor"); onClicked: table.castingBackend.setCharacterSort("actor"); Accessible.name: qsTr("Сортировать по актёру") }
                 TableHeaderButton {
                     id: allReplicasButton
@@ -311,6 +344,18 @@ Item {
             }
             Keys.onReturnPressed: table.videoPreviewRequested(table.characterAt(currentIndex))
             Keys.onEnterPressed: table.videoPreviewRequested(table.characterAt(currentIndex))
+            Keys.onEscapePressed: table.clearCharacterSelection()
+            // A tap below the final row is an explicit way to leave selection mode.
+            TapHandler {
+                onTapped: function(eventPoint) {
+                    var rowIndex = characterView.indexAt(
+                        eventPoint.position.x,
+                        eventPoint.position.y + characterView.contentY
+                    )
+                    if (rowIndex < 0)
+                        table.clearCharacterSelection()
+                }
+            }
             Keys.onPressed: function(event) {
                 if (event.key === Qt.Key_Home) {
                     if (count > 0) currentIndex = 0
@@ -349,10 +394,9 @@ Item {
 
                 TapHandler {
                     onTapped: {
-                        characterView.currentIndex = characterRow.index
-                        characterView.forceActiveFocus()
-                        if (table.castingBackend)
-                            table.castingBackend.selectCharacter(model.character)
+                        table.toggleCharacterSelection(
+                            model.character, characterRow.index
+                        )
                     }
                 }
 
@@ -372,10 +416,9 @@ Item {
                             anchors.fill: parent
                             acceptedButtons: Qt.LeftButton
                             onClicked: {
-                                characterView.currentIndex = characterRow.index
-                                characterView.forceActiveFocus()
-                                if (table.castingBackend)
-                                    table.castingBackend.selectCharacter(model.character)
+                                table.toggleCharacterSelection(
+                                    model.character, characterRow.index
+                                )
                             }
                             onDoubleClicked: {
                                 table.renameCharacterSource = model.character
@@ -393,12 +436,46 @@ Item {
                         color: "transparent"
                         clip: true
 
-                        Label {
+                        Rectangle {
                             anchors.fill: parent
+                            anchors.margins: 2
+                            radius: table.macOSStyle ? 5 : 2
+                            color: scopeHover.hovered
+                                ? Qt.rgba(
+                                    palette.highlight.r,
+                                    palette.highlight.g,
+                                    palette.highlight.b,
+                                    table.darkTheme ? 0.22 : 0.12
+                                )
+                                : "transparent"
+                        }
+
+                        Text {
+                            id: scopeChevron
+                            anchors.right: parent.right
+                            anchors.rightMargin: 5
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "▾"
+                            color: table.softMuted
+                            font.pixelSize: 13
+                            renderType: Text.NativeRendering
+                        }
+
+                        Label {
+                            anchors.left: parent.left
+                            anchors.right: scopeChevron.left
+                            anchors.leftMargin: 3
+                            anchors.rightMargin: 1
+                            anchors.verticalCenter: parent.verticalCenter
                             text: model.scope
                             elide: Text.ElideRight
-                            clip: true
+                            horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
+                        }
+
+                        HoverHandler {
+                            id: scopeHover
+                            cursorShape: Qt.PointingHandCursor
                         }
 
                         TapHandler {
@@ -420,12 +497,26 @@ Item {
                         color: "transparent"
                         clip: true
 
+                        Rectangle {
+                            anchors.fill: parent
+                            visible: table.actorCellColorFill
+                                && characterRow.model.actorEntries.length === 1
+                            color: visible
+                                ? characterRow.model.actorEntries[0].color
+                                : "transparent"
+                            opacity: table.darkTheme ? 0.30 : 0.20
+                            radius: table.macOSStyle ? 5 : 2
+                        }
+
                         Column {
                             anchors.fill: parent
                             anchors.leftMargin: 6
                             anchors.rightMargin: (
-                                collapseActorsButton.visible ? 56
-                                : addActorButton.visible ? 30 : 6
+                                collapseActorsButton.visible
+                                    ? addActorButton.width
+                                        + collapseActorsButton.width + 8
+                                    : addActorButton.visible
+                                        ? addActorButton.width + 8 : 6
                             )
                             anchors.topMargin: 4
                             anchors.bottomMargin: 4
@@ -435,24 +526,38 @@ Item {
                             Repeater {
                                 model: characterRow.model.actorEntries
 
-                                delegate: RowLayout {
+                                delegate: Item {
                                     width: parent.width
                                     height: 22
-                                    spacing: 6
 
                                     Rectangle {
-                                        Layout.preferredWidth: 14
-                                        Layout.preferredHeight: 14
-                                        radius: 2
+                                        anchors.fill: parent
+                                        visible: table.actorCellColorFill
+                                            && characterRow.hasMultipleActors
                                         color: modelData.color
-                                        border.color: table.softBorder
+                                        opacity: table.darkTheme ? 0.30 : 0.20
+                                        radius: table.macOSStyle ? 5 : 2
                                     }
 
-                                    Label {
-                                        Layout.fillWidth: true
-                                        text: modelData.name
-                                        elide: Text.ElideRight
-                                        verticalAlignment: Text.AlignVCenter
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 2
+                                        anchors.rightMargin: 2
+                                        spacing: 4
+
+                                        ActorColorSwatch {
+                                            Layout.preferredWidth: 18
+                                            Layout.preferredHeight: 18
+                                            swatchColor: modelData.color
+                                            visible: !table.actorCellColorFill
+                                        }
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: modelData.name
+                                            elide: Text.ElideRight
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
                                     }
                                 }
                             }
@@ -474,9 +579,12 @@ Item {
                         RowAccessoryButton {
                             id: addActorButton
                             anchors.right: parent.right
-                            anchors.rightMargin: collapseActorsButton.visible ? 26 : 4
+                            anchors.rightMargin: collapseActorsButton.visible
+                                ? collapseActorsButton.width + 4 : 4
                             anchors.verticalCenter: parent.verticalCenter
-                            iconSource: Qt.resolvedUrl("../icons/plus.svg")
+                            iconSource: table.macOSStyle
+                                ? Qt.resolvedUrl("../icons/plus.svg") : ""
+                            overlayGlyph: table.macOSStyle ? "" : "+"
                             toolTipText: qsTr("Добавить актёра")
                             onClicked: {
                                 table.pendingCharacter = model.character

@@ -14,6 +14,7 @@ NativeDialogWindow {
 
     signal actorBaseExportRequested()
     signal actorBaseImportRequested()
+    signal actorColorDisplayModeAccepted(string mode)
 
     property var montageDraft: ({})
     property var prompterDraft: ({})
@@ -22,6 +23,8 @@ NativeDialogWindow {
     property var srtDraft: ({})
     property var docxDraft: ({})
     property var backupDraft: ({})
+    property string actorColorDisplayDraft: "marker"
+    property string actorColorDisplayMode: "marker"
 
     modal: true
     title: qsTr("Глобальные настройки")
@@ -38,6 +41,7 @@ NativeDialogWindow {
         srtDraft = Object.assign({}, backend.globalSrtImportConfig)
         docxDraft = Object.assign({}, backend.globalDocxImportConfig)
         backupDraft = Object.assign({}, backend.globalBackupConfig)
+        actorColorDisplayDraft = actorColorDisplayMode
         backupModeCombo.currentIndex = backupModeCombo.indexOfValue(
             backupDraft.path_mode || "relative"
         )
@@ -47,7 +51,7 @@ NativeDialogWindow {
 
     content: RowLayout {
         anchors.fill: parent
-        spacing: 12
+        spacing: dialog.macOSStyle ? 16 : 12
 
         SettingsNavigation {
             id: globalNavigation
@@ -73,9 +77,37 @@ NativeDialogWindow {
 
             ColumnLayout {
                 spacing: 12
+                SettingsPageHeader {
+                    title: qsTr("Интерфейс")
+                    subtitle: qsTr("Отображение цветов актёров в главной таблице.")
+                }
+
+                Label {
+                    text: qsTr("Цвета актёров в главной таблице")
+                    font.bold: true
+                }
+
+                ButtonGroup { id: actorColorDisplayGroup }
+
+                RadioButton {
+                    id: markerColorRadio
+                    text: qsTr("Цветной маркер")
+                    checked: dialog.actorColorDisplayDraft === "marker"
+                    ButtonGroup.group: actorColorDisplayGroup
+                    onClicked: dialog.actorColorDisplayDraft = "marker"
+                }
+
+                RadioButton {
+                    id: cellColorRadio
+                    text: qsTr("Цветной фон ячейки «Актёр»")
+                    checked: dialog.actorColorDisplayDraft === "cell"
+                    ButtonGroup.group: actorColorDisplayGroup
+                    onClicked: dialog.actorColorDisplayDraft = "cell"
+                }
+
                 Label {
                     Layout.fillWidth: true
-                    text: qsTr("В этой предварительной версии интерфейс доступен на русском языке.")
+                    text: qsTr("При нескольких актёрах цвет применяется отдельно к каждой строке.")
                     wrapMode: Text.WordWrap
                     color: dialog.softMuted
                 }
@@ -84,6 +116,11 @@ NativeDialogWindow {
 
             ColumnLayout {
                 spacing: 12
+
+                SettingsPageHeader {
+                    title: qsTr("Резервные копии")
+                    subtitle: qsTr("Автоматическое сохранение полных копий проектов.")
+                }
 
                 CheckBox {
                     id: backupEnabled
@@ -205,11 +242,9 @@ NativeDialogWindow {
 
             ColumnLayout {
                 spacing: 8
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Слова, по которым программа распознаёт начало главы. По одному варианту на строку.")
-                    wrapMode: Text.WordWrap
-                    color: dialog.softMuted
+                SettingsPageHeader {
+                    title: qsTr("Аудиокниги")
+                    subtitle: qsTr("Слова для распознавания начала главы. По одному варианту на строку.")
                 }
                 TextArea {
                     id: keywordsArea
@@ -223,11 +258,9 @@ NativeDialogWindow {
 
             ColumnLayout {
                 spacing: 8
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Глобальная база хранит имена и пол актёров отдельно от проектов. Цвета остаются настройкой конкретного проекта.")
-                    wrapMode: Text.WordWrap
-                    color: dialog.softMuted
+                SettingsPageHeader {
+                    title: qsTr("Актёры")
+                    subtitle: qsTr("Глобальная база хранит имена и пол отдельно от проектов. Цвета остаются настройкой проекта.")
                 }
                 PersistentListView {
                     id: globalActorsView
@@ -266,6 +299,10 @@ NativeDialogWindow {
 
             ColumnLayout {
                 spacing: 8
+                SettingsPageHeader {
+                    title: qsTr("Импорт")
+                    subtitle: qsTr("Общие правила для ASS, SRT, DOCX и объединения реплик.")
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     AdaptiveButton {
@@ -303,6 +340,10 @@ NativeDialogWindow {
 
             ColumnLayout {
                 spacing: 8
+                SettingsPageHeader {
+                    title: qsTr("Монтажный лист")
+                    subtitle: qsTr("Настройки, применяемые к новым проектам.")
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     AdaptiveButton {
@@ -323,6 +364,10 @@ NativeDialogWindow {
 
             ColumnLayout {
                 spacing: 8
+                SettingsPageHeader {
+                    title: qsTr("Телесуфлёр")
+                    subtitle: qsTr("Настройки, применяемые к новым проектам.")
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     AdaptiveButton {
@@ -341,13 +386,20 @@ NativeDialogWindow {
                 }
             }
 
-            ReaperOscSettingsPane {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                configuration: dialog.prompterDraft
-                softMuted: dialog.softMuted
-                onConfigEdited: function(config) {
-                    dialog.prompterDraft = config
+            ColumnLayout {
+                spacing: 8
+                SettingsPageHeader {
+                    title: qsTr("REAPER / OSC")
+                    subtitle: qsTr("Подключение REAPER и синхронизация телесуфлёра на этом компьютере.")
+                }
+                ReaperOscSettingsPane {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    configuration: dialog.prompterDraft
+                    softMuted: dialog.softMuted
+                    onConfigEdited: function(config) {
+                        dialog.prompterDraft = config
+                    }
                 }
             }
         }
@@ -360,6 +412,13 @@ NativeDialogWindow {
             highlighted: dialog.macOSStyle
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
             onClicked: {
+                dialog.appBridge.uiState.setBoolValue(
+                    "actorColorCellFill",
+                    cellColorRadio.checked
+                )
+                dialog.actorColorDisplayModeAccepted(
+                    cellColorRadio.checked ? "cell" : "marker"
+                )
                 if (dialog.backend.applyGlobalSettingsComplete(
                     "ru",
                     keywordsArea.text,
@@ -370,7 +429,9 @@ NativeDialogWindow {
                     dialog.srtDraft,
                     dialog.docxDraft,
                     dialog.backupDraft
-                )) dialog.close()
+                )) {
+                    dialog.close()
+                }
             }
         }
         AdaptiveButton {

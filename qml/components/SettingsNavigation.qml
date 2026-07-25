@@ -15,7 +15,7 @@ Item {
     ) < 1.5
     readonly property bool macOSStyle: Qt.platform.os === "osx"
 
-    implicitWidth: macOSStyle ? 188 : 174
+    implicitWidth: macOSStyle ? 190 : 184
 
     SystemPalette {
         id: navPalette
@@ -25,31 +25,35 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: navigation.macOSStyle
-            ? Qt.rgba(
+            ? "transparent"
+            : Qt.rgba(
                 navPalette.window.r,
                 navPalette.window.g,
                 navPalette.window.b,
-                navigation.darkPalette ? 0.72 : 0.82
+                navigation.darkPalette ? 0.10 : 0.32
             )
-            : navigation.darkPalette
-                ? Qt.lighter(navPalette.window, 1.13)
-                : Qt.darker(navPalette.window, 1.035)
-        radius: navigation.macOSStyle ? 9 : 6
+    }
+
+    Rectangle {
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        width: 1
+        color: Qt.rgba(
+            navPalette.text.r,
+            navPalette.text.g,
+            navPalette.text.b,
+            navigation.macOSStyle ? 0.12 : 0.16
+        )
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: navigation.macOSStyle ? 8 : 6
+        anchors.leftMargin: navigation.macOSStyle ? 4 : 6
+        anchors.rightMargin: navigation.macOSStyle ? 10 : 10
+        anchors.topMargin: navigation.macOSStyle ? 4 : 6
+        anchors.bottomMargin: navigation.macOSStyle ? 4 : 6
         spacing: navigation.macOSStyle ? 3 : 2
-
-        Label {
-            text: qsTr("Разделы")
-            color: navigation.softMuted
-            font.pixelSize: 12
-            leftPadding: 8
-            topPadding: 6
-            bottomPadding: 5
-        }
 
         PersistentListView {
             id: sectionList
@@ -69,7 +73,7 @@ Item {
                 readonly property bool selected: index === sectionList.currentIndex
 
                 width: sectionList.viewportWidth
-                height: navigation.macOSStyle ? 30 : 34
+                height: navigation.macOSStyle ? 30 : 36
 
                 Accessible.name: modelData
                 Accessible.role: Accessible.PageTab
@@ -97,11 +101,21 @@ Item {
                             : "transparent"
                 }
 
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 3
+                    height: 20
+                    radius: 2
+                    visible: sectionDelegate.selected && !navigation.macOSStyle
+                    color: navPalette.highlight
+                }
+
                 Label {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
-                    anchors.leftMargin: 10
+                    anchors.leftMargin: navigation.macOSStyle ? 10 : 12
                     anchors.rightMargin: 8
                     text: sectionDelegate.modelData
                     elide: Text.ElideRight

@@ -78,6 +78,20 @@ Item {
         panel.selectedActorGender = actorGender
     }
 
+    function clearActorSelection() {
+        panel.selectedActorId = ""
+        panel.selectedActorName = ""
+        panel.selectedActorGender = ""
+    }
+
+    function toggleActorSelection(actorId, actorName, actorColor, actorGender) {
+        if (panel.selectedActorId === actorId) {
+            panel.clearActorSelection()
+            return
+        }
+        panel.selectActor(actorId, actorName, actorColor, actorGender)
+    }
+
     function transferSelectedActor() {
         if (panel.selectedActorId.length === 0)
             return
@@ -478,6 +492,20 @@ Item {
                     ? panel.actorLibraryBackend.globalActorsModel
                     : panel.castingBackend.actorsModel)
                 : null
+            activeFocusOnTab: true
+            Keys.onEscapePressed: panel.clearActorSelection()
+
+            // A tap below the final row is an explicit way to leave selection mode.
+            TapHandler {
+                onTapped: function(eventPoint) {
+                    var rowIndex = actorsView.indexAt(
+                        eventPoint.position.x,
+                        eventPoint.position.y + actorsView.contentY
+                    )
+                    if (rowIndex < 0)
+                        panel.clearActorSelection()
+                }
+            }
 
             delegate: Rectangle {
                 id: actorRow
@@ -491,7 +519,7 @@ Item {
 
                 TapHandler {
                     onTapped: {
-                        panel.selectActor(
+                        panel.toggleActorSelection(
                             model.id, model.name, model.color, model.gender
                         )
                     }
@@ -503,23 +531,21 @@ Item {
                 Item {
                     anchors.fill: parent
 
-                    Rectangle {
+                    ActorColorSwatch {
                         x: panel.tablePadding
                         anchors.verticalCenter: parent.verticalCenter
-                        width: 16
-                        height: 16
-                        color: model.color
-                        border.color: panel.softBorder
+                        width: panel.colorColumnWidth
+                        height: 20
+                        swatchColor: model.color
+                        interactive: true
                         visible: !panel.globalMode
 
-                        TapHandler {
-                            onTapped: {
-                                panel.selectActor(
-                                    model.id, model.name,
-                                    model.color, model.gender
-                                )
-                                actorColorDialog.open()
-                            }
+                        onClicked: {
+                            panel.selectActor(
+                                model.id, model.name,
+                                model.color, model.gender
+                            )
+                            actorColorDialog.open()
                         }
                     }
 
@@ -564,7 +590,10 @@ Item {
 
                         RowAccessoryButton {
                             id: moreActorButton
-                            iconSource: Qt.resolvedUrl("../icons/ellipsis.svg")
+                            iconSource: panel.macOSStyle
+                                ? Qt.resolvedUrl("../icons/ellipsis.svg") : ""
+                            overlayIconSource: panel.macOSStyle
+                                ? "" : Qt.resolvedUrl("../icons/ellipsis.svg")
                             toolTipText: qsTr("Действия с актёром")
                             onClicked: {
                                 panel.selectActor(
@@ -578,6 +607,9 @@ Item {
 
                     Menu {
                         id: actorActionsMenu
+                        // Fluent's automatic menu width is based on the
+                        // compact trigger, not its longest action label.
+                        width: 280
 
                         MenuItem {
                             text: panel.globalMode

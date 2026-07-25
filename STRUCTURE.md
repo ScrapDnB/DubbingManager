@@ -50,7 +50,7 @@ DubbingManager/
 └── tests/
 ```
 
-Qt Widgets в production-коде не используется. Диалоги, телесуфлёр,
+Старый Widgets-интерфейс в production-коде не используется. Диалоги, телесуфлёр,
 предпросмотр видео, монтажный лист и настройки реализованы в QML.
 
 ## Запуск
@@ -142,7 +142,7 @@ python -m PyInstaller dubbing_manager.spec --clean
 ```
 
 `dubbing_manager.spec` включает QML, иконки, WebEngine Quick и QML backend.
-Qt Widgets и старые Python-окна в сборку не входят.
+Старые Python-окна в сборку не входят.
 
 CI:
 

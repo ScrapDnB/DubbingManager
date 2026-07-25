@@ -397,6 +397,7 @@ class TeleprompterBridge(QObject):
             split_text,
             split_character,
         ):
+            self.errorRequested.emit("Не удалось разделить реплику")
             return False
         if not self._session.ensure_edit_backup(f"episode_{self._episode}"):
             self.errorRequested.emit(

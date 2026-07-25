@@ -48,3 +48,55 @@ def test_packaging_uses_only_the_qml_entry_point():
     assert "'PySide6.QtWidgets'" not in spec
     assert "'ui.main_window'" not in spec
     assert "'ui.dialogs'" not in spec
+
+
+def test_teleprompter_transfers_the_current_text_selection():
+    source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "selectedReplicaText" in source
+    assert "textEdit.selectionStart" in source
+    assert "Передать выделенное" in source
+
+
+def test_macos_main_window_waits_for_native_chrome_before_showing():
+    source = (ROOT / "qml" / "Main.qml").read_text(encoding="utf-8")
+
+    assert "property bool startupChromeReady: !macOSStyle" in source
+    assert "function showInitialWindow()" in source
+
+
+def test_main_tables_can_clear_their_selection():
+    actor_panel = (ROOT / "qml" / "components" / "ActorPanel.qml").read_text(
+        encoding="utf-8"
+    )
+    character_table = (ROOT / "qml" / "components" / "CharacterTable.qml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "function clearActorSelection()" in actor_panel
+    assert "Keys.onEscapePressed: panel.clearActorSelection()" in actor_panel
+    assert "actorsView.indexAt(" in actor_panel
+    assert "rowIndex < 0" in actor_panel
+    assert "function clearCharacterSelection()" in character_table
+    assert "Keys.onEscapePressed: table.clearCharacterSelection()" in character_table
+    assert "characterView.indexAt(" in character_table
+    assert "rowIndex < 0" in character_table
+
+
+def test_settings_use_platform_navigation_and_shared_page_headers():
+    navigation = (ROOT / "qml" / "components" / "SettingsNavigation.qml").read_text(
+        encoding="utf-8"
+    )
+    global_settings = (
+        ROOT / "qml" / "components" / "GlobalSettingsDialog.qml"
+    ).read_text(encoding="utf-8")
+    project_settings = (
+        ROOT / "qml" / "components" / "ProjectSettingsDialog.qml"
+    ).read_text(encoding="utf-8")
+
+    assert 'text: qsTr("Разделы")' not in navigation
+    assert "SettingsPageHeader" in global_settings
+    assert "SettingsPageHeader" in project_settings
+    assert "предварительной версии интерфейс доступен" not in global_settings

@@ -19,6 +19,9 @@ ColumnLayout {
 
     Layout.fillWidth: true
     Layout.fillHeight: false
+    // The toolbar adapts its contents itself and must not impose the summed
+    // implicit width of every control on the workspace column.
+    Layout.minimumWidth: 0
     Layout.minimumHeight: controlHeight
     Layout.preferredHeight: controlHeight
     Layout.maximumHeight: controlHeight

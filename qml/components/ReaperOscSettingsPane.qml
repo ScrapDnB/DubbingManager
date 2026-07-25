@@ -24,13 +24,6 @@ PersistentScrollView {
         width: pane.availableWidth
         spacing: 14
 
-        Label {
-            Layout.fillWidth: true
-            text: qsTr("Синхронизация телесуфлёра и REAPER по OSC работает на этом компьютере для всех проектов.")
-            wrapMode: Text.WordWrap
-            color: pane.softMuted
-        }
-
         FormSection {
             title: qsTr("Подключение")
             Layout.fillWidth: true

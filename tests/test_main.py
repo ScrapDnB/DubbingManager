@@ -104,12 +104,31 @@ class TestQmlStartup:
         flags = os.environ["QTWEBENGINE_CHROMIUM_FLAGS"].split()
         assert "--disable-gpu-sandbox" in flags
         assert "--disable-vulkan" in flags
+        assert os.environ["QSG_RHI_BACKEND"] == "d3d11"
 
-    def test_non_windows_webengine_flags_remain_unchanged(self, monkeypatch):
+    def test_windows_keeps_an_explicit_qt_quick_backend(self, monkeypatch):
+        from qml_main import configure_platform_graphics
+
+        monkeypatch.setenv("QSG_RHI_BACKEND", "opengl")
+        configure_platform_graphics("win32")
+
+        assert os.environ["QSG_RHI_BACKEND"] == "opengl"
+
+    def test_macos_disables_experimental_skia_graphite(self, monkeypatch):
         from qml_main import configure_platform_graphics
 
         monkeypatch.setenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu-sandbox")
         configure_platform_graphics("darwin")
+
+        flags = os.environ["QTWEBENGINE_CHROMIUM_FLAGS"].split()
+        assert "--disable-gpu-sandbox" in flags
+        assert "--disable-skia-graphite" in flags
+
+    def test_other_platform_webengine_flags_remain_unchanged(self, monkeypatch):
+        from qml_main import configure_platform_graphics
+
+        monkeypatch.setenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu-sandbox")
+        configure_platform_graphics("linux")
 
         assert os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] == "--disable-gpu-sandbox"
 
@@ -144,3 +163,8 @@ class TestQmlStartup:
         monkeypatch.setenv("QT_QUICK_CONTROLS_STYLE", "Fusion")
         configure_qml_controls_style()
         assert os.environ["QT_QUICK_CONTROLS_STYLE"] == "macOS"
+
+    def test_macos_reveals_qml_only_after_configuring_native_chrome(self):
+        source = Path("qml_main.py").read_text(encoding="utf-8")
+
+        assert 'root_window.setProperty("startupChromeReady", True)' in source

@@ -93,12 +93,10 @@ NativeDialogWindow {
                     anchors.rightMargin: 8
                     spacing: 8
 
-                    Rectangle {
+                    ActorColorSwatch {
                         Layout.preferredWidth: 16
                         Layout.preferredHeight: 16
-                        radius: 2
-                        color: actorRow.actorColor
-                        border.color: dialog.softBorder
+                        swatchColor: actorRow.actorColor
                     }
 
                     CheckBox {

@@ -13,27 +13,20 @@ ScrollBar {
     minimumSize: 0.08
     active: contentOverflow || hovered || pressed
     interactive: true
+    implicitWidth: macOSStyle ? 8 : 10
+    implicitHeight: macOSStyle ? 8 : 10
 
-    Component.onCompleted: {
-        if (macOSStyle)
-            control.contentItem = macOSHandle.createObject(control)
-    }
+    contentItem: Rectangle {
+        implicitWidth: control.macOSStyle ? 6 : 8
+        implicitHeight: control.macOSStyle ? 6 : 8
+        radius: implicitWidth / 2
+        color: control.palette.text
+        opacity: !control.contentOverflow
+            ? 0
+            : control.hovered || control.pressed ? 0.58 : 0.34
 
-    Component {
-        id: macOSHandle
-
-        Rectangle {
-            implicitWidth: 6
-            implicitHeight: 6
-            radius: 3
-            color: control.palette.text
-            opacity: !control.contentOverflow
-                ? 0
-                : control.hovered || control.pressed ? 0.58 : 0.34
-
-            Behavior on opacity {
-                NumberAnimation { duration: 100 }
-            }
+        Behavior on opacity {
+            NumberAnimation { duration: 100 }
         }
     }
 }

@@ -2630,6 +2630,7 @@ def test_qml_ui_state_remembers_dialog_folders_and_window_values(tmp_path):
     state.rememberFile("sourceFiles", str(source_file))
     state.setIntValue("main.width", 1440)
     state.setBoolValue("main.maximized", True)
+    state.setBoolValue("actorColorCellFill", True)
     settings.sync()
 
     restored_settings = QSettings(
@@ -2641,6 +2642,7 @@ def test_qml_ui_state_remembers_dialog_folders_and_window_values(tmp_path):
     assert Path(restored.folderUrl("sourceFiles").toLocalFile()) == source_dir
     assert restored.intValue("main.width", 1000) == 1440
     assert restored.boolValue("main.maximized", False) is True
+    assert restored.boolValue("actorColorCellFill", False) is True
 
 
 def test_qml_bridge_restores_backup_after_unsaved_decision(tmp_path):
