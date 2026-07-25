@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 import tempfile
 
@@ -807,7 +808,7 @@ def test_audiobook_temporary_documents_use_platform_temp_directory():
     )
 
     assert temporary.isOpen()
-    assert Path(url.toLocalFile()).parent == Path(tempfile.gettempdir())
+    assert os.path.samefile(Path(url.toLocalFile()).parent, tempfile.gettempdir())
 
 
 def test_qml_project_settings_bundle_includes_montage_and_prompter():
