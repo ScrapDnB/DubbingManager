@@ -4,16 +4,19 @@ import QtQuick.Controls
 ScrollView {
     id: scrollView
 
-    rightPadding: Qt.platform.os !== "osx" && verticalScrollBar.size < 1.0
+    readonly property bool hasVerticalOverflow: contentHeight > availableHeight + 1
+
+    rightPadding: hasVerticalOverflow
         ? verticalScrollBar.width + 4 : 0
 
     ScrollBar.vertical: VisibleScrollBar {
         id: verticalScrollBar
+        contentOverflow: scrollView.hasVerticalOverflow
         parent: scrollView
-        x: scrollView.width - width
-        y: 0
+        anchors.top: scrollView.top
+        anchors.right: scrollView.right
+        anchors.bottom: scrollView.bottom
         width: Math.max(10, implicitWidth)
-        height: scrollView.height
     }
 
     ScrollBar.horizontal: ScrollBar {

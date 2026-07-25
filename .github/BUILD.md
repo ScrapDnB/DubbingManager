@@ -96,8 +96,8 @@ Register_DUB_File_Association.ps1
 ## Публикация релиза
 
 ```bash
-git tag v2.0.0-beta3
-git push origin v2.0.0-beta3
+git tag v2.0.0-beta4
+git push origin v2.0.0-beta4
 ```
 
 После этого workflow соберёт Windows и macOS артефакты и прикрепит их к

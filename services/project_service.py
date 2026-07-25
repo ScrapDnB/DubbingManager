@@ -19,6 +19,7 @@ except ImportError:
     HAS_FCNTL = False
 
 from config.constants import (
+    APP_VERSION,
     DEFAULT_ASS_IMPORT_CONFIG,
     DEFAULT_BACKUP_CONFIG,
     DEFAULT_DOCX_IMPORT_CONFIG,
@@ -30,6 +31,7 @@ from config.constants import (
     PROJECT_BACKUP_FILE_EXTENSION,
 )
 from services.project_compatibility import ensure_project_compatibility
+from services.project_schema_service import ProjectSchemaError, ProjectSchemaService
 from utils.i18n import translate_source
 
 logger = logging.getLogger(__name__)
@@ -52,6 +54,7 @@ class ProjectService:
         self.is_dirty: bool = False
         self._project_metadata: Dict[str, Any] = {}
         self._backup_config = self._normalize_backup_config(backup_config)
+        self._schema = ProjectSchemaService()
 
     def set_backup_config(self, config: Optional[Dict[str, Any]]) -> None:
         """Apply global backup settings without touching project data."""
@@ -70,7 +73,7 @@ class ProjectService:
         return {
             "metadata": {
                 "format_version": PROJECT_FORMAT_VERSION,
-                "app_version": "1.0+",
+                "app_version": APP_VERSION,
                 "created_at": now,
                 "modified_at": now,
                 "created_by": "",
@@ -85,9 +88,7 @@ class ProjectService:
             "video_paths": {},
             "episode_texts": {},
             "episode_working_texts": {},
-            "book_chapters": {},
-            "audiobook_source": {},
-            "audiobook_chapter_order": [],
+            "audiobook_document": {},
             "audiobook_settings": {
                 "font_family": "Georgia",
                 "zoom_steps": 0,
@@ -108,10 +109,10 @@ class ProjectService:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
+            self._validate_supported_schema(data)
             self._validate_project_structure(data)
-            
             self._ensure_compatibility(data)
-            
+            self._validate_current_schema(data)
             self._update_metadata_on_load(data, path)
 
             self.current_project_path = path
@@ -150,13 +151,28 @@ class ProjectService:
         path: str
     ) -> bool:
         """Save project as."""
+        previous_path = self.current_project_path
+        if not self._do_save(data, path):
+            self.current_project_path = previous_path
+            return False
         self.current_project_path = path
-        return self._do_save(data, path)
+        return True
 
     def _do_save(self, data: Dict[str, Any], path: str) -> bool:
         """Do save."""
-        self._update_metadata_on_save(data)
-        save_data = self._project_data_for_disk(data)
+        try:
+            self._validate_supported_schema(data)
+            self._validate_project_structure(data)
+            save_data = self._project_data_for_disk(data)
+            self._ensure_compatibility(save_data)
+            self._update_metadata_on_save(save_data)
+            self._validate_supported_schema(save_data)
+            self._validate_current_schema(save_data)
+        except ProjectValidationError as exc:
+            logger.error(f"Save validation failed: {exc}")
+            return False
+
+        data["metadata"] = deepcopy(save_data["metadata"])
 
         # Write to a temporary file first so a failed save does not corrupt the project.
         temp_path = path + ".tmp"
@@ -218,7 +234,17 @@ class ProjectService:
         """Write a complete project snapshot using the configured backup policy."""
         if not self.backups_enabled():
             return True
-        save_data = self._project_data_for_disk(data)
+        try:
+            self._validate_supported_schema(data)
+            self._validate_project_structure(data)
+            save_data = self._project_data_for_disk(data)
+            self._ensure_compatibility(save_data)
+            self._update_metadata_on_save(save_data)
+            self._validate_supported_schema(save_data)
+            self._validate_current_schema(save_data)
+        except ProjectValidationError as exc:
+            logger.error(f"Backup validation failed: {exc}")
+            return False
         safe_reason = "".join(
             character if character.isalnum() or character in "-_" else "_"
             for character in str(reason or "backup")
@@ -236,8 +262,7 @@ class ProjectService:
             )
             
             try:
-                with open(backup_path, 'w', encoding='utf-8') as f:
-                    json.dump(save_data, f, ensure_ascii=False, indent=4)
+                self._write_json_atomic(backup_path, save_data)
                 
                 logger.debug(f"Auto-saved to {backup_path}")
                 
@@ -253,21 +278,19 @@ class ProjectService:
                 logger.error(f"Auto-save failed: {e}")
                 return False
         else:
-            # Unsaved projects still get a temporary backup in the current working directory.
-            if self._backup_config["path_mode"] == "absolute":
-                backup_dir = Path(self._backup_config["directory"]).expanduser()
-                backup_dir.mkdir(parents=True, exist_ok=True)
-                path = backup_dir / (
-                    f"unsaved_{safe_reason}_{timestamp}"
-                    f"{PROJECT_BACKUP_FILE_EXTENSION}"
-                )
-            else:
-                path = Path(
-                    f"temp_{safe_reason}{PROJECT_BACKUP_FILE_EXTENSION}"
-                )
+            backup_dir = self._unsaved_backup_directory()
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            path = backup_dir / (
+                f"unsaved_{safe_reason}_{timestamp}"
+                f"{PROJECT_BACKUP_FILE_EXTENSION}"
+            )
             try:
-                with open(path, 'w', encoding='utf-8') as f:
-                    json.dump(save_data, f, ensure_ascii=False, indent=4)
+                self._write_json_atomic(path, save_data)
+                self._rotate_backups(
+                    backup_dir,
+                    "unsaved_",
+                    int(self._backup_config["max_backups"]),
+                )
                 logger.debug(f"Auto-saved to {path}")
                 return True
             except Exception as e:
@@ -308,6 +331,23 @@ class ProjectService:
         save_data = deepcopy(data)
         save_data.pop("loaded_episodes", None)
         return save_data
+
+    @staticmethod
+    def _write_json_atomic(path: Path, data: Dict[str, Any]) -> None:
+        """Write a JSON snapshot without exposing a partially written file."""
+        temp_path = Path(f"{path}.tmp")
+        try:
+            with open(temp_path, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, ensure_ascii=False, indent=4)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, path)
+        finally:
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
 
     def _validate_project_structure(self, data: Dict[str, Any]) -> None:
         """Validate project structure."""
@@ -379,25 +419,43 @@ class ProjectService:
             )
 
         if (
-            "audiobook_chapter_order" in data and
-            not isinstance(data["audiobook_chapter_order"], list)
+            "audiobook_document" in data and
+            not isinstance(data["audiobook_document"], dict)
         ):
             raise ProjectValidationError(
-                "Field 'audiobook_chapter_order' must be a list"
+                "Field 'audiobook_document' must be a dictionary"
             )
 
     def _ensure_compatibility(self, data: Dict[str, Any]) -> None:
         """Ensure compatibility."""
         ensure_project_compatibility(data)
 
+    def _validate_supported_schema(self, data: Dict[str, Any]) -> None:
+        """Reject unsupported or unpublished legacy project formats."""
+        try:
+            self._schema.validate_supported_version(data)
+        except ProjectSchemaError as exc:
+            raise ProjectValidationError(str(exc)) from exc
+
+    def _validate_current_schema(self, data: Dict[str, Any]) -> None:
+        """Validate the normalized current on-disk project structure."""
+        try:
+            self._schema.validate_current(data)
+        except ProjectSchemaError as exc:
+            raise ProjectValidationError(str(exc)) from exc
+
     def _update_metadata_on_save(self, data: Dict[str, Any]) -> None:
         """Update metadata on save."""
         if "metadata" not in data:
             data["metadata"] = {}
-        
-        data["metadata"]["modified_at"] = datetime.now().isoformat()
+
+        now = datetime.now().isoformat()
+        data["metadata"].setdefault("created_at", now)
+        data["metadata"].setdefault("created_by", "")
+        data["metadata"].setdefault("studio", "")
+        data["metadata"]["modified_at"] = now
         data["metadata"]["format_version"] = PROJECT_FORMAT_VERSION
-        data["metadata"]["app_version"] = "1.0+"
+        data["metadata"]["app_version"] = APP_VERSION
 
     def _update_metadata_on_load(self, data: Dict[str, Any], path: str) -> None:
         """Update metadata on load."""
@@ -450,14 +508,14 @@ class ProjectService:
         """Return backup directory."""
         if self.current_project_path:
             return self._backup_directory_for(self.current_project_path)
-        return None
+        return self._unsaved_backup_directory()
 
     def list_backups(self) -> List[Path]:
         """List backups."""
         backup_dir = self.get_backup_directory()
         if backup_dir and backup_dir.exists():
             project_stem = Path(self.current_project_path or "").stem
-            prefix = f"{project_stem}_"
+            prefix = f"{project_stem}_" if project_stem else "unsaved_"
             return sorted(
                 (
                     path for path in backup_dir.glob(
@@ -465,7 +523,7 @@ class ProjectService:
                     )
                     if path.name.startswith(prefix)
                 ),
-                key=lambda p: p.stat().st_mtime,
+                key=lambda p: (p.stat().st_mtime_ns, p.name),
                 reverse=True
             )
         return []
@@ -476,7 +534,10 @@ class ProjectService:
             with open(backup_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
+            self._validate_supported_schema(data)
             self._validate_project_structure(data)
+            self._ensure_compatibility(data)
+            self._validate_current_schema(data)
 
             target = Path(target_path)
             if target.is_file():
@@ -513,6 +574,25 @@ class ProjectService:
             stem = Path(project_path).stem or "project"
             return directory / f"{stem}-{digest}"
         return Path(project_path).expanduser().parent / directory
+
+    def _unsaved_backup_directory(self) -> Path:
+        if self._backup_config["path_mode"] == "absolute":
+            return (
+                Path(self._backup_config["directory"]).expanduser()
+                / "unsaved"
+            )
+        if sys.platform == "win32":
+            base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+            root = Path(base) if base else Path.home() / "AppData" / "Local"
+            return root / "DubbingManager" / "backups" / "unsaved"
+        if sys.platform == "darwin":
+            return (
+                Path.home() / "Library" / "Application Support"
+                / "DubbingManager" / "backups" / "unsaved"
+            )
+        data_home = os.environ.get("XDG_DATA_HOME")
+        root = Path(data_home) if data_home else Path.home() / ".local" / "share"
+        return root / "dubbing-manager" / "backups" / "unsaved"
 
     @staticmethod
     def _normalize_backup_config(

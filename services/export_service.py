@@ -632,7 +632,7 @@ class ExportService(ExportLayoutMixin):
 
     def has_reaper_source_markers(self, ep: str) -> bool:
         """Return whether exact source-line Reaper markers are available."""
-        payload = self.project_data.get("episode_working_texts", {}).get(str(ep))
+        payload = self._working_payload(str(ep))
         if not isinstance(payload, dict):
             return False
         source_lines = payload.get("source_lines")
@@ -654,7 +654,7 @@ class ExportService(ExportLayoutMixin):
 
     def _get_project_source_lines(self, ep: str) -> List[Dict[str, Any]]:
         """Return embedded original source lines for an episode."""
-        payload = self.project_data.get("episode_working_texts", {}).get(str(ep))
+        payload = self._working_payload(str(ep))
         if not isinstance(payload, dict):
             return []
         source_lines = payload.get("source_lines")
@@ -672,6 +672,17 @@ class ExportService(ExportLayoutMixin):
                 "s_raw": line.get("s_raw", ""),
             })
         return result
+
+    def _working_payload(self, ep: str) -> Optional[Dict[str, Any]]:
+        if self.project_data.get("project_kind") == "audiobook":
+            from services.audiobook_document_service import (
+                AudiobookDocumentService,
+            )
+            document = self.project_data.get("audiobook_document")
+            if isinstance(document, dict):
+                return AudiobookDocumentService().episode_payload(document, ep)
+        payload = self.project_data.get("episode_working_texts", {}).get(ep)
+        return payload if isinstance(payload, dict) else None
 
     def generate_reaper_rpp(
         self,

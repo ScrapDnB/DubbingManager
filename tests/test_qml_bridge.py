@@ -3,11 +3,13 @@
 from copy import deepcopy
 import json
 from pathlib import Path
+import tempfile
 
 import pytest
 from PySide6.QtCore import QCoreApplication, QSettings
 
 from config.constants import MY_PALETTE
+from services.audiobook_document_service import AudiobookDocumentService
 from ui.qml_backend.app_bridge import AppBridge
 from ui.qml_backend.features.ui_state_bridge import UiStateBridge
 
@@ -42,18 +44,14 @@ def test_qml_bridge_starts_with_empty_project():
 
 def _configure_audiobook_project(bridge, tmp_path):
     source = str(tmp_path / "book.pdf")
+    document = AudiobookDocumentService().create_document(source, [
+        ("Глава 1", "<!DOCTYPE html><html><body><h1>Глава 1</h1><p>Первый текст.</p></body></html>"),
+        ("Глава 2", "<!DOCTYPE html><html><body><h1>Глава 2</h1><p>Второй текст.</p></body></html>"),
+    ])
     bridge._session.data.update({
         "project_kind": "audiobook",
         "episodes": {"Глава 1": source, "Глава 2": source},
-        "book_chapters": {
-            "Глава 1": {"html": "<!DOCTYPE html><html><body><h1>Глава 1</h1><p>Первый текст.</p></body></html>"},
-            "Глава 2": {"html": "<!DOCTYPE html><html><body><h1>Глава 2</h1><p>Второй текст.</p></body></html>"},
-        },
-        "audiobook_chapter_order": ["Глава 1", "Глава 2"],
-        "audiobook_source": {
-            "path": source,
-            "html": "<!DOCTYPE html><html><body><h1>Глава 1</h1><p>Первый текст.</p><h1>Глава 2</h1><p>Второй текст.</p></body></html>",
-        },
+        "audiobook_document": document,
         "actors": {"actor-1": {"name": "Актёр", "color": "#336699"}},
         "global_map": {},
         "audiobook_settings": {},
@@ -79,13 +77,25 @@ def test_qml_audiobook_saves_html_markup_through_undo_command(tmp_path):
     audiobook.setSlot(0, "Герой", "actor-1")
 
     assert audiobook.saveCurrent()
-    assert bridge._session.data["book_chapters"]["Глава 1"]["html"] == marked_html
-    lines = bridge._session.data["loaded_episodes"]["Глава 1"]
+    document = bridge._session.data["audiobook_document"]
+    lines = AudiobookDocumentService().lines(document, "Глава 1")
     assert any(line["char"] == "Герой" and line["text"] == "Первый" for line in lines)
     assert bridge._session.data["global_map"]["Герой"] == "actor-1"
+    assert "book_chapters" not in bridge._session.data
+    assert "audiobook_source" not in bridge._session.data
+    assert bridge._session.data["episode_working_texts"] == {}
 
     bridge.project.undo()
-    assert "loaded_episodes" not in bridge._session.data or "Глава 1" not in bridge._session.data["loaded_episodes"]
+    restored = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert not any(line["char"] == "Герой" for line in restored)
+
+    bridge.project.redo()
+    redone = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(line["char"] == "Герой" and line["text"] == "Первый" for line in redone)
 
 
 def test_qml_audiobook_applies_reordered_chapter_structure(tmp_path):
@@ -96,7 +106,9 @@ def test_qml_audiobook_applies_reordered_chapter_structure(tmp_path):
     audiobook.prepare()
     audiobook.prepareChapterMarkup()
     audiobook.updateBoundaries(json.dumps({
-        "sourceHtml": bridge._session.data["audiobook_source"]["html"],
+        "sourceHtml": AudiobookDocumentService().combined_html(
+            bridge._session.data["audiobook_document"]
+        ),
         "chapters": [
             {"title": "Пролог", "html": "<!DOCTYPE html><html><body><h1>Пролог</h1><p>Второй текст.</p></body></html>"},
             {"title": "Глава 1", "html": "<!DOCTYPE html><html><body><h1>Глава 1</h1><p>Первый текст.</p></body></html>"},
@@ -104,9 +116,121 @@ def test_qml_audiobook_applies_reordered_chapter_structure(tmp_path):
     }, ensure_ascii=False))
 
     assert audiobook.applyChapterMarkup()
-    assert bridge._session.data["audiobook_chapter_order"] == ["Пролог", "Глава 1"]
+    assert AudiobookDocumentService().chapter_titles(
+        bridge._session.data["audiobook_document"]
+    ) == ["Пролог", "Глава 1"]
     assert set(bridge._session.data["episodes"]) == {"Пролог", "Глава 1"}
-    assert "Глава 2" not in bridge._session.data["book_chapters"]
+
+    bridge.project.undo()
+    assert AudiobookDocumentService().chapter_titles(
+        bridge._session.data["audiobook_document"]
+    ) == ["Глава 1", "Глава 2"]
+    assert set(bridge._session.data["episodes"]) == {"Глава 1", "Глава 2"}
+
+    bridge.project.redo()
+    assert AudiobookDocumentService().chapter_titles(
+        bridge._session.data["audiobook_document"]
+    ) == ["Пролог", "Глава 1"]
+
+
+def test_qml_audiobook_teleprompter_edits_canonical_document(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    bridge.project.selectEpisode("Глава 1")
+    assert bridge.projectFiles.currentEpisodeSourceMissing is False
+    bridge._session.project_service.current_project_path = str(
+        tmp_path / "book.dub"
+    )
+    assert bridge.teleprompter.prepare("Глава 1")
+    row = next(
+        item for item in bridge.teleprompter.model.rows()
+        if item["replicaText"] == "Первый текст."
+    )
+
+    assert bridge.teleprompter.editReplica(
+        row["sourceIds"], "Герой", "Исправленный текст"
+    )
+
+    lines = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(
+        line["char"] == "Герой" and line["text"] == "Исправленный текст"
+        for line in lines
+    )
+    assert bridge._session.data["episode_working_texts"] == {}
+
+    bridge.project.undo()
+    restored = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(line["text"] == "Первый текст." for line in restored)
+
+    bridge.project.redo()
+    redone = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(
+        line["char"] == "Герой" and line["text"] == "Исправленный текст"
+        for line in redone
+    )
+
+    assert bridge.teleprompter.splitReplica(
+        row["sourceIds"], "Исправленный", "текст", "Второй герой"
+    )
+    split_lines = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(line["char"] == "Второй герой" and line["text"] == "текст" for line in split_lines)
+
+    bridge.project.undo()
+    unsplit = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert not any(line["char"] == "Второй герой" for line in unsplit)
+
+    bridge.project.redo()
+    resplit = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(line["char"] == "Второй герой" for line in resplit)
+
+
+def test_qml_audiobook_montage_edits_canonical_document(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    bridge._session.project_service.current_project_path = str(
+        tmp_path / "book.dub"
+    )
+    bridge.montage.prepare("Глава 1")
+    line = next(
+        item for item in bridge._script_text_service.load_episode_lines(
+            bridge._session.data, "Глава 1"
+        )
+        if item["text"] == "Первый текст."
+    )
+
+    bridge.montage.updateText(line["working_id"], "Монтажная правка")
+
+    updated = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(item["text"] == "Монтажная правка" for item in updated)
+    assert bridge._session.data["episode_working_texts"] == {}
+
+    bridge.project.undo()
+    restored = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(item["text"] == "Первый текст." for item in restored)
+
+    bridge.project.redo()
+    redone = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(item["text"] == "Монтажная правка" for item in redone)
 
 
 def test_qml_episode_model_uses_natural_and_audiobook_order(tmp_path):
@@ -126,7 +250,12 @@ def test_qml_episode_model_uses_natural_and_audiobook_order(tmp_path):
     bridge._session.data.update({
         "project_kind": "audiobook",
         "episodes": {"Финал": source, "Пролог": source, "Глава 1": source},
-        "audiobook_chapter_order": ["Пролог", "Глава 1", "Финал"],
+        "audiobook_document": {
+            "chapters": [
+                {"title": title, "blocks": []}
+                for title in ("Пролог", "Глава 1", "Финал")
+            ]
+        },
     })
     bridge.project.refresh_models()
     assert [model.get(index)["name"] for index in range(3)] == [
@@ -217,10 +346,27 @@ def test_qml_bridge_teleprompter_edits_and_splits_with_undo(tmp_path):
     ))
     assert len(backups) == 1
 
+    before = deepcopy(
+        bridge._session.data["episode_working_texts"]["1"]["lines"]
+    )
+    errors = []
+    bridge.teleprompter.errorRequested.connect(errors.append)
+    assert not bridge.teleprompter.editReplica(
+        ["line-1", "line-2"], "Narrator", "Ambiguous replacement"
+    )
+    assert bridge._session.data["episode_working_texts"]["1"]["lines"] == before
+    assert "объединённой реплики" in errors[-1]
+
     bridge.project.undo()
     restored = bridge._session.data["episode_working_texts"]["1"]["lines"][0]
     assert "display_character" not in restored
     assert restored["text"] == "First line"
+
+    bridge.project.redo()
+    redone = bridge._session.data["episode_working_texts"]["1"]["lines"][0]
+    assert redone["display_character"] == "Narrator"
+    assert redone["text"] == "Changed"
+    bridge.project.undo()
 
     assert bridge.teleprompter.splitReplica(
         ["line-1"], "First", "line", "Narrator"
@@ -232,6 +378,8 @@ def test_qml_bridge_teleprompter_edits_and_splits_with_undo(tmp_path):
 
     bridge.project.undo()
     assert len(bridge._session.data["episode_working_texts"]["1"]["lines"]) == 2
+    bridge.project.redo()
+    assert len(bridge._session.data["episode_working_texts"]["1"]["lines"]) == 3
     assert len(list((tmp_path / ".backups").glob(
         "prompter-edit_editing_episode_1_*.dub_backup"
     ))) == 1
@@ -648,6 +796,18 @@ def test_qml_project_settings_are_atomic_and_undoable():
     bridge.project.redo()
     assert bridge.project.name == "Settings Project"
     assert bridge.settings.mergeGapSeconds == pytest.approx(1.5)
+
+
+def test_audiobook_temporary_documents_use_platform_temp_directory():
+    _app()
+    bridge = AppBridge()
+
+    temporary, url = bridge.audiobook._temporary_document(
+        "<html></html>", "dm-test-XXXXXX.html"
+    )
+
+    assert temporary.isOpen()
+    assert Path(url.toLocalFile()).parent == Path(tempfile.gettempdir())
 
 
 def test_qml_project_settings_bundle_includes_montage_and_prompter():

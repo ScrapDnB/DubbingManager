@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict
 
 from config.constants import (
+    APP_VERSION,
     DEFAULT_ASS_IMPORT_CONFIG,
     DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
@@ -17,25 +18,10 @@ from config.constants import (
 
 def ensure_project_compatibility(data: Dict[str, Any]) -> None:
     """Mutate project data so older files have the current required fields."""
-    if "book_chapters" not in data:
-        data["book_chapters"] = {}
-    if "audiobook_source" not in data:
-        data["audiobook_source"] = {}
+    if "audiobook_document" not in data:
+        data["audiobook_document"] = {}
     if data.get("project_kind") not in ("subtitle", "audiobook"):
-        data["project_kind"] = (
-            "audiobook"
-            if isinstance(data.get("book_chapters"), dict) and data["book_chapters"]
-            else "subtitle"
-        )
-    if "audiobook_chapter_order" not in data:
-        data["audiobook_chapter_order"] = (
-            list(data.get("book_chapters", {}))
-            if data.get("project_kind") == "audiobook" and
-            isinstance(data.get("book_chapters"), dict)
-            else []
-        )
-    elif not isinstance(data["audiobook_chapter_order"], list):
-        data["audiobook_chapter_order"] = []
+        data["project_kind"] = "subtitle"
     if "video_paths" not in data:
         data["video_paths"] = {}
     if "episode_texts" not in data:
@@ -89,6 +75,10 @@ def ensure_project_compatibility(data: Dict[str, Any]) -> None:
         }
     data["metadata"].setdefault("created_by", "")
     data["metadata"].setdefault("studio", "")
+    now = datetime.now().isoformat()
+    data["metadata"].setdefault("created_at", now)
+    data["metadata"].setdefault("modified_at", now)
+    data["metadata"].setdefault("app_version", APP_VERSION)
     data["metadata"]["format_version"] = PROJECT_VERSION
 
     _ensure_working_text_source_layers(data)

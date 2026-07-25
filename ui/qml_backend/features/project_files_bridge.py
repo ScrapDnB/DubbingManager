@@ -94,6 +94,8 @@ class ProjectFilesBridge(QObject):
 
     @Property(bool, notify=currentFileStateChanged)
     def currentEpisodeSourceMissing(self) -> bool:
+        if self._session.data.get("project_kind") == "audiobook":
+            return False
         episode = self._session.current_episode
         source = self._session.data.get("episodes", {}).get(episode)
         return bool(

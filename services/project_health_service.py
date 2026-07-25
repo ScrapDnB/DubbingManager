@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from services.assignment_service import get_actor_for_character
 from services.project_folder_service import ProjectFolderService
+from services.script_text_service import ScriptTextService
 
 
 @dataclass(frozen=True)
@@ -58,16 +59,21 @@ class ProjectHealthService:
         for ep_num in all_episode_nums:
             source_path = episodes.get(ep_num)
             text_payload = episode_texts.get(ep_num)
+            if project_data.get("project_kind") == "audiobook":
+                text_payload = ScriptTextService().get_episode_payload(
+                    project_data, ep_num
+                )
             legacy_text_path = legacy_episode_texts.get(ep_num)
             video_path = video_paths.get(ep_num)
 
-            self._check_source_file(
-                issues,
-                project_data,
-                ep_num,
-                source_path,
-                text_payload or legacy_text_path
-            )
+            if project_data.get("project_kind") != "audiobook":
+                self._check_source_file(
+                    issues,
+                    project_data,
+                    ep_num,
+                    source_path,
+                    text_payload or legacy_text_path
+                )
             lines = self._check_working_text(
                 issues,
                 project_data,

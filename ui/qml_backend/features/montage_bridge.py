@@ -8,7 +8,11 @@ from PySide6.QtCore import QObject, Property, QTimer, QUrl, Signal, Slot, Qt
 from PySide6.QtGui import QDesktopServices
 
 from config.constants import DEFAULT_EXPORT_CONFIG
-from core.commands import UpdateExportConfigCommand, UpdateWorkingTextLineCommand
+from core.commands import (
+    UpdateExportConfigCommand,
+    UpdateProjectFileStateCommand,
+    UpdateWorkingTextLineCommand,
+)
 from services import ExportService
 from services.script_text_service import ScriptTextService
 from ui.qml_backend.models import DictListModel
@@ -180,8 +184,9 @@ class MontageBridge(QObject):
     def updateText(self, line_id: str, new_text: str) -> None:
         if not self._episode:
             return
-        payload = self._session.data.get("episode_working_texts", {}).get(
-            self._episode
+        is_audiobook = self._session.data.get("project_kind") == "audiobook"
+        payload = self._script_text_service.get_episode_payload(
+            self._session.data, self._episode
         )
         if not isinstance(payload, dict):
             self.errorRequested.emit(
@@ -201,12 +206,28 @@ class MontageBridge(QObject):
                 "Не удалось создать резервную копию перед правкой"
             )
             return
-        self._session.execute(UpdateWorkingTextLineCommand(
-            self._session.data.setdefault("episode_working_texts", {}),
-            self._episode,
-            line_id,
-            new_text,
-        ), "working_text")
+        if is_audiobook:
+            candidate = deepcopy(self._session.data.get("audiobook_document", {}))
+            temp_data = {
+                "project_kind": "audiobook",
+                "audiobook_document": candidate,
+            }
+            if not self._script_text_service.update_line_text(
+                temp_data, self._episode, line_id, new_text
+            ):
+                return
+            self._session.execute(UpdateProjectFileStateCommand(
+                self._session.data,
+                {"audiobook_document": candidate},
+                "Изменена реплика монтажного листа",
+            ), "working_text")
+        else:
+            self._session.execute(UpdateWorkingTextLineCommand(
+                self._session.data.setdefault("episode_working_texts", {}),
+                self._episode,
+                line_id,
+                new_text,
+            ), "working_text")
         self.refresh_preview()
         self.projectDataChanged.emit("working_text")
         self.statusRequested.emit(

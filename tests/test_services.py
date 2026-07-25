@@ -359,6 +359,40 @@ class TestProjectService:
         buckets = list(backup_dir.glob("show-*"))
         assert len(buckets) == 2
 
+    def test_unsaved_project_backups_are_timestamped_and_listed(
+        self, sample_project_data, tmp_path
+    ):
+        service = ProjectService({
+            "path_mode": "absolute",
+            "directory": str(tmp_path / "central-backups"),
+            "max_backups": 4,
+        })
+        service.is_dirty = True
+
+        assert service.auto_save(sample_project_data)
+        backups = service.list_backups()
+
+        assert len(backups) == 1
+        assert backups[0].parent == tmp_path / "central-backups" / "unsaved"
+        assert backups[0].name.startswith("unsaved_autosave_")
+
+    def test_failed_save_as_preserves_current_project_path(
+        self, sample_project_data, tmp_path
+    ):
+        service = ProjectService()
+        original = tmp_path / "original.dub"
+        service.current_project_path = str(original)
+        service.is_dirty = True
+
+        result = service.save_project_as(
+            sample_project_data,
+            str(tmp_path / "missing" / "new.dub"),
+        )
+
+        assert result is False
+        assert service.current_project_path == str(original)
+        assert service.is_dirty is True
+
     def test_list_backups(self, sample_project_data, tmp_path):
         """Получение списка бэкапов"""
         service = ProjectService()

@@ -1,5 +1,6 @@
 """Tests for project compatibility upgrades."""
 
+from config.constants import PROJECT_VERSION
 from services.project_compatibility import ensure_project_compatibility
 
 
@@ -21,11 +22,9 @@ def test_ensure_project_compatibility_adds_current_fields_to_legacy_project():
 
     assert data["video_paths"] == {}
     assert data["project_kind"] == "subtitle"
-    assert data["audiobook_chapter_order"] == []
+    assert data["audiobook_document"] == {}
     assert data["episode_texts"] == {}
     assert data["episode_working_texts"] == {}
-    assert data["book_chapters"] == {}
-    assert data["audiobook_source"] == {}
     assert data["global_map"] == {}
     assert data["episode_actor_map"] == {}
     assert data["prompter_config"]
@@ -41,12 +40,12 @@ def test_ensure_project_compatibility_adds_current_fields_to_legacy_project():
         "p_short": 0.3,
         "p_long": 1.7,
     }
-    assert data["metadata"]["format_version"] == "1.4"
+    assert data["metadata"]["format_version"] == PROJECT_VERSION
     assert data["metadata"]["created_by"] == ""
     assert data["metadata"]["studio"] == ""
 
 
-def test_ensure_project_compatibility_detects_existing_audiobook():
+def test_ensure_project_compatibility_preserves_current_audiobook():
     data = {
         "project_name": "Book",
         "actors": {},
@@ -54,16 +53,20 @@ def test_ensure_project_compatibility_detects_existing_audiobook():
             "Пролог": "book.pdf",
             "Глава 1": "book.pdf",
         },
-        "book_chapters": {
-            "Пролог": {"html": "<p>Пролог</p>"},
-            "Глава 1": {"html": "<p>Глава</p>"},
-        },
+        "project_kind": "audiobook",
+        "audiobook_document": {"chapters": [
+            {"title": "Пролог", "blocks": []},
+            {"title": "Глава 1", "blocks": []},
+        ]},
     }
 
     ensure_project_compatibility(data)
 
     assert data["project_kind"] == "audiobook"
-    assert data["audiobook_chapter_order"] == ["Пролог", "Глава 1"]
+    assert [
+        chapter["title"]
+        for chapter in data["audiobook_document"]["chapters"]
+    ] == ["Пролог", "Глава 1"]
 
 
 def test_ensure_project_compatibility_preserves_existing_metadata():
@@ -82,7 +85,7 @@ def test_ensure_project_compatibility_preserves_existing_metadata():
 
     ensure_project_compatibility(data)
 
-    assert data["metadata"]["format_version"] == "1.4"
+    assert data["metadata"]["format_version"] == PROJECT_VERSION
     assert data["metadata"]["created_by"] == "Studio"
     assert data["metadata"]["studio"] == ""
 

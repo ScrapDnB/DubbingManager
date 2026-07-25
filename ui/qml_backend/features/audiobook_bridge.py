@@ -10,11 +10,12 @@ from typing import Any, Optional
 from lxml import etree
 from lxml import html as lxml_html
 from PySide6.QtCore import (
-    QObject, Property, QTemporaryFile, QThread, QUrl, Signal, Slot, Qt,
+    QDir, QObject, Property, QTemporaryFile, QThread, QUrl, Signal, Slot, Qt,
 )
 from PySide6.QtGui import QColor, QFontDatabase
 
 from core.commands import UpdateProjectFileStateCommand
+from services.audiobook_document_service import AudiobookDocumentService
 from services.book_import_service import BookChapter, BookImportService
 from services.project_metadata_service import maybe_set_project_name_from_first_import
 from services.script_text_service import ScriptTextService
@@ -25,7 +26,7 @@ from ui.qml_backend.features.audiobook_html import (
 )
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
-from utils.helpers import set_audiobook_chapter_order, set_project_kind
+from utils.helpers import set_project_kind
 
 
 class _PdfImportWorker(QObject):
@@ -72,6 +73,7 @@ class AudiobookBridge(QObject):
         super().__init__(parent)
         self._session = session
         self._script_text_service = script_text_service
+        self._document_service = AudiobookDocumentService()
         self._global_settings_service = global_settings_service
         self._chapters: dict[str, str] = {}
         self._order: list[str] = []
@@ -228,16 +230,25 @@ class AudiobookBridge(QObject):
     @Slot()
     def prepare(self) -> None:
         data = self._session.data
-        source = data.get("audiobook_source", {})
+        document = data.get("audiobook_document", {})
+        source = document.get("source", {}) if isinstance(document, dict) else {}
         self._source_path = str(source.get("path", ""))
-        self._source_html = str(source.get("html", ""))
-        stored = data.get("book_chapters", {})
-        preferred = list(data.get("audiobook_chapter_order", []))
-        self._order = [title for title in preferred if title in stored]
-        self._order.extend(title for title in stored if title not in self._order)
-        self._chapters = {
-            title: str(stored[title].get("html", "")) for title in self._order
+        structured_chapters = (
+            document.get("chapters", []) if isinstance(document, dict) else []
+        )
+        self._order = self._document_service.chapter_titles(document)
+        actor_colors = {
+            str(actor_id): self._highlight_color(str(actor.get("color", "")))
+            for actor_id, actor in data.get("actors", {}).items()
         }
+        self._chapters = {
+            str(chapter.get("title")): self._document_service.chapter_to_html(
+                chapter, actor_colors
+            )
+            for chapter in structured_chapters
+            if str(chapter.get("title", ""))
+        }
+        self._source_html = self._document_service.combined_html(document)
         settings = data.get("audiobook_settings", {})
         self._font_family = str(settings.get("font_family", "Georgia"))
         self._zoom = max(-5, min(10, int(settings.get("zoom_steps", 0))))
@@ -331,7 +342,7 @@ class AudiobookBridge(QObject):
         if not self._current:
             return False
         candidate = deepcopy(self._session.data)
-        self._write_chapter(candidate, self._current, self._chapters[self._current])
+        self._index_chapter(candidate, self._current)
         self._write_common(candidate)
         self._commit(candidate, f"Сохранена глава {self._current}")
         self.statusRequested.emit(f"Глава «{self._current}» сохранена")
@@ -343,7 +354,7 @@ class AudiobookBridge(QObject):
             return False
         candidate = deepcopy(self._session.data)
         for title in self._order:
-            self._write_chapter(candidate, title, self._chapters[title])
+            self._index_chapter(candidate, title)
         self._write_common(candidate)
         self._commit(candidate, "Сохранена разметка аудиокниги")
         self.statusRequested.emit(f"Сохранено глав: {len(self._order)}")
@@ -441,7 +452,7 @@ class AudiobookBridge(QObject):
         for title in old_titles - new_titles:
             self._remove_episode(candidate, title)
         for item in self._markup_chapters:
-            self._write_chapter(candidate, item["title"], item["html"])
+            self._index_chapter(candidate, item["title"])
         self._order = titles
         self._chapters = {item["title"]: item["html"] for item in self._markup_chapters}
         self._source_html = self._markup_source
@@ -478,12 +489,14 @@ class AudiobookBridge(QObject):
         self._current = self._order[0] if self._order else ""
         self._current_segments = self._segments_from_html(self._chapters.get(self._current, ""))
         candidate = deepcopy(self._session.data)
-        for title in list(candidate.get("book_chapters", {})):
+        maybe_set_project_name_from_first_import(
+            candidate, self._source_path, {".pdf"}
+        )
+        for title in list(candidate.get("episodes", {})):
             if title not in self._order:
                 self._remove_episode(candidate, title)
         for title in self._order:
-            self._write_chapter(candidate, title, self._chapters[title])
-        maybe_set_project_name_from_first_import(candidate, self._source_path, {".pdf"})
+            self._index_chapter(candidate, title)
         self._write_common(candidate)
         self._commit(candidate, f"Импортирована аудиокнига {Path(self._source_path).name}")
         self.projectNameChanged.emit()
@@ -501,39 +514,44 @@ class AudiobookBridge(QObject):
         self._importing = False
         self.importChanged.emit()
 
-    def _write_chapter(self, candidate: dict[str, Any], title: str, html_text: str) -> None:
-        service = BookImportService()
-        segments = self._segments_from_html(html_text)
-        lines = service.build_lines_from_segments(segments)
-        candidate.setdefault("episodes", {})[title] = self._source_path or "audiobook"
-        service.save_chapter_text(candidate, title, self._source_path, html_text, lines)
-        self._script_text_service.create_episode_text(
-            candidate, title, self._source_path or "audiobook", lines,
-            {**candidate.get("replica_merge_config", {}), "merge": False},
-            self._session.project_service.current_project_path,
-        )
+    def _index_chapter(self, candidate: dict[str, Any], title: str) -> None:
+        candidate.setdefault("episodes", {})[title] = "audiobook"
 
     def _write_common(self, candidate: dict[str, Any]) -> None:
         set_project_kind(candidate, "audiobook")
-        set_audiobook_chapter_order(candidate, self._order)
-        candidate["audiobook_source"] = {
-            "format_version": "2.0", "source": "pdf", "path": self._source_path,
-            "html": self._source_html,
-        }
+        document = self._document_service.create_document(
+            self._source_path,
+            ((title, self._chapters[title]) for title in self._order),
+        )
+        previous = candidate.get("audiobook_document", {})
+        if (
+            isinstance(previous, dict)
+            and previous.get("source", {}).get("path") == self._source_path
+        ):
+            document["source"] = deepcopy(previous.get("source", {}))
+        candidate["audiobook_document"] = document
         candidate["audiobook_settings"] = {
             "font_family": self._font_family, "zoom_steps": self._zoom,
             "slots": deepcopy(self._slots),
         }
         candidate["global_map"] = deepcopy(self._global_map)
+        if candidate.get("project_kind") == "audiobook":
+            candidate["episode_working_texts"] = {}
+            candidate["episode_texts"] = {}
+            candidate.pop("loaded_episodes", None)
 
     def _commit(self, candidate: dict[str, Any], description: str) -> None:
         fields = (
-            "project_name", "project_kind", "episodes", "book_chapters",
+            "project_name", "project_kind", "episodes", "audiobook_document",
             "loaded_episodes", "episode_texts", "episode_working_texts",
-            "episode_actor_map", "audiobook_source", "audiobook_chapter_order",
-            "audiobook_settings", "global_map",
+            "episode_actor_map", "audiobook_settings", "global_map",
         )
-        updates = {field: candidate.get(field) for field in fields if candidate.get(field) != self._session.data.get(field)}
+        updates = {
+            field: candidate.get(field)
+            for field in fields
+            if candidate.get(field) != self._session.data.get(field)
+            or (field in self._session.data) != (field in candidate)
+        }
         if updates:
             self._session.execute(UpdateProjectFileStateCommand(self._session.data, updates, description), "working_text")
             self.projectDataChanged.emit("working_text")
@@ -565,7 +583,7 @@ class AudiobookBridge(QObject):
     def _temporary_document(
         content: str, template: str,
     ) -> tuple[QTemporaryFile, QUrl]:
-        temporary = QTemporaryFile(str(Path("/private/tmp") / template))
+        temporary = QTemporaryFile(str(Path(QDir.tempPath()) / template))
         temporary.setAutoRemove(True)
         if not temporary.open():
             return temporary, QUrl()
@@ -669,7 +687,7 @@ class AudiobookBridge(QObject):
 
     @staticmethod
     def _remove_episode(data: dict[str, Any], title: str) -> None:
-        for key in ("episodes", "book_chapters", "loaded_episodes", "episode_texts", "episode_working_texts", "episode_actor_map", "video_paths"):
+        for key in ("episodes", "loaded_episodes", "episode_texts", "episode_working_texts", "episode_actor_map", "video_paths"):
             data.get(key, {}).pop(title, None)
 
     @staticmethod

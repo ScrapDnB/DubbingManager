@@ -374,7 +374,10 @@ class TestGlobalSettingsService:
 
     def test_save_settings_io_error(self, service, temp_settings_file):
         """Тест сохранения с ошибкой IO"""
-        with patch('services.global_settings_service.open', side_effect=IOError("Disk full")):
+        with patch(
+            'services.global_settings_service.tempfile.mkstemp',
+            side_effect=OSError("Disk full"),
+        ):
             result = service.save_settings({})
         
         assert result == False
@@ -621,3 +624,46 @@ class TestGlobalSettingsServiceIntegration:
             assert loaded_settings['recent_projects'] == [
                 str(Path('/tmp/project.json').expanduser())
             ]
+
+    def test_recovers_latest_valid_backup_after_primary_file_is_corrupted(
+        self, tmp_path
+    ):
+        settings_file = tmp_path / "settings.json"
+        with patch(
+            'services.global_settings_service.SETTINGS_FILE', settings_file
+        ):
+            service = GlobalSettingsService()
+            first = service._get_defaults()
+            first["language"] = "en"
+            assert service.save_settings(first)
+            second = service._get_defaults()
+            second["language"] = "ru"
+            assert service.save_settings(second)
+            settings_file.write_text("{broken", encoding="utf-8")
+
+            restored = GlobalSettingsService().load_settings()
+
+            assert restored["language"] == "en"
+            assert json.loads(settings_file.read_text(encoding="utf-8"))
+
+    def test_failed_atomic_settings_replace_keeps_previous_file(self, tmp_path):
+        settings_file = tmp_path / "settings.json"
+        with patch(
+            'services.global_settings_service.SETTINGS_FILE', settings_file
+        ):
+            service = GlobalSettingsService()
+            original = service._get_defaults()
+            original["language"] = "en"
+            assert service.save_settings(original)
+
+            changed = service._get_defaults()
+            changed["language"] = "ru"
+            with patch(
+                "services.global_settings_service.os.replace",
+                side_effect=OSError("disk failure"),
+            ):
+                assert service.save_settings(changed) is False
+
+            assert json.loads(
+                settings_file.read_text(encoding="utf-8")
+            )["language"] == "en"

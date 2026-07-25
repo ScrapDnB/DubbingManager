@@ -17,7 +17,7 @@ ApplicationWindow {
     height: uiState.intValue("main.height", 850)
     minimumWidth: 680
     minimumHeight: 620
-    visible: true
+    visible: false
     title: projectBackend.name + (projectBackend.dirty ? " *" : "") + " - Dubbing Manager"
     color: macOSStyle ? "transparent" : workspaceBackground
     property bool closeApproved: false
@@ -52,9 +52,24 @@ ApplicationWindow {
             x = savedX
             y = savedY
         }
-        if (uiState.boolValue("main.maximized", false))
+        if (uiState.boolValue("main.maximized", false)) {
             showMaximized()
-        Qt.callLater(function() { root.uiReady = true })
+        } else {
+            show()
+        }
+        Qt.callLater(function() {
+            if (root.windowsStyle)
+                root.dismissStartupMenus()
+            root.uiReady = true
+        })
+    }
+
+    function dismissStartupMenus() {
+        fileMenu.close()
+        editMenu.close()
+        viewMenu.close()
+        helpMenu.close()
+        mainMenuBar.currentIndex = -1
     }
 
     onXChanged: if (uiReady) windowStateTimer.restart()
@@ -649,6 +664,7 @@ ApplicationWindow {
     }
 
     menuBar: MenuBar {
+        id: mainMenuBar
         height: root.windowsStyle ? 40 : implicitHeight
         topPadding: root.windowsStyle ? 4 : 0
         bottomPadding: root.windowsStyle ? 4 : 0
@@ -656,6 +672,7 @@ ApplicationWindow {
         rightPadding: 0
 
         Menu {
+            id: fileMenu
             title: qsTr("Файл")
             Action {
                 text: qsTr("Новый")
@@ -700,6 +717,7 @@ ApplicationWindow {
         }
 
         Menu {
+            id: editMenu
             title: qsTr("Правка")
             Action {
                 text: qsTr("Отменить")
@@ -716,11 +734,13 @@ ApplicationWindow {
         }
 
         Menu {
+            id: viewMenu
             title: qsTr("Вид")
             Action { text: qsTr("Обновить"); shortcut: StandardKey.Refresh; onTriggered: root.projectBackend.refresh() }
         }
 
         Menu {
+            id: helpMenu
             title: qsTr("Справка")
             visible: !root.macOSStyle
             Action { text: qsTr("О программе..."); onTriggered: aboutDialog.open() }

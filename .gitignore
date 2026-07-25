@@ -17,6 +17,11 @@ env/
 build/
 dist/
 test_files
+/docs/
+
+# Локальные проекты Dubbing Manager
+*.dub
+*.dub_backup
 
 # Coverage
 .coverage

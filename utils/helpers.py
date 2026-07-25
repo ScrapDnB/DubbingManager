@@ -11,11 +11,10 @@ import json
 
 logger = logging.getLogger(__name__)
 
-# Import UI constants
+# Import shared timing constants.
 try:
-    from config.constants import TABLE_ROW_HEIGHT, FPS
+    from config.constants import FPS
 except ImportError:
-    TABLE_ROW_HEIGHT = 32  # Default fallback
     FPS = 25  # Default fallback
 
 
@@ -42,9 +41,12 @@ def ordered_episode_names(project_data: Dict[str, Any]) -> List[str]:
         return []
 
     if project_data.get("project_kind") == "audiobook":
-        order = project_data.get("audiobook_chapter_order", [])
-        if not isinstance(order, list):
-            order = []
+        document = project_data.get("audiobook_document", {})
+        chapters = document.get("chapters", []) if isinstance(document, dict) else []
+        order = [
+            str(chapter.get("title", ""))
+            for chapter in chapters if isinstance(chapter, dict)
+        ]
         seen = set()
         result: List[str] = []
         for name in order:
@@ -70,43 +72,28 @@ def set_project_kind(project_data: Dict[str, Any], kind: str) -> None:
     )
 
 
-def set_audiobook_chapter_order(
-    project_data: Dict[str, Any],
-    order: List[str],
-) -> None:
-    """Store audiobook chapter order without duplicates."""
-    seen = set()
-    result = []
-    for name in order:
-        title = str(name)
-        if title and title not in seen:
-            result.append(title)
-            seen.add(title)
-    project_data["audiobook_chapter_order"] = result
-
-
 def rename_episode_in_order(
     project_data: Dict[str, Any],
     old_name: str,
     new_name: str,
 ) -> None:
     """Rename an episode inside audiobook order metadata."""
-    order = project_data.get("audiobook_chapter_order")
-    if not isinstance(order, list):
+    document = project_data.get("audiobook_document")
+    if not isinstance(document, dict):
         return
-    project_data["audiobook_chapter_order"] = [
-        new_name if item == old_name else item
-        for item in order
-    ]
+    for chapter in document.get("chapters", []):
+        if str(chapter.get("title")) == old_name:
+            chapter["title"] = new_name
 
 
 def remove_episode_from_order(project_data: Dict[str, Any], name: str) -> None:
     """Remove an episode from audiobook order metadata."""
-    order = project_data.get("audiobook_chapter_order")
-    if not isinstance(order, list):
+    document = project_data.get("audiobook_document")
+    if not isinstance(document, dict):
         return
-    project_data["audiobook_chapter_order"] = [
-        item for item in order if item != name
+    document["chapters"] = [
+        chapter for chapter in document.get("chapters", [])
+        if str(chapter.get("title")) != name
     ]
 
 
@@ -164,35 +151,6 @@ def hex_to_rgba_string(hex_code: str, alpha: float) -> str:
     if not color.isValid():
         return f"rgba(255, 255, 255, {alpha})"
     return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
-
-
-def customize_table(table) -> None:
-    """Customize table."""
-    from PySide6.QtWidgets import QAbstractItemView, QFrame, QHeaderView
-
-    table.setShowGrid(False)
-    table.setAlternatingRowColors(True)
-    table.setSelectionBehavior(QAbstractItemView.SelectRows)
-    table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-    table.setFrameShape(QFrame.NoFrame)
-    table.verticalHeader().setVisible(False)
-    table.verticalHeader().setDefaultSectionSize(TABLE_ROW_HEIGHT)
-    table.horizontalHeader().setHighlightSections(False)
-    table.setStyleSheet("QTableWidget::item { padding-left: 10px; }")
-
-
-def wrap_widget(widget) -> 'QWidget':
-    """Wrap widget."""
-    from PySide6.QtWidgets import QWidget, QHBoxLayout
-    from PySide6.QtCore import Qt
-    
-    container = QWidget()
-    layout = QHBoxLayout(container)
-    layout.addWidget(widget)
-    layout.setContentsMargins(4, 2, 4, 2)
-    layout.setAlignment(Qt.AlignCenter)
-    container.setLayout(layout)
-    return container
 
 
 def split_merged_text(text: str, ids: list) -> list:

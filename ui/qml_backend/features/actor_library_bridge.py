@@ -9,7 +9,7 @@ from PySide6.QtCore import QObject, Property, QUrl, Signal, Slot, Qt
 from config.constants import MY_PALETTE
 from core.commands import AddActorCommand, UpdateProjectFileStateCommand
 from services.assignment_transfer_service import AssignmentTransferService
-from ui.controllers.global_actor_controller import GlobalActorController
+from application import GlobalActorController
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
 
@@ -98,7 +98,8 @@ class ActorLibraryBridge(QObject):
             self.errorRequested.emit("Актёр с таким именем уже есть в глобальной базе")
             return
         self._settings.add_global_actor(name, gender=self._gender(gender))
-        self._save()
+        if not self._save():
+            return
         self.refresh()
         self.statusRequested.emit(f"Добавлен глобальный актёр: {name}")
 
@@ -109,7 +110,8 @@ class ActorLibraryBridge(QObject):
             self.errorRequested.emit("Выберите актёра")
             return
         self._settings.remove_global_actor(actor_id)
-        self._save()
+        if not self._save():
+            return
         self.refresh()
         self.statusRequested.emit(
             f"Удалён глобальный актёр: {actor.get('name', actor_id)}"
@@ -131,7 +133,8 @@ class ActorLibraryBridge(QObject):
             return
         actors[actor_id] = {"name": name, "gender": self._gender(gender)}
         self._settings.set_global_actor_base(actors)
-        self._save()
+        if not self._save():
+            return
         self.refresh()
         self.statusRequested.emit(f"Глобальный актёр обновлён: {name}")
 
@@ -168,7 +171,8 @@ class ActorLibraryBridge(QObject):
         self._settings.add_global_actor(
             name, actor_id=actor_id, gender=self._gender(actor.get("gender", "")),
         )
-        self._save()
+        if not self._save():
+            return
         self.refresh()
         self.statusRequested.emit(f"Добавлен в глобальную базу: {name}")
 
@@ -191,7 +195,8 @@ class ActorLibraryBridge(QObject):
         stats = self._settings.add_project_actors_to_global(
             self._session.data.get("actors", {}), ids,
         )
-        self._save()
+        if not self._save():
+            return
         self.refresh()
         self.refreshProjectActorTransfer()
         self.statusRequested.emit(
@@ -204,7 +209,8 @@ class ActorLibraryBridge(QObject):
         if self._settings.find_global_actor_by_name(name):
             return
         self._settings.add_global_actor(name, gender=self._gender(gender))
-        self._save()
+        if not self._save():
+            return
         self.refresh()
 
     @Slot(result=int)
@@ -344,7 +350,8 @@ class ActorLibraryBridge(QObject):
             return False
         try:
             stats = self._settings.import_global_actor_base(path)
-            self._save()
+            if not self._save():
+                return False
         except Exception as exc:
             self.errorRequested.emit(
                 f"Не удалось импортировать глобальную базу актёров: {exc}"
@@ -404,7 +411,8 @@ class ActorLibraryBridge(QObject):
         self._settings.add_project_actors_to_global(
             self._session.data.get("actors", {}), imported_ids,
         )
-        self._save()
+        if not self._save():
+            return False
         self.refresh()
         self.statusRequested.emit(
             f"Распределение импортировано · актёров добавлено: "
@@ -455,11 +463,20 @@ class ActorLibraryBridge(QObject):
         value = row.get(self._actor_sort_key)
         return str(value or "").casefold(), str(row.get("name", "")).casefold()
 
-    def _save(self) -> None:
+    def _save(self) -> bool:
         self._global_settings["global_actor_base"] = (
             self._settings.get_global_actor_base()
         )
-        self._settings.save_settings(self._global_settings)
+        if self._settings.save_settings(self._global_settings):
+            return True
+        restored = self._settings.load_settings()
+        self._global_settings.clear()
+        self._global_settings.update(restored)
+        self.refresh()
+        self.errorRequested.emit(
+            "Не удалось сохранить глобальную базу актёров"
+        )
+        return False
 
     def _project_actor_by_name(self, name: str) -> bool:
         key = name.strip().casefold()

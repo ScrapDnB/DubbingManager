@@ -90,6 +90,12 @@ class SettingsBridge(QObject):
 
     @Property(int, notify=changed)
     def workingTextCount(self) -> int:
+        if self._session.data.get("project_kind") == "audiobook":
+            return len(
+                self._session.data.get("audiobook_document", {}).get(
+                    "chapters", []
+                )
+            )
         return len(self._session.data.get("episode_working_texts", {}))
 
     @Property(bool, notify=changed)

@@ -2,13 +2,15 @@
 
 import os
 import platform
-import re
+import shlex
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
+
+from packaging.version import InvalidVersion, Version
 
 try:
     import requests
@@ -17,7 +19,7 @@ except ImportError:
 
 
 DEFAULT_RELEASES_API_URL = (
-    "https://api.github.com/repos/ScrapDnB/DubbingManager/releases/latest"
+    "https://api.github.com/repos/ScrapDnB/DubbingManager/releases"
 )
 DEFAULT_RELEASES_PAGE_URL = (
     "https://github.com/ScrapDnB/DubbingManager/releases/latest"
@@ -68,12 +70,13 @@ class UpdateService:
         )
         response.raise_for_status()
 
-        payload: Dict[str, Any] = response.json()
+        payload = response.json()
+        release = self._select_release(payload, current_version)
         latest_version = self._normalize_version(
-            str(payload.get("tag_name") or payload.get("name") or "")
+            str(release.get("tag_name") or release.get("name") or "")
         )
-        release_url = str(payload.get("html_url") or self.fallback_url)
-        assets = self._parse_assets(payload)
+        release_url = str(release.get("html_url") or self.fallback_url)
+        assets = self._parse_assets(release)
 
         if not latest_version:
             latest_version = current_version
@@ -219,14 +222,44 @@ class UpdateService:
         return version.strip().lstrip("vV")
 
     @classmethod
-    def _version_key(cls, version: str) -> Tuple[int, ...]:
-        """Convert a version string to a comparable tuple."""
-        normalized = cls._normalize_version(version)
-        numbers = [
-            int(part)
-            for part in re.findall(r"\d+", normalized)
-        ]
-        return tuple(numbers or [0])
+    def _version_key(cls, version: str) -> Version:
+        """Return a standards-aware PEP 440 version key."""
+        try:
+            return Version(cls._normalize_version(version))
+        except InvalidVersion:
+            return Version("0")
+
+    @classmethod
+    def _select_release(
+        cls,
+        payload: Any,
+        current_version: str,
+    ) -> Dict[str, Any]:
+        """Select the newest release visible to the current update channel."""
+        if isinstance(payload, dict):
+            return payload
+        if not isinstance(payload, list):
+            return {}
+        try:
+            current = Version(cls._normalize_version(current_version))
+        except InvalidVersion:
+            current = Version("0")
+        allow_prerelease = current.is_prerelease
+        candidates = []
+        for release in payload:
+            if not isinstance(release, dict) or release.get("draft"):
+                continue
+            if release.get("prerelease") and not allow_prerelease:
+                continue
+            raw_version = str(
+                release.get("tag_name") or release.get("name") or ""
+            )
+            try:
+                parsed = Version(cls._normalize_version(raw_version))
+            except InvalidVersion:
+                continue
+            candidates.append((parsed, release))
+        return max(candidates, key=lambda item: item[0])[1] if candidates else {}
 
     @staticmethod
     def _parse_assets(payload: Dict[str, Any]) -> Tuple[ReleaseAsset, ...]:
@@ -264,20 +297,32 @@ class UpdateService:
         script_path = Path(tempfile.gettempdir()) / "dubbing_manager_update.sh"
         app_name = Path(app_path).name
         mount_root = Path(tempfile.gettempdir()) / "dubbing_manager_update_mount"
+        app = shlex.quote(app_path)
+        mounted_app = shlex.quote(str(mount_root / app_name))
+        mount = shlex.quote(str(mount_root))
+        dmg = shlex.quote(dmg_path)
+        staging = shlex.quote(app_path + ".update-new")
+        previous = shlex.quote(app_path + ".update-old")
         script = f"""#!/bin/sh
 set -e
 osascript -e 'display notification "Файлы приложения будут заменены после закрытия Dubbing Manager." with title "Dubbing Manager" subtitle "Обновление началось"' >/dev/null 2>&1 || true
 while kill -0 {pid} 2>/dev/null; do
   sleep 1
 done
-rm -rf "{mount_root}"
-mkdir -p "{mount_root}"
-hdiutil attach "{dmg_path}" -mountpoint "{mount_root}" -nobrowse -quiet
-trap 'hdiutil detach "{mount_root}" -quiet || true' EXIT
-ditto "{mount_root}/{app_name}" "{app_path}"
-hdiutil detach "{mount_root}" -quiet || true
+rm -rf {mount} {staging} {previous}
+mkdir -p {mount}
+hdiutil attach {dmg} -mountpoint {mount} -nobrowse -quiet
+trap 'hdiutil detach {mount} -quiet >/dev/null 2>&1 || true' EXIT
+ditto {mounted_app} {staging}
+mv {app} {previous}
+if ! mv {staging} {app}; then
+  mv {previous} {app}
+  exit 1
+fi
+rm -rf {previous}
+hdiutil detach {mount} -quiet || true
 osascript -e 'display notification "Новая версия установлена и сейчас будет запущена." with title "Dubbing Manager" subtitle "Обновление готово"' >/dev/null 2>&1 || true
-open "{app_path}"
+open {app}
 """
         script_path.write_text(script, encoding="utf-8")
         script_path.chmod(0o755)
@@ -293,6 +338,15 @@ open "{app_path}"
         """Create a PowerShell script that replaces the current Windows app."""
         script_path = Path(tempfile.gettempdir()) / "dubbing_manager_update.ps1"
         extract_dir = Path(tempfile.gettempdir()) / "dubbing_manager_update_extract"
+        def ps_quote(value: str) -> str:
+            return "'" + str(value).replace("'", "''") + "'"
+
+        zip_literal = ps_quote(zip_path)
+        extract_literal = ps_quote(str(extract_dir))
+        app_literal = ps_quote(app_dir)
+        executable_literal = ps_quote(executable_path)
+        staging_literal = ps_quote(app_dir + ".update-new")
+        previous_literal = ps_quote(app_dir + ".update-old")
         script = f"""
 $ErrorActionPreference = "Stop"
 [void][System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
@@ -304,16 +358,31 @@ $notify.BalloonTipText = "Файлы приложения будут замен�
 $notify.Visible = $true
 $notify.ShowBalloonTip(3000)
 Wait-Process -Id {pid} -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath "{extract_dir}" -Recurse -Force -ErrorAction SilentlyContinue
-Expand-Archive -LiteralPath "{zip_path}" -DestinationPath "{extract_dir}" -Force
-$source = Join-Path "{extract_dir}" "Dubbing Manager"
+$extractDir = {extract_literal}
+$appDir = {app_literal}
+$staging = {staging_literal}
+$previous = {previous_literal}
+Remove-Item -LiteralPath $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $previous -Recurse -Force -ErrorAction SilentlyContinue
+Expand-Archive -LiteralPath {zip_literal} -DestinationPath $extractDir -Force
+$source = Join-Path $extractDir "Dubbing Manager"
 if (!(Test-Path -LiteralPath $source)) {{
-  $source = "{extract_dir}"
+  $source = $extractDir
 }}
-Copy-Item -Path (Join-Path $source "*") -Destination "{app_dir}" -Recurse -Force
+New-Item -ItemType Directory -Path $staging | Out-Null
+Copy-Item -Path (Join-Path $source "*") -Destination $staging -Recurse -Force
+Move-Item -LiteralPath $appDir -Destination $previous
+try {{
+  Move-Item -LiteralPath $staging -Destination $appDir
+}} catch {{
+  Move-Item -LiteralPath $previous -Destination $appDir
+  throw
+}}
+Remove-Item -LiteralPath $previous -Recurse -Force
 $notify.BalloonTipText = "Новая версия установлена и сейчас будет запущена."
 $notify.ShowBalloonTip(3000)
-Start-Process -FilePath "{executable_path}"
+Start-Process -FilePath {executable_literal}
 """
         script_path.write_text(script.strip() + "\n", encoding="utf-8")
         return str(script_path)

@@ -9,12 +9,8 @@ from services import (
     EpisodeService,
     ScriptTextService,
 )
-from ui.controllers import (
-    GlobalActorController,
-    ImportController,
-    ReaperExportController,
-    SettingsController,
-)
+from application import GlobalActorController, ImportController
+from services.reaper_export_service import ReaperExportService
 
 
 def test_character_stats_service_counts_episode_and_project_stats():
@@ -312,30 +308,6 @@ def test_import_controller_does_not_set_project_name_from_srt(tmp_path):
     assert data["project_name"] == "Новый проект"
 
 
-def test_settings_controller_applies_defaults_and_ports():
-    data = {"export_config": {}, "prompter_config": {"port_in": 9000}}
-    global_settings = {}
-    service = MagicMock()
-    service.get_default_export_config.return_value = {"format_html": False}
-    service.get_default_prompter_config.return_value = {"font_size": 42}
-    service.get_prompter_color_presets.return_value = [None, None]
-    service.save_settings.return_value = True
-    controller = SettingsController(data, global_settings, service)
-
-    export_config = controller.apply_default_export_config_to_project()
-    prompter_config = controller.apply_default_prompter_config_to_project()
-    ports, changed = controller.apply_prompter_reaper_ports_to_project(
-        {"port_in": 9001, "port_out": 9002}
-    )
-
-    assert export_config["format_html"] is False
-    assert data["export_config"]["format_html"] is False
-    assert prompter_config == {"font_size": 42}
-    assert changed is True
-    assert ports["port_in"] == 9001
-    assert ports["port_out"] == 9002
-
-
 def test_global_actor_controller_syncs_and_transfers():
     data = {
         "actors": {
@@ -369,7 +341,7 @@ def test_global_actor_controller_syncs_and_transfers():
     assert any(row["name"] == "Bob" and not row["exists"] for row in rows)
 
 
-def test_reaper_export_controller_delegates_preview_and_save(tmp_path):
+def test_reaper_export_service_previews_and_saves(tmp_path):
     data = {
         "project_name": "Show",
         "video_paths": {"1": "video.mov"},
@@ -379,7 +351,7 @@ def test_reaper_export_controller_delegates_preview_and_save(tmp_path):
     }
     folder_service = MagicMock()
     folder_service.resolve_project_path.return_value = "/resolved/video.mov"
-    controller = ReaperExportController(data, folder_service)
+    controller = ReaperExportService(data, folder_service)
     lines = [{"id": 0, "s": 0.0, "e": 1.0, "char": "Hero", "text": "Hello"}]
     save_path = tmp_path / "out.rpp"
 

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from PySide6.QtCore import QObject, Property, Signal, Slot, Qt
 
 from config.constants import DEFAULT_PROMPTER_CONFIG
-from core.commands import ReplaceMappingValueCommand
+from core.commands import ReplaceMappingValueCommand, UpdateProjectFileStateCommand
 from services import ExportService, get_actor_ids_for_character
 from services.episode_service import EpisodeService
 from services.global_settings_service import GlobalSettingsService
@@ -152,6 +152,14 @@ class TeleprompterBridge(QObject):
                 name = line.get("display_character") or line.get("character")
                 if name:
                     names.add(str(name))
+        if project_data.get("project_kind") == "audiobook":
+            for episode in project_data.get("episodes", {}):
+                for line in self._script_text_service.load_episode_lines(
+                    project_data, str(episode)
+                ):
+                    name = line.get("char")
+                    if name:
+                        names.add(str(name))
         return sorted((name for name in names if name), key=str.casefold)
 
     @Property(QObject, constant=True)
@@ -303,25 +311,43 @@ class TeleprompterBridge(QObject):
         character: str,
         text: str,
     ) -> bool:
-        payload = deepcopy(
-            self._session.data.get("episode_working_texts", {}).get(self._episode)
+        is_audiobook = self._session.data.get("project_kind") == "audiobook"
+        temp_data = deepcopy(self._session.data) if is_audiobook else {
+            "episode_working_texts": deepcopy(
+                self._session.data.get("episode_working_texts", {})
+            )
+        }
+        payload = self._script_text_service.get_episode_payload(
+            temp_data, self._episode
         )
         ids = list(source_ids or [])
         character = str(character or "").strip()
         if not isinstance(payload, dict) or not ids or not character:
             self.errorRequested.emit("Реплика не связана с рабочим текстом")
             return False
-        temp_data = {"episode_working_texts": {self._episode: payload}}
+        parts = [text]
+        if len(ids) > 1:
+            parts = self._navigation.split_merged_text(text.strip(), ids)
+            if not parts:
+                line_parts = [
+                    part.strip() for part in text.splitlines() if part.strip()
+                ]
+                if len(line_parts) == len(ids):
+                    parts = line_parts
+            if not parts:
+                self.errorRequested.emit(
+                    "Текст объединённой реплики должен содержать по одной "
+                    "части на исходную строку, разделённой переносом, « / » "
+                    "или « // »"
+                )
+                return False
+        if not is_audiobook:
+            temp_data = {"episode_working_texts": {self._episode: payload}}
         changed = False
         for line_id in ids:
             changed = self._script_text_service.update_line_character(
                 temp_data, self._episode, line_id, character
             ) or changed
-        parts = self._navigation.split_merged_text(text.strip(), ids)
-        if not parts and len(ids) > 1:
-            parts = [part.strip() for part in text.splitlines() if part.strip()]
-        if len(parts) != len(ids):
-            parts = [text] if len(ids) == 1 else []
         for line_id, part in zip(ids, parts):
             changed = self._script_text_service.update_line_text(
                 temp_data, self._episode, line_id, part
@@ -333,7 +359,11 @@ class TeleprompterBridge(QObject):
                 "Не удалось создать резервную копию перед правкой"
             )
             return False
-        self._replace_payload(payload, "Изменена реплика телесуфлёра")
+        self._replace_payload(
+            payload,
+            "Изменена реплика телесуфлёра",
+            temp_data.get("audiobook_document") if is_audiobook else None,
+        )
         return True
 
     @Slot("QVariantList", str, str, str, result=bool)
@@ -344,14 +374,21 @@ class TeleprompterBridge(QObject):
         split_text: str,
         split_character: str,
     ) -> bool:
-        payload = deepcopy(
-            self._session.data.get("episode_working_texts", {}).get(self._episode)
+        is_audiobook = self._session.data.get("project_kind") == "audiobook"
+        temp_data = deepcopy(self._session.data) if is_audiobook else {
+            "episode_working_texts": deepcopy(
+                self._session.data.get("episode_working_texts", {})
+            )
+        }
+        payload = self._script_text_service.get_episode_payload(
+            temp_data, self._episode
         )
         ids = list(source_ids or [])
         if not isinstance(payload, dict) or len(ids) != 1:
             self.errorRequested.emit("Разделить можно только одну исходную реплику")
             return False
-        temp_data = {"episode_working_texts": {self._episode: payload}}
+        if not is_audiobook:
+            temp_data = {"episode_working_texts": {self._episode: payload}}
         if not self._script_text_service.split_line_to_character(
             temp_data,
             self._episode,
@@ -366,7 +403,11 @@ class TeleprompterBridge(QObject):
                 "Не удалось создать резервную копию перед правкой"
             )
             return False
-        self._replace_payload(payload, "Разделена реплика телесуфлёра")
+        self._replace_payload(
+            payload,
+            "Разделена реплика телесуфлёра",
+            temp_data.get("audiobook_document") if is_audiobook else None,
+        )
         return True
 
     @Slot(int)
@@ -389,20 +430,30 @@ class TeleprompterBridge(QObject):
 
     @Slot(int)
     def savePreset(self, index: int) -> None:
+        previous = self._global_settings_service.get_prompter_color_presets()
         self._global_settings_service.set_prompter_color_preset(
             index, self.config.get("colors", {})
         )
-        self._global_settings_service.save_settings(
+        if not self._global_settings_service.save_settings(
             self._global_settings_service.settings
-        )
+        ):
+            self._global_settings_service.settings[
+                "prompter_color_presets"
+            ] = previous
+            self.errorRequested.emit("Не удалось сохранить цветовой пресет")
         self._refresh_presets()
 
     @Slot(int)
     def clearPreset(self, index: int) -> None:
+        previous = self._global_settings_service.get_prompter_color_presets()
         self._global_settings_service.clear_prompter_color_preset(index)
-        self._global_settings_service.save_settings(
+        if not self._global_settings_service.save_settings(
             self._global_settings_service.settings
-        )
+        ):
+            self._global_settings_service.settings[
+                "prompter_color_presets"
+            ] = previous
+            self.errorRequested.emit("Не удалось удалить цветовой пресет")
         self._refresh_presets()
 
     def refresh_if_active(self) -> None:
@@ -619,13 +670,21 @@ class TeleprompterBridge(QObject):
         self,
         payload: Dict[str, Any],
         description: str,
+        audiobook_document: Optional[Dict[str, Any]] = None,
     ) -> None:
-        self._session.execute(ReplaceMappingValueCommand(
-            self._session.data.setdefault("episode_working_texts", {}),
-            self._episode,
-            payload,
-            description,
-        ), "working_text")
+        if audiobook_document is not None:
+            self._session.execute(UpdateProjectFileStateCommand(
+                self._session.data,
+                {"audiobook_document": audiobook_document},
+                description,
+            ), "working_text")
+        else:
+            self._session.execute(ReplaceMappingValueCommand(
+                self._session.data.setdefault("episode_working_texts", {}),
+                self._episode,
+                payload,
+                description,
+            ), "working_text")
         self._episode_service.invalidate_episode(self._episode)
         self.refresh()
         self.projectDataChanged.emit("working_text")

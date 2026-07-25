@@ -41,9 +41,7 @@ class TestProjectFileStructure:
         assert "episode_texts" in data
         assert "episode_working_texts" in data
         assert "episode_actor_map" in data
-        assert "book_chapters" in data
-        assert "audiobook_source" in data
-        assert "audiobook_chapter_order" in data
+        assert "audiobook_document" in data
         assert "export_config" in data
         assert "prompter_config" in data
         assert "replica_merge_config" in data
@@ -65,9 +63,7 @@ class TestProjectFileStructure:
         assert isinstance(data["episode_texts"], dict)
         assert isinstance(data["episode_working_texts"], dict)
         assert isinstance(data["episode_actor_map"], dict)
-        assert isinstance(data["book_chapters"], dict)
-        assert isinstance(data["audiobook_source"], dict)
-        assert isinstance(data["audiobook_chapter_order"], list)
+        assert isinstance(data["audiobook_document"], dict)
         assert isinstance(data["docx_import_config"], dict)
 
     def test_create_new_project_deep_copies_default_configs(self):

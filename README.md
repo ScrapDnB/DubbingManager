@@ -10,7 +10,7 @@
 
 Готовые сборки находятся в разделе [Releases](https://github.com/ScrapDnB/DubbingManager/releases).
 
-Актуальная версия: **2.0.0-beta3**.
+Актуальная версия: **2.0.0-beta4**.
 
 - **macOS**: скачайте `Dubbing_Manager_macOS.dmg`, откройте образ и перенесите приложение в `Applications`.
 - **Windows**: скачайте `Dubbing_Manager_Windows.zip`, распакуйте папку и запустите `Dubbing Manager.exe`. Чтобы `.dub`-проекты открывались двойным кликом, запустите из этой папки `Register_DUB_File_Association.ps1`.
@@ -255,8 +255,9 @@ Dubbing Manager умеет:
 | Что | Форматы |
 | --- | --- |
 | Источники сценария | `.ass`, `.srt`, `.docx` |
-| Проект | `.json` |
-| Рабочие тексты | `.json` в папке `texts_dm` |
+| Проект | `.dub` |
+| Резервная копия проекта | `.dub_backup` |
+| Рабочие тексты | встроены в файл проекта |
 | Видео | `.mp4`, `.mkv`, `.avi`, `.mov`, `.m4v`, `.wmv` |
 | Экспорт | `.html`, `.xlsx`, `.docx`, `.pdf`, `.rpp` |
 
@@ -280,13 +281,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-python main.py
+python qml_main.py
 ```
 
 ## Полезные ссылки
 
 - [Релизы](https://github.com/ScrapDnB/DubbingManager/releases)
-- [История изменений](docs/CHANGELOG.md)
-- [DOCX-импорт](docs/DOCX_IMPORT.md)
-- [Папка проекта](docs/PROJECT_FOLDER.md)
-- [Окно файлов проекта](docs/PROJECT_FILES_DIALOG.md)

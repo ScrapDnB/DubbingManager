@@ -8,7 +8,7 @@ from PySide6.QtCore import QObject, Property, QUrl, Signal, Slot, Qt
 
 from core.commands import UndoStack, UpdateProjectFileStateCommand
 from services.episode_service import EpisodeService
-from ui.controllers.import_controller import ImportController
+from application import ImportController
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
 

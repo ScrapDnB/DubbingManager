@@ -243,9 +243,15 @@ class ReportsBridge(QObject):
         metric = metric if metric in {"rings", "lines", "words"} else "rings"
         if metric == self.projectSummaryMetric:
             return
+        previous = self.projectSummaryMetric
         self._global_settings_service.set_project_summary_export_metric(metric)
         settings = self._global_settings_service.get_settings()
-        self._global_settings_service.save_settings(settings)
+        if not self._global_settings_service.save_settings(settings):
+            self._global_settings_service.set_project_summary_export_metric(
+                previous
+            )
+            self.errorRequested.emit("Не удалось сохранить вид отчёта")
+            return
         self.metricChanged.emit()
 
     @Slot(str, str)

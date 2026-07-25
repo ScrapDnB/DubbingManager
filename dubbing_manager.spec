@@ -88,27 +88,24 @@ hidden_imports = [
     'PySide6.QtGui',
     'PySide6.QtQml',
     'PySide6.QtQuick',
-    'PySide6.QtWidgets',
     'PySide6.QtMultimedia',
-    'PySide6.QtMultimediaWidgets',
     'PySide6.QtSvg',
     'PySide6.QtWebChannel',
     'PySide6.QtWebEngineCore',
     'PySide6.QtWebEngineQuick',
-    'PySide6.QtWebEngineWidgets',
 ]
 
 # Add the remaining project dependencies.
 hidden_imports += [
-    'services', 'ui', 'utils', 'config',
+    'application', 'services', 'ui', 'utils', 'config',
     'certifi', 'charset_normalizer', 'idna', 'requests', 'urllib3',
     'openpyxl', 'docx', 'pythonosc', 'lxml',
     'services.episode_service', 'services.actor_service',
     'services.export_service', 'services.project_service',
     'services.docx_import_service', 'services.osc_worker',
-    'ui.main_window', 'ui.preview', 'ui.video', 'ui.teleprompter',
-    'ui.controllers', 'ui.dialogs',
-    'utils.helpers', 'utils.web_bridge',
+    'application.import_controller',
+    'application.global_actor_controller',
+    'utils.helpers',
     'config.constants',
 ]
 

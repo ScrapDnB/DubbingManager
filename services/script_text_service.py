@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from config.constants import SCRIPT_TEXT_DIR_NAME
 from services.export_service import ExportService
+from services.audiobook_document_service import AudiobookDocumentService
 
 
 SCRIPT_TEXT_FORMAT_VERSION = "1.1"
@@ -175,6 +176,12 @@ class ScriptTextService:
         ep_num: str
     ) -> Optional[Dict[str, Any]]:
         """Return embedded working-text payload for an episode."""
+        if project_data.get("project_kind") == "audiobook":
+            document = project_data.get("audiobook_document")
+            if isinstance(document, dict):
+                return AudiobookDocumentService().episode_payload(
+                    document, str(ep_num)
+                )
         payload = project_data.get("episode_working_texts", {}).get(str(ep_num))
         return payload if isinstance(payload, dict) else None
 
@@ -381,6 +388,11 @@ class ScriptTextService:
         new_text: str
     ) -> bool:
         """Update line text."""
+        document = self._audiobook_document(project_data)
+        if document is not None:
+            return AudiobookDocumentService().update_line_text(
+                document, str(ep_num), line_id, new_text
+            )
         payload = self.get_episode_payload(project_data, str(ep_num))
         if not payload:
             return False
@@ -405,6 +417,11 @@ class ScriptTextService:
         new_character: str
     ) -> bool:
         """Update one line display character."""
+        document = self._audiobook_document(project_data)
+        if document is not None:
+            return AudiobookDocumentService().update_line_character(
+                document, str(ep_num), line_id, new_character
+            )
         payload = self.get_episode_payload(project_data, str(ep_num))
         if not payload:
             return False
@@ -439,6 +456,16 @@ class ScriptTextService:
         split_character: str
     ) -> bool:
         """Split selected text into a new display-character line."""
+        document = self._audiobook_document(project_data)
+        if document is not None:
+            return AudiobookDocumentService().split_line(
+                document,
+                str(ep_num),
+                line_id,
+                remaining_text,
+                split_text,
+                split_character,
+            )
         payload = self.get_episode_payload(project_data, str(ep_num))
         if not payload:
             return False
@@ -481,6 +508,11 @@ class ScriptTextService:
         ep_num: Optional[str] = None
     ) -> int:
         """Rename character."""
+        document = self._audiobook_document(project_data)
+        if document is not None:
+            return AudiobookDocumentService().rename_character(
+                document, old_name, new_name, ep_num
+            )
         episode_texts = project_data.get("episode_working_texts", {})
         if ep_num is not None:
             items = [(str(ep_num), episode_texts.get(str(ep_num)))]
@@ -513,6 +545,15 @@ class ScriptTextService:
                 updated_files += 1
 
         return updated_files
+
+    @staticmethod
+    def _audiobook_document(
+        project_data: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        if project_data.get("project_kind") != "audiobook":
+            return None
+        document = project_data.get("audiobook_document")
+        return document if isinstance(document, dict) else None
 
     def backup_episode_text(
         self,

@@ -291,10 +291,10 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Application version shown in the UI and build metadata.
-APP_VERSION = "2.0.0-beta3"
+APP_VERSION = "2.0.0-beta4"
 
 # Project file format version used for compatibility migrations.
-PROJECT_VERSION = "1.4"
+PROJECT_VERSION = "2.0"
 
 # Folder name for Dubbing Manager working text JSON files.
 SCRIPT_TEXT_DIR_NAME = "texts_dm"

@@ -1,413 +1,160 @@
-# Структура проекта Dubbing Manager
+# Структура Dubbing Manager
 
 ## Обзор
 
-Dubbing Manager — PySide6-приложение для подготовки проектов дубляжа. Основной поток данных:
+Dubbing Manager 2 использует Python как прикладной слой и QML как единственный
+пользовательский интерфейс:
 
 ```text
-UI -> Controllers -> Services -> Project JSON / Working text JSON
+QML -> feature bridge -> application use case / command -> service -> .dub
 ```
 
-Главная архитектурная договорённость:
+Основные правила архитектуры:
 
-- ASS/SRT/DOCX — источники импорта.
-- Рабочий JSON серии в `texts_dm` — редактируемый источник текста после импорта.
-- Экспорт, телесуфлёр, поиск и отчёты должны читать рабочие тексты.
-- Назначения актёров могут быть глобальными для проекта или локальными для серии.
+- QML отвечает за представление, компоновку и локальное состояние контролов.
+- `ui/qml_backend` предоставляет QML небольшие тематические API и модели.
+- `application` координирует сценарии, которым требуется несколько сервисов.
+- `core` содержит команды undo/redo и базовые модели.
+- `services` содержит бизнес-логику, парсинг, хранение и экспорт.
+- Все изменяемые данные проекта хранятся в одном автономном файле `.dub`.
+- ASS, SRT, DOCX, PDF и видео являются импортируемыми или связанными
+  исходниками, но не обязательны для последующего открытия проекта.
 
-## Дерево проекта
+## Основные каталоги
 
 ```text
 DubbingManager/
-├── main.py
-├── README.md
-├── STRUCTURE.md
-├── requirements.txt
-├── dubbing_manager.spec
-├── pytest.ini
-│
-├── .github/
-│   ├── BUILD.md
-│   └── workflows/
-│       ├── build.yml
-│       └── tests.yml
-│
-├── config/
-│   ├── __init__.py
-│   └── constants.py
-│
+├── qml_main.py                 # единственная точка входа приложения
+├── app_startup.py              # логирование и обработка файловых аргументов
+├── dubbing_manager.spec        # сборка PyInstaller
+├── application/                # прикладные сценарии без UI-зависимостей
+│   ├── import_controller.py
+│   └── global_actor_controller.py
 ├── core/
-│   ├── __init__.py
-│   ├── commands.py
+│   ├── commands.py             # undo/redo-команды
 │   └── models.py
-│
-├── services/
-│   ├── __init__.py
-│   ├── actor_service.py
-│   ├── assignment_service.py
-│   ├── assignment_transfer_service.py
-│   ├── character_stats_service.py
-│   ├── docx_import_service.py
-│   ├── episode_service.py
-│   ├── export_layouts.py
-│   ├── export_service.py
-│   ├── global_settings_service.py
-│   ├── osc_worker.py
-│   ├── pdf_export_service.py
-│   ├── project_compatibility.py
-│   ├── project_folder_service.py
-│   ├── project_health_service.py
-│   ├── project_service.py
-│   ├── quick_subtitle_service.py
-│   ├── reaper_rpp_service.py
-│   ├── replica_merge_service.py
-│   ├── teleprompter_navigation_service.py
-│   ├── script_text_service.py
-│   └── update_service.py
-│
+├── services/                   # бизнес-логика и хранение
 ├── ui/
-│   ├── __init__.py
-│   ├── main_window.py
-│   ├── main_window_ui.py
-│   ├── preview.py
-│   ├── preview_helpers.py
-│   ├── teleprompter.py
-│   ├── teleprompter_widgets.py
-│   ├── video.py
-│   │
-│   ├── controllers/
-│   │   ├── __init__.py
-│   │   ├── actor_controller.py
-│   │   ├── episode_controller.py
-│   │   ├── export_controller.py
-│   │   ├── global_actor_controller.py
-│   │   ├── import_controller.py
-│   │   ├── reaper_export_controller.py
-│   │   ├── project_controller.py
-│   │   └── settings_controller.py
-│   │
-│   ├── models/
-│   │   ├── __init__.py
-│   │   └── main_table_model.py
-│   │
-│   ├── widgets/
-│   │   ├── __init__.py
-│   │   └── quick_subtitle_drop_zone.py
-│   │
-│   └── dialogs/
-│       ├── __init__.py
-│       ├── actor_filter.py
-│       ├── colors.py
-│       ├── docx_import.py
-│       ├── project_files.py
-│       ├── project_health.py
-│       ├── reaper.py
-│       ├── roles.py
-│       ├── search.py
-│       ├── settings.py
-│       ├── settings_helpers.py
-│       └── summary.py
-│
-├── utils/
-│   ├── __init__.py
-│   ├── helpers.py
-│   └── web_bridge.py
-│
-├── resources/
+│   ├── macos_integration.py    # нативная интеграция macOS
+│   └── qml_backend/
+│       ├── app_bridge.py       # композиция feature bridges
+│       ├── project_session.py  # состояние открытого проекта и undo stack
+│       ├── features/           # тематические API для QML
+│       └── models/             # Qt-модели для QML
+├── qml/
+│   ├── Main.qml
+│   ├── components/             # окна и переиспользуемые контролы
 │   └── icons/
-│
-├── scripts/
-│   └── prepare_icons.py
-│
-├── docs/
-│   ├── CHANGELOG.md
-│   ├── DOCX_IMPORT.md
-│   ├── PROJECT_FILES_DIALOG.md
-│   ├── PROJECT_FOLDER.md
-│   └── UNDO_REDO.md
-│
+├── config/
+├── utils/
 └── tests/
-    ├── test_assignment_service.py
-    ├── test_assignment_transfer_service.py
-    ├── test_docx_working_text_import.py
-    ├── test_export_service.py
-    ├── test_global_settings_service.py
-    ├── test_main_window_project.py
-    ├── test_project_files_dialog.py
-    ├── test_reaper_dialog.py
-    ├── test_script_text_service.py
-    ├── test_working_text_migration.py
-    └── ...
 ```
 
-## Версии
+Qt Widgets в production-коде не используется. Диалоги, телесуфлёр,
+предпросмотр видео, монтажный лист и настройки реализованы в QML.
 
-Версии задаются в `config/constants.py`:
+## Запуск
 
-```python
-APP_VERSION = "1.7.0"
-PROJECT_VERSION = "1.3"
-SCRIPT_TEXT_DIR_NAME = "texts_dm"
+```bash
+.venv/bin/python qml_main.py
 ```
 
-`APP_VERSION` — версия приложения и сборки.  
-`PROJECT_VERSION` — версия формата проекта, её стоит менять только при изменении схемы данных проекта.
+`qml_main.py` выбирает системный стиль Qt Quick Controls:
+
+- `FluentWinUI3` на Windows;
+- `macOS` на macOS.
+
+Он также создаёт `AppBridge`, регистрирует переводчик, обрабатывает открытие
+`.dub` и `.dub_backup` из проводника/Finder и подключает нативную интеграцию
+macOS.
+
+## QML backend
+
+`ui/qml_backend/app_bridge.py` только собирает тематические мосты. Новая
+функция должна добавляться в подходящий bridge, а не раздувать корневой объект.
+
+Основные области:
+
+| Bridge | Ответственность |
+| --- | --- |
+| `project` | создание, открытие, сохранение, undo/redo, серии |
+| `casting` | актёры, персонажи, назначения и роли |
+| `subtitleImport` / `docxImport` | импорт сценариев |
+| `audiobook` | PDF-книга и редактирование разметки |
+| `montage` | предпросмотр и экспорт монтажных листов |
+| `teleprompter` | показ, навигация, редактирование и REAPER sync |
+| `reaper` | RPP и CSV |
+| `projectFiles` | связанные файлы и восстановление путей |
+| `reports` | поиск, статистика и отчёты |
+| `settings` | глобальные и проектные настройки |
+| `video` | видеопросмотр реплик |
+
+`ProjectSession` владеет текущим словарём проекта, сервисами, undo stack и
+сигналами обновления. Изменения проекта должны проходить через команды либо
+атомарные операции bridge с одним undo-снимком.
+
+## Прикладной слой
+
+`application/` предназначен для сценариев, которые координируют несколько
+сервисов, но ничего не знают о QML, окнах и контролах.
+
+- `ImportController` добавляет импортированную серию, создаёт встроенный
+  рабочий текст и регистрирует команду undo.
+- `GlobalActorController` синхронизирует проектных актёров с глобальной базой
+  и заменяет ссылки при объединении записей.
+
+Если операция является чистым преобразованием данных, ей место в `services`,
+а не в `application`.
 
 ## Формат проекта
 
-Ключевые поля project JSON:
+`.dub` является JSON-документом актуальной схемы проекта. В нём находятся:
 
-| Поле | Назначение |
-|------|------------|
-| `metadata` | версия формата, версия приложения, даты |
-| `project_name` | имя проекта |
-| `project_folder` | рабочая папка проекта |
-| `actors` | актёры, занятые в проекте |
-| `episodes` | исходные файлы серий: ASS/SRT/DOCX |
-| `episode_texts` | рабочие JSON-тексты серий |
-| `global_map` | глобальные назначения персонаж -> актёр |
-| `episode_actor_map` | локальные назначения внутри серии |
-| `video_paths` | видео по сериям |
-| `export_config` | настройки HTML/Excel/DOCX/PDF экспорта |
-| `prompter_config` | настройки телесуфлёра |
-| `replica_merge_config` | настройки объединения реплик |
-| `docx_import_config` | настройки импорта DOCX |
+- метаданные и порядок серий;
+- актёры, цвета и назначения, включая нескольких актёров на роль;
+- встроенные рабочие тексты серий;
+- настройки экспорта, телесуфлёра и импорта;
+- канонический `audiobook_document` для аудиокниг;
+- ссылки на исходники и видео, когда они доступны.
 
-Совместимость старых проектов обеспечивается в `services/project_compatibility.py`, а `ProjectService._ensure_compatibility` остаётся совместимым фасадом.
+`.dub_backup` содержит тот же полный документ и открывается как несохранённая
+копия проекта. Проверка схемы и совместимости находится в
+`services/project_schema_service.py` и `services/project_compatibility.py`.
+
+Запись проектов и глобальных настроек атомарная: сначала создаётся временный
+файл, затем он заменяет целевой.
 
 ## Рабочие тексты
 
-`ScriptTextService` создаёт и читает рабочие JSON-файлы серий. После импорта рабочий текст становится основным источником для UI и экспорта.
+`ScriptTextService` создаёт и изменяет рабочие тексты внутри
+`episode_working_texts`. После импорта именно они используются таблицами,
+поиском, монтажным листом, телесуфлёром и экспортом.
 
-Стандартные места поиска рабочих текстов:
-
-- папка проекта: `texts_dm/episode_N.json`;
-- папка рядом с файлом проекта: `<project_name>_texts_dm/episode_N.json`;
-- папка `texts_dm` рядом с исходником серии.
-
-Перед перезаписью рабочих текстов создаются бэкапы в `.backups`.
-
-Ключевые места:
-
-| Файл | Роль |
-|------|------|
-| `services/script_text_service.py` | создание, загрузка, сохранение, поиск и бэкап рабочих текстов |
-| `ui/main_window.py` | координация окна и `get_episode_lines` |
-| `ui/controllers/import_controller.py` | импорт, миграция и пересоздание текстов |
-| `ui/teleprompter.py` | отображение и редактирование реплик |
-| `utils/web_bridge.py` | сохранение правок из HTML/телесуфлёра |
-| `ui/dialogs/project_files.py` | перепривязка и пересоздание рабочих текстов |
-
-## DOCX
-
-DOCX импорт реализован через:
-
-| Файл | Роль |
-|------|------|
-| `services/docx_import_service.py` | извлечение таблиц, автоопределение колонок, парсинг |
-| `ui/dialogs/docx_import.py` | UI маппинга колонок и предпросмотра |
-| `services/script_text_service.py` | сохранение результата как рабочего JSON |
-
-DOCX считается уже подготовленным монтажным источником. При создании рабочего текста строки DOCX не проходят через объединение реплик.
-
-## Назначения актёров
-
-Назначения хранятся в двух уровнях:
-
-| Уровень | Хранилище | Поведение |
-|---------|-----------|-----------|
-| Глобально | `global_map` | роль получает актёра во всех сериях |
-| Серия | `episode_actor_map[ep]` | назначение действует только в выбранной серии |
-
-Для чтения эффективного назначения используйте `services/assignment_service.py`:
-
-- `get_actor_for_character(project_data, char_name, ep_num)`
-- `get_assignment_scope(project_data, char_name, ep_num)`
-- `get_assignment_map(project_data, scope, ep_num)`
-- `get_actor_roles(project_data, actor_id)`
-- `rename_character_assignments(project_data, old_name, new_name)`
-
-`LOCAL_UNASSIGNED_ACTOR_ID` означает локальное «не назначено», которое перекрывает глобальное назначение.
-
-## Глобальная база актёров
-
-Глобальная база хранится в глобальных настройках через `GlobalSettingsService`.
-
-Запись актёра содержит:
-
-```json
-{
-  "name": "Actor Name",
-  "gender": "М"
-}
-```
-
-Основные правила:
-
-- В проекте хранятся только занятые актёры.
-- В глобальной базе хранятся общие актёры между проектами.
-- Актёры сопоставляются по имени, а не только по ID.
-- При совпадении имени проектный актёр сопоставляется с записью глобальной базы, но проектный цвет остаётся настройкой проекта.
-- Изменение цвета актёра внутри проекта не обязано менять глобальную базу.
-
-Перенос распределения актёров между проектами реализован в `services/assignment_transfer_service.py`.
-
-## Экспорт
-
-Экспорт разделён на фасад и специализированные модули:
-
-| Файл | Роль |
-|------|------|
-| `services/export_service.py` | фасад экспорта и файловые операции |
-| `services/export_layouts.py` | HTML/DOCX-разметки монтажных листов |
-| `services/pdf_export_service.py` | рендер HTML-разметки в PDF через Qt |
-| `services/replica_merge_service.py` | объединение соседних реплик |
-| `services/reaper_rpp_service.py` | генерация и предпросмотр Reaper RPP |
-
-HTML/Excel/DOCX/PDF экспорт поддерживает:
-
-- выбор колонок;
-- цветовую подсветку актёров;
-- фильтр актёров для подсветки;
-- округление тайминга;
-- режим тайминга «начало и конец» или «только начало».
-
-Reaper RPP экспорт должен использовать начало и конец фразы для регионов и не применять offset телесуфлёра к регионам.
-
-PDF экспорт рендерит HTML-разметку монтажного листа в A4 PDF через `QPdfWriter`.
-
-Быстрый временный предпросмотр ASS/SRT без добавления серии в проект реализован через `services/quick_subtitle_service.py` и `ui/widgets/quick_subtitle_drop_zone.py`; быстрый конвертер поддерживает HTML, DOCX и PDF.
-
-## Главный UI
-
-Главное окно находится в `ui/main_window.py`. Это интеграционный слой, который связывает сервисы, контроллеры и диалоги. Сборка виджетов вынесена в `ui/main_window_ui.py`, а модель главной таблицы — в `ui/models/main_table_model.py`.
-
-Главная таблица персонажей:
-
-| Колонка | Значение |
-|---------|----------|
-| `Персонаж` | имя персонажа, редактируемое |
-| `Строчек` | количество строк |
-| `Колец` | количество реплик |
-| `Слов` | количество слов |
-| `Область` | `Глобально` или `Серия` |
-| `Актер` | назначенный актёр |
-| `📺` | предпросмотр реплик персонажа |
-
-Верхняя панель:
-
-- новый проект;
-- недавние проекты;
-- открыть/сохранить/сохранить копию;
-- папка проекта;
-- импорт;
-- привязка видео;
-- поиск и фильтры.
-
-Правая панель:
-
-- инструменты: предпросмотр серии, телесуфлёр, Reaper RPP, отчёт серии;
-- статистика выбранного персонажа.
-
-## Диалоги и настройки
-
-`ui/dialogs/settings.py` — единое окно настроек. Общие фабрики контролов вынесены в `ui/dialogs/settings_helpers.py`.
-
-- экспорт;
-- объединение реплик;
-- телесуфлёр;
-- DOCX;
-- проект;
-- базы актёров.
-
-`ui/preview.py` — HTML Live Preview. Настройки колонок и тайминга в предпросмотре сохраняются в основные настройки экспорта. Чистые операции подготовки данных вынесены в `ui/preview_helpers.py`.
-
-`ui/dialogs/reaper.py` — параметры Reaper RPP и живой предпросмотр будущего RPP.
+Для аудиокниги единственным редактируемым источником является
+`audiobook_document`; представление реплик строится из него и отдельно в
+проекте не дублируется.
 
 ## Сборка
-
-Основные файлы:
-
-| Файл | Назначение |
-|------|------------|
-| `dubbing_manager.spec` | PyInstaller spec для macOS и Windows |
-| `scripts/prepare_icons.py` | подготовка `.icns`, `.ico` и iconset |
-| `.github/workflows/tests.yml` | тесты на macOS и Windows |
-| `.github/workflows/build.yml` | сборка macOS DMG и Windows ZIP |
-| `.github/BUILD.md` | инструкция по сборке и релизу |
-
-Локальный запуск PyInstaller:
 
 ```bash
 python scripts/prepare_icons.py
 python -m PyInstaller dubbing_manager.spec --clean
 ```
 
-Локальная macOS-сборка:
+`dubbing_manager.spec` включает QML, иконки, WebEngine Quick и QML backend.
+Qt Widgets и старые Python-окна в сборку не входят.
 
-```bash
-./build.sh
-```
+CI:
 
-`build.sh` локальный и игнорируется Git.
+- `.github/workflows/tests.yml` запускает тесты;
+- `.github/workflows/build.yml` собирает macOS и Windows;
+- `.github/BUILD.md` описывает выпуск релиза.
 
-## Архитектурные принципы
+## Правила развития
 
-1. **Рабочий JSON как источник правок**  
-   После импорта редактируется JSON, не ASS/SRT/DOCX.
-
-2. **Сервисы отвечают за бизнес-логику**  
-   UI может оставаться интеграционным слоем, но повторяемая логика должна жить в `services/`.
-
-3. **Эффективное назначение актёра**  
-   Любой код с контекстом серии должен учитывать `episode_actor_map` поверх `global_map`.
-
-4. **Глобальная база по имени**  
-   Актёры из старых проектов синхронизируются с глобальной базой по имени.
-
-5. **Совместимость проектов**  
-   Новые поля добавляются через `services/project_compatibility.py`.
-
-6. **Бэкапы перед перезаписью**  
-   Рабочие тексты и глобальные настройки должны сохранять резервную копию перед опасной записью.
-
-7. **Тесты на macOS и Windows**  
-   Любые изменения путей, файлов и настроек должны быть кроссплатформенными.
-
-## Тесты
-
-Полный прогон:
-
-```bash
-QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
-```
-
-Актуальный ориентир для версии 1.6.0:
-
-```text
-698 passed, 11 skipped, 1 warning
-```
-
-Полезные точечные прогоны:
-
-```bash
-QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_global_settings_service.py -q
-QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_main_window_project.py -q
-QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_assignment_transfer_service.py -q
-QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_export_service.py -q
-QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_replica_merge_service.py tests/test_reaper_dialog.py -q
-QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_project_files_dialog.py -q
-QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_preview_helpers.py tests/test_project_compatibility.py -q
-QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_teleprompter_navigation_service.py -q
-```
-
-## Зависимости
-
-| Пакет | Назначение |
-|-------|------------|
-| `PySide6` | GUI |
-| `python-osc` | OSC-синхронизация с Reaper |
-| `openpyxl` | Excel экспорт |
-| `python-docx` | DOCX импорт |
-| `requests` | вспомогательные HTTP-запросы |
-| `pytest`, `pytest-cov` | тесты |
+1. Не помещать файловый ввод-вывод или бизнес-логику в QML.
+2. Не добавлять новые обязанности в `AppBridge`, если им подходит feature bridge.
+3. Не изменять проект в обход command/undo-инфраструктуры.
+4. Проверять сервис отдельно, а пользовательский сценарий через bridge-тест.
+5. Для нового окна добавлять QML runtime smoke-test и визуальную проверку на
+   Windows и macOS.

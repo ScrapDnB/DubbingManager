@@ -5,6 +5,7 @@ import os
 import logging
 import shutil
 import sys
+import tempfile
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -60,8 +61,16 @@ class GlobalSettingsService:
             return self._get_defaults()
 
         try:
-            with open(self._settings_file, 'r', encoding='utf-8') as f:
-                loaded = json.load(f)
+            try:
+                loaded = self._read_settings_payload(self._settings_file)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                loaded = self._load_latest_settings_backup()
+                if loaded is None:
+                    raise exc
+                self._atomic_write_json(self._settings_file, loaded)
+                logger.warning(
+                    "Recovered global settings from the latest valid backup"
+                )
 
             settings = self._get_defaults()
 
@@ -212,8 +221,7 @@ class GlobalSettingsService:
                 ),
             }
 
-            with open(self._settings_file, 'w', encoding='utf-8') as f:
-                json.dump(data_to_save, f, ensure_ascii=False, indent=2)
+            self._atomic_write_json(self._settings_file, data_to_save)
 
             self.settings = data_to_save
             logger.info(f"Global settings saved to {self._settings_file}")
@@ -234,6 +242,49 @@ class GlobalSettingsService:
         backup_path = backup_dir / f"global_settings_{timestamp}.json"
         shutil.copy2(self._settings_file, backup_path)
         return backup_path
+
+    @staticmethod
+    def _read_settings_payload(path: Path) -> Dict[str, Any]:
+        with open(path, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+        if not isinstance(payload, dict):
+            raise ValueError("Global settings must contain a JSON object")
+        return payload
+
+    def _load_latest_settings_backup(self) -> Optional[Dict[str, Any]]:
+        backup_dir = self._settings_file.parent / ".backups"
+        if not backup_dir.is_dir():
+            return None
+        backups = sorted(
+            backup_dir.glob("global_settings_*.json"),
+            key=lambda path: (path.stat().st_mtime_ns, path.name),
+            reverse=True,
+        )
+        for backup in backups:
+            try:
+                return self._read_settings_payload(backup)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+        return None
+
+    @staticmethod
+    def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary, path)
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
 
     def _get_defaults(self) -> Dict[str, Any]:
         """Return defaults."""

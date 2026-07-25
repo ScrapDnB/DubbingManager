@@ -11,6 +11,32 @@ def test_is_newer_version_compares_numeric_parts():
     assert UpdateService.is_newer_version("1.10.0", "1.9.9") is True
     assert UpdateService.is_newer_version("v1.4.3", "1.4.3") is False
     assert UpdateService.is_newer_version("1.4.2", "1.4.3") is False
+    assert UpdateService.is_newer_version("2.0.0", "2.0.0-beta3") is True
+    assert UpdateService.is_newer_version("2.0.0-beta4", "2.0.0-beta3") is True
+    assert UpdateService.is_newer_version("2.0.0-rc1", "2.0.0-beta4") is True
+    assert UpdateService.is_newer_version("2.0.0-beta2", "2.0.0-beta3") is False
+
+
+def test_beta_update_channel_includes_prereleases_and_stable_releases():
+    releases = [
+        {"tag_name": "v2.0.0-beta4", "prerelease": True},
+        {"tag_name": "v1.7.1", "prerelease": False},
+    ]
+
+    selected = UpdateService._select_release(releases, "2.0.0-beta3")
+
+    assert selected["tag_name"] == "v2.0.0-beta4"
+
+
+def test_stable_update_channel_ignores_prereleases():
+    releases = [
+        {"tag_name": "v2.1.0-beta1", "prerelease": True},
+        {"tag_name": "v2.0.1", "prerelease": False},
+    ]
+
+    selected = UpdateService._select_release(releases, "2.0.0")
+
+    assert selected["tag_name"] == "v2.0.1"
 
 
 def test_check_for_updates_reads_latest_github_release():
@@ -41,6 +67,31 @@ def test_check_for_updates_reads_latest_github_release():
             123,
         ),
     )
+
+
+def test_check_for_updates_selects_newest_release_from_github_list():
+    response = Mock()
+    response.json.return_value = [
+        {
+            "tag_name": "v2.0.0-beta4",
+            "html_url": "https://example.test/beta4",
+            "prerelease": True,
+            "assets": [],
+        },
+        {
+            "tag_name": "v1.7.1",
+            "html_url": "https://example.test/stable",
+            "prerelease": False,
+            "assets": [],
+        },
+    ]
+    response.raise_for_status.return_value = None
+
+    with patch("services.update_service.requests.get", return_value=response):
+        info = UpdateService().check_for_updates("2.0.0-beta3")
+
+    assert info.latest_version == "2.0.0-beta4"
+    assert info.is_update_available
 
 
 def test_check_for_updates_handles_missing_tag_as_current_version():
@@ -111,6 +162,8 @@ def test_create_macos_update_script_contains_expected_paths(tmp_path):
     content = open(script, encoding="utf-8").read()
     assert "hdiutil attach" in content
     assert "ditto" in content
+    assert ".update-old" in content
+    assert "mv " in content
     assert "display notification" in content
     assert "/Applications/Dubbing Manager.app" in content
 
@@ -127,6 +180,8 @@ def test_create_windows_update_script_contains_expected_paths(tmp_path):
     content = open(script, encoding="utf-8").read()
     assert "Expand-Archive" in content
     assert "Copy-Item -Path" in content
+    assert ".update-old" in content
+    assert "Move-Item" in content
     assert "NotifyIcon" in content
     assert "Start-Process" in content
 

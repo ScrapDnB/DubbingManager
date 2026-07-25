@@ -1,5 +1,6 @@
 """QML backend for project lifecycle, episodes, and undo history."""
 
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -13,9 +14,10 @@ from config.constants import (
 from core.commands import (
     DeleteEpisodeCommand,
     RenameEpisodeCommand,
+    UpdateProjectFileStateCommand,
     UpdateProjectNameCommand,
 )
-from ui.controllers.import_controller import ImportController
+from application import ImportController
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
 from utils.helpers import ordered_episode_names
@@ -251,9 +253,17 @@ class ProjectBridge(QObject):
 
     @Slot()
     def clearRecent(self) -> None:
+        previous = list(self._global_settings_service.get_recent_projects())
         self._global_settings_service.clear_recent_projects()
         self._global_settings["recent_projects"] = []
-        self._global_settings_service.save_settings(self._global_settings)
+        if not self._global_settings_service.save_settings(self._global_settings):
+            self._global_settings_service.settings["recent_projects"] = previous
+            self._global_settings["recent_projects"] = previous
+            self.errorRequested.emit(
+                "Не удалось сохранить список недавних проектов"
+            )
+            self._refresh_recent_projects()
+            return
         self._refresh_recent_projects()
         self.statusRequested.emit("Список недавних проектов очищен")
 
@@ -361,17 +371,39 @@ class ProjectBridge(QObject):
         if new_name in self._session.data.get("episodes", {}):
             self.errorRequested.emit("Серия с таким именем уже есть")
             return
-        self._session.execute(RenameEpisodeCommand(
-            self._session.data.setdefault("episodes", {}),
-            old_name,
-            new_name,
-            self._session.data.setdefault("episode_actor_map", {}),
-            self._session.data.setdefault("video_paths", {}),
-            self._session.data.setdefault("loaded_episodes", {}),
-            self._session.data.setdefault("episode_texts", {}),
-            self._session.data.setdefault("episode_working_texts", {}),
-            self._session.data.setdefault("audiobook_chapter_order", []),
-        ), "episodes")
+        if self._session.data.get("project_kind") == "audiobook":
+            candidate = deepcopy(self._session.data)
+            for key in (
+                "episodes", "episode_actor_map", "video_paths",
+                "loaded_episodes", "episode_texts", "episode_working_texts",
+            ):
+                mapping = candidate.get(key, {})
+                if old_name in mapping:
+                    mapping[new_name] = mapping.pop(old_name)
+            for chapter in candidate.get("audiobook_document", {}).get("chapters", []):
+                if str(chapter.get("title")) == old_name:
+                    chapter["title"] = new_name
+            fields = (
+                "episodes", "episode_actor_map", "video_paths",
+                "loaded_episodes", "episode_texts", "episode_working_texts",
+                "audiobook_document",
+            )
+            self._session.execute(UpdateProjectFileStateCommand(
+                self._session.data,
+                {key: candidate.get(key) for key in fields},
+                f"Переименована глава {old_name}",
+            ), "episodes")
+        else:
+            self._session.execute(RenameEpisodeCommand(
+                self._session.data.setdefault("episodes", {}),
+                old_name,
+                new_name,
+                self._session.data.setdefault("episode_actor_map", {}),
+                self._session.data.setdefault("video_paths", {}),
+                self._session.data.setdefault("loaded_episodes", {}),
+                self._session.data.setdefault("episode_texts", {}),
+                self._session.data.setdefault("episode_working_texts", {}),
+            ), "episodes")
         self._session.current_episode = new_name
         self.refresh_models()
         self.refreshRequested.emit()
@@ -392,16 +424,38 @@ class ProjectBridge(QObject):
         if episode not in self._session.data.get("episodes", {}):
             self.errorRequested.emit("Серия не найдена")
             return
-        self._session.execute(DeleteEpisodeCommand(
-            self._session.data.setdefault("episodes", {}),
-            self._session.data.setdefault("video_paths", {}),
-            self._session.data.setdefault("loaded_episodes", {}),
-            episode,
-            self._session.data.setdefault("episode_actor_map", {}),
-            self._session.data.setdefault("episode_texts", {}),
-            self._session.data.setdefault("episode_working_texts", {}),
-            self._session.data.setdefault("audiobook_chapter_order", []),
-        ), "episodes")
+        if self._session.data.get("project_kind") == "audiobook":
+            candidate = deepcopy(self._session.data)
+            for key in (
+                "episodes", "video_paths", "loaded_episodes",
+                "episode_actor_map", "episode_texts", "episode_working_texts",
+            ):
+                candidate.get(key, {}).pop(episode, None)
+            document = candidate.get("audiobook_document", {})
+            document["chapters"] = [
+                chapter for chapter in document.get("chapters", [])
+                if str(chapter.get("title")) != episode
+            ]
+            fields = (
+                "episodes", "video_paths", "loaded_episodes",
+                "episode_actor_map", "episode_texts", "episode_working_texts",
+                "audiobook_document",
+            )
+            self._session.execute(UpdateProjectFileStateCommand(
+                self._session.data,
+                {key: candidate.get(key) for key in fields},
+                f"Удалена глава {episode}",
+            ), "episodes")
+        else:
+            self._session.execute(DeleteEpisodeCommand(
+                self._session.data.setdefault("episodes", {}),
+                self._session.data.setdefault("video_paths", {}),
+                self._session.data.setdefault("loaded_episodes", {}),
+                episode,
+                self._session.data.setdefault("episode_actor_map", {}),
+                self._session.data.setdefault("episode_texts", {}),
+                self._session.data.setdefault("episode_working_texts", {}),
+            ), "episodes")
         self._episode_service.invalidate_episode(episode)
         if self._session.current_episode == episode:
             self._session.current_episode = self._first_episode()
@@ -590,11 +644,17 @@ class ProjectBridge(QObject):
     def _remember_recent_project(self, path: str) -> None:
         if not path:
             return
+        previous = list(self._global_settings_service.get_recent_projects())
         self._global_settings_service.add_recent_project(path)
         self._global_settings["recent_projects"] = (
             self._global_settings_service.get_recent_projects()
         )
-        self._global_settings_service.save_settings(self._global_settings)
+        if not self._global_settings_service.save_settings(self._global_settings):
+            self._global_settings_service.settings["recent_projects"] = previous
+            self._global_settings["recent_projects"] = previous
+            self.errorRequested.emit(
+                "Проект сохранён, но список недавних проектов обновить не удалось"
+            )
         self._refresh_recent_projects()
 
     @staticmethod

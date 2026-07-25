@@ -4,17 +4,18 @@ import QtQuick.Controls
 ListView {
     id: listView
 
-    readonly property real scrollBarGutter: Qt.platform.os !== "osx"
-        && verticalScrollBar.size < 1.0
+    readonly property bool hasVerticalOverflow: contentHeight > height + 1
+    readonly property real scrollBarGutter: hasVerticalOverflow
         ? verticalScrollBar.width + 4 : 0
     readonly property real viewportWidth: Math.max(0, width - scrollBarGutter)
 
     ScrollBar.vertical: VisibleScrollBar {
         id: verticalScrollBar
+        contentOverflow: listView.hasVerticalOverflow
         parent: listView
-        x: listView.width - width
-        y: 0
+        anchors.top: listView.top
+        anchors.right: listView.right
+        anchors.bottom: listView.bottom
         width: Math.max(10, implicitWidth)
-        height: listView.height
     }
 }
