@@ -1,15 +1,47 @@
 """Application constants."""
 
+from colorsys import hls_to_rgb, rgb_to_hls
+
 # =============================================================================
 # Palette and Colors
 # =============================================================================
 
-MY_PALETTE = [
+_ACTOR_PALETTE_BASE = [
     "#D9775F", "#E46C0A", "#9B5333", "#C0504D", "#C4BD97",
     "#D4A017", "#938953", "#8A7F80", "#76923C", "#4F6228",
     "#31859B", "#669999", "#4F81BD", "#5B9BD5", "#2C4D75",
     "#708090", "#B65C72", "#8064A2", "#5F497A", "#7B3F61"
 ]
+
+
+def _build_actor_palette() -> list[str]:
+    """Build a broad but cohesive set of stable actor colours."""
+    # Preserve the original custom colours, then add seven related rows. The
+    # result is 160 stable choices and remains safe for existing projects.
+    palette = list(_ACTOR_PALETTE_BASE)
+    for lightness in (0.33, 0.40, 0.47, 0.54, 0.61, 0.68, 0.75):
+        for base in _ACTOR_PALETTE_BASE:
+            red = int(base[1:3], 16) / 255
+            green = int(base[3:5], 16) / 255
+            blue = int(base[5:7], 16) / 255
+            hue, _, saturation = rgb_to_hls(red, green, blue)
+            color_hue = hue
+            while True:
+                variant = hls_to_rgb(
+                    color_hue, lightness, max(0.42, saturation * 0.8)
+                )
+                color = "#{:02X}{:02X}{:02X}".format(
+                    *(round(channel * 255) for channel in variant)
+                )
+                if color not in palette:
+                    palette.append(color)
+                    break
+                # Very similar legacy bases can round to the same RGB value.
+                color_hue = (color_hue + 0.006) % 1
+    return palette
+
+
+MY_PALETTE = _build_actor_palette()
 
 # =============================================================================
 # Main Window UI Constants
@@ -174,7 +206,6 @@ DEFAULT_PROMPTER_CONFIG = {
     "key_next": "Right",
     "scroll_smoothness_slider": 18,
     "page_scroll_mode": False,
-    "use_cocoa_float_window": True,
     "colors": {
         "bg": "#000000",
         "active_text": "#FFFFFF",

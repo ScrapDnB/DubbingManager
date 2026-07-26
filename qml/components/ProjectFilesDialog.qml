@@ -22,12 +22,31 @@ NativeDialogWindow {
         ? appBridge.projectFiles : null
 
     property string selectedEpisode: ""
+    property var selectedEpisodes: []
+    property var collapsedEpisodes: ({})
     property string selectedKind: ""
     property string selectedPath: ""
     property bool selectedCanRegenerate: false
     property bool selectedHasSourceAss: false
     property bool selectedCanRelink: false
     property int initialTab: 0
+    readonly property int episodeColumnWidth: 92
+    readonly property int kindColumnWidth: 155
+    readonly property int statusColumnWidth: 205
+
+    component FileActionMenuItem: MenuItem {
+        id: actionItem
+
+        contentItem: Label {
+            text: actionItem.text
+            leftPadding: 12
+            rightPadding: 12
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+            color: actionItem.enabled
+                ? actionItem.palette.text : actionItem.palette.mid
+        }
+    }
 
     modal: true
     title: qsTr("Файлы проекта")
@@ -52,6 +71,7 @@ NativeDialogWindow {
 
     function clearSelection() {
         selectedEpisode = ""
+        selectedEpisodes = []
         selectedKind = ""
         selectedPath = ""
         selectedCanRegenerate = false
@@ -60,9 +80,48 @@ NativeDialogWindow {
         filesView.currentIndex = -1
     }
 
+    function isEpisodeSelected(episode) {
+        return selectedEpisodes.indexOf(episode) >= 0
+    }
+
+    function isEpisodeCollapsed(episode) {
+        return collapsedEpisodes[episode] === true
+    }
+
+    function toggleEpisodeCollapsed(episode) {
+        var collapsed = Object.assign({}, collapsedEpisodes)
+        collapsed[episode] = !isEpisodeCollapsed(episode)
+        collapsedEpisodes = collapsed
+    }
+
+    function selectEpisodeRow(episode, kind, path, canRegenerate,
+                              hasSourceAss, canRelink, modifiers, index) {
+        var isMultiSelect = (modifiers & Qt.ControlModifier)
+            || (modifiers & Qt.MetaModifier)
+        var episodes = selectedEpisodes.slice()
+        var selectedIndex = episodes.indexOf(episode)
+        if (isMultiSelect) {
+            if (selectedIndex >= 0)
+                episodes.splice(selectedIndex, 1)
+            else
+                episodes.push(episode)
+        } else {
+            episodes = [episode]
+        }
+        selectedEpisodes = episodes
+        selectedEpisode = episode
+        selectedKind = kind
+        selectedPath = path
+        selectedCanRegenerate = canRegenerate
+        selectedHasSourceAss = hasSourceAss
+        selectedCanRelink = canRelink
+        filesView.currentIndex = index
+    }
+
     function openFor(tabName) {
         initialTab = tabName === "health" ? 1 : 0
         tabs.currentIndex = initialTab
+        collapsedEpisodes = ({})
         clearSelection()
         projectFilesBackend.refresh()
         open()
@@ -165,14 +224,54 @@ NativeDialogWindow {
         content: Label {
             anchors.fill: parent
             width: 360
-            text: qsTr("Удалить серию ") + dialog.selectedEpisode
-                + " и все связанные с ней пути из проекта?"
+            text: dialog.selectedEpisodes.length === 1
+                ? qsTr("Удалить серию ") + dialog.selectedEpisodes[0]
+                    + qsTr(" и все связанные с ней пути из проекта?")
+                : qsTr("Удалить выбранные серии (")
+                    + dialog.selectedEpisodes.join(", ")
+                    + qsTr(") и все связанные с ними пути из проекта?")
             wrapMode: Text.WordWrap
         }
 
         onAccepted: {
-            dialog.projectFilesBackend.deleteEpisode(dialog.selectedEpisode)
+            dialog.projectFilesBackend.deleteEpisodes(dialog.selectedEpisodes)
             dialog.clearSelection()
+        }
+    }
+
+    Menu {
+        id: fileActionsMenu
+        width: 360
+
+        FileActionMenuItem {
+            text: qsTr("Перепривязать файл...")
+            visible: dialog.selectedCanRelink
+            height: visible ? implicitHeight : 0
+            onTriggered: dialog.openRelinkDialog()
+        }
+        FileActionMenuItem {
+            text: qsTr("Создать рабочий текст из источника")
+            visible: dialog.selectedCanRegenerate
+            height: visible ? implicitHeight : 0
+            onTriggered: dialog.projectFilesBackend.regenerateWorkingText(
+                dialog.selectedEpisode
+            )
+        }
+        FileActionMenuItem {
+            text: qsTr("Сохранить исходный ASS...")
+            visible: dialog.selectedHasSourceAss
+            height: visible ? implicitHeight : 0
+            onTriggered: saveAssDialog.open()
+        }
+        FileActionMenuItem {
+            text: qsTr("Отвязать видео")
+            visible: dialog.selectedKind === "video"
+                && dialog.selectedPath !== "-"
+            height: visible ? implicitHeight : 0
+            onTriggered: {
+                dialog.projectFilesBackend.removeVideo(dialog.selectedEpisode)
+                dialog.clearSelection()
+            }
         }
     }
 
@@ -257,9 +356,24 @@ NativeDialogWindow {
                         anchors.leftMargin: 8
                         anchors.rightMargin: 8
                         spacing: 8
-                        TableHeaderLabel { text: qsTr("Серия"); Layout.preferredWidth: 70 }
-                        TableHeaderLabel { text: qsTr("Файл"); Layout.preferredWidth: 125 }
-                        TableHeaderLabel { text: qsTr("Статус"); Layout.preferredWidth: 120 }
+                        TableHeaderLabel {
+                            text: qsTr("Серия")
+                            Layout.preferredWidth: dialog.episodeColumnWidth
+                            Layout.minimumWidth: dialog.episodeColumnWidth
+                            Layout.maximumWidth: dialog.episodeColumnWidth
+                        }
+                        TableHeaderLabel {
+                            text: qsTr("Тип файла")
+                            Layout.preferredWidth: dialog.kindColumnWidth
+                            Layout.minimumWidth: dialog.kindColumnWidth
+                            Layout.maximumWidth: dialog.kindColumnWidth
+                        }
+                        TableHeaderLabel {
+                            text: qsTr("Статус")
+                            Layout.preferredWidth: dialog.statusColumnWidth
+                            Layout.minimumWidth: dialog.statusColumnWidth
+                            Layout.maximumWidth: dialog.statusColumnWidth
+                        }
                         TableHeaderLabel { text: qsTr("Путь"); Layout.fillWidth: true }
                     }
                 }
@@ -272,6 +386,17 @@ NativeDialogWindow {
                     currentIndex: -1
                     model: dialog.projectFilesBackend
                         ? dialog.projectFilesBackend.filesModel : null
+
+                    TapHandler {
+                        onTapped: function(eventPoint) {
+                            var rowIndex = filesView.indexAt(
+                                eventPoint.position.x,
+                                eventPoint.position.y + filesView.contentY
+                            )
+                            if (rowIndex < 0)
+                                dialog.clearSelection()
+                        }
+                    }
 
                     delegate: Rectangle {
                         id: fileRow
@@ -288,22 +413,30 @@ NativeDialogWindow {
                         required property bool canRelink
 
                         width: filesView.viewportWidth
-                        height: dialog.compactRowHeight
-                        color: filesView.currentIndex === index
+                        readonly property bool episodeHeader: kind === "source"
+                        readonly property bool rowVisible: episodeHeader
+                            || !dialog.isEpisodeCollapsed(episode)
+                        readonly property bool hasActions: canRelink
+                            || canRegenerate || hasSourceAss
+                            || (kind === "video" && path !== "-")
+                        height: rowVisible ? dialog.compactRowHeight : 0
+                        visible: rowVisible
+                        color: dialog.isEpisodeSelected(fileRow.episode)
                             ? Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.22)
                             : (rowHover.hovered ? dialog.softHover
                                 : (index % 2 === 0 ? dialog.softRow : dialog.softAltRow))
 
                         HoverHandler { id: rowHover }
-                        TapHandler {
-                            onTapped: {
-                                filesView.currentIndex = fileRow.index
-                                dialog.selectedEpisode = fileRow.episode
-                                dialog.selectedKind = fileRow.kind
-                                dialog.selectedPath = fileRow.path
-                                dialog.selectedCanRegenerate = fileRow.canRegenerate
-                                dialog.selectedHasSourceAss = fileRow.hasSourceAss
-                                dialog.selectedCanRelink = fileRow.canRelink
+                        MouseArea {
+                            anchors.fill: parent
+                            acceptedButtons: Qt.LeftButton
+                            onClicked: function(mouse) {
+                                dialog.selectEpisodeRow(
+                                    fileRow.episode, fileRow.kind,
+                                    fileRow.path, fileRow.canRegenerate,
+                                    fileRow.hasSourceAss, fileRow.canRelink,
+                                    mouse.modifiers, fileRow.index
+                                )
                             }
                         }
 
@@ -312,11 +445,93 @@ NativeDialogWindow {
                             anchors.leftMargin: 8
                             anchors.rightMargin: 8
                             spacing: 8
-                            Label { text: fileRow.episode; Layout.preferredWidth: 70; elide: Text.ElideRight }
-                            Label { text: fileRow.kindLabel; Layout.preferredWidth: 125; elide: Text.ElideRight }
+                            Item {
+                                Layout.preferredWidth: dialog.episodeColumnWidth
+                                Layout.minimumWidth: dialog.episodeColumnWidth
+                                Layout.maximumWidth: dialog.episodeColumnWidth
+                                ToolButton {
+                                    id: episodeDisclosureButton
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: fileRow.episodeHeader
+                                    enabled: visible
+                                    implicitWidth: 22
+                                    implicitHeight: 22
+                                    padding: 4
+                                    icon.source: fileRow.episodeHeader
+                                        ? Qt.resolvedUrl(dialog.isEpisodeCollapsed(fileRow.episode)
+                                            ? "../icons/chevron-right.svg"
+                                            : "../icons/chevron-down.svg") : ""
+                                    icon.width: 12
+                                    icon.height: 12
+                                    Accessible.name: dialog.isEpisodeCollapsed(fileRow.episode)
+                                        ? qsTr("Развернуть серию")
+                                        : qsTr("Свернуть серию")
+                                    onClicked: dialog.toggleEpisodeCollapsed(fileRow.episode)
+                                    PlatformToolTip {
+                                        target: episodeDisclosureButton
+                                        text: episodeDisclosureButton.Accessible.name
+                                    }
+                                }
+                                Item {
+                                    visible: !fileRow.episodeHeader
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 22
+                                    height: 22
+                                }
+                                Label {
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 26
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: fileRow.episode
+                                    elide: Text.ElideRight
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+                            Item {
+                                Layout.preferredWidth: dialog.kindColumnWidth
+                                Layout.minimumWidth: dialog.kindColumnWidth
+                                Layout.maximumWidth: dialog.kindColumnWidth
+
+                                Label {
+                                    anchors.left: parent.left
+                                    anchors.right: fileRow.hasActions
+                                        ? fileActionsButton.left : parent.right
+                                    anchors.rightMargin: fileRow.hasActions ? 4 : 0
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: fileRow.kindLabel
+                                    elide: Text.ElideRight
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                RowAccessoryButton {
+                                    id: fileActionsButton
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: fileRow.hasActions
+                                    toolTipText: qsTr("Действия с файлом")
+                                    iconSource: Qt.platform.os === "osx"
+                                        ? Qt.resolvedUrl("../icons/ellipsis.svg") : ""
+                                    overlayIconSource: Qt.platform.os === "osx"
+                                        ? "" : Qt.resolvedUrl("../icons/ellipsis.svg")
+                                    onClicked: {
+                                        dialog.selectEpisodeRow(
+                                            fileRow.episode, fileRow.kind,
+                                            fileRow.path, fileRow.canRegenerate,
+                                            fileRow.hasSourceAss,
+                                            fileRow.canRelink, 0, fileRow.index
+                                        )
+                                        fileActionsMenu.popup()
+                                    }
+                                }
+                            }
                             Label {
                                 text: fileRow.status
-                                Layout.preferredWidth: 120
+                                Layout.preferredWidth: dialog.statusColumnWidth
+                                Layout.minimumWidth: dialog.statusColumnWidth
+                                Layout.maximumWidth: dialog.statusColumnWidth
+                                elide: Text.ElideRight
                                 color: fileRow.statusKind === "error" ? "#c94b4b"
                                     : fileRow.statusKind === "warning" ? "#b8860b"
                                     : fileRow.statusKind === "success" ? "#2e8b57"
@@ -331,44 +546,20 @@ NativeDialogWindow {
                     Layout.fillWidth: true
                     spacing: 6
                     AdaptiveButton {
-                        text: qsTr("Перепривязать...")
-                        enabled: dialog.selectedEpisode.length > 0
-                            && dialog.selectedCanRelink
-                        onClicked: dialog.openRelinkDialog()
-                    }
-                    AdaptiveButton {
-                        text: qsTr("Создать из источника")
-                        enabled: dialog.selectedEpisode.length > 0
-                            && dialog.selectedCanRegenerate
-                        onClicked: dialog.projectFilesBackend.regenerateWorkingText(
-                            dialog.selectedEpisode
-                        )
-                    }
-                    AdaptiveButton {
                         text: qsTr("Создать недостающие")
                         onClicked: dialog.projectFilesBackend.createMissingWorkingTexts()
                     }
                     AdaptiveButton {
-                        text: qsTr("Сохранить исходный ASS...")
-                        enabled: dialog.selectedHasSourceAss
-                        onClicked: saveAssDialog.open()
-                    }
-                    AdaptiveButton {
-                        text: qsTr("Отвязать видео")
-                        enabled: dialog.selectedEpisode.length > 0
-                            && dialog.selectedKind === "video"
-                            && dialog.selectedPath !== "-"
-                        onClicked: {
-                            dialog.projectFilesBackend.removeVideo(
-                                dialog.selectedEpisode
-                            )
-                            dialog.clearSelection()
-                        }
+                        text: qsTr("Создать построчные")
+                        onClicked: dialog.projectFilesBackend.createMissingSourceLines()
                     }
                     Item { Layout.fillWidth: true }
                     AdaptiveButton {
-                        text: qsTr("Удалить серию...")
-                        enabled: dialog.selectedEpisode.length > 0
+                        text: dialog.selectedEpisodes.length > 1
+                            ? qsTr("Удалить серии (")
+                                + dialog.selectedEpisodes.length + ")..."
+                            : qsTr("Удалить серию...")
+                        enabled: dialog.selectedEpisodes.length > 0
                         onClicked: deleteDialog.open()
                     }
                 }

@@ -3,7 +3,7 @@
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, Property, QTimer, QUrl, Signal, Slot, Qt
 
@@ -13,6 +13,7 @@ from config.constants import (
 )
 from core.commands import (
     DeleteEpisodeCommand,
+    DeleteEpisodesCommand,
     RenameEpisodeCommand,
     UpdateProjectFileStateCommand,
     UpdateProjectNameCommand,
@@ -65,6 +66,7 @@ class ProjectBridge(QObject):
         self._project_folder_service = project_folder_service
         self._global_settings_service = global_settings_service
         self._global_settings = global_settings
+        self._save_preparer: Optional[Callable[[], int]] = None
         self._pending_action: Optional[tuple[str, str]] = None
         self._episodes_model = DictListModel({
             "name": Qt.UserRole + 1,
@@ -175,11 +177,14 @@ class ProjectBridge(QObject):
         path = self._normalized_save_path(path_or_url)
         if not path:
             return
+        materialized = self._prepare_for_save()
         if self._session.project_service.save_project_as(
             self._session.data,
             path,
         ):
-            self.statusRequested.emit(f"Проект сохранён: {Path(path).name}")
+            self.statusRequested.emit(
+                self._save_status(f"Проект сохранён: {Path(path).name}", materialized)
+            )
             self.pathChanged.emit()
             self.dirtyChanged.emit()
             self._remember_recent_project(path)
@@ -417,11 +422,21 @@ class ProjectBridge(QObject):
 
     @Slot(str)
     def deleteEpisode(self, episode: str) -> None:
-        episode = str(episode or "")
-        if not episode:
+        self.deleteEpisodes([episode])
+
+    @Slot(list)
+    def deleteEpisodes(self, episodes: list) -> None:
+        episode_names = list(dict.fromkeys(
+            str(episode) for episode in episodes if str(episode)
+        ))
+        if not episode_names:
             self.errorRequested.emit("Нет выбранной серии")
             return
-        if episode not in self._session.data.get("episodes", {}):
+        episode_names = [
+            episode for episode in episode_names
+            if episode in self._session.data.get("episodes", {})
+        ]
+        if not episode_names:
             self.errorRequested.emit("Серия не найдена")
             return
         if self._session.data.get("project_kind") == "audiobook":
@@ -430,11 +445,12 @@ class ProjectBridge(QObject):
                 "episodes", "video_paths", "loaded_episodes",
                 "episode_actor_map", "episode_texts", "episode_working_texts",
             ):
-                candidate.get(key, {}).pop(episode, None)
+                for episode in episode_names:
+                    candidate.get(key, {}).pop(episode, None)
             document = candidate.get("audiobook_document", {})
             document["chapters"] = [
                 chapter for chapter in document.get("chapters", [])
-                if str(chapter.get("title")) != episode
+                if str(chapter.get("title")) not in episode_names
             ]
             fields = (
                 "episodes", "video_paths", "loaded_episodes",
@@ -444,24 +460,28 @@ class ProjectBridge(QObject):
             self._session.execute(UpdateProjectFileStateCommand(
                 self._session.data,
                 {key: candidate.get(key) for key in fields},
-                f"Удалена глава {episode}",
+                f"Удалены главы: {len(episode_names)}",
             ), "episodes")
         else:
-            self._session.execute(DeleteEpisodeCommand(
+            self._session.execute(DeleteEpisodesCommand(
                 self._session.data.setdefault("episodes", {}),
                 self._session.data.setdefault("video_paths", {}),
                 self._session.data.setdefault("loaded_episodes", {}),
-                episode,
+                episode_names,
                 self._session.data.setdefault("episode_actor_map", {}),
                 self._session.data.setdefault("episode_texts", {}),
                 self._session.data.setdefault("episode_working_texts", {}),
             ), "episodes")
-        self._episode_service.invalidate_episode(episode)
-        if self._session.current_episode == episode:
+        for episode in episode_names:
+            self._episode_service.invalidate_episode(episode)
+        if self._session.current_episode in episode_names:
             self._session.current_episode = self._first_episode()
         self.refresh_models()
         self.refreshRequested.emit()
-        self.statusRequested.emit(f"Серия удалена: {episode}")
+        if len(episode_names) == 1:
+            self.statusRequested.emit(f"Серия удалена: {episode_names[0]}")
+        else:
+            self.statusRequested.emit(f"Удалено серий: {len(episode_names)}")
 
     @Slot()
     def undo(self) -> None:
@@ -598,13 +618,35 @@ class ProjectBridge(QObject):
         )
 
     def _save_now(self) -> bool:
+        materialized = self._prepare_for_save()
         if self._session.project_service.save_project(self._session.data):
-            self.statusRequested.emit("Проект сохранён")
+            self.statusRequested.emit(
+                self._save_status("Проект сохранён", materialized)
+            )
             self.dirtyChanged.emit()
             self._remember_recent_project(self.path)
             return True
         self.errorRequested.emit("Не удалось сохранить проект")
         return False
+
+    def set_save_preparer(self, preparer: Callable[[], int]) -> None:
+        """Set the project-files migration run immediately before saves."""
+        self._save_preparer = preparer
+
+    def _prepare_for_save(self) -> int:
+        if self._save_preparer is None:
+            return 0
+        materialized = self._save_preparer()
+        if materialized:
+            self._session.notify_changed("working_text")
+            self.refreshRequested.emit()
+        return materialized
+
+    @staticmethod
+    def _save_status(message: str, materialized: int) -> str:
+        if not materialized:
+            return message
+        return f"{message} · добавлены построчные реплики: {materialized}"
 
     def _import_controller(self) -> ImportController:
         return ImportController(

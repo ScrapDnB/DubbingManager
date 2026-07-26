@@ -16,13 +16,17 @@ Item {
     required property color softHover
     required property color softMuted
     required property color panelSurface
+    property int actorMarkerShape: 0
+    property int actorMarkerSize: 0
     signal projectSummaryRequested()
     signal actorRolesRequested(string actorId)
     signal bulkTransferRequested()
+    signal globalBulkTransferRequested()
 
     SplitView.preferredWidth: 330
     SplitView.minimumWidth: 180
     property string selectedActorId: ""
+    property var selectedActorIds: []
     property string selectedActorName: ""
     property color selectedActorColor: "#4F81BD"
     property string selectedActorGender: ""
@@ -35,7 +39,8 @@ Item {
     )
     readonly property int tableColumnSpacing: tablePadding
     readonly property int colorColumnWidth: panel.globalMode ? 0 : Math.max(
-        16, panelFontMetrics.height + 2
+        panel.actorMarkerSize === 2 ? 24 : 16,
+        panelFontMetrics.height + 2
     )
     readonly property int genderColumnWidth: Math.max(
         42, Math.ceil(genderHeaderMetrics.width + tablePadding)
@@ -89,6 +94,7 @@ Item {
 
     function selectActor(actorId, actorName, actorColor, actorGender) {
         panel.selectedActorId = actorId
+        panel.selectedActorIds = actorId.length > 0 ? [actorId] : []
         panel.selectedActorName = actorName
         panel.selectedActorColor = actorColor
         panel.selectedActorGender = actorGender
@@ -96,30 +102,80 @@ Item {
 
     function clearActorSelection() {
         panel.selectedActorId = ""
+        panel.selectedActorIds = []
         panel.selectedActorName = ""
         panel.selectedActorGender = ""
     }
 
-    function toggleActorSelection(actorId, actorName, actorColor, actorGender) {
-        if (panel.selectedActorId === actorId) {
+    function isActorSelected(actorId) {
+        return panel.selectedActorIds.indexOf(actorId) >= 0
+    }
+
+    function toggleActorSelection(actorId, actorName, actorColor, actorGender, modifiers) {
+        var isMultiSelect = (modifiers & Qt.ControlModifier)
+            || (modifiers & Qt.MetaModifier)
+        if (!isMultiSelect) {
+            if (panel.selectedActorIds.length === 1
+                    && panel.selectedActorId === actorId) {
+                panel.clearActorSelection()
+                return
+            }
+            panel.selectActor(actorId, actorName, actorColor, actorGender)
+            return
+        }
+
+        var ids = panel.selectedActorIds.slice()
+        var selectedIndex = ids.indexOf(actorId)
+        if (selectedIndex >= 0) {
+            ids.splice(selectedIndex, 1)
+            panel.selectedActorIds = ids
+            if (panel.selectedActorId === actorId) {
+                if (ids.length === 0) {
+                    panel.clearActorSelection()
+                } else {
+                    panel.selectedActorId = ids[ids.length - 1]
+                }
+            }
+            return
+        }
+        ids.push(actorId)
+        panel.selectedActorIds = ids
+        panel.selectedActorId = actorId
+        panel.selectedActorName = actorName
+        panel.selectedActorColor = actorColor
+        panel.selectedActorGender = actorGender
+    }
+
+    function requestProjectActorDeletion() {
+        var assignments = panel.castingBackend.actorRoleAssignments(
+            panel.selectedActorIds
+        )
+        if (assignments.length === 0) {
+            panel.castingBackend.deleteActors(panel.selectedActorIds)
             panel.clearActorSelection()
             return
         }
-        panel.selectActor(actorId, actorName, actorColor, actorGender)
+        deleteProjectActorsDialog.actorIds = panel.selectedActorIds.slice()
+        deleteProjectActorsDialog.roleAssignments = assignments
+        deleteProjectActorsDialog.open()
     }
 
     function transferSelectedActor() {
         if (panel.selectedActorId.length === 0)
             return
         if (panel.globalMode) {
-            panel.actorLibraryBackend.addGlobalActorToProject(
-                panel.selectedActorId
-            )
+            panel.chooseGlobalActorColor(panel.selectedActorId)
         } else {
             panel.actorLibraryBackend.addProjectActorToGlobal(
                 panel.selectedActorId
             )
         }
+    }
+
+    function chooseGlobalActorColor(actorId) {
+        globalActorColorDialog.actorId = actorId
+        globalActorColorDialog.currentColor = panel.addActorColor
+        globalActorColorDialog.open()
     }
 
     function updateSelectedActorGender(gender) {
@@ -198,7 +254,7 @@ Item {
             : qsTr("Добавить актёра в проект")
         standardButtons: Dialog.Ok | Dialog.Cancel
         width: 360
-        height: 250
+        height: panel.globalMode ? 250 : 300
 
         onOpened: {
             actorNameField.text = ""
@@ -214,9 +270,7 @@ Item {
                     addActorGenderCombo.currentText
                 )
             } else if (String(actorSourceCombo.currentValue || "").length > 0) {
-                panel.actorLibraryBackend.addGlobalActorToProject(
-                    actorSourceCombo.currentValue
-                )
+                panel.chooseGlobalActorColor(actorSourceCombo.currentValue)
             } else {
                 panel.castingBackend.addActorWithDetails(
                     actorNameField.text,
@@ -254,6 +308,32 @@ Item {
                 Layout.preferredHeight: 1
                 color: panel.softBorder
                 visible: panel.globalMode
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                visible: !panel.globalMode
+
+                Label {
+                    text: qsTr("Добавить нескольких из глобальной базы")
+                    color: panel.softMuted
+                    Layout.fillWidth: true
+                }
+
+                AdaptiveButton {
+                    text: qsTr("Выбрать...")
+                    onClicked: {
+                        addActorDialog.close()
+                        panel.globalBulkTransferRequested()
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                color: panel.softBorder
+                visible: !panel.globalMode
             }
 
             Label {
@@ -344,8 +424,7 @@ Item {
                 target.targetKind || "",
                 target.targetId || ""
             )) {
-                panel.selectedActorId = ""
-                panel.selectedActorName = ""
+                panel.clearActorSelection()
             }
         }
 
@@ -381,6 +460,21 @@ Item {
         currentColor: panel.addActorColor
         onColorAccepted: function(colorValue) {
             panel.addActorColor = colorValue
+        }
+    }
+
+    ActorColorDialog {
+        id: globalActorColorDialog
+        ownerWindow: panel.Window.window
+        appBridge: panel.appBridge
+        property string actorId: ""
+        currentColor: panel.addActorColor
+        onColorAccepted: function(colorValue) {
+            if (actorId.length > 0) {
+                panel.actorLibraryBackend.addGlobalActorToProject(
+                    actorId, colorValue.toString()
+                )
+            }
         }
     }
 
@@ -428,6 +522,96 @@ Item {
         }
     }
 
+    NativeDialogWindow {
+        id: deleteGlobalActorDialog
+        ownerWindow: panel.Window.window
+        modal: true
+        title: qsTr("Удалить из глобальной базы?")
+        standardButtons: Dialog.Yes | Dialog.Cancel
+        width: 430
+        height: 180
+        property var actorIds: []
+        property var actorNames: []
+
+        onAccepted: {
+            if (actorIds.length === 0)
+                return
+            panel.actorLibraryBackend.deleteGlobalActors(actorIds)
+            panel.clearActorSelection()
+        }
+
+        content: ColumnLayout {
+            anchors.fill: parent
+            spacing: 8
+
+            Label {
+                text: deleteGlobalActorDialog.actorNames.length === 1
+                    ? qsTr("Удалить «") + deleteGlobalActorDialog.actorNames[0]
+                        + qsTr("» из глобальной базы?")
+                    : qsTr("Удалить выбранных актёров из глобальной базы: ")
+                        + deleteGlobalActorDialog.actorNames.length + "?"
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            Label {
+                text: qsTr("Актёры, уже добавленные в проекты, останутся без изменений.")
+                wrapMode: Text.WordWrap
+                color: panel.softMuted
+                Layout.fillWidth: true
+            }
+        }
+    }
+
+    NativeDialogWindow {
+        id: deleteProjectActorsDialog
+        ownerWindow: panel.Window.window
+        modal: true
+        title: qsTr("Удалить актёров из проекта?")
+        standardButtons: Dialog.Yes | Dialog.Cancel
+        width: 500
+        height: boundedHeight(430, 36)
+        property var actorIds: []
+        property var roleAssignments: []
+
+        onAccepted: {
+            if (actorIds.length === 0)
+                return
+            panel.castingBackend.deleteActors(actorIds)
+            panel.clearActorSelection()
+        }
+
+        content: ColumnLayout {
+            anchors.fill: parent
+            spacing: 8
+
+            Label {
+                text: qsTr("Назначения этих актёров будут сняты:")
+                Layout.fillWidth: true
+            }
+
+            PersistentListView {
+                id: projectActorRolesView
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.minimumHeight: 96
+                clip: true
+                model: deleteProjectActorsDialog.roleAssignments
+                delegate: Label {
+                    width: projectActorRolesView.viewportWidth
+                    text: modelData.actorName + ": " + modelData.rolesText
+                    wrapMode: Text.WordWrap
+                    padding: 4
+                }
+            }
+
+            Label {
+                text: qsTr("Операцию можно отменить через Undo.")
+                color: panel.softMuted
+                Layout.fillWidth: true
+            }
+        }
+    }
+
     ActorColorDialog {
         id: actorColorDialog
         ownerWindow: panel.Window.window
@@ -464,11 +648,7 @@ Item {
                 Layout.maximumHeight: panel.controlHeight
                 Layout.alignment: Qt.AlignVCenter
                 model: ["Проект", "Глобальная"]
-                onActivated: {
-                    panel.selectedActorId = ""
-                    panel.selectedActorName = ""
-                    panel.selectedActorGender = ""
-                }
+                onActivated: panel.clearActorSelection()
             }
         }
 
@@ -544,19 +724,22 @@ Item {
                 id: actorRow
                 width: actorsView.viewportWidth
                 height: panel.actorRowHeight
-                color: panel.selectedActorId === model.id ? panel.selectedRow : (actorHover.hovered ? panel.softHover : (index % 2 === 0 ? panel.softRow : panel.softAltRow))
+                color: panel.isActorSelected(model.id) ? panel.selectedRow : (actorHover.hovered ? panel.softHover : (index % 2 === 0 ? panel.softRow : panel.softAltRow))
 
                 HoverHandler {
                     id: actorHover
                 }
 
-                TapHandler {
-                    onTapped: {
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton
+                    onClicked: function(mouse) {
                         panel.toggleActorSelection(
-                            model.id, model.name, model.color, model.gender
+                            model.id, model.name, model.color, model.gender,
+                            mouse.modifiers
                         )
                     }
-                    onDoubleTapped: if (!panel.globalMode) {
+                    onDoubleClicked: if (!panel.globalMode) {
                         panel.actorRolesRequested(model.id)
                     }
                 }
@@ -570,6 +753,8 @@ Item {
                         width: panel.colorColumnWidth
                         height: 20
                         swatchColor: model.color
+                        markerShape: panel.actorMarkerShape
+                        markerSize: panel.actorMarkerSize
                         interactive: true
                         visible: !panel.globalMode
 
@@ -711,17 +896,26 @@ Item {
                 text: qsTr("Удалить")
                 palette.buttonText: panel.macOSStyle
                     ? palette.text : "#b42318"
-                enabled: panel.selectedActorId.length > 0
+                enabled: panel.selectedActorIds.length > 0
                 onClicked: {
                     if (panel.globalMode) {
-                        panel.actorLibraryBackend.deleteGlobalActor(
-                            panel.selectedActorId
-                        )
+                        var names = []
+                        for (var i = 0; i < panel.selectedActorIds.length; i++) {
+                            var actorId = panel.selectedActorIds[i]
+                            for (var row = 0; row < actorsView.count; row++) {
+                                var actor = actorsView.model.get(row)
+                                if (actor.id === actorId) {
+                                    names.push(actor.name)
+                                    break
+                                }
+                            }
+                        }
+                        deleteGlobalActorDialog.actorIds = panel.selectedActorIds.slice()
+                        deleteGlobalActorDialog.actorNames = names
+                        deleteGlobalActorDialog.open()
                     } else {
-                        panel.castingBackend.deleteActor(panel.selectedActorId)
+                        panel.requestProjectActorDeletion()
                     }
-                    panel.selectedActorId = ""
-                    panel.selectedActorName = ""
                 }
                 Layout.fillWidth: !panel.macOSStyle
             }

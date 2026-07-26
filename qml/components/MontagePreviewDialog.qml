@@ -20,6 +20,8 @@ NativeDialogWindow {
     property string singleFormat: "html"
     property bool settingsVisible: true
     property real settingsWidth: 350
+    property int actorMarkerShape: 0
+    property int actorMarkerSize: 0
     readonly property var montageBackend: appBridge ? appBridge.montage : null
     readonly property var config: montageBackend ? montageBackend.config : ({})
 
@@ -67,6 +69,8 @@ NativeDialogWindow {
         softRow: dialog.softRow
         softAltRow: dialog.softAltRow
         softMuted: dialog.softMuted
+        actorMarkerShape: dialog.actorMarkerShape
+        actorMarkerSize: dialog.actorMarkerSize
     }
 
     FileDialog {
@@ -149,7 +153,9 @@ NativeDialogWindow {
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 8
+            Layout.leftMargin: dialog.macOSStyle ? 12 : 0
+            Layout.rightMargin: dialog.macOSStyle ? 12 : 0
+            spacing: dialog.macOSStyle ? 10 : 8
 
             CompactToolButton {
                 iconSource: Qt.resolvedUrl("../icons/settings.svg")
@@ -202,7 +208,7 @@ NativeDialogWindow {
                 visible: dialog.settingsVisible
                 SplitView.preferredWidth: dialog.settingsWidth
                 SplitView.minimumWidth: 300
-                color: dialog.macOSStyle ? "transparent" : palette.window
+                color: palette.window
                 border.width: dialog.macOSStyle ? 0 : 1
                 border.color: dialog.softBorder
                 clip: true
@@ -214,7 +220,10 @@ NativeDialogWindow {
                 PersistentScrollView {
                     id: settingsPane
                     anchors.fill: parent
-                    anchors.margins: 8
+                    anchors.leftMargin: dialog.macOSStyle ? 12 : 8
+                    anchors.rightMargin: dialog.macOSStyle ? 12 : 8
+                    anchors.topMargin: dialog.macOSStyle ? 10 : 8
+                    anchors.bottomMargin: dialog.macOSStyle ? 10 : 8
                     clip: true
                     contentWidth: availableWidth
                     contentHeight: settingsColumn.implicitHeight
@@ -222,11 +231,16 @@ NativeDialogWindow {
                     ColumnLayout {
                         id: settingsColumn
                         width: settingsPane.availableWidth
-                        spacing: 5
+                        spacing: dialog.macOSStyle ? 9 : 5
 
                         Label {
                             text: qsTr("Просмотр")
-                            font.bold: true
+                            font.weight: dialog.macOSStyle
+                                ? Font.DemiBold : Font.Bold
+                            font.pixelSize: dialog.macOSStyle ? 11 : font.pixelSize
+                            font.capitalization: dialog.macOSStyle
+                                ? Font.AllUppercase : Font.MixedCase
+                            color: dialog.macOSStyle ? dialog.softMuted : palette.text
                         }
 
                         RowLayout {
@@ -262,6 +276,7 @@ NativeDialogWindow {
                         CollapsibleSection {
                             title: qsTr("Колонки")
                             expanded: true
+                            sidebarStyle: dialog.macOSStyle
                             Layout.fillWidth: true
 
                             CheckBox {
@@ -297,6 +312,7 @@ NativeDialogWindow {
                         CollapsibleSection {
                             title: qsTr("Таймкод")
                             expanded: true
+                            sidebarStyle: dialog.macOSStyle
                             Layout.fillWidth: true
 
                             PlatformComboBox {
@@ -336,6 +352,7 @@ NativeDialogWindow {
 
                         CollapsibleSection {
                             title: qsTr("Цвета и подсветка")
+                            sidebarStyle: dialog.macOSStyle
                             Layout.fillWidth: true
 
                             CheckBox {
@@ -365,6 +382,7 @@ NativeDialogWindow {
 
                         CollapsibleSection {
                             title: qsTr("Размер текста")
+                            sidebarStyle: dialog.macOSStyle
                             Layout.fillWidth: true
 
                             Repeater {
@@ -400,6 +418,7 @@ NativeDialogWindow {
                         CollapsibleSection {
                             title: qsTr("Экспорт")
                             expanded: true
+                            sidebarStyle: dialog.macOSStyle
                             Layout.fillWidth: true
 
                             CheckBox {

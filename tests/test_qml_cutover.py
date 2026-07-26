@@ -81,6 +81,8 @@ def test_macos_main_window_waits_for_native_chrome_before_showing():
     assert "property int macOSChromeHeightDelta: 0" in source
     assert "startupGeometryTimer.restart()" in source
     assert "height - macOSChromeHeightDelta" in source
+    assert "id: windowsMenuResetTimer" in source
+    assert "Qt.callLater(root.dismissStartupMenus)" in source
 
 
 def test_main_tables_can_clear_their_selection():
@@ -95,6 +97,14 @@ def test_main_tables_can_clear_their_selection():
     assert "Keys.onEscapePressed: panel.clearActorSelection()" in actor_panel
     assert "actorsView.indexAt(" in actor_panel
     assert "rowIndex < 0" in actor_panel
+    assert "id: deleteGlobalActorDialog" in actor_panel
+    assert "Удалить из глобальной базы?" in actor_panel
+    assert "Актёры, уже добавленные в проекты" in actor_panel
+    assert "function requestProjectActorDeletion()" in actor_panel
+    assert "Qt.ControlModifier" in actor_panel
+    assert "Qt.MetaModifier" in actor_panel
+    assert "id: deleteProjectActorsDialog" in actor_panel
+    assert "Назначения этих актёров будут сняты:" in actor_panel
     assert "function clearCharacterSelection()" in character_table
     assert "Keys.onEscapePressed: table.clearCharacterSelection()" in character_table
     assert "characterView.indexAt(" in character_table

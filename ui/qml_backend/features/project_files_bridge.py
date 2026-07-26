@@ -35,7 +35,7 @@ class ProjectFilesBridge(QObject):
     statusRequested = Signal(str)
     errorRequested = Signal(str)
     projectDataChanged = Signal(str)
-    episodeDeletionRequested = Signal(str)
+    episodeDeletionRequested = Signal(list)
 
     def __init__(
         self,
@@ -128,6 +128,58 @@ class ProjectFilesBridge(QObject):
         self._project_folder_service.invalidate_cache()
         self._refresh_files()
         self._refresh_health()
+
+    def materialize_missing_source_lines(self) -> int:
+        """Embed original source lines for legacy working texts before saving."""
+        return self._materialize_missing_source_lines(self._session.data)
+
+    @Slot()
+    def createMissingSourceLines(self) -> None:
+        """Create original source-line snapshots for every eligible episode."""
+        candidate = deepcopy(self._session.data)
+        materialized = self._materialize_missing_source_lines(candidate)
+        if not materialized:
+            self.statusRequested.emit(
+                "Нет рабочих текстов, которым нужны построчные реплики"
+            )
+            return
+        self._push_file_state(
+            candidate,
+            "Созданы построчные реплики из исходников",
+        )
+        self.statusRequested.emit(
+            f"Созданы построчные реплики: {materialized}"
+        )
+
+    def _materialize_missing_source_lines(
+        self,
+        project_data: Dict[str, Any],
+    ) -> int:
+        if project_data.get("project_kind") == "audiobook":
+            return 0
+
+        materialized = 0
+        for episode in project_data.get("episode_working_texts", {}):
+            if self._script_text_service.has_imported_source_lines(
+                project_data,
+                episode,
+            ):
+                continue
+            source = self._resolved_episode_source(str(episode), project_data)
+            if not source:
+                continue
+            try:
+                lines = self._parse_episode_source(source, project_data)
+            except Exception:
+                continue
+            if self._script_text_service.embed_source_lines_from_source(
+                project_data,
+                str(episode),
+                source,
+                lines,
+            ):
+                materialized += 1
+        return materialized
 
     @Slot(str)
     def setFolder(self, path_or_url: str) -> None:
@@ -424,9 +476,15 @@ class ProjectFilesBridge(QObject):
 
     @Slot(str)
     def deleteEpisode(self, episode: str) -> None:
-        episode = str(episode or "")
-        if episode:
-            self.episodeDeletionRequested.emit(episode)
+        self.deleteEpisodes([episode])
+
+    @Slot(list)
+    def deleteEpisodes(self, episodes: list) -> None:
+        episode_names = list(dict.fromkeys(
+            str(episode) for episode in episodes if str(episode)
+        ))
+        if episode_names:
+            self.episodeDeletionRequested.emit(episode_names)
 
     def _refresh_files(self) -> None:
         project_data = self._session.data
@@ -493,6 +551,10 @@ class ProjectFilesBridge(QObject):
             payload = working_texts.get(episode)
             legacy_path = str(legacy_texts.get(episode) or "")
             has_embedded = isinstance(payload, dict)
+            has_source_lines = self._script_text_service.has_imported_source_lines(
+                project_data,
+                episode,
+            )
             legacy_exists = bool(
                 legacy_path
                 and self._project_folder_service.project_path_exists(
@@ -506,14 +568,16 @@ class ProjectFilesBridge(QObject):
                 "episode": episode,
                 "kind": "working",
                 "kindLabel": "Рабочий текст",
-                "status": "В проекте" if has_embedded else (
+                "status": "В проекте" if has_embedded and has_source_lines else (
+                    "Нет построчных реплик" if has_embedded else (
                     "Найден" if legacy_exists else (
                         "Не найден" if legacy_path else "Не создан"
-                    )
+                    ))
                 ),
-                "statusKind": "success" if working_exists else (
+                "statusKind": "success" if has_embedded and has_source_lines else (
+                    "warning" if has_embedded else (
                     "error" if legacy_path else "warning"
-                ),
+                )),
                 "path": (
                     "Встроен в .dub"
                     if has_embedded

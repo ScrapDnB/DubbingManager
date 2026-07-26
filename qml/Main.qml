@@ -37,6 +37,12 @@ ApplicationWindow {
     property string compactSection: "workspace"
     property string actorColorDisplayMode:
         uiState.boolValue("actorColorCellFill", false) ? "cell" : "marker"
+    property int actorColorMuteLevel: uiState.intValue(
+        "actorColorCellMuteLevel",
+        uiState.boolValue("actorColorCellMuted", true) ? 2 : 0
+    )
+    property int actorMarkerShape: uiState.intValue("actorMarkerShape", 0)
+    property int actorMarkerSize: uiState.intValue("actorMarkerSize", 0)
 
     onCompactLayoutChanged: {
         if (!compactLayout)
@@ -74,7 +80,7 @@ ApplicationWindow {
             show()
         }
         if (root.windowsStyle)
-            root.dismissStartupMenus()
+            windowsMenuResetTimer.restart()
         startupGeometryTimer.restart()
     }
 
@@ -123,6 +129,18 @@ ApplicationWindow {
                 )
             }
             root.uiReady = true
+        }
+    }
+
+    Timer {
+        id: windowsMenuResetTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            root.dismissStartupMenus()
+            // Qt's Windows MenuBar may choose an initial item while handling
+            // the first expose event. Clear it once more on the next turn.
+            Qt.callLater(root.dismissStartupMenus)
         }
     }
 
@@ -513,6 +531,8 @@ ApplicationWindow {
         softRow: root.softRow
         softAltRow: root.softAltRow
         softMuted: root.softMuted
+        actorMarkerShape: root.actorMarkerShape
+        actorMarkerSize: root.actorMarkerSize
     }
 
     ReaperExportDialog {
@@ -636,6 +656,15 @@ ApplicationWindow {
         softMuted: root.softMuted
     }
 
+    GlobalActorTransferDialog {
+        id: globalActorTransferDialog
+        ownerWindow: root
+        appBridge: root.appBridge
+        softRow: root.softRow
+        softAltRow: root.softAltRow
+        softMuted: root.softMuted
+    }
+
     ProjectSettingsDialog {
         id: projectSettingsDialog
         ownerWindow: root
@@ -656,10 +685,16 @@ ApplicationWindow {
         appBridge: root.appBridge
         softMuted: root.softMuted
         actorColorDisplayMode: root.actorColorDisplayMode
+        actorColorMuteLevel: root.actorColorMuteLevel
+        actorMarkerShape: root.actorMarkerShape
+        actorMarkerSize: root.actorMarkerSize
         onActorBaseExportRequested: exportGlobalActorsDialog.open()
         onActorBaseImportRequested: importGlobalActorsDialog.open()
-        onActorColorDisplayModeAccepted: function(mode) {
+        onActorColorDisplayModeAccepted: function(mode, muteLevel, markerShape, markerSize) {
             root.actorColorDisplayMode = mode
+            root.actorColorMuteLevel = muteLevel
+            root.actorMarkerShape = markerShape
+            root.actorMarkerSize = markerSize
         }
     }
 
@@ -669,7 +704,11 @@ ApplicationWindow {
         appBridge: root.appBridge
         softBorder: root.softBorder
         softHeader: root.softHeader
+        softRow: root.softRow
+        softAltRow: root.softAltRow
         softMuted: root.softMuted
+        actorMarkerShape: root.actorMarkerShape
+        actorMarkerSize: root.actorMarkerSize
     }
 
     Shortcut { sequences: [StandardKey.Undo]; onActivated: root.projectBackend.undo() }
@@ -705,7 +744,7 @@ ApplicationWindow {
         function onSaveProjectAsRequested() { saveAsDialog.open() }
         function onGlobalSettingsRequested() { globalSettingsDialog.openSettings() }
         function onProjectSettingsRequested() { projectSettingsDialog.openFor(0) }
-        function onHealthRequested() { projectFilesDialog.openFor("health") }
+        function onHealthRequested() { projectFilesDialog.openFor("files") }
         function onAboutRequested() { aboutDialog.open() }
     }
 
@@ -808,7 +847,7 @@ ApplicationWindow {
             onSaveProjectAsRequested: saveAsDialog.open()
             onGlobalSettingsRequested: globalSettingsDialog.openSettings()
             onProjectSettingsRequested: projectSettingsDialog.openFor(0)
-            onHealthRequested: projectFilesDialog.openFor("health")
+            onHealthRequested: projectFilesDialog.openFor("files")
             onAboutRequested: aboutDialog.open()
         }
     }
@@ -871,11 +910,14 @@ ApplicationWindow {
                 softHover: root.softHover
                 softMuted: root.softMuted
                 panelSurface: root.panelSurface
+                actorMarkerShape: root.actorMarkerShape
+                actorMarkerSize: root.actorMarkerSize
                 onProjectSummaryRequested: summaryDialog.openFor("")
                 onActorRolesRequested: function(actorId) {
                     actorRolesDialog.openFor(actorId)
                 }
                 onBulkTransferRequested: actorTransferDialog.openForProject()
+                onGlobalBulkTransferRequested: globalActorTransferDialog.openForProject()
             }
 
             SplitView {
@@ -918,6 +960,9 @@ ApplicationWindow {
                             framed: false
                             appBridge: root.appBridge
                             actorColorDisplayMode: root.actorColorDisplayMode
+                            actorColorMuteLevel: root.actorColorMuteLevel
+                            actorMarkerShape: root.actorMarkerShape
+                            actorMarkerSize: root.actorMarkerSize
                             softBorder: root.softBorder
                             softHeader: root.softHeader
                             softRow: root.softRow

@@ -13,12 +13,21 @@ NativeDialogWindow {
     required property color softRow
     required property color softAltRow
     required property color softMuted
+    property int actorMarkerShape: 0
+    property int actorMarkerSize: 0
+    property string actorSearchText: ""
 
     modal: true
     title: qsTr("Подсветка актёров")
     standardButtons: Dialog.Close
     width: boundedWidth(480, 36)
     height: boundedHeight(620, 36)
+
+    function matchesActor(name) {
+        var needle = actorSearchText.trim().toLocaleLowerCase()
+        return needle.length === 0
+            || String(name).toLocaleLowerCase().indexOf(needle) >= 0
+    }
 
     content: ColumnLayout {
         anchors.fill: parent
@@ -42,6 +51,14 @@ NativeDialogWindow {
                 text: dialog.montageBackend.highlightSummary
                 color: dialog.softMuted
             }
+        }
+
+        TextField {
+            id: actorSearchField
+            Layout.fillWidth: true
+            placeholderText: qsTr("Имя или фамилия")
+            selectByMouse: true
+            onTextChanged: dialog.actorSearchText = text
         }
 
         TableHeaderSurface {
@@ -82,7 +99,8 @@ NativeDialogWindow {
                 required property bool negative
 
                 width: actorList.viewportWidth
-                height: dialog.compactRowHeight
+                visible: dialog.matchesActor(actorRow.name)
+                height: visible ? dialog.compactRowHeight : 0
                 color: actorRow.index % 2 === 0
                     ? dialog.softRow
                     : dialog.softAltRow
@@ -97,6 +115,8 @@ NativeDialogWindow {
                         Layout.preferredWidth: 16
                         Layout.preferredHeight: 16
                         swatchColor: actorRow.actorColor
+                        markerShape: dialog.actorMarkerShape
+                        markerSize: dialog.actorMarkerSize
                     }
 
                     CheckBox {
@@ -127,8 +147,12 @@ NativeDialogWindow {
 
             Label {
                 anchors.centerIn: parent
-                visible: actorList.count === 0
-                text: qsTr("В проекте нет актёров")
+                visible: dialog.actorSearchText.length > 0
+                    ? actorList.contentHeight <= 0
+                    : actorList.count === 0
+                text: dialog.actorSearchText.length > 0
+                    ? qsTr("Актёры не найдены")
+                    : qsTr("В проекте нет актёров")
                 color: dialog.softMuted
             }
         }

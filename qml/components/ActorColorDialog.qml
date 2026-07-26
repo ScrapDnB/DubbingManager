@@ -15,21 +15,21 @@ NativeDialogWindow {
     modal: true
     title: qsTr("Выберите цвет")
     standardButtons: Dialog.Ok | Dialog.Cancel
-    width: 300
-    height: 250
+    width: boundedWidth(macOSStyle ? 420 : 440, 36)
+    height: boundedHeight(530, 36)
 
     onOpened: selectedColor = currentColor
     onAccepted: colorAccepted(selectedColor)
 
     content: ColumnLayout {
         anchors.fill: parent
-        spacing: 10
+        spacing: 8
 
         GridLayout {
             Layout.alignment: Qt.AlignHCenter
-            columns: 5
-            rowSpacing: 6
-            columnSpacing: 6
+            columns: 10
+            rowSpacing: 3
+            columnSpacing: 3
 
             Repeater {
                 model: dialog.appBridge ? dialog.appBridge.casting.actorPalette : []
@@ -38,12 +38,13 @@ NativeDialogWindow {
                     id: swatch
                     required property string modelData
 
-                    Layout.preferredWidth: 34
-                    Layout.preferredHeight: 34
+                    Layout.preferredWidth: implicitWidth
+                    Layout.preferredHeight: implicitHeight
                     swatchColor: modelData
                     selected: dialog.selectedColor.toString().toUpperCase()
                         === modelData.toUpperCase()
                     well: true
+                    compact: true
                     interactive: true
                     onClicked: dialog.selectedColor = swatch.modelData
                 }
@@ -55,16 +56,27 @@ NativeDialogWindow {
             spacing: 8
 
             ActorColorSwatch {
-                Layout.preferredWidth: 28
-                Layout.preferredHeight: 28
+                Layout.preferredWidth: 24
+                Layout.preferredHeight: 24
                 swatchColor: dialog.selectedColor
                 well: true
+                compact: true
             }
 
             Label {
                 text: dialog.selectedColor.toString().toUpperCase()
                 Layout.fillWidth: true
                 elide: Text.ElideRight
+            }
+
+            AdaptiveButton {
+                text: qsTr("Случайный")
+                onClicked: {
+                    var colors = dialog.appBridge
+                        ? dialog.appBridge.casting.actorPalette : []
+                    if (colors.length > 0)
+                        dialog.selectedColor = colors[Math.floor(Math.random() * colors.length)]
+                }
             }
 
             AdaptiveButton {

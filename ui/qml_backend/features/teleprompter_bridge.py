@@ -626,7 +626,6 @@ class TeleprompterBridge(QObject):
         if key in {
             "is_mirrored", "show_header", "osc_enabled", "sync_in",
             "sync_out", "reaper_offset_enabled", "page_scroll_mode",
-            "use_cocoa_float_window",
         }:
             return bool(value)
         limits = {

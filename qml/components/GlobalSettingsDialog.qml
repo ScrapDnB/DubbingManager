@@ -14,7 +14,9 @@ NativeDialogWindow {
 
     signal actorBaseExportRequested()
     signal actorBaseImportRequested()
-    signal actorColorDisplayModeAccepted(string mode)
+    signal actorColorDisplayModeAccepted(
+        string mode, int muteLevel, int markerShape, int markerSize
+    )
 
     property var montageDraft: ({})
     property var prompterDraft: ({})
@@ -25,6 +27,12 @@ NativeDialogWindow {
     property var backupDraft: ({})
     property string actorColorDisplayDraft: "marker"
     property string actorColorDisplayMode: "marker"
+    property int actorColorMuteLevelDraft: 2
+    property int actorColorMuteLevel: 2
+    property int actorMarkerShapeDraft: 0
+    property int actorMarkerShape: 0
+    property int actorMarkerSizeDraft: 0
+    property int actorMarkerSize: 0
 
     modal: true
     title: qsTr("Глобальные настройки")
@@ -42,6 +50,9 @@ NativeDialogWindow {
         docxDraft = Object.assign({}, backend.globalDocxImportConfig)
         backupDraft = Object.assign({}, backend.globalBackupConfig)
         actorColorDisplayDraft = actorColorDisplayMode
+        actorColorMuteLevelDraft = actorColorMuteLevel
+        actorMarkerShapeDraft = actorMarkerShape
+        actorMarkerSizeDraft = actorMarkerSize
         backupModeCombo.currentIndex = backupModeCombo.indexOfValue(
             backupDraft.path_mode || "relative"
         )
@@ -83,6 +94,42 @@ NativeDialogWindow {
                 }
 
                 Label {
+                    text: qsTr("Цветовая разметка актёров")
+                    font.bold: true
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Label { text: qsTr("Форма") }
+
+                    PlatformComboBox {
+                        id: actorMarkerShapeCombo
+                        Layout.preferredWidth: 190
+                        model: [
+                            qsTr("Системная"),
+                            qsTr("Круг"),
+                            qsTr("Скруглённый квадрат"),
+                            qsTr("Квадрат")
+                        ]
+                        currentIndex: dialog.actorMarkerShapeDraft
+                        onActivated: dialog.actorMarkerShapeDraft = currentIndex
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    Label { text: qsTr("Размер") }
+
+                    PlatformComboBox {
+                        id: actorMarkerSizeCombo
+                        Layout.preferredWidth: 130
+                        model: [qsTr("Обычный"), qsTr("Мелкий"), qsTr("Крупный")]
+                        currentIndex: dialog.actorMarkerSizeDraft
+                        onActivated: dialog.actorMarkerSizeDraft = currentIndex
+                    }
+                }
+
+                Label {
                     text: qsTr("Цвета актёров в главной таблице")
                     font.bold: true
                 }
@@ -97,12 +144,66 @@ NativeDialogWindow {
                     onClicked: dialog.actorColorDisplayDraft = "marker"
                 }
 
-                RadioButton {
-                    id: cellColorRadio
-                    text: qsTr("Цветной фон ячейки «Актёр»")
-                    checked: dialog.actorColorDisplayDraft === "cell"
-                    ButtonGroup.group: actorColorDisplayGroup
-                    onClicked: dialog.actorColorDisplayDraft = "cell"
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    RadioButton {
+                        id: cellColorRadio
+                        Layout.fillWidth: true
+                        text: qsTr("Цветной фон ячейки «Актёр»")
+                        checked: dialog.actorColorDisplayDraft === "cell"
+                        ButtonGroup.group: actorColorDisplayGroup
+                        onClicked: dialog.actorColorDisplayDraft = "cell"
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    Rectangle {
+                        Layout.preferredWidth: 10
+                        Layout.preferredHeight: 10
+                        radius: width / 2
+                        color: dialog.palette.highlight
+                        visible: cellColorRadio.checked
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: 10
+                        Layout.preferredHeight: 10
+                        radius: width / 2
+                        color: dialog.palette.highlight
+                        opacity: 0.55
+                        visible: cellColorRadio.checked
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: 10
+                        Layout.preferredHeight: 10
+                        radius: width / 2
+                        color: dialog.palette.highlight
+                        opacity: 0.20
+                        visible: cellColorRadio.checked
+                    }
+
+                    Slider {
+                        id: actorColorMuteSlider
+                        Layout.preferredWidth: 86
+                        Layout.maximumWidth: 86
+                        enabled: cellColorRadio.checked
+                        from: 0
+                        to: 2
+                        stepSize: 1
+                        snapMode: Slider.SnapAlways
+                        value: dialog.actorColorMuteLevelDraft
+                        onMoved: dialog.actorColorMuteLevelDraft = Math.round(value)
+                        PlatformToolTip {
+                            target: actorColorMuteSlider
+                            text: actorColorMuteSlider.value <= 0
+                                ? qsTr("Яркие цвета")
+                                : actorColorMuteSlider.value < 2
+                                    ? qsTr("Умеренно приглушённые цвета")
+                                    : qsTr("Приглушённые цвета")
+                        }
+                    }
                 }
 
                 Label {
@@ -416,8 +517,23 @@ NativeDialogWindow {
                     "actorColorCellFill",
                     cellColorRadio.checked
                 )
+                dialog.appBridge.uiState.setIntValue(
+                    "actorColorCellMuteLevel",
+                    dialog.actorColorMuteLevelDraft
+                )
+                dialog.appBridge.uiState.setIntValue(
+                    "actorMarkerShape",
+                    dialog.actorMarkerShapeDraft
+                )
+                dialog.appBridge.uiState.setIntValue(
+                    "actorMarkerSize",
+                    dialog.actorMarkerSizeDraft
+                )
                 dialog.actorColorDisplayModeAccepted(
-                    cellColorRadio.checked ? "cell" : "marker"
+                    cellColorRadio.checked ? "cell" : "marker",
+                    dialog.actorColorMuteLevelDraft,
+                    dialog.actorMarkerShapeDraft,
+                    dialog.actorMarkerSizeDraft
                 )
                 if (dialog.backend.applyGlobalSettingsComplete(
                     "ru",

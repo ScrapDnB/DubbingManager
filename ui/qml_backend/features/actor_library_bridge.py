@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import datetime
+import random
 from typing import Optional
 
 from PySide6.QtCore import QObject, Property, QUrl, Signal, Slot, Qt
@@ -105,17 +106,28 @@ class ActorLibraryBridge(QObject):
 
     @Slot(str)
     def deleteGlobalActor(self, actor_id: str) -> None:
-        actor = self._settings.get_global_actor_base().get(actor_id)
-        if not actor:
-            self.errorRequested.emit("Выберите актёра")
+        self.deleteGlobalActors([actor_id])
+
+    @Slot("QVariantList")
+    def deleteGlobalActors(self, actor_ids: list) -> None:
+        actors = self._settings.get_global_actor_base()
+        ids = list(dict.fromkeys(
+            str(actor_id) for actor_id in actor_ids
+            if str(actor_id) in actors
+        ))
+        if not ids:
+            self.errorRequested.emit("Выберите хотя бы одного актёра")
             return
-        self._settings.remove_global_actor(actor_id)
+        names = [str(actors[actor_id].get("name") or actor_id) for actor_id in ids]
+        for actor_id in ids:
+            self._settings.remove_global_actor(actor_id)
         if not self._save():
             return
         self.refresh()
-        self.statusRequested.emit(
-            f"Удалён глобальный актёр: {actor.get('name', actor_id)}"
-        )
+        if len(names) == 1:
+            self.statusRequested.emit(f"Удалён глобальный актёр: {names[0]}")
+        else:
+            self.statusRequested.emit(f"Удалено глобальных актёров: {len(names)}")
 
     @Slot(str, str, str)
     def updateGlobalActor(self, actor_id: str, name: str, gender: str) -> None:
@@ -139,7 +151,8 @@ class ActorLibraryBridge(QObject):
         self.statusRequested.emit(f"Глобальный актёр обновлён: {name}")
 
     @Slot(str)
-    def addGlobalActorToProject(self, actor_id: str) -> None:
+    @Slot(str, str)
+    def addGlobalActorToProject(self, actor_id: str, color: str = "") -> None:
         actor = self._settings.get_global_actor_base().get(actor_id)
         if not actor:
             self.errorRequested.emit("Выберите актёра")
@@ -151,12 +164,72 @@ class ActorLibraryBridge(QObject):
         actors = self._session.data.setdefault("actors", {})
         target_id = actor_id if actor_id not in actors else str(datetime.now().timestamp())
         self._session.execute(AddActorCommand(
-            actors, target_id, name, self._next_color(),
+            actors, target_id, name,
+            self._normalized_color(color) or self._next_color(),
             self._gender(actor.get("gender", "")),
         ), "actors")
         self.projectDataChanged.emit("actors")
         self.refresh()
         self.statusRequested.emit(f"Добавлен в проект: {name}")
+
+    @Slot("QVariantList")
+    def addGlobalActorsToProject(self, actor_ids: list) -> None:
+        """Copy selected global actors into the project in one undo step."""
+        global_actors = self._settings.get_global_actor_base()
+        project_actors = self._session.data.get("actors", {})
+        ids = list(dict.fromkeys(
+            str(actor_id) for actor_id in actor_ids
+            if str(actor_id) in global_actors
+        ))
+        if not ids:
+            self.errorRequested.emit("Выберите хотя бы одного актёра")
+            return
+
+        existing_names = {
+            str(actor.get("name") or "").strip().casefold()
+            for actor in project_actors.values()
+        }
+        additions = []
+        used_colors = {
+            str(actor.get("color") or "").upper()
+            for actor in project_actors.values()
+        }
+        for actor_id in ids:
+            actor = global_actors[actor_id]
+            name = str(actor.get("name") or actor_id)
+            if name.strip().casefold() in existing_names:
+                continue
+            target_id = actor_id
+            while target_id in project_actors or any(
+                row[0] == target_id for row in additions
+            ):
+                target_id = f"{actor_id}-{datetime.now().timestamp()}"
+            color = self._next_color(used_colors)
+            used_colors.add(color.upper())
+            additions.append((target_id, {
+                "name": name,
+                "color": color,
+                "gender": self._gender(actor.get("gender", "")),
+                "roles": [],
+            }))
+            existing_names.add(name.strip().casefold())
+
+        if not additions:
+            self.errorRequested.emit("Все выбранные актёры уже есть в проекте")
+            return
+
+        updated_actors = deepcopy(project_actors)
+        updated_actors.update(dict(additions))
+        self._session.execute(UpdateProjectFileStateCommand(
+            self._session.data,
+            {"actors": updated_actors},
+            f"Добавлены актёры из глобальной базы: {len(additions)}",
+        ), "actors")
+        self.projectDataChanged.emit("actors")
+        self.refresh()
+        self.statusRequested.emit(
+            f"Добавлено в проект: {len(additions)} · уже было: {len(ids) - len(additions)}"
+        )
 
     @Slot(str)
     def addProjectActorToGlobal(self, actor_id: str) -> None:
@@ -483,10 +556,23 @@ class ActorLibraryBridge(QObject):
         return any(str(actor.get("name") or "").strip().casefold() == key
                    for actor in self._session.data.get("actors", {}).values())
 
-    def _next_color(self) -> str:
+    def _next_color(self, extra_used: Optional[set[str]] = None) -> str:
         used = {str(actor.get("color", "")).upper()
                 for actor in self._session.data.get("actors", {}).values()}
-        return next((color for color in MY_PALETTE if color.upper() not in used), MY_PALETTE[0])
+        used.update(extra_used or set())
+        available = [color for color in MY_PALETTE if color.upper() not in used]
+        return random.choice(available or MY_PALETTE)
+
+    @staticmethod
+    def _normalized_color(color: str) -> str:
+        value = str(color or "").strip().upper()
+        if not (value.startswith("#") and len(value) == 7):
+            return ""
+        try:
+            int(value[1:], 16)
+        except ValueError:
+            return ""
+        return value
 
     @staticmethod
     def _gender(value: str) -> str:

@@ -7,13 +7,26 @@ Item {
     property bool interactive: false
     property bool selected: false
     property bool well: false
+    property bool compact: false
+    // 0 follows the platform: circles on macOS, rounded squares on Windows.
+    property int markerShape: 0
+    // 0 is the regular size, 1 is small and 2 is large.
+    property int markerSize: 0
     readonly property bool macOSStyle: Qt.platform.os === "osx"
-    readonly property int markSize: well ? 28 : (macOSStyle ? 10 : 14)
+    readonly property int resolvedMarkerShape: markerShape === 0
+        ? (macOSStyle ? 1 : 2) : markerShape
+    readonly property int markSize: well
+        ? (compact ? (macOSStyle ? 16 : 18) : 28)
+        : markerSize === 1
+            ? (macOSStyle ? 8 : 10)
+            : markerSize === 2
+                ? (macOSStyle ? 14 : 18)
+                : (macOSStyle ? 10 : 14)
 
     signal clicked()
 
-    implicitWidth: well ? 36 : 20
-    implicitHeight: well ? 36 : 20
+    implicitWidth: well ? markSize + (compact ? 6 : 8) : 20
+    implicitHeight: well ? markSize + (compact ? 6 : 8) : 20
     Accessible.role: interactive ? Accessible.Button : Accessible.StaticText
     Accessible.name: qsTr("Цвет актёра")
 
@@ -23,7 +36,8 @@ Item {
         height: width
         radius: swatch.well
             ? (swatch.macOSStyle ? 8 : 5)
-            : (swatch.macOSStyle ? width / 2 : 4)
+            : swatch.resolvedMarkerShape === 1 ? width / 2
+                : swatch.resolvedMarkerShape === 2 ? Math.min(4, width / 3) : 0
         color: "transparent"
         border.width: swatch.selected ? 2 : 0
         border.color: palette.highlight
@@ -37,7 +51,8 @@ Item {
         height: width
         radius: swatch.well
             ? (swatch.macOSStyle ? 6 : 3)
-            : (swatch.macOSStyle ? width / 2 : 3)
+            : swatch.resolvedMarkerShape === 1 ? width / 2
+                : swatch.resolvedMarkerShape === 2 ? Math.min(3, width / 3) : 0
         color: swatch.swatchColor
         border.width: 1
         border.color: Qt.rgba(

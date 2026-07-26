@@ -135,6 +135,37 @@ class DeleteActorCommand(Command):
         return changed
 
 
+class DeleteActorsCommand(Command):
+    """Delete several project actors as one undoable operation."""
+
+    def __init__(
+        self,
+        actors: Dict[str, dict],
+        global_map: Dict[str, Any],
+        actor_ids: List[str],
+        extra_maps: Optional[List[Dict[str, Any]]] = None,
+    ):
+        unique_ids = list(dict.fromkeys(
+            str(actor_id) for actor_id in actor_ids if str(actor_id)
+        ))
+        self._commands = [
+            DeleteActorCommand(actors, global_map, actor_id, extra_maps)
+            for actor_id in unique_ids
+            if actor_id in actors
+        ]
+
+    def execute(self) -> None:
+        for command in self._commands:
+            command.execute()
+
+    def undo(self) -> None:
+        for command in reversed(self._commands):
+            command.undo()
+
+    def get_description(self) -> str:
+        return f"Удалены актёры: {len(self._commands)}"
+
+
 class RenameActorCommand(Command):
     """Undoable command for rename actor."""
 
@@ -661,6 +692,50 @@ class DeleteEpisodeCommand(Command):
 
     def get_description(self) -> str:
         return f"Удалена серия: {self.episode_num}"
+
+
+class DeleteEpisodesCommand(Command):
+    """Delete several subtitle episodes as one undoable operation."""
+
+    def __init__(
+        self,
+        episodes: Dict[str, str],
+        video_paths: Dict[str, str],
+        loaded_episodes: Dict[str, List[Dict[str, Any]]],
+        episode_numbers: List[str],
+        episode_actor_map: Optional[Dict[str, Dict[str, str]]] = None,
+        episode_texts: Optional[Dict[str, str]] = None,
+        episode_working_texts: Optional[Dict[str, Dict[str, Any]]] = None,
+        episode_order: Optional[List[str]] = None,
+    ):
+        unique_numbers = list(dict.fromkeys(
+            str(episode) for episode in episode_numbers if str(episode)
+        ))
+        self._commands = [
+            DeleteEpisodeCommand(
+                episodes,
+                video_paths,
+                loaded_episodes,
+                episode,
+                episode_actor_map,
+                episode_texts,
+                episode_working_texts,
+                episode_order,
+            )
+            for episode in unique_numbers
+            if episode in episodes
+        ]
+
+    def execute(self) -> None:
+        for command in self._commands:
+            command.execute()
+
+    def undo(self) -> None:
+        for command in reversed(self._commands):
+            command.undo()
+
+    def get_description(self) -> str:
+        return f"Удалены серии: {len(self._commands)}"
 
 
 class UpdateProjectNameCommand(Command):

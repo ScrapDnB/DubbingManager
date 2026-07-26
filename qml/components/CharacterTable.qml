@@ -18,6 +18,9 @@ Item {
     signal filesDropped(var urls)
     property bool framed: true
     property string actorColorDisplayMode: "marker"
+    property int actorColorMuteLevel: 2
+    property int actorMarkerShape: 0
+    property int actorMarkerSize: 0
     readonly property bool macOSStyle: Qt.platform.os === "osx"
     readonly property bool actorCellColorFill:
         actorColorDisplayMode === "cell"
@@ -27,6 +30,20 @@ Item {
         + palette.base.b * 0.0722
     ) < 0.5
     property color selectedRow: Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.22)
+
+    function actorCellFillColor(actorColor) {
+        if (actorColorMuteLevel <= 0)
+            return actorColor
+        var blend = actorColorMuteLevel === 1
+            ? (darkTheme ? 0.60 : 0.55)
+            : (darkTheme ? 0.30 : 0.20)
+        return Qt.rgba(
+            palette.base.r * (1 - blend) + actorColor.r * blend,
+            palette.base.g * (1 - blend) + actorColor.g * blend,
+            palette.base.b * (1 - blend) + actorColor.b * blend,
+            1
+        )
+    }
 
     SystemPalette {
         id: palette
@@ -122,6 +139,7 @@ Item {
         macOSStyle ? 20 : 22,
         tableFontMetrics.height + (macOSStyle ? 6 : 8)
     )
+    readonly property int actorMarkerArea: actorMarkerSize === 2 ? 24 : 18
     readonly property int baseRowHeight: Math.max(
         macOSStyle ? 28 : 32,
         tableFontMetrics.height + (macOSStyle ? 12 : 16)
@@ -229,7 +247,11 @@ Item {
 
         MenuItem {
             text: qsTr("-")
-            onTriggered: if (table.castingBackend) table.castingBackend.assignActor(table.pendingCharacter, "")
+            onTriggered: {
+                if (table.castingBackend)
+                    table.castingBackend.assignActor(table.pendingCharacter, "")
+                actorMenu.close()
+            }
         }
 
         MenuSeparator {}
@@ -244,7 +266,11 @@ Item {
                 visible: id.length > 0
                 height: visible ? implicitHeight : 0
                 text: name
-                onTriggered: if (table.castingBackend) table.castingBackend.assignActor(table.pendingCharacter, id)
+                onTriggered: {
+                    if (table.castingBackend)
+                        table.castingBackend.assignActor(table.pendingCharacter, id)
+                    actorMenu.close()
+                }
             }
         }
     }
@@ -572,10 +598,12 @@ Item {
                             anchors.fill: parent
                             visible: table.actorCellColorFill
                                 && characterRow.model.actorEntries.length === 1
-                            color: visible
+                            property color actorFillColor: visible
                                 ? characterRow.model.actorEntries[0].color
                                 : "transparent"
-                            opacity: table.darkTheme ? 0.30 : 0.20
+                            color: visible
+                                ? table.actorCellFillColor(actorFillColor)
+                                : "transparent"
                             radius: table.macOSStyle ? 5 : 2
                         }
 
@@ -606,8 +634,8 @@ Item {
                                         anchors.fill: parent
                                         visible: table.actorCellColorFill
                                             && characterRow.hasMultipleActors
-                                        color: modelData.color
-                                        opacity: table.darkTheme ? 0.30 : 0.20
+                                        property color actorFillColor: modelData.color
+                                        color: table.actorCellFillColor(actorFillColor)
                                         radius: table.macOSStyle ? 5 : 2
                                     }
 
@@ -618,9 +646,11 @@ Item {
                                         spacing: 4
 
                                         ActorColorSwatch {
-                                            Layout.preferredWidth: 18
-                                            Layout.preferredHeight: 18
+                                            Layout.preferredWidth: table.actorMarkerArea
+                                            Layout.preferredHeight: table.actorMarkerArea
                                             swatchColor: modelData.color
+                                            markerShape: table.actorMarkerShape
+                                            markerSize: table.actorMarkerSize
                                             visible: !table.actorCellColorFill
                                         }
 

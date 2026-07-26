@@ -465,6 +465,44 @@ def test_qml_deleting_one_multi_cast_actor_keeps_the_other(tmp_path):
     ]
 
 
+def test_qml_deleting_multiple_actors_is_one_undoable_operation():
+    _app()
+    bridge = AppBridge()
+    bridge._session.data.update({
+        "actors": {
+            "actor-1": {"name": "One", "color": "#111111"},
+            "actor-2": {"name": "Two", "color": "#222222"},
+        },
+        "global_map": {
+            "Hero": "actor-1",
+            "Pair": ["actor-1", "actor-2"],
+        },
+        "episode_actor_map": {"1": {"Guest": "actor-2"}},
+    })
+    bridge.casting.refresh()
+
+    assert bridge.casting.actorRoleAssignments(["actor-1", "actor-2"]) == [
+        {"actorName": "One", "rolesText": "Hero, Pair"},
+        {"actorName": "Two", "rolesText": "Guest, Pair"},
+    ]
+
+    bridge.casting.deleteActors(["actor-1", "actor-2"])
+
+    assert bridge._session.data["actors"] == {}
+    assert bridge._session.data["global_map"] == {}
+    assert bridge._session.data["episode_actor_map"] == {"1": {}}
+
+    bridge.project.undo()
+    assert set(bridge._session.data["actors"]) == {"actor-1", "actor-2"}
+    assert bridge._session.data["global_map"] == {
+        "Hero": "actor-1",
+        "Pair": ["actor-1", "actor-2"],
+    }
+    assert bridge._session.data["episode_actor_map"] == {
+        "1": {"Guest": "actor-2"}
+    }
+
+
 def test_qml_bridge_teleprompter_settings_and_presets(tmp_path, monkeypatch):
     _app()
     bridge = AppBridge()
@@ -1078,7 +1116,10 @@ def test_qml_opens_backup_as_unsaved_full_project(tmp_path):
 def test_qml_open_embeds_external_working_text_and_rebases_paths(tmp_path):
     _app()
     (tmp_path / "Episode_01.ass").write_text(
-        "[Script Info]\n", encoding="utf-8"
+        "[Events]\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,"
+        "Source line\n",
+        encoding="utf-8",
     )
     texts_dir = tmp_path / "Texts"
     texts_dir.mkdir()
@@ -1114,6 +1155,63 @@ def test_qml_open_embeds_external_working_text_and_rebases_paths(tmp_path):
     ] == "Portable line"
     assert "1" not in bridge._session.data["episode_texts"]
     assert bridge.project.dirty is True
+    working_row = next(
+        row for row in bridge.projectFiles.filesModel.rows()
+        if row["episode"] == "1" and row["kind"] == "working"
+    )
+    assert working_row["status"] == "Нет построчных реплик"
+
+    migrated_path = tmp_path / "portable.dub"
+    bridge.project.saveAs(str(migrated_path))
+
+    saved = json.loads(migrated_path.read_text(encoding="utf-8"))
+    payload = saved["episode_working_texts"]["1"]
+    assert payload["lines"][0]["text"] == "Portable line"
+    assert payload["source_lines_origin"] == "imported"
+    assert payload["source_lines"][0]["text"] == "Source line"
+    working_row = next(
+        row for row in bridge.projectFiles.filesModel.rows()
+        if row["episode"] == "1" and row["kind"] == "working"
+    )
+    assert working_row["status"] == "В проекте"
+
+
+def test_qml_project_files_creates_missing_source_lines_with_undo(tmp_path):
+    _app()
+    source = tmp_path / "Episode_01.ass"
+    source.write_text(
+        "[Events]\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,"
+        "Source line\n",
+        encoding="utf-8",
+    )
+    bridge = AppBridge()
+    bridge._session.data.update({
+        "episodes": {"1": str(source)},
+        "episode_working_texts": {
+            "1": {
+                "lines": [{
+                    "id": "line-1",
+                    "start": 1.0,
+                    "end": 2.0,
+                    "character": "Hero",
+                    "text": "Edited working line",
+                }],
+            },
+        },
+    })
+    bridge.refresh()
+
+    bridge.projectFiles.createMissingSourceLines()
+
+    payload = bridge._session.data["episode_working_texts"]["1"]
+    assert payload["lines"][0]["text"] == "Edited working line"
+    assert payload["source_lines"][0]["text"] == "Source line"
+    assert payload["source_lines_origin"] == "imported"
+
+    bridge.project.undo()
+
+    assert "source_lines" not in bridge._session.data["episode_working_texts"]["1"]
 
 
 def test_qml_applies_unified_global_import_profile_with_one_undo():
@@ -1181,6 +1279,11 @@ def test_qml_global_actor_base_export_import_roundtrip(tmp_path):
     assert library.importGlobalActorBase(str(path))
     assert library.globalActorsModel.rows()[0]["name"] == "Actor One"
     assert library.globalActorsModel.rows()[0]["gender"] == "Ж"
+
+    library.addGlobalActor("Actor Two", "М")
+    ids = [row["id"] for row in library.globalActorsModel.rows()]
+    library.deleteGlobalActors(ids)
+    assert library.globalActorsModel.rowCount() == 0
 
 
 def test_qml_assignment_transfer_import_is_one_undoable_command(tmp_path):
@@ -1715,18 +1818,40 @@ def test_qml_casting_moves_global_actor_to_project_with_undo():
     assert global_row["gender"] == "Ж"
     assert global_row["color"] == "transparent"
 
-    actor_library.addGlobalActorToProject(global_row["id"])
+    actor_library.addGlobalActorToProject(global_row["id"], "#4F81BD")
 
     project_actor = bridge._session.data["actors"][global_row["id"]]
     assert project_actor["name"] == "Global Voice"
     assert project_actor["gender"] == "Ж"
-    assert project_actor["color"] in MY_PALETTE
+    assert project_actor["color"] == "#4F81BD"
     assert actor_library.globalActorsModel.rows()[0]["inProject"]
 
     bridge.project.undo()
 
     assert bridge._session.data["actors"] == {}
     assert not actor_library.globalActorsModel.rows()[0]["inProject"]
+
+
+def test_qml_casting_moves_multiple_global_actors_to_project_with_undo():
+    _app()
+    bridge = AppBridge()
+    actor_library = bridge.actorLibrary
+
+    actor_library.addGlobalActor("Global Voice One", "Ж")
+    actor_library.addGlobalActor("Global Voice Two", "М")
+    rows = actor_library.globalActorsModel.rows()
+
+    actor_library.addGlobalActorsToProject([row["id"] for row in rows])
+
+    project_actors = bridge._session.data["actors"]
+    assert len(project_actors) == 2
+    colors = [actor["color"] for actor in project_actors.values()]
+    assert all(color in MY_PALETTE for color in colors)
+    assert len(set(colors)) == 2
+
+    bridge.project.undo()
+
+    assert bridge._session.data["actors"] == {}
 
 
 def test_qml_actor_merge_replaces_every_project_reference_and_undoes():
@@ -2679,6 +2804,8 @@ def test_qml_ui_state_remembers_dialog_folders_and_window_values(tmp_path):
     state = UiStateBridge(settings)
     state.rememberFile("sourceFiles", str(source_file))
     state.setIntValue("main.width", 1440)
+    state.setIntValue("teleprompterFloat.width", 428)
+    state.setIntValue("teleprompterFloat.height", 516)
     state.setBoolValue("main.maximized", True)
     state.setBoolValue("actorColorCellFill", True)
     settings.sync()
@@ -2691,6 +2818,8 @@ def test_qml_ui_state_remembers_dialog_folders_and_window_values(tmp_path):
 
     assert Path(restored.folderUrl("sourceFiles").toLocalFile()) == source_dir
     assert restored.intValue("main.width", 1000) == 1440
+    assert restored.intValue("teleprompterFloat.width", 300) == 428
+    assert restored.intValue("teleprompterFloat.height", 440) == 516
     assert restored.boolValue("main.maximized", False) is True
     assert restored.boolValue("actorColorCellFill", False) is True
 
@@ -2757,7 +2886,7 @@ def test_qml_bridge_builds_project_file_and_health_models(tmp_path):
     rows = project_files.filesModel.rows()
     assert [row["kind"] for row in rows] == ["source", "working", "video"]
     assert rows[0]["status"] == "Не найден"
-    assert rows[1]["status"] == "В проекте"
+    assert rows[1]["status"] == "Нет построчных реплик"
     assert project_files.currentEpisodeSourceMissing
     assert "предупреждения: 1" in project_files.healthSummary
     assert any(
@@ -2846,6 +2975,32 @@ def test_qml_bridge_removes_video_link_with_undo(tmp_path):
     bridge.project.undo()
 
     assert bridge._session.data["video_paths"]["1"] == str(video)
+
+
+def test_qml_bridge_deletes_multiple_episodes_with_one_undo(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {
+        "1": str(tmp_path / "Episode 1.srt"),
+        "2": str(tmp_path / "Episode 2.srt"),
+        "3": str(tmp_path / "Episode 3.srt"),
+    }
+    bridge._session.data["video_paths"] = {
+        "1": str(tmp_path / "Episode 1.mp4"),
+        "2": str(tmp_path / "Episode 2.mp4"),
+    }
+    bridge.project.selectEpisode("2")
+
+    bridge.projectFiles.deleteEpisodes(["1", "2"])
+
+    assert set(bridge._session.data["episodes"]) == {"3"}
+    assert bridge._session.data["video_paths"] == {}
+    assert bridge.project.currentEpisode == "3"
+
+    bridge.project.undo()
+
+    assert set(bridge._session.data["episodes"]) == {"1", "2", "3"}
+    assert set(bridge._session.data["video_paths"]) == {"1", "2"}
 
 
 def test_qml_bridge_relinks_source_and_undoes(tmp_path):

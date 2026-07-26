@@ -47,7 +47,6 @@ PersistentScrollView {
                 columns: 3
                 CheckBox { text: qsTr("Зеркально"); checked: Boolean(pane.configuration.is_mirrored); onToggled: pane.setValue("is_mirrored", checked) }
                 CheckBox { text: qsTr("Показывать заголовок"); checked: Boolean(pane.configuration.show_header); onToggled: pane.setValue("show_header", checked) }
-                CheckBox { text: qsTr("Системный пульт macOS"); checked: Boolean(pane.configuration.use_cocoa_float_window); onToggled: pane.setValue("use_cocoa_float_window", checked) }
                 Label { text: qsTr("Позиция фокуса: ") + Math.round(Number(pane.configuration.focus_ratio || 0.5) * 100) + "%"; Layout.columnSpan: 2 }
                 Slider { from: 0.1; to: 0.9; value: Number(pane.configuration.focus_ratio || 0.5); onMoved: pane.setValue("focus_ratio", value); Layout.fillWidth: true }
             }

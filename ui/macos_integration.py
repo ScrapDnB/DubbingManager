@@ -298,13 +298,13 @@ class MacOSIntegration(QObject):
             self.SAVE,
             self.SAVE_AS,
             NSToolbarSpaceItemIdentifier,
-            self.SETTINGS,
             self.PROJECT_SETTINGS,
+            self.HEALTH,
             NSToolbarFlexibleSpaceItemIdentifier,
             self.UNDO,
             self.REDO,
             NSToolbarSpaceItemIdentifier,
-            self.HEALTH,
+            self.SETTINGS,
             self.ABOUT,
         ]
 
@@ -356,6 +356,9 @@ class MacOSIntegration(QObject):
         if sys.platform != "darwin" or window is None:
             return
         try:
+            if window.objectName() == "teleprompterFloatWindow":
+                self.configureFloatingToolWindow(window)
+                return
             native_view = objc.objc_object(c_void_p=int(window.winId()))
             ns_window = native_view.window()
             if ns_window is not None:
@@ -367,6 +370,34 @@ class MacOSIntegration(QObject):
         except Exception:
             logger.debug(
                 "Could not configure macOS material for an auxiliary window",
+                exc_info=True,
+            )
+
+    @Slot(QObject)
+    def configureFloatingToolWindow(self, window: Optional[QObject]) -> None:
+        """Keep the teleprompter controller visible without activating the app."""
+        if sys.platform != "darwin" or window is None:
+            return
+        try:
+            native_view = objc.objc_object(c_void_p=int(window.winId()))
+            ns_window = native_view.window()
+            if ns_window is None:
+                return
+
+            # Qt.Tool maps to NSPanel. Disable its default hide-on-deactivate
+            # policy, then use the same non-activating floating level as the
+            # former Cocoa controller.
+            if hasattr(ns_window, "setHidesOnDeactivate_"):
+                ns_window.setHidesOnDeactivate_(False)
+            ns_window.setLevel_(NSFloatingWindowLevel)
+            ns_window.setStyleMask_(
+                ns_window.styleMask() | NSWindowStyleMaskNonactivatingPanel
+            )
+            ns_window.setTitleVisibility_(NSWindowTitleHidden)
+            ns_window.setMovableByWindowBackground_(True)
+        except Exception:
+            logger.debug(
+                "Could not configure non-activating teleprompter controller",
                 exc_info=True,
             )
 

@@ -7,8 +7,10 @@ import QtQuick.Window
 
 Window {
     id: floatWindow
+    objectName: "teleprompterFloatWindow"
 
     required property var teleprompter
+    required property var uiState
     required property color softBorder
     required property color softMuted
     property var ownerWindow
@@ -28,14 +30,52 @@ Window {
         | Qt.WindowDoesNotAcceptFocus
         | Qt.FramelessWindowHint
     color: palette.window
+    property bool uiStateReady: false
+
+    function restoreSize() {
+        width = Math.max(
+            minimumWidth,
+            Math.min(maximumWidth, uiState.intValue("teleprompterFloat.width", 300))
+        )
+        height = Math.max(
+            minimumHeight,
+            Math.min(maximumHeight, uiState.intValue("teleprompterFloat.height", 440))
+        )
+        uiStateReady = true
+    }
+
+    function persistSize() {
+        uiState.setIntValue("teleprompterFloat.width", Math.round(width))
+        uiState.setIntValue("teleprompterFloat.height", Math.round(height))
+    }
 
     function openNearOwner() {
+        if (Qt.platform.os === "osx"
+                && typeof platformIntegration !== "undefined") {
+            platformIntegration.configureFloatingToolWindow(floatWindow)
+        }
         if (ownerWindow) {
             x = ownerWindow.x + ownerWindow.width - width - 24
             y = ownerWindow.y + 72
         }
         visible = true
         raise()
+    }
+
+    onVisibleChanged: if (visible && Qt.platform.os === "osx"
+            && typeof platformIntegration !== "undefined") {
+        platformIntegration.configureFloatingToolWindow(floatWindow)
+    }
+    onWidthChanged: if (uiStateReady) sizePersistenceTimer.restart()
+    onHeightChanged: if (uiStateReady) sizePersistenceTimer.restart()
+
+    Component.onCompleted: restoreSize()
+
+    Timer {
+        id: sizePersistenceTimer
+        interval: 250
+        repeat: false
+        onTriggered: floatWindow.persistSize()
     }
 
     SystemPalette {
@@ -90,12 +130,18 @@ Window {
             AdaptiveButton {
                 text: qsTr("Назад")
                 Layout.fillWidth: true
+                Layout.preferredWidth: 0
+                Layout.minimumWidth: 0
+                Layout.maximumWidth: Number.POSITIVE_INFINITY
                 Layout.preferredHeight: 50
                 onClicked: floatWindow.teleprompter.navigate(-1)
             }
             AdaptiveButton {
                 text: qsTr("Вперёд")
                 Layout.fillWidth: true
+                Layout.preferredWidth: 0
+                Layout.minimumWidth: 0
+                Layout.maximumWidth: Number.POSITIVE_INFINITY
                 Layout.preferredHeight: 50
                 onClicked: floatWindow.teleprompter.navigate(1)
             }
@@ -186,9 +232,9 @@ Window {
 
                         Label {
                             text: navigationRow.time
-                            color: floatWindow.softMuted
-                            Layout.preferredWidth: 56
-                            horizontalAlignment: Text.AlignRight
+                            color: palette.text
+                            Layout.preferredWidth: 60
+                            horizontalAlignment: Text.AlignLeft
                             elide: Text.ElideRight
                         }
                         Label {
@@ -204,7 +250,71 @@ Window {
         AdaptiveButton {
             text: qsTr("Скрыть")
             Layout.fillWidth: true
+            Layout.preferredWidth: 0
+            Layout.minimumWidth: 0
+            Layout.maximumWidth: Number.POSITIVE_INFINITY
             onClicked: floatWindow.close()
+        }
+    }
+
+    // The controller intentionally has no native title bar, so provide a
+    // small resize affordance that behaves consistently on both platforms.
+    Item {
+        id: resizeHandle
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        width: 18
+        height: 18
+        z: 10
+
+        property real initialWidth: 0
+        property real initialHeight: 0
+
+        HoverHandler {
+            id: resizeHover
+            cursorShape: Qt.SizeFDiagCursor
+        }
+        DragHandler {
+            target: null
+            onActiveChanged: if (active) {
+                resizeHandle.initialWidth = floatWindow.width
+                resizeHandle.initialHeight = floatWindow.height
+            }
+            onTranslationChanged: if (active) {
+                floatWindow.width = Math.max(
+                    floatWindow.minimumWidth,
+                    Math.min(
+                        floatWindow.maximumWidth,
+                        Math.round(resizeHandle.initialWidth + translation.x)
+                    )
+                )
+                floatWindow.height = Math.max(
+                    floatWindow.minimumHeight,
+                    Math.min(
+                        floatWindow.maximumHeight,
+                        Math.round(resizeHandle.initialHeight + translation.y)
+                    )
+                )
+            }
+        }
+
+        Canvas {
+            anchors.centerIn: parent
+            width: 10
+            height: 10
+            visible: resizeHover.hovered
+            onPaint: {
+                var context = getContext("2d")
+                context.clearRect(0, 0, width, height)
+                context.strokeStyle = floatWindow.softMuted
+                context.lineWidth = 1
+                for (var offset = 2; offset <= 6; offset += 2) {
+                    context.beginPath()
+                    context.moveTo(offset, height)
+                    context.lineTo(width, offset)
+                    context.stroke()
+                }
+            }
         }
     }
 }

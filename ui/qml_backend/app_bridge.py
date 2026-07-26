@@ -104,6 +104,9 @@ class AppBridge(QObject):
             self._script_text_service,
             self,
         )
+        self._project.set_save_preparer(
+            self._project_files.materialize_missing_source_lines
+        )
         self._casting = CastingBridge(
             self._session,
             self._episode_service,
@@ -239,7 +242,7 @@ class AppBridge(QObject):
             self._on_project_refresh_requested
         )
         self._project_files.episodeDeletionRequested.connect(
-            self._project.deleteEpisode
+            self._project.deleteEpisodes
         )
         self._casting.actorCreated.connect(
             self._actor_library.rememberProjectActor

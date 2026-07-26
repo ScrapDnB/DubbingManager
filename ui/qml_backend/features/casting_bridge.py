@@ -1,6 +1,7 @@
 """QML backend for actors, characters, filters, and assignments."""
 
 from datetime import datetime
+import random
 from typing import Any, Dict, Optional
 
 from PySide6.QtCore import QObject, Property, Signal, Slot, Qt
@@ -11,6 +12,7 @@ from core.commands import (
     AddActorToCharacterCommand,
     AssignActorToCharacterCommand,
     DeleteActorCommand,
+    DeleteActorsCommand,
     RenameActorCommand,
     RenameCharacterCommand,
     UpdateActorColorCommand,
@@ -258,6 +260,46 @@ class CastingBridge(QObject):
         if self._actor_filter == actor_id:
             self.setActorFilter("")
         self.statusRequested.emit(f"Удалён актёр: {name}")
+
+    @Slot("QVariantList")
+    def deleteActors(self, actor_ids: list) -> None:
+        actors = self._session.data.get("actors", {})
+        ids = list(dict.fromkeys(
+            str(actor_id) for actor_id in actor_ids
+            if str(actor_id) in actors
+        ))
+        if not ids:
+            self.errorRequested.emit("Выберите хотя бы одного актёра")
+            return
+        extra_maps = [
+            value for value in self._session.data.get(
+                "episode_actor_map", {}
+            ).values() if isinstance(value, dict)
+        ]
+        self._execute(DeleteActorsCommand(
+            actors, self._session.data.setdefault("global_map", {}),
+            ids, extra_maps,
+        ), "actors")
+        if self._actor_filter in ids:
+            self.setActorFilter("")
+        self.statusRequested.emit(f"Удалено актёров: {len(ids)}")
+
+    @Slot("QVariantList", result="QVariantList")
+    def actorRoleAssignments(self, actor_ids: list) -> list:
+        """Return project role summaries for the delete confirmation."""
+        actors = self._session.data.get("actors", {})
+        rows = []
+        for actor_id in dict.fromkeys(str(value) for value in actor_ids):
+            actor = actors.get(actor_id)
+            if not actor:
+                continue
+            roles = get_actor_roles(self._session.data, actor_id)
+            if roles:
+                rows.append({
+                    "actorName": str(actor.get("name") or actor_id),
+                    "rolesText": ", ".join(roles),
+                })
+        return rows
 
     @Slot(str, str)
     def renameActor(self, actor_id: str, name: str) -> None:
@@ -662,7 +704,8 @@ class CastingBridge(QObject):
 
     def _next_actor_color(self) -> str:
         used = {actor.get("color", "").upper() for actor in self._session.data.get("actors", {}).values()}
-        return next((color for color in MY_PALETTE if color.upper() not in used), MY_PALETTE[0])
+        available = [color for color in MY_PALETTE if color.upper() not in used]
+        return random.choice(available or MY_PALETTE)
 
     @staticmethod
     def _normalized_color(color: str) -> str:

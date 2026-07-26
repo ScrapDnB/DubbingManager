@@ -12,7 +12,11 @@ NativeDialogWindow {
     required property var appBridge
     required property color softBorder
     required property color softHeader
+    required property color softRow
+    required property color softAltRow
     required property color softMuted
+    property int actorMarkerShape: 0
+    property int actorMarkerSize: 0
     readonly property var teleprompter: appBridge.teleprompter
 
     modal: false
@@ -101,6 +105,7 @@ NativeDialogWindow {
         id: floatWindow
         ownerWindow: window
         teleprompter: window.teleprompter
+        uiState: window.appBridge.uiState
         softBorder: window.softBorder
         softMuted: window.softMuted
     }
@@ -133,6 +138,13 @@ NativeDialogWindow {
         width: boundedWidth(440, 40)
         height: boundedHeight(560, 50)
         standardButtons: macOSStyle ? Dialog.NoButton : Dialog.Close
+        property string actorSearchText: ""
+
+        function matchesActor(name) {
+            var needle = actorSearchText.trim().toLocaleLowerCase()
+            return needle.length === 0
+                || String(name).toLocaleLowerCase().indexOf(needle) >= 0
+        }
 
         content: ColumnLayout {
             anchors.fill: parent
@@ -151,6 +163,34 @@ NativeDialogWindow {
                 Item { Layout.fillWidth: true }
             }
 
+            TextField {
+                id: actorFilterSearchField
+                Layout.fillWidth: true
+                placeholderText: qsTr("Имя или фамилия")
+                selectByMouse: true
+                onTextChanged: actorFilterWindow.actorSearchText = text
+            }
+
+            TableHeaderSurface {
+                Layout.fillWidth: true
+                Layout.preferredHeight: actorFilterWindow.tableHeaderHeight
+                softHeader: window.softHeader
+                softBorder: window.softBorder
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    spacing: 8
+                    TableHeaderLabel { text: qsTr("Актёр"); Layout.fillWidth: true }
+                    TableHeaderLabel {
+                        text: qsTr("Роли")
+                        Layout.preferredWidth: 48
+                    }
+                    Item { Layout.preferredWidth: 28 }
+                }
+            }
+
             PersistentListView {
                 id: actorFilterList
                 Layout.fillWidth: true
@@ -161,6 +201,7 @@ NativeDialogWindow {
                 delegate: Item {
                     id: actorFilterRow
 
+                    required property int index
                     required property string actorId
                     required property string name
                     required property string color
@@ -168,7 +209,10 @@ NativeDialogWindow {
                     required property int roleCount
 
                     width: actorFilterList.viewportWidth
-                    height: actorFilterWindow.compactRowHeight
+                    visible: actorFilterWindow.matchesActor(actorFilterRow.name)
+                    height: visible ? actorFilterWindow.compactRowHeight : 0
+
+                    HoverHandler { id: rowHover }
 
                     Rectangle {
                         anchors.fill: parent
@@ -176,31 +220,37 @@ NativeDialogWindow {
                             systemPalette.highlight.r,
                             systemPalette.highlight.g,
                             systemPalette.highlight.b,
-                            0.08
-                        ) : "transparent"
+                            0.12
+                        ) : (actorFilterRow.index % 2 === 0
+                            ? window.softRow : window.softAltRow)
                     }
-
-                    HoverHandler { id: rowHover }
 
                     RowLayout {
                         anchors.fill: parent
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 8
                         spacing: 8
 
-                        Rectangle {
-                            Layout.preferredWidth: 4
-                            Layout.fillHeight: true
-                            Layout.topMargin: 3
-                            Layout.bottomMargin: 3
-                            radius: 1
-                            color: actorFilterRow.color
+                        ActorColorSwatch {
+                            Layout.preferredWidth: 16
+                            Layout.preferredHeight: 16
+                            swatchColor: actorFilterRow.color
+                            markerShape: window.actorMarkerShape
+                            markerSize: window.actorMarkerSize
                         }
                         Label {
-                            text: actorFilterRow.name + "  ("
-                                + actorFilterRow.roleCount + ")"
+                            text: actorFilterRow.name
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                         }
+                        Label {
+                            text: actorFilterRow.roleCount
+                            Layout.preferredWidth: 48
+                            horizontalAlignment: Text.AlignHCenter
+                        }
                         CheckBox {
+                            Accessible.name: qsTr("Показывать реплики ")
+                                + actorFilterRow.name
                             checked: actorFilterRow.selected
                             Layout.preferredWidth: 28
                             onToggled: window.teleprompter.setActorSelected(
@@ -208,6 +258,17 @@ NativeDialogWindow {
                             )
                         }
                     }
+                }
+
+                Label {
+                    anchors.centerIn: parent
+                    visible: actorFilterWindow.actorSearchText.length > 0
+                        ? actorFilterList.contentHeight <= 0
+                        : actorFilterList.count === 0
+                    text: actorFilterWindow.actorSearchText.length > 0
+                        ? qsTr("Актёры не найдены")
+                        : qsTr("В проекте нет актёров")
+                    color: window.softMuted
                 }
             }
         }
@@ -330,7 +391,9 @@ NativeDialogWindow {
         RowLayout {
             Layout.fillWidth: true
             Layout.preferredHeight: window.toolbarControlHeight
-            spacing: 8
+            Layout.leftMargin: window.macOSStyle ? 12 : 0
+            Layout.rightMargin: window.macOSStyle ? 12 : 0
+            spacing: window.macOSStyle ? 10 : 8
 
             CompactToolButton {
                 Layout.alignment: Qt.AlignVCenter
@@ -377,11 +440,11 @@ NativeDialogWindow {
             }
             AdaptiveButton {
                 id: floatButton
-                visible: Qt.platform.os !== "osx"
+                visible: true
                 text: qsTr("Плавающее окно")
-                implicitHeight: window.toolbarControlHeight
+                Layout.preferredHeight: window.toolbarControlHeight
                 Layout.alignment: Qt.AlignVCenter
-                enabled: Qt.platform.os !== "osx"
+                enabled: true
                 checkable: true
                 checked: floatWindow.visible
                 onToggled: checked
@@ -391,13 +454,6 @@ NativeDialogWindow {
                     target: floatButton
                     text: qsTr("Плавающий контроллер")
                 }
-            }
-            AdaptiveButton {
-                visible: !window.macOSStyle
-                text: qsTr("Закрыть окно")
-                Layout.preferredHeight: window.toolbarControlHeight
-                Layout.alignment: Qt.AlignVCenter
-                onClicked: window.close()
             }
         }
 
@@ -423,16 +479,19 @@ NativeDialogWindow {
 
             Rectangle {
                 visible: window.sidePanelVisible
-                Layout.preferredWidth: visible ? 350 : 0
+                Layout.preferredWidth: visible ? (window.macOSStyle ? 336 : 350) : 0
                 Layout.fillHeight: true
-                color: window.macOSStyle ? "transparent" : systemPalette.window
-                border.color: window.macOSStyle
-                    ? "transparent" : window.softBorder
+                color: systemPalette.window
+                border.width: window.macOSStyle ? 0 : 1
+                border.color: window.softBorder
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 8
-                    spacing: 8
+                    anchors.leftMargin: window.macOSStyle ? 12 : 8
+                    anchors.rightMargin: window.macOSStyle ? 12 : 8
+                    anchors.topMargin: window.macOSStyle ? 10 : 8
+                    anchors.bottomMargin: window.macOSStyle ? 10 : 8
+                    spacing: window.macOSStyle ? 10 : 8
 
                     PersistentScrollView {
                         id: settingsScroll
@@ -448,14 +507,20 @@ NativeDialogWindow {
                         ColumnLayout {
                             id: settingsColumn
                             width: settingsScroll.availableWidth
-                            spacing: 5
+                            spacing: window.macOSStyle ? 9 : 5
 
                             RowLayout {
                                 Layout.fillWidth: true
                                 Label {
                                     id: oscStatusLabel
                                     text: qsTr("Просмотр")
-                                    font.bold: true
+                                    font.weight: window.macOSStyle
+                                        ? Font.DemiBold : Font.Bold
+                                    font.pixelSize: window.macOSStyle ? 11 : font.pixelSize
+                                    font.capitalization: window.macOSStyle
+                                        ? Font.AllUppercase : Font.MixedCase
+                                    color: window.macOSStyle
+                                        ? window.softMuted : systemPalette.text
                                     Layout.fillWidth: true
                                 }
                                 RowLayout {
@@ -530,6 +595,7 @@ NativeDialogWindow {
 
                             CollapsibleSection {
                                 title: qsTr("Размер текста")
+                                sidebarStyle: window.macOSStyle
                                 Layout.fillWidth: true
 
                                 Repeater {
@@ -563,6 +629,7 @@ NativeDialogWindow {
 
                             CollapsibleSection {
                                 title: qsTr("Цвета и пресеты")
+                                sidebarStyle: window.macOSStyle
                                 Layout.fillWidth: true
 
                                 Repeater {
@@ -635,6 +702,7 @@ NativeDialogWindow {
                             CollapsibleSection {
                                 title: qsTr("Прокрутка")
                                 expanded: true
+                                sidebarStyle: window.macOSStyle
                                 Layout.fillWidth: true
 
                                 Label {
@@ -690,7 +758,11 @@ NativeDialogWindow {
                         Layout.fillWidth: true
                         Label {
                             text: qsTr("Реплики")
-                            font.bold: true
+                            font.weight: window.macOSStyle ? Font.DemiBold : Font.Bold
+                            font.pixelSize: window.macOSStyle ? 11 : font.pixelSize
+                            font.capitalization: window.macOSStyle
+                                ? Font.AllUppercase : Font.MixedCase
+                            color: window.macOSStyle ? window.softMuted : systemPalette.text
                             Layout.fillWidth: true
                         }
                         AdaptiveButton {
@@ -766,9 +838,9 @@ NativeDialogWindow {
 
                                     Label {
                                         text: navigationRow.time
-                                        color: window.softMuted
-                                        Layout.preferredWidth: 56
-                                        horizontalAlignment: Text.AlignRight
+                                        color: systemPalette.text
+                                        Layout.preferredWidth: 60
+                                        horizontalAlignment: Text.AlignLeft
                                         elide: Text.ElideRight
                                     }
                                     Label {

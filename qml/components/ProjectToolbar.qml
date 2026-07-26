@@ -86,15 +86,15 @@ ToolBar {
         ToolSeparator {}
 
         CompactToolButton {
-            iconSource: Qt.resolvedUrl("../icons/settings.svg")
-            toolTipText: qsTr("Настройки программы")
-            onClicked: toolbar.globalSettingsRequested()
-        }
-
-        CompactToolButton {
             iconSource: Qt.resolvedUrl("../icons/project-settings.svg")
             toolTipText: qsTr("Настройки проекта")
             onClicked: toolbar.projectSettingsRequested()
+        }
+
+        CompactToolButton {
+            iconSource: Qt.resolvedUrl("../icons/clipboard-check.svg")
+            toolTipText: qsTr("Проект: файлы и проверка")
+            onClicked: toolbar.healthRequested()
         }
 
         ToolSeparator {}
@@ -116,9 +116,9 @@ ToolBar {
         Item { Layout.fillWidth: true }
 
         CompactToolButton {
-            iconSource: Qt.resolvedUrl("../icons/clipboard-check.svg")
-            toolTipText: qsTr("Проект: файлы и проверка")
-            onClicked: toolbar.healthRequested()
+            iconSource: Qt.resolvedUrl("../icons/settings.svg")
+            toolTipText: qsTr("Настройки программы")
+            onClicked: toolbar.globalSettingsRequested()
         }
 
         CompactToolButton {

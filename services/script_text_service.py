@@ -195,6 +195,43 @@ class ScriptTextService:
         project_data.setdefault("episode_working_texts", {})[str(ep_num)] = payload
         project_data.setdefault("episode_texts", {}).pop(str(ep_num), None)
 
+    def has_imported_source_lines(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str,
+    ) -> bool:
+        """Return whether a working text has original, unmerged source lines."""
+        payload = self.get_episode_payload(project_data, ep_num)
+        return bool(
+            isinstance(payload, dict)
+            and isinstance(payload.get("source_lines"), list)
+            and payload.get("source_lines_origin") != "reconstructed"
+        )
+
+    def embed_source_lines_from_source(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str,
+        source_path: str,
+        source_lines: List[Dict[str, Any]],
+    ) -> bool:
+        """Attach an original source-line snapshot to an existing working text."""
+        payload = self.get_episode_payload(project_data, ep_num)
+        if not isinstance(payload, dict) or not source_lines:
+            return False
+
+        normalized_lines = self._ensure_source_ids(source_lines)
+        payload["format_version"] = SCRIPT_TEXT_FORMAT_VERSION
+        payload["source_lines"] = self._build_source_line_payload(
+            normalized_lines
+        )
+        payload["source_lines_origin"] = "imported"
+        payload["source_ass"] = self._build_source_ass_snapshot(
+            Path(source_path)
+        )
+        payload["modified_at"] = datetime.now().isoformat()
+        return True
+
     def find_existing_episode_text(
         self,
         project_data: Dict[str, Any],
