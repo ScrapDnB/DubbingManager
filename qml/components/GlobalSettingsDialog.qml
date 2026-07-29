@@ -15,7 +15,12 @@ NativeDialogWindow {
     signal actorBaseExportRequested()
     signal actorBaseImportRequested()
     signal actorColorDisplayModeAccepted(
-        string mode, int muteLevel, int markerShape, int markerSize
+        string mode, int muteLevel, bool fullHeight, int markerShape, int markerSize
+    )
+    signal characterTableConfigurationAccepted(
+        string order, string hidden, string widths, bool compact, bool timelineVisible,
+        bool timelineActorColors, int timelineColorMuteLevel,
+        string timelinePlacement, int timelineHeight, string timelineSortMode
     )
 
     property var montageDraft: ({})
@@ -29,16 +34,53 @@ NativeDialogWindow {
     property string actorColorDisplayMode: "marker"
     property int actorColorMuteLevelDraft: 2
     property int actorColorMuteLevel: 2
+    property bool actorColorCellFillFullHeightDraft: false
+    property bool actorColorCellFillFullHeight: false
     property int actorMarkerShapeDraft: 0
     property int actorMarkerShape: 0
     property int actorMarkerSizeDraft: 0
     property int actorMarkerSize: 0
+    property string characterColumnsOrder: "[]"
+    property string characterColumnsHidden: "[]"
+    property string characterColumnWidths: "{}"
+    property bool characterCompactRows: false
+    property bool episodeTimelineVisible: true
+    property bool episodeTimelineActorColors: true
+    property int episodeTimelineColorMuteLevel: 2
+    property string episodeTimelinePlacement: "table"
+    property int episodeTimelineHeight: 180
+    property string episodeTimelineSortMode: "appearance"
+    property var characterColumnsOrderDraft: []
+    property var characterColumnsHiddenDraft: []
+    property var characterColumnWidthsDraft: ({})
+    property bool characterCompactRowsDraft: false
+    property bool episodeTimelineVisibleDraft: true
+    property bool episodeTimelineActorColorsDraft: true
+    property int episodeTimelineColorMuteLevelDraft: 2
+    property string episodeTimelinePlacementDraft: "table"
+    property int episodeTimelineHeightDraft: 180
+    property string episodeTimelineSortModeDraft: "appearance"
 
     modal: true
     title: qsTr("Глобальные настройки")
     standardButtons: Dialog.NoButton
     width: boundedWidth(820, 36)
     height: boundedHeight(590, 36)
+
+    function arrayPreference(value, fallback) {
+        try {
+            var parsed = JSON.parse(value)
+            return Array.isArray(parsed) ? parsed : fallback
+        } catch (error) { return fallback }
+    }
+
+    function objectPreference(value, fallback) {
+        try {
+            var parsed = JSON.parse(value)
+            return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                ? parsed : fallback
+        } catch (error) { return fallback }
+    }
 
     function openSettings() {
         keywordsArea.text = backend.audiobookKeywords
@@ -51,8 +93,21 @@ NativeDialogWindow {
         backupDraft = Object.assign({}, backend.globalBackupConfig)
         actorColorDisplayDraft = actorColorDisplayMode
         actorColorMuteLevelDraft = actorColorMuteLevel
+        actorColorCellFillFullHeightDraft = actorColorCellFillFullHeight
         actorMarkerShapeDraft = actorMarkerShape
         actorMarkerSizeDraft = actorMarkerSize
+        characterColumnsOrderDraft = arrayPreference(characterColumnsOrder, [
+            "character", "lines", "rings", "words", "scope", "actor", "preview"
+        ])
+        characterColumnsHiddenDraft = arrayPreference(characterColumnsHidden, [])
+        characterColumnWidthsDraft = objectPreference(characterColumnWidths, {})
+        characterCompactRowsDraft = characterCompactRows
+        episodeTimelineVisibleDraft = episodeTimelineVisible
+        episodeTimelineActorColorsDraft = episodeTimelineActorColors
+        episodeTimelineColorMuteLevelDraft = episodeTimelineColorMuteLevel
+        episodeTimelinePlacementDraft = episodeTimelinePlacement
+        episodeTimelineHeightDraft = episodeTimelineHeight
+        episodeTimelineSortModeDraft = episodeTimelineSortMode
         backupModeCombo.currentIndex = backupModeCombo.indexOfValue(
             backupDraft.path_mode || "relative"
         )
@@ -86,11 +141,26 @@ NativeDialogWindow {
             Layout.fillHeight: true
             currentIndex: globalNavigation.currentIndex
 
-            ColumnLayout {
-                spacing: 12
+            ScrollView {
+                id: interfaceSettingsScroll
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                contentWidth: availableWidth
+                rightPadding: 12
+
+                ColumnLayout {
+                    width: interfaceSettingsScroll.availableWidth
+                    spacing: 12
                 SettingsPageHeader {
                     title: qsTr("Интерфейс")
                     subtitle: qsTr("Отображение цветов актёров в главной таблице.")
+                }
+
+                CheckBox {
+                    text: qsTr("Компактные строки в таблицах")
+                    checked: dialog.characterCompactRowsDraft
+                    onToggled: dialog.characterCompactRowsDraft = checked
                 }
 
                 Label {
@@ -149,7 +219,6 @@ NativeDialogWindow {
 
                     RadioButton {
                         id: cellColorRadio
-                        Layout.fillWidth: true
                         text: qsTr("Цветной фон ячейки «Актёр»")
                         checked: dialog.actorColorDisplayDraft === "cell"
                         ButtonGroup.group: actorColorDisplayGroup
@@ -157,12 +226,19 @@ NativeDialogWindow {
                     }
 
                     Item { Layout.fillWidth: true }
+                }
 
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: cellColorRadio.checked
+
+                    Label { text: qsTr("Яркость заливки") }
                     Rectangle {
                         Layout.preferredWidth: 10
                         Layout.preferredHeight: 10
                         radius: width / 2
                         color: dialog.palette.highlight
+                        opacity: 0.20
                         visible: cellColorRadio.checked
                     }
 
@@ -180,7 +256,6 @@ NativeDialogWindow {
                         Layout.preferredHeight: 10
                         radius: width / 2
                         color: dialog.palette.highlight
-                        opacity: 0.20
                         visible: cellColorRadio.checked
                     }
 
@@ -189,21 +264,31 @@ NativeDialogWindow {
                         Layout.preferredWidth: 86
                         Layout.maximumWidth: 86
                         enabled: cellColorRadio.checked
+                        // Keep the visual scale conventional. The persisted
+                        // value describes muting, so it is inverted below.
                         from: 0
                         to: 2
                         stepSize: 1
                         snapMode: Slider.SnapAlways
-                        value: dialog.actorColorMuteLevelDraft
-                        onMoved: dialog.actorColorMuteLevelDraft = Math.round(value)
+                        value: 2 - dialog.actorColorMuteLevelDraft
+                        onMoved: dialog.actorColorMuteLevelDraft = 2 - Math.round(value)
                         PlatformToolTip {
                             target: actorColorMuteSlider
-                            text: actorColorMuteSlider.value <= 0
+                            text: actorColorMuteSlider.value >= 2
                                 ? qsTr("Яркие цвета")
-                                : actorColorMuteSlider.value < 2
+                                : actorColorMuteSlider.value > 0
                                     ? qsTr("Умеренно приглушённые цвета")
                                     : qsTr("Приглушённые цвета")
                         }
                     }
+
+                    CheckBox {
+                        text: qsTr("Во всю ячейку")
+                        checked: dialog.actorColorCellFillFullHeightDraft
+                        onToggled: dialog.actorColorCellFillFullHeightDraft = checked
+                    }
+
+                    Item { Layout.fillWidth: true }
                 }
 
                 Label {
@@ -212,7 +297,37 @@ NativeDialogWindow {
                     wrapMode: Text.WordWrap
                     color: dialog.softMuted
                 }
-                Item { Layout.fillHeight: true }
+
+                CharacterTableSettingsPane {
+                    Layout.fillWidth: true
+                    columnOrder: dialog.characterColumnsOrderDraft
+                    hiddenColumns: dialog.characterColumnsHiddenDraft
+                    widthModes: dialog.characterColumnWidthsDraft
+                    compactRows: dialog.characterCompactRowsDraft
+                    timelineVisible: dialog.episodeTimelineVisibleDraft
+                    timelineActorColors: dialog.episodeTimelineActorColorsDraft
+                    timelineColorMuteLevel: dialog.episodeTimelineColorMuteLevelDraft
+                    timelinePlacement: dialog.episodeTimelinePlacementDraft
+                    timelineHeight: dialog.episodeTimelineHeightDraft
+                    timelineSortMode: dialog.episodeTimelineSortModeDraft
+                    onConfigurationChanged: function(
+                        order, hidden, widths, compact, timelineVisible,
+                        timelineActorColors, timelineColorMuteLevel,
+                        timelinePlacement, timelineHeight, timelineSortMode
+                    ) {
+                        dialog.characterColumnsOrderDraft = order
+                        dialog.characterColumnsHiddenDraft = hidden
+                        dialog.characterColumnWidthsDraft = widths
+                        dialog.characterCompactRowsDraft = compact
+                        dialog.episodeTimelineVisibleDraft = timelineVisible
+                        dialog.episodeTimelineActorColorsDraft = timelineActorColors
+                        dialog.episodeTimelineColorMuteLevelDraft = timelineColorMuteLevel
+                        dialog.episodeTimelinePlacementDraft = timelinePlacement
+                        dialog.episodeTimelineHeightDraft = timelineHeight
+                        dialog.episodeTimelineSortModeDraft = timelineSortMode
+                    }
+                }
+                }
             }
 
             ColumnLayout {
@@ -521,6 +636,10 @@ NativeDialogWindow {
                     "actorColorCellMuteLevel",
                     dialog.actorColorMuteLevelDraft
                 )
+                dialog.appBridge.uiState.setBoolValue(
+                    "actorColorCellFillFullHeight",
+                    dialog.actorColorCellFillFullHeightDraft
+                )
                 dialog.appBridge.uiState.setIntValue(
                     "actorMarkerShape",
                     dialog.actorMarkerShapeDraft
@@ -532,8 +651,55 @@ NativeDialogWindow {
                 dialog.actorColorDisplayModeAccepted(
                     cellColorRadio.checked ? "cell" : "marker",
                     dialog.actorColorMuteLevelDraft,
+                    dialog.actorColorCellFillFullHeightDraft,
                     dialog.actorMarkerShapeDraft,
                     dialog.actorMarkerSizeDraft
+                )
+                dialog.appBridge.uiState.setStringValue(
+                    "main.characterColumnsOrder",
+                    JSON.stringify(dialog.characterColumnsOrderDraft)
+                )
+                dialog.appBridge.uiState.setStringValue(
+                    "main.characterColumnsHidden",
+                    JSON.stringify(dialog.characterColumnsHiddenDraft)
+                )
+                dialog.appBridge.uiState.setStringValue(
+                    "main.characterColumnWidths",
+                    JSON.stringify(dialog.characterColumnWidthsDraft)
+                )
+                dialog.appBridge.uiState.setBoolValue(
+                    "main.characterCompactRows", dialog.characterCompactRowsDraft
+                )
+                dialog.appBridge.uiState.setBoolValue(
+                    "main.episodeTimelineVisible", dialog.episodeTimelineVisibleDraft
+                )
+                dialog.appBridge.uiState.setBoolValue(
+                    "main.episodeTimelineActorColors", dialog.episodeTimelineActorColorsDraft
+                )
+                dialog.appBridge.uiState.setIntValue(
+                    "main.episodeTimelineColorMuteLevel",
+                    dialog.episodeTimelineColorMuteLevelDraft
+                )
+                dialog.appBridge.uiState.setStringValue(
+                    "main.episodeTimelinePlacement", dialog.episodeTimelinePlacementDraft
+                )
+                dialog.appBridge.uiState.setIntValue(
+                    "main.episodeTimelineHeight", dialog.episodeTimelineHeightDraft
+                )
+                dialog.appBridge.uiState.setStringValue(
+                    "main.episodeTimelineSortMode", dialog.episodeTimelineSortModeDraft
+                )
+                dialog.characterTableConfigurationAccepted(
+                    JSON.stringify(dialog.characterColumnsOrderDraft),
+                    JSON.stringify(dialog.characterColumnsHiddenDraft),
+                    JSON.stringify(dialog.characterColumnWidthsDraft),
+                    dialog.characterCompactRowsDraft,
+                    dialog.episodeTimelineVisibleDraft,
+                    dialog.episodeTimelineActorColorsDraft,
+                    dialog.episodeTimelineColorMuteLevelDraft,
+                    dialog.episodeTimelinePlacementDraft,
+                    dialog.episodeTimelineHeightDraft,
+                    dialog.episodeTimelineSortModeDraft
                 )
                 if (dialog.backend.applyGlobalSettingsComplete(
                     "ru",

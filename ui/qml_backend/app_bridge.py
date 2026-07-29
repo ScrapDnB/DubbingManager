@@ -43,7 +43,11 @@ class AppBridge(QObject):
     statusTextChanged = Signal()
     errorOccurred = Signal(str)
 
-    def __init__(self, parent: Optional[QObject] = None) -> None:
+    def __init__(
+        self,
+        parent: Optional[QObject] = None,
+        ui_state: Optional[UiStateBridge] = None,
+    ) -> None:
         super().__init__(parent)
         self._global_settings_service = GlobalSettingsService()
         self._global_settings = self._global_settings_service.load_settings()
@@ -85,7 +89,7 @@ class AppBridge(QObject):
         )
         self._status_text = "Интерфейс готов"
 
-        self._ui_state = UiStateBridge(parent=self)
+        self._ui_state = ui_state or UiStateBridge(parent=self)
         self._updates = UpdateBridge(self)
         self._project = ProjectBridge(
             self._session,
@@ -111,12 +115,14 @@ class AppBridge(QObject):
             self._session,
             self._episode_service,
             self._script_text_service,
+            self._ui_state,
             self,
         )
         self._actor_library = ActorLibraryBridge(
             self._session,
             self._global_settings_service,
             self._global_settings,
+            self._ui_state,
             self,
         )
         self._roles = RolesBridge(
@@ -350,6 +356,21 @@ class AppBridge(QObject):
         self._teleprompter.refresh_if_active()
         self._reports.refresh()
 
+    def _refresh_assignment_dependents(self) -> None:
+        """Refresh views whose data changes when a role is recast.
+
+        Assignment changes do not alter project files, import state, settings, or
+        video bindings. Keeping this path focused avoids a noticeable pause when
+        assigning an actor in large projects.
+        """
+        self._project.refresh_models()
+        self._casting.refresh()
+        self._actor_library.refresh()
+        self._roles.refresh()
+        self._montage.refresh()
+        self._teleprompter.refresh_if_active()
+        self._reports.refresh()
+
     def _clear_auxiliary_models(self) -> None:
         self._teleprompter.reset()
         self._docx_import.reset()
@@ -374,6 +395,9 @@ class AppBridge(QObject):
             "assignments",
             "settings",
         }:
+            return
+        if domain == "assignments":
+            self._refresh_assignment_dependents()
             return
         if domain == "settings":
             self._project.nameChanged.emit()

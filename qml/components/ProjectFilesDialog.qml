@@ -576,6 +576,17 @@ NativeDialogWindow {
                             ? dialog.projectFilesBackend.healthSummary : ""
                         color: dialog.softMuted
                     }
+                    CheckBox {
+                        text: qsTr("Игнорировать пустые реплики")
+                        checked: dialog.projectFilesBackend
+                            ? dialog.projectFilesBackend.ignoreEmptyLines
+                            : false
+                        onToggled: {
+                            if (dialog.projectFilesBackend)
+                                dialog.projectFilesBackend.setIgnoreEmptyLines(
+                                    checked)
+                        }
+                    }
                     AdaptiveButton {
                         text: qsTr("Обновить проверку")
                         onClicked: dialog.projectFilesBackend.refresh()

@@ -31,6 +31,7 @@ class ProjectFilesBridge(QObject):
 
     filesChanged = Signal()
     healthChanged = Signal()
+    ignoreEmptyLinesChanged = Signal()
     currentFileStateChanged = Signal()
     statusRequested = Signal(str)
     errorRequested = Signal(str)
@@ -54,6 +55,7 @@ class ProjectFilesBridge(QObject):
         self._script_text_service = script_text_service
         self._files_summary = ""
         self._health_summary = ""
+        self._ignore_empty_lines = False
         self._files_model = DictListModel({
             "episode": Qt.UserRole + 1,
             "kind": Qt.UserRole + 2,
@@ -91,6 +93,19 @@ class ProjectFilesBridge(QObject):
     @Property(str, notify=healthChanged)
     def healthSummary(self) -> str:
         return self._health_summary
+
+    @Property(bool, notify=ignoreEmptyLinesChanged)
+    def ignoreEmptyLines(self) -> bool:
+        return self._ignore_empty_lines
+
+    @Slot(bool)
+    def setIgnoreEmptyLines(self, value: bool) -> None:
+        value = bool(value)
+        if self._ignore_empty_lines == value:
+            return
+        self._ignore_empty_lines = value
+        self.ignoreEmptyLinesChanged.emit()
+        self._refresh_health()
 
     @Property(bool, notify=currentFileStateChanged)
     def currentEpisodeSourceMissing(self) -> bool:
@@ -645,7 +660,8 @@ class ProjectFilesBridge(QObject):
 
     def _refresh_health(self) -> None:
         issues = self._project_health_service.check_project(
-            self._session.data
+            self._session.data,
+            ignore_empty_lines=self._ignore_empty_lines,
         )
         labels = {
             "error": "Ошибка",

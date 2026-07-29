@@ -48,6 +48,13 @@ def test_native_toolbar_defines_every_project_action_once():
         integration.REDO,
         integration.HEALTH,
         integration.ABOUT,
+        integration.TELEPROMPTER,
+        integration.MONTAGE,
+        integration.REAPER,
+        integration.AUDIOBOOK,
+        integration.EPISODE_SUMMARY,
+        integration.ROLES,
+        integration.CONVERTER,
     }
 
     assert set(integration.ACTIONS) == expected

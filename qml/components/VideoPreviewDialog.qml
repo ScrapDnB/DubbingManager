@@ -16,6 +16,9 @@ NativeDialogWindow {
     required property color softAltRow
     required property color softHover
     required property color softMuted
+    // Keep actor markers consistent with the main actors and character tables.
+    property int actorMarkerShape: 0
+    property int actorMarkerSize: 0
     readonly property var videoBackend: appBridge ? appBridge.video : null
     property int characterColumnWidth: Math.max(110, Math.min(170, width * 0.17))
     property int actorColumnWidth: Math.max(110, Math.min(170, width * 0.17))
@@ -341,9 +344,11 @@ NativeDialogWindow {
                                     height: parent.height
                                     spacing: 6
                                     ActorColorSwatch {
-                                        Layout.preferredWidth: 12
-                                        Layout.preferredHeight: 12
+                                        Layout.preferredWidth: 20
+                                        Layout.preferredHeight: 20
                                         swatchColor: replicaRow.actorColor
+                                        markerShape: dialog.actorMarkerShape
+                                        markerSize: dialog.actorMarkerSize
                                     }
                                     Label {
                                         text: replicaRow.actor

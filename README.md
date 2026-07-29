@@ -287,3 +287,4 @@ python qml_main.py
 ## Полезные ссылки
 
 - [Релизы](https://github.com/ScrapDnB/DubbingManager/releases)
+- [Уведомления о сторонних ресурсах](THIRD_PARTY_NOTICES.md)

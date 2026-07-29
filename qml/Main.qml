@@ -41,8 +41,71 @@ ApplicationWindow {
         "actorColorCellMuteLevel",
         uiState.boolValue("actorColorCellMuted", true) ? 2 : 0
     )
+    property bool actorColorCellFillFullHeight: uiState.boolValue(
+        "actorColorCellFillFullHeight", false
+    )
     property int actorMarkerShape: uiState.intValue("actorMarkerShape", 0)
     property int actorMarkerSize: uiState.intValue("actorMarkerSize", 0)
+    property string characterColumnsOrderJson: uiState.stringValue(
+        "main.characterColumnsOrder",
+        "[\"character\",\"lines\",\"rings\",\"words\",\"scope\",\"actor\",\"preview\"]"
+    )
+    property string characterColumnsHiddenJson: uiState.stringValue(
+        "main.characterColumnsHidden", "[]"
+    )
+    property string characterColumnWidthsJson: uiState.stringValue(
+        "main.characterColumnWidths", "{}"
+    )
+    property bool characterCompactRows: uiState.boolValue(
+        "main.characterCompactRows", false
+    )
+    property bool episodeTimelineVisible: uiState.boolValue(
+        "main.episodeTimelineVisible", true
+    )
+    property bool episodeTimelineActorColors: uiState.boolValue(
+        "main.episodeTimelineActorColors", true
+    )
+    property int episodeTimelineColorMuteLevel: uiState.intValue(
+        "main.episodeTimelineColorMuteLevel", 2
+    )
+    property string episodeTimelinePlacement: uiState.stringValue(
+        "main.episodeTimelinePlacement", "table"
+    )
+    property int episodeTimelineHeight: uiState.intValue(
+        "main.episodeTimelineHeight", 180
+    )
+    property string episodeTimelineSortMode: uiState.stringValue(
+        "main.episodeTimelineSortMode", "appearance"
+    )
+    property bool quickConverterVisible: uiState.boolValue(
+        "main.quickConverterVisible", true
+    )
+
+    function setQuickConverterVisible(visible, syncNative) {
+        quickConverterVisible = visible
+        uiState.setBoolValue("main.quickConverterVisible", visible)
+        if (syncNative && macOSStyle)
+            macOSIntegration.setQuickConverterVisible(visible)
+    }
+
+    function jsonArray(value, fallback) {
+        try {
+            var result = JSON.parse(value)
+            return Array.isArray(result) ? result : fallback
+        } catch (error) {
+            return fallback
+        }
+    }
+
+    function jsonObject(value, fallback) {
+        try {
+            var result = JSON.parse(value)
+            return result && typeof result === "object" && !Array.isArray(result)
+                ? result : fallback
+        } catch (error) {
+            return fallback
+        }
+    }
 
     onCompactLayoutChanged: {
         if (!compactLayout)
@@ -85,6 +148,7 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        appBridge.casting.setTimelineSortMode(episodeTimelineSortMode)
         var savedX = uiState.intValue("main.x", -1)
         var savedY = uiState.intValue("main.y", -1)
         if (savedX >= 0 && savedY >= 0) {
@@ -101,6 +165,7 @@ ApplicationWindow {
         fileMenu.close()
         editMenu.close()
         viewMenu.close()
+        toolsMenu.close()
         helpMenu.close()
         mainMenuBar.currentIndex = -1
     }
@@ -563,6 +628,8 @@ ApplicationWindow {
         softAltRow: root.softAltRow
         softHover: root.softHover
         softMuted: root.softMuted
+        actorMarkerShape: root.actorMarkerShape
+        actorMarkerSize: root.actorMarkerSize
     }
 
     ProjectFilesDialog {
@@ -686,15 +753,46 @@ ApplicationWindow {
         softMuted: root.softMuted
         actorColorDisplayMode: root.actorColorDisplayMode
         actorColorMuteLevel: root.actorColorMuteLevel
+        actorColorCellFillFullHeight: root.actorColorCellFillFullHeight
         actorMarkerShape: root.actorMarkerShape
         actorMarkerSize: root.actorMarkerSize
+        characterColumnsOrder: root.characterColumnsOrderJson
+        characterColumnsHidden: root.characterColumnsHiddenJson
+        characterColumnWidths: root.characterColumnWidthsJson
+        characterCompactRows: root.characterCompactRows
+        episodeTimelineVisible: root.episodeTimelineVisible
+        episodeTimelineActorColors: root.episodeTimelineActorColors
+        episodeTimelineColorMuteLevel: root.episodeTimelineColorMuteLevel
+        episodeTimelinePlacement: root.episodeTimelinePlacement
+        episodeTimelineHeight: root.episodeTimelineHeight
+        episodeTimelineSortMode: root.episodeTimelineSortMode
         onActorBaseExportRequested: exportGlobalActorsDialog.open()
         onActorBaseImportRequested: importGlobalActorsDialog.open()
-        onActorColorDisplayModeAccepted: function(mode, muteLevel, markerShape, markerSize) {
+        onActorColorDisplayModeAccepted: function(
+            mode, muteLevel, fullHeight, markerShape, markerSize
+        ) {
             root.actorColorDisplayMode = mode
             root.actorColorMuteLevel = muteLevel
+            root.actorColorCellFillFullHeight = fullHeight
             root.actorMarkerShape = markerShape
             root.actorMarkerSize = markerSize
+        }
+        onCharacterTableConfigurationAccepted: function(
+            order, hidden, widths, compact, timelineVisible,
+            timelineActorColors, timelineColorMuteLevel,
+            timelinePlacement, timelineHeight, timelineSortMode
+        ) {
+            root.characterColumnsOrderJson = order
+            root.characterColumnsHiddenJson = hidden
+            root.characterColumnWidthsJson = widths
+            root.characterCompactRows = compact
+            root.episodeTimelineVisible = timelineVisible
+            root.episodeTimelineActorColors = timelineActorColors
+            root.episodeTimelineColorMuteLevel = timelineColorMuteLevel
+            root.episodeTimelinePlacement = timelinePlacement
+            root.episodeTimelineHeight = timelineHeight
+            root.episodeTimelineSortMode = timelineSortMode
+            root.appBridge.casting.setTimelineSortMode(timelineSortMode)
         }
     }
 
@@ -740,12 +838,35 @@ ApplicationWindow {
     Connections {
         target: root.macOSIntegration
         ignoreUnknownSignals: true
+        function onNativeToolbarActiveChanged() {
+            if (root.macOSIntegration.nativeToolbarActive)
+                root.macOSIntegration.setQuickConverterVisible(
+                    root.quickConverterVisible
+                )
+        }
         function onOpenProjectRequested() { openDialog.open() }
         function onSaveProjectAsRequested() { saveAsDialog.open() }
         function onGlobalSettingsRequested() { globalSettingsDialog.openSettings() }
         function onProjectSettingsRequested() { projectSettingsDialog.openFor(0) }
         function onHealthRequested() { projectFilesDialog.openFor("files") }
         function onAboutRequested() { aboutDialog.open() }
+        function onTeleprompterRequested() {
+            teleprompterWindow.openFor(root.projectBackend.currentEpisode)
+        }
+        function onMontagePreviewRequested() {
+            montagePreviewDialog.openFor(root.projectBackend.currentEpisode)
+        }
+        function onReaperExportRequested() {
+            reaperExportDialog.openForCurrentEpisode()
+        }
+        function onAudiobookRequested() { audiobookWindow.openWorkspace() }
+        function onEpisodeSummaryRequested() {
+            summaryDialog.openFor(root.projectBackend.currentEpisode)
+        }
+        function onRolesRequested() { rolesDialog.openForProject() }
+        function onQuickConverterVisibilityRequested(visible) {
+            root.setQuickConverterVisible(visible, false)
+        }
     }
 
     menuBar: MenuBar {
@@ -825,6 +946,57 @@ ApplicationWindow {
         }
 
         Menu {
+            id: toolsMenu
+            title: qsTr("Инструменты")
+
+            Action {
+                text: qsTr("Телесуфлёр")
+                enabled: root.projectBackend.currentEpisode.length > 0
+                onTriggered: teleprompterWindow.openFor(
+                    root.projectBackend.currentEpisode
+                )
+            }
+            Action {
+                text: qsTr("Монтажный лист")
+                enabled: root.projectBackend.currentEpisode.length > 0
+                onTriggered: montagePreviewDialog.openFor(
+                    root.projectBackend.currentEpisode
+                )
+            }
+            Action {
+                text: qsTr("Экспорт в Reaper")
+                enabled: root.projectBackend.currentEpisode.length > 0
+                onTriggered: reaperExportDialog.openForCurrentEpisode()
+            }
+            Action {
+                text: qsTr("Аудиокнига")
+                enabled: root.appBridge !== null
+                onTriggered: audiobookWindow.openWorkspace()
+            }
+            Action {
+                text: qsTr("Отчёт серии")
+                enabled: root.projectBackend.currentEpisode.length > 0
+                onTriggered: summaryDialog.openFor(
+                    root.projectBackend.currentEpisode
+                )
+            }
+            Action {
+                text: qsTr("Назначить роли")
+                enabled: root.appBridge && root.appBridge.casting
+                onTriggered: rolesDialog.openForProject()
+            }
+
+            MenuSeparator { }
+
+            MenuItem {
+                text: qsTr("Быстрый конвертер")
+                checkable: true
+                checked: root.quickConverterVisible
+                onTriggered: root.setQuickConverterVisible(checked, true)
+            }
+        }
+
+        Menu {
             id: helpMenu
             title: qsTr("Справка")
             visible: !root.macOSStyle
@@ -843,12 +1015,28 @@ ApplicationWindow {
             appBridge: root.appBridge
             softMuted: root.softMuted
             rootWidth: root.width
+            quickConverterVisible: root.quickConverterVisible
             onOpenProjectRequested: openDialog.open()
             onSaveProjectAsRequested: saveAsDialog.open()
             onGlobalSettingsRequested: globalSettingsDialog.openSettings()
             onProjectSettingsRequested: projectSettingsDialog.openFor(0)
             onHealthRequested: projectFilesDialog.openFor("files")
             onAboutRequested: aboutDialog.open()
+            onTeleprompterRequested: teleprompterWindow.openFor(
+                root.projectBackend.currentEpisode
+            )
+            onMontagePreviewRequested: montagePreviewDialog.openFor(
+                root.projectBackend.currentEpisode
+            )
+            onReaperExportRequested: reaperExportDialog.openForCurrentEpisode()
+            onAudiobookRequested: audiobookWindow.openWorkspace()
+            onEpisodeSummaryRequested: summaryDialog.openFor(
+                root.projectBackend.currentEpisode
+            )
+            onRolesRequested: rolesDialog.openForProject()
+            onQuickConverterVisibilityRequested: function(visible) {
+                root.setQuickConverterVisible(visible, true)
+            }
         }
     }
 
@@ -880,14 +1068,12 @@ ApplicationWindow {
             visible: root.compactLayout
             Layout.fillWidth: true
             Layout.preferredHeight: implicitHeight
-            model: [qsTr("Актёры"), qsTr("Реплики"), qsTr("Сценарии")]
+            model: [qsTr("Актёры"), qsTr("Реплики")]
             tabWidth: width / Math.max(1, model.length)
-            currentIndex: root.compactSection === "actors"
-                ? 0 : root.compactSection === "tools" ? 2 : 1
+            currentIndex: root.compactSection === "actors" ? 0 : 1
 
             onActivated: function(index) {
-                root.compactSection = index === 0
-                    ? "actors" : index === 2 ? "tools" : "workspace"
+                root.compactSection = index === 0 ? "actors" : "workspace"
             }
         }
 
@@ -912,6 +1098,7 @@ ApplicationWindow {
                 panelSurface: root.panelSurface
                 actorMarkerShape: root.actorMarkerShape
                 actorMarkerSize: root.actorMarkerSize
+                compactRows: root.characterCompactRows
                 onProjectSummaryRequested: summaryDialog.openFor("")
                 onActorRolesRequested: function(actorId) {
                     actorRolesDialog.openFor(actorId)
@@ -953,6 +1140,7 @@ ApplicationWindow {
                         }
 
                         CharacterTable {
+                            id: characterTable
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             Layout.minimumWidth: 0
@@ -961,8 +1149,16 @@ ApplicationWindow {
                             appBridge: root.appBridge
                             actorColorDisplayMode: root.actorColorDisplayMode
                             actorColorMuteLevel: root.actorColorMuteLevel
+                            actorCellFillFullHeight: root.actorColorCellFillFullHeight
                             actorMarkerShape: root.actorMarkerShape
                             actorMarkerSize: root.actorMarkerSize
+                            columnOrder: root.jsonArray(root.characterColumnsOrderJson, [
+                                "character", "lines", "rings", "words",
+                                "scope", "actor", "preview"
+                            ])
+                            hiddenColumns: root.jsonArray(root.characterColumnsHiddenJson, [])
+                            columnWidthModes: root.jsonObject(root.characterColumnWidthsJson, {})
+                            compactRows: root.characterCompactRows
                             softBorder: root.softBorder
                             softHeader: root.softHeader
                             softRow: root.softRow
@@ -980,28 +1176,71 @@ ApplicationWindow {
                                 root.routeDroppedFiles(urls)
                             }
                         }
+
+                        EpisodeTimeline {
+                            Layout.fillWidth: true
+                            visible: root.episodeTimelineVisible
+                                && root.episodeTimelinePlacement !== "bottom"
+                            timelineHeight: root.episodeTimelineHeight
+                            useActorColors: root.episodeTimelineActorColors
+                            timelineColorMuteLevel: root.episodeTimelineColorMuteLevel
+                            castingBackend: root.appBridge ? root.appBridge.casting : null
+                            softBorder: root.softBorder
+                            softHeader: root.softHeader
+                            softRow: root.softRow
+                            softAltRow: root.softAltRow
+                            softMuted: root.softMuted
+                            onCharacterRequested: function(character) {
+                                if (root.appBridge && root.appBridge.casting)
+                                    root.appBridge.casting.selectCharacter(character)
+                            }
+                            onHeightAdjustmentRequested: function(height) {
+                                root.episodeTimelineHeight = height
+                                root.uiState.setIntValue("main.episodeTimelineHeight", height)
+                            }
+                        }
                     }
                 }
 
                 ToolsSidebar {
                     id: toolsSidebar
                     appBridge: root.appBridge
-                    visible: !root.compactLayout || root.compactSection === "tools"
-                    SplitView.fillWidth: root.compactLayout
+                    visible: !root.compactLayout
+                    quickConverterVisible: root.quickConverterVisible
                     SplitView.preferredWidth: root.uiState.intValue("main.toolsPanelWidth", 235)
                     onWidthChanged: if (root.uiReady) panelStateTimer.restart()
                     softBorder: root.softBorder
                     softHeader: root.softHeader
                     softMuted: root.softMuted
                     panelSurface: root.panelSurface
-                    onMontagePreviewRequested: montagePreviewDialog.openFor(root.projectBackend.currentEpisode)
-                    onReaperExportRequested: reaperExportDialog.openForCurrentEpisode()
-                    onEpisodeSummaryRequested: summaryDialog.openFor(root.projectBackend.currentEpisode)
-                    onTeleprompterRequested: teleprompterWindow.openFor(root.projectBackend.currentEpisode)
-                    onAudiobookRequested: audiobookWindow.openWorkspace()
-                    onRolesRequested: rolesDialog.openForProject()
                     onConverterResultsRequested: quickConverterResultsDialog.open()
+                    onCharacterPreviewRequested: characterTable.previewSelectedCharacter()
+                    onCharacterRenameRequested: characterTable.renameSelectedCharacter()
+                    onCharacterSelectionCleared: characterTable.clearCharacterSelection()
                 }
+            }
+        }
+
+        EpisodeTimeline {
+            Layout.fillWidth: true
+            visible: root.episodeTimelineVisible
+                && root.episodeTimelinePlacement === "bottom"
+            timelineHeight: root.episodeTimelineHeight
+            useActorColors: root.episodeTimelineActorColors
+            timelineColorMuteLevel: root.episodeTimelineColorMuteLevel
+            castingBackend: root.appBridge ? root.appBridge.casting : null
+            softBorder: root.softBorder
+            softHeader: root.softHeader
+            softRow: root.softRow
+            softAltRow: root.softAltRow
+            softMuted: root.softMuted
+            onCharacterRequested: function(character) {
+                if (root.appBridge && root.appBridge.casting)
+                    root.appBridge.casting.selectCharacter(character)
+            }
+            onHeightAdjustmentRequested: function(height) {
+                root.episodeTimelineHeight = height
+                root.uiState.setIntValue("main.episodeTimelineHeight", height)
             }
         }
     }

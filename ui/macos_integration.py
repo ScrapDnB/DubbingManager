@@ -93,9 +93,7 @@ if sys.platform == "darwin":
             item.setLabel_(definition[0])
             item.setPaletteLabel_(definition[0])
             item.setToolTip_(definition[0])
-            image = NSImage.imageWithSystemSymbolName_accessibilityDescription_(
-                definition[1], definition[0]
-            )
+            image = self.owner.toolbar_image(key, definition[1], definition[0])
             if image is not None:
                 item.setImage_(image)
             item.setTarget_(self)
@@ -142,6 +140,8 @@ if sys.platform == "darwin":
                 return bool(self.project.canUndo)
             if key == self.owner.REDO:
                 return bool(self.project.canRedo)
+            if key in self.owner.episode_toolbar_actions:
+                return bool(self.project.currentEpisode)
             return True
 
         def refresh_recent_projects(self):
@@ -190,6 +190,13 @@ class MacOSIntegration(QObject):
     projectSettingsRequested = Signal()
     healthRequested = Signal()
     aboutRequested = Signal()
+    teleprompterRequested = Signal()
+    montagePreviewRequested = Signal()
+    reaperExportRequested = Signal()
+    audiobookRequested = Signal()
+    episodeSummaryRequested = Signal()
+    rolesRequested = Signal()
+    quickConverterVisibilityRequested = Signal(bool)
     comboMenuSelected = Signal(str, int)
 
     RECENT = "dm.recent"
@@ -203,6 +210,13 @@ class MacOSIntegration(QObject):
     REDO = "dm.redo"
     HEALTH = "dm.health"
     ABOUT = "dm.about"
+    TELEPROMPTER = "dm.teleprompter"
+    MONTAGE = "dm.montage"
+    REAPER = "dm.reaper"
+    AUDIOBOOK = "dm.audiobook"
+    EPISODE_SUMMARY = "dm.episode-summary"
+    ROLES = "dm.roles"
+    CONVERTER = "dm.converter"
 
     ACTIONS: dict[str, tuple[str, str, Optional[Callable]]] = {
         NEW: ("Новый проект", "doc.badge.plus", lambda _o, p: p.create()),
@@ -235,6 +249,41 @@ class MacOSIntegration(QObject):
             "info.circle",
             lambda o, _p: o.aboutRequested.emit(),
         ),
+        TELEPROMPTER: (
+            "Телесуфлёр",
+            "text.rectangle",
+            lambda o, _p: o.teleprompterRequested.emit(),
+        ),
+        MONTAGE: (
+            "Монтажный лист",
+            "doc.text",
+            lambda o, _p: o.montagePreviewRequested.emit(),
+        ),
+        REAPER: (
+            "Экспорт в Reaper",
+            "waveform",
+            lambda o, _p: o.reaperExportRequested.emit(),
+        ),
+        AUDIOBOOK: (
+            "Аудиокнига",
+            "book.closed",
+            lambda o, _p: o.audiobookRequested.emit(),
+        ),
+        EPISODE_SUMMARY: (
+            "Отчёт серии",
+            "chart.bar",
+            lambda o, _p: o.episodeSummaryRequested.emit(),
+        ),
+        ROLES: (
+            "Назначить роли",
+            "person.2",
+            lambda o, _p: o.rolesRequested.emit(),
+        ),
+        CONVERTER: (
+            "Быстрый конвертер",
+            "arrow.triangle.2.circlepath",
+            lambda o, _p: o.toggle_quick_converter(),
+        ),
     }
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
@@ -250,6 +299,7 @@ class MacOSIntegration(QObject):
         self._tooltip_effect = None
         self._combo_menu_target = None
         self._combo_token = 0
+        self._quick_converter_visible = True
 
     @Property(bool, constant=True)
     def available(self) -> bool:
@@ -260,6 +310,28 @@ class MacOSIntegration(QObject):
         return (
             sys.platform == "darwin"
             and NSClassFromString("NSGlassEffectView") is not None
+        )
+
+    @property
+    def episode_toolbar_actions(self) -> set[str]:
+        return {
+            self.TELEPROMPTER,
+            self.MONTAGE,
+            self.REAPER,
+            self.EPISODE_SUMMARY,
+        }
+
+    def toolbar_image(self, key: str, symbol_name: str, label: str) -> Any:
+        """Return an AppKit toolbar image, preferring the bundled Reaper mark."""
+        if key == self.REAPER:
+            svg_path = Path(__file__).resolve().parent.parent / "qml" / "icons" / "reaper.svg"
+            if svg_path.exists():
+                image = NSImage.alloc().initWithContentsOfFile_(str(svg_path))
+                if image is not None:
+                    image.setTemplate_(True)
+                    return image
+        return NSImage.imageWithSystemSymbolName_accessibilityDescription_(
+            symbol_name, label
         )
 
     @Property(bool, notify=nativeToolbarActiveChanged)
@@ -282,6 +354,13 @@ class MacOSIntegration(QObject):
             self.REDO,
             self.HEALTH,
             self.ABOUT,
+            self.TELEPROMPTER,
+            self.MONTAGE,
+            self.REAPER,
+            self.AUDIOBOOK,
+            self.EPISODE_SUMMARY,
+            self.ROLES,
+            self.CONVERTER,
             NSToolbarFlexibleSpaceItemIdentifier,
             NSToolbarSpaceItemIdentifier,
         ]
@@ -304,6 +383,14 @@ class MacOSIntegration(QObject):
             self.UNDO,
             self.REDO,
             NSToolbarSpaceItemIdentifier,
+            self.TELEPROMPTER,
+            self.MONTAGE,
+            self.REAPER,
+            self.AUDIOBOOK,
+            self.EPISODE_SUMMARY,
+            self.ROLES,
+            self.CONVERTER,
+            NSToolbarSpaceItemIdentifier,
             self.SETTINGS,
             self.ABOUT,
         ]
@@ -316,7 +403,7 @@ class MacOSIntegration(QObject):
             ns_window = native_view.window()
             self._install_visual_effect(native_view, ns_window)
             toolbar = NSToolbar.alloc().initWithIdentifier_(
-                "com.yuriromanov.dubbingmanager.main-toolbar"
+                "com.yuriromanov.dubbingmanager.main-toolbar.v2"
             )
             delegate = _ToolbarDelegate.alloc().initWithOwner_project_(
                 self, project
@@ -347,6 +434,7 @@ class MacOSIntegration(QObject):
             self._toolbar = toolbar
             self._delegate = delegate
             self._native_toolbar_active = True
+            self._sync_converter_toolbar_state()
             self.nativeToolbarActiveChanged.emit()
         except Exception:
             logger.exception("Could not configure native macOS toolbar")
@@ -661,3 +749,37 @@ class MacOSIntegration(QObject):
     def _validate_toolbar(self) -> None:
         if self._toolbar is not None:
             self._toolbar.validateVisibleItems()
+
+    @Slot(bool)
+    def setQuickConverterVisible(self, visible: bool) -> None:
+        self._quick_converter_visible = bool(visible)
+        self._sync_converter_toolbar_state()
+
+    def toggle_quick_converter(self) -> None:
+        self._quick_converter_visible = not self._quick_converter_visible
+        self._sync_converter_toolbar_state()
+        self.quickConverterVisibilityRequested.emit(self._quick_converter_visible)
+
+    def _sync_converter_toolbar_state(self) -> None:
+        if self._toolbar is not None:
+            self._toolbar.setSelectedItemIdentifier_(None)
+        if self._delegate is not None:
+            item = self._delegate.items.get(self.CONVERTER)
+            if item is not None:
+                image = self.toolbar_image(
+                    self.CONVERTER,
+                    (
+                        "arrow.triangle.2.circlepath.circle.fill"
+                        if self._quick_converter_visible
+                        else "arrow.triangle.2.circlepath"
+                    ),
+                    "Быстрый конвертер",
+                )
+                if image is None and self._quick_converter_visible:
+                    image = self.toolbar_image(
+                        self.CONVERTER,
+                        "arrow.triangle.2.circlepath",
+                        "Быстрый конвертер",
+                    )
+                if image is not None:
+                    item.setImage_(image)

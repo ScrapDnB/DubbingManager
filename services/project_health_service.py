@@ -31,7 +31,11 @@ class ProjectHealthService:
     def __init__(self) -> None:
         self.project_folder_service = ProjectFolderService()
 
-    def check_project(self, project_data: Dict[str, Any]) -> List[ProjectHealthIssue]:
+    def check_project(
+        self,
+        project_data: Dict[str, Any],
+        ignore_empty_lines: bool = False,
+    ) -> List[ProjectHealthIssue]:
         """Return project health issues."""
         issues: List[ProjectHealthIssue] = []
 
@@ -85,7 +89,13 @@ class ProjectHealthService:
             self._check_video_file(issues, project_data, ep_num, video_path)
 
             if lines:
-                self._check_lines(issues, project_data, ep_num, lines)
+                self._check_lines(
+                    issues,
+                    project_data,
+                    ep_num,
+                    lines,
+                    ignore_empty_lines=ignore_empty_lines,
+                )
 
         return issues
 
@@ -241,7 +251,8 @@ class ProjectHealthService:
         issues: List[ProjectHealthIssue],
         project_data: Dict[str, Any],
         ep_num: str,
-        lines: List[Dict[str, Any]]
+        lines: List[Dict[str, Any]],
+        ignore_empty_lines: bool = False,
     ) -> None:
         missing_actor_chars = set()
 
@@ -253,6 +264,9 @@ class ProjectHealthService:
             start = self._as_float(line.get("start", line.get("s")))
             end = self._as_float(line.get("end", line.get("e")))
             line_label = f"Реплика {index}"
+
+            if ignore_empty_lines and not text:
+                continue
 
             if not text:
                 issues.append(ProjectHealthIssue(

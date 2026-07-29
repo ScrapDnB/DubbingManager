@@ -32,6 +32,16 @@ def isolated_global_settings(monkeypatch, tmp_path):
         "services.global_settings_service.SETTINGS_FILE",
         tmp_path / "global_settings.json",
     )
+    settings_path = tmp_path / "ui-state.ini"
+
+    def isolated_ui_state(parent=None):
+        return UiStateBridge(
+            QSettings(str(settings_path), QSettings.IniFormat), parent=parent
+        )
+
+    monkeypatch.setattr(
+        "ui.qml_backend.app_bridge.UiStateBridge", isolated_ui_state
+    )
 
 
 def test_qml_bridge_starts_with_empty_project():
@@ -447,6 +457,25 @@ def test_qml_multiple_actors_render_and_undo_across_casting_tools(tmp_path):
     assert bridge._session.data["global_map"]["Hero"] == "actor-1"
 
 
+def test_qml_remove_one_actor_from_multi_cast_is_undoable(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.current_episode = "1"
+    bridge.casting.addActorToCharacter("Hero", "actor-2")
+
+    bridge.casting.removeActorFromCharacter("Hero", "actor-1")
+
+    assert bridge._session.data["global_map"]["Hero"] == "actor-2"
+    character = bridge.casting.charactersModel.rows()[0]
+    assert [entry["id"] for entry in character["actorEntries"]] == ["actor-2"]
+
+    bridge.project.undo()
+    assert bridge._session.data["global_map"]["Hero"] == [
+        "actor-1", "actor-2",
+    ]
+
+
 def test_qml_deleting_one_multi_cast_actor_keeps_the_other(tmp_path):
     _app()
     bridge = AppBridge()
@@ -687,6 +716,7 @@ def test_qml_bridge_filters_character_model(tmp_path):
     ]
     assert [row["name"] for row in bridge.casting.actorFilterModel.rows()] == [
         "Все актёры",
+        "Без актёра",
         "Actor One",
         "Actor Two",
     ]
@@ -695,7 +725,7 @@ def test_qml_bridge_filters_character_model(tmp_path):
     assert [row["character"] for row in casting.charactersModel.rows()] == ["Hero"]
 
     casting.setActorFilter("")
-    casting.setShowUnassignedOnly(True)
+    casting.setActorFilter("__unassigned__")
     assert [row["character"] for row in casting.charactersModel.rows()] == ["Narrator"]
 
     casting.setShowUnassignedOnly(False)
@@ -829,6 +859,31 @@ def test_qml_actor_library_sorts_global_actors_independently():
     assert [row["gender"] for row in library.globalActorsModel.rows()] == [
         "М", "Ж",
     ]
+
+
+def test_qml_table_sort_preferences_survive_a_new_bridge(tmp_path):
+    _app()
+    settings_path = tmp_path / "ui-state.ini"
+    ui_state = UiStateBridge(QSettings(str(settings_path), QSettings.IniFormat))
+    bridge = AppBridge(ui_state=ui_state)
+
+    bridge.casting.setCharacterSort("words")
+    bridge.casting.setCharacterSort("words")
+    bridge.casting.setActorSort("gender")
+    bridge.actorLibrary.setActorSort("status")
+    bridge.actorLibrary.setActorSort("status")
+
+    restored_state = UiStateBridge(
+        QSettings(str(settings_path), QSettings.IniFormat)
+    )
+    restored = AppBridge(ui_state=restored_state)
+
+    assert restored.casting.characterSortKey == "words"
+    assert not restored.casting.characterSortAscending
+    assert restored.casting.actorSortKey == "gender"
+    assert restored.casting.actorSortAscending
+    assert restored.actorLibrary.actorSortKey == "status"
+    assert not restored.actorLibrary.actorSortAscending
 
 def test_qml_bridge_project_name_uses_undo_stack():
     _app()
@@ -1895,16 +1950,16 @@ def test_qml_character_stats_cover_every_episode_and_sorting(tmp_path):
         "1": str(tmp_path / "one.ass"),
     }
     bridge._session.data["actors"] = {
-        "actor-1": {"name": "Voice", "color": "#123456"},
+        "actor-1": {"name": "Яна", "color": "#123456"},
     }
     bridge._session.data["global_map"] = {"Hero": "actor-1"}
     bridge._session.data["episode_working_texts"] = {
         "1": {"lines": [
-            {"character": "Hero", "text": "one two"},
-            {"character": "Other", "text": "one"},
+            {"character": "Hero", "text": "one two", "start": 1.0, "end": 3.0},
+            {"character": "Other", "text": "one", "start": 4.0, "end": 5.0},
         ]},
         "2": {"lines": [
-            {"character": "Hero", "text": "three four five"},
+            {"character": "Hero", "text": "three four five", "start": 2.0, "end": 6.0},
         ]},
     }
     bridge.refresh()
@@ -1914,11 +1969,37 @@ def test_qml_character_stats_cover_every_episode_and_sorting(tmp_path):
 
     assert casting.characterEpisodeStatsModel.rows() == [
         {"episode": "1", "lines": 1, "rings": 1, "words": 2,
-         "actor": "Voice", "scope": "Проект"},
+         "actor": "Яна", "scope": "Проект"},
         {"episode": "2", "lines": 1, "rings": 1, "words": 3,
-         "actor": "Voice", "scope": "Проект"},
+         "actor": "Яна", "scope": "Проект"},
     ]
     assert "Реплик: 2" in casting.selectedCharacterStats
+    assert casting.timelineDuration == 5.0
+    assert casting.timelineActorsModel.rows() == [
+        {"id": "actor-1", "name": "Яна", "actorColor": "#123456", "lane": 0},
+        {"id": "", "name": "Без актёра", "actorColor": "#9A9A9A", "lane": 1},
+    ]
+    assert casting.timelineModel.rows() == [
+        {
+            "start": 1.0, "end": 3.0, "character": "Hero", "actor": "Яна",
+            "actorId": "actor-1", "actorColor": "#123456", "lane": 0, "selected": True,
+        },
+        {
+            "start": 4.0, "end": 5.0, "character": "Other", "actor": "Без актёра",
+            "actorId": "", "actorColor": "#9A9A9A", "lane": 1, "selected": False,
+        },
+    ]
+    casting.setTimelineSortMode("words")
+    assert casting.timelineSortMode == "words"
+    assert [row["name"] for row in casting.timelineActorsModel.rows()] == [
+        "Яна", "Без актёра",
+    ]
+    casting.setTimelineSortMode("name")
+    assert [row["name"] for row in casting.timelineActorsModel.rows()] == [
+        "Без актёра", "Яна",
+    ]
+    casting.setTimelineSortMode("invalid")
+    assert casting.timelineSortMode == "appearance"
     casting.setCharacterSort("words")
     assert [row["character"] for row in casting.charactersModel.rows()] == [
         "Other", "Hero",
@@ -2808,6 +2889,9 @@ def test_qml_ui_state_remembers_dialog_folders_and_window_values(tmp_path):
     state.setIntValue("teleprompterFloat.height", 516)
     state.setBoolValue("main.maximized", True)
     state.setBoolValue("actorColorCellFill", True)
+    state.setStringValue("main.characterColumnsOrder", '["actor", "character"]')
+    state.setIntValue("main.episodeTimelineColorMuteLevel", 1)
+    state.setStringValue("main.episodeTimelineSortMode", "words")
     settings.sync()
 
     restored_settings = QSettings(
@@ -2822,6 +2906,9 @@ def test_qml_ui_state_remembers_dialog_folders_and_window_values(tmp_path):
     assert restored.intValue("teleprompterFloat.height", 440) == 516
     assert restored.boolValue("main.maximized", False) is True
     assert restored.boolValue("actorColorCellFill", False) is True
+    assert restored.stringValue("main.characterColumnsOrder", "") == '["actor", "character"]'
+    assert restored.intValue("main.episodeTimelineColorMuteLevel", 2) == 1
+    assert restored.stringValue("main.episodeTimelineSortMode", "") == "words"
 
 
 def test_qml_bridge_restores_backup_after_unsaved_decision(tmp_path):

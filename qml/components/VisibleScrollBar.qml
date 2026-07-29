@@ -6,7 +6,9 @@ import QtQuick.Controls
 ScrollBar {
     id: control
 
-    property bool contentOverflow: size < 1.0
+    // The attached Flickable assigns `size` only after construction.  Reading
+    // it here made the macOS style receive an undefined value during startup.
+    property bool contentOverflow: true
     readonly property bool macOSStyle: Qt.platform.os === "osx"
 
     policy: contentOverflow ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff

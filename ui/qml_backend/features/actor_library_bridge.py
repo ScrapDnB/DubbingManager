@@ -26,15 +26,16 @@ class ActorLibraryBridge(QObject):
         session: ProjectSession,
         global_settings_service,
         global_settings: dict,
+        ui_state=None,
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
         self._session = session
         self._settings = global_settings_service
         self._global_settings = global_settings
+        self._ui_state = ui_state
         self._assignment_transfer = AssignmentTransferService()
-        self._actor_sort_key = "name"
-        self._actor_sort_ascending = True
+        self._actor_sort_key, self._actor_sort_ascending = self._restore_sort()
         self._global_model = DictListModel({
             "id": Qt.UserRole + 1, "name": Qt.UserRole + 2,
             "color": Qt.UserRole + 3, "roleCount": Qt.UserRole + 4,
@@ -87,7 +88,27 @@ class ActorLibraryBridge(QObject):
         else:
             self._actor_sort_key = key
             self._actor_sort_ascending = True
+        self._save_sort()
         self.refresh()
+
+    def _restore_sort(self) -> tuple[str, bool]:
+        if self._ui_state is None:
+            return "name", True
+        stored = str(
+            self._ui_state.stringValue("tableSort/globalActors", "") or ""
+        )
+        key, separator, direction = stored.partition("|")
+        if key not in {"name", "gender", "status"} or not separator:
+            return "name", True
+        return key, direction != "desc"
+
+    def _save_sort(self) -> None:
+        if self._ui_state is not None:
+            self._ui_state.setStringValue(
+                "tableSort/globalActors",
+                f"{self._actor_sort_key}|"
+                f"{'asc' if self._actor_sort_ascending else 'desc'}",
+            )
 
     @Slot(str, str)
     def addGlobalActor(self, name: str, gender: str) -> None:

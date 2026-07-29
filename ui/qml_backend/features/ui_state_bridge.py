@@ -77,6 +77,15 @@ class UiStateBridge(QObject):
     def setBoolValue(self, key: str, value: bool) -> None:
         self._settings.setValue(self._state_key(key), bool(value))
 
+    @Slot(str, str, result=str)
+    def stringValue(self, key: str, default: str) -> str:
+        """Return a small JSON-like UI preference without project coupling."""
+        return str(self._settings.value(self._state_key(key), default) or default)
+
+    @Slot(str, str)
+    def setStringValue(self, key: str, value: str) -> None:
+        self._settings.setValue(self._state_key(key), str(value or ""))
+
     def _remember_folder(self, category: str, folder: Path) -> None:
         if not folder.is_dir():
             return

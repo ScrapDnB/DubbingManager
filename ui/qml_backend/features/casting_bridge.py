@@ -61,21 +61,30 @@ class CastingBridge(QObject):
         session: ProjectSession,
         episode_service,
         script_text_service,
+        ui_state=None,
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
         self._session = session
         self._episode_service = episode_service
         self._script_text_service = script_text_service
+        self._ui_state = ui_state
         self._actor_filter = ""
         self._show_unassigned_only = False
         self._search_text = ""
         self._selected_character = ""
         self._selected_character_stats = "Выберите персонажа в таблице"
-        self._actor_sort_key = "name"
-        self._actor_sort_ascending = True
-        self._character_sort_key = "character"
-        self._character_sort_ascending = True
+        self._timeline_sort_mode = "appearance"
+        self._actor_sort_key, self._actor_sort_ascending = self._restore_sort(
+            "tableSort/projectActors", {"name", "gender", "roleCount"}, "name"
+        )
+        self._character_sort_key, self._character_sort_ascending = (
+            self._restore_sort(
+                "tableSort/characters",
+                {"character", "lines", "rings", "words", "scope", "actor"},
+                "character",
+            )
+        )
         self._actors_model = DictListModel({
             "id": Qt.UserRole + 1, "name": Qt.UserRole + 2,
             "color": Qt.UserRole + 3, "roleCount": Qt.UserRole + 4,
@@ -87,8 +96,20 @@ class CastingBridge(QObject):
         self._lines_model = DictListModel({
             "time": Qt.UserRole + 1, "character": Qt.UserRole + 2,
             "actor": Qt.UserRole + 3, "text": Qt.UserRole + 4,
-            "color": Qt.UserRole + 5,
+            "color": Qt.UserRole + 5, "start": Qt.UserRole + 6,
+            "end": Qt.UserRole + 7, "actorIds": Qt.UserRole + 8,
         }, self)
+        self._timeline_model = DictListModel({
+            "start": Qt.UserRole + 1, "end": Qt.UserRole + 2,
+            "character": Qt.UserRole + 3, "actor": Qt.UserRole + 4,
+            "actorId": Qt.UserRole + 5, "actorColor": Qt.UserRole + 6,
+            "lane": Qt.UserRole + 7, "selected": Qt.UserRole + 8,
+        }, self)
+        self._timeline_actors_model = DictListModel({
+            "id": Qt.UserRole + 1, "name": Qt.UserRole + 2,
+            "actorColor": Qt.UserRole + 3, "lane": Qt.UserRole + 4,
+        }, self)
+        self._timeline_duration = 0.0
         self._characters_model = DictListModel({
             "character": Qt.UserRole + 1, "lines": Qt.UserRole + 2,
             "rings": Qt.UserRole + 3, "words": Qt.UserRole + 4,
@@ -142,6 +163,22 @@ class CastingBridge(QObject):
         return self._lines_model
 
     @Property(QObject, constant=True)
+    def timelineModel(self) -> QObject:
+        return self._timeline_model
+
+    @Property(QObject, constant=True)
+    def timelineActorsModel(self) -> QObject:
+        return self._timeline_actors_model
+
+    @Property(float, notify=changed)
+    def timelineDuration(self) -> float:
+        return self._timeline_duration
+
+    @Property(str, notify=changed)
+    def timelineSortMode(self) -> str:
+        return self._timeline_sort_mode
+
+    @Property(QObject, constant=True)
     def charactersModel(self) -> QObject:
         return self._characters_model
 
@@ -166,6 +203,11 @@ class CastingBridge(QObject):
         else:
             self._actor_sort_key = key
             self._actor_sort_ascending = True
+        self._save_sort(
+            "tableSort/projectActors",
+            self._actor_sort_key,
+            self._actor_sort_ascending,
+        )
         self._refresh_actors()
         self.changed.emit()
 
@@ -186,16 +228,55 @@ class CastingBridge(QObject):
         else:
             self._character_sort_key = key
             self._character_sort_ascending = True
+        self._save_sort(
+            "tableSort/characters",
+            self._character_sort_key,
+            self._character_sort_ascending,
+        )
         self._refresh_characters()
         self.changed.emit()
 
     @Slot(str)
+    def setTimelineSortMode(self, mode: str) -> None:
+        if mode not in {"appearance", "words", "lines", "name"}:
+            mode = "appearance"
+        if mode == self._timeline_sort_mode:
+            return
+        self._timeline_sort_mode = mode
+        self._refresh_lines()
+        self.changed.emit()
+
+    def _restore_sort(
+        self, state_key: str, allowed_keys: set[str], default_key: str
+    ) -> tuple[str, bool]:
+        if self._ui_state is None:
+            return default_key, True
+        stored = str(self._ui_state.stringValue(state_key, "") or "")
+        key, separator, direction = stored.partition("|")
+        if key not in allowed_keys or not separator:
+            return default_key, True
+        return key, direction != "desc"
+
+    def _save_sort(self, state_key: str, key: str, ascending: bool) -> None:
+        if self._ui_state is not None:
+            self._ui_state.setStringValue(
+                state_key, f"{key}|{'asc' if ascending else 'desc'}"
+            )
+
+    @Slot(str)
     def setActorFilter(self, actor_id: str) -> None:
         actor_id = actor_id or ""
-        if actor_id == self._actor_filter:
+        show_unassigned_only = actor_id == "__unassigned__"
+        actor_id = "" if show_unassigned_only else actor_id
+        if (
+            actor_id == self._actor_filter
+            and show_unassigned_only == self._show_unassigned_only
+        ):
             return
         self._actor_filter = actor_id
+        self._show_unassigned_only = show_unassigned_only
         self.actorFilterChanged.emit()
+        self.showUnassignedOnlyChanged.emit()
         self._refresh_characters()
 
     @Slot(bool)
@@ -408,6 +489,41 @@ class CastingBridge(QObject):
         )
 
     @Slot(str, str)
+    def removeActorFromCharacter(self, character: str, actor_id: str) -> None:
+        """Remove one actor from a role while retaining the rest of its cast."""
+        character = (character or "").strip()
+        actor_id = (actor_id or "").strip()
+        if not character or not actor_id:
+            return
+
+        assigned = get_actor_ids_for_character(
+            self._session.data, character, self._session.current_episode
+        )
+        if actor_id not in assigned:
+            return
+
+        scope = self._scope(character)
+        target = get_assignment_map(
+            self._session.data, scope, self._session.current_episode
+        )
+        remaining = [assigned_id for assigned_id in assigned if assigned_id != actor_id]
+        stored: Any
+        if remaining:
+            stored = remaining[0] if len(remaining) == 1 else remaining
+        elif scope == ASSIGNMENT_SCOPE_EPISODE:
+            stored = LOCAL_UNASSIGNED_ACTOR_ID
+        else:
+            stored = None
+
+        self._execute(AssignActorToCharacterCommand(
+            target, character, stored
+        ), "assignments")
+        actor_name = self._session.data.get("actors", {}).get(
+            actor_id, {}
+        ).get("name", actor_id)
+        self.statusRequested.emit(f"{character}: убран {actor_name}")
+
+    @Slot(str, str)
     def setAssignmentScope(self, character: str, scope: str) -> None:
         character = (character or "").strip()
         if scope not in {ASSIGNMENT_SCOPE_GLOBAL, ASSIGNMENT_SCOPE_EPISODE}:
@@ -491,11 +607,15 @@ class CastingBridge(QObject):
 
     def _execute(self, command, domain: str) -> None:
         self._session.execute(command, domain)
-        self.refresh()
+        # AppBridge refreshes all models affected by this project mutation.
+        # Refreshing here as well rebuilt the large casting and timeline models twice.
         self.projectDataChanged.emit(domain)
 
     def _refresh_actors(self) -> None:
-        rows, filters = [], [{"id": "", "name": "Все актёры"}]
+        rows, filters = [], [
+            {"id": "", "name": "Все актёры"},
+            {"id": "__unassigned__", "name": "Без актёра"},
+        ]
         actors = self._session.data.get("actors", {})
         for actor_id, actor in actors.items():
             name = actor.get("name", actor_id)
@@ -510,8 +630,8 @@ class CastingBridge(QObject):
             key=self._actor_sort_value,
             reverse=not self._actor_sort_ascending,
         )
-        filters[1:] = sorted(
-            filters[1:], key=lambda row: str(row["name"]).casefold()
+        filters[2:] = sorted(
+            filters[2:], key=lambda row: str(row["name"]).casefold()
         )
         self._actors_model.set_rows(rows)
         self._actor_filter_model.set_rows(filters)
@@ -529,23 +649,92 @@ class CastingBridge(QObject):
         episode = self._session.current_episode
         if not episode:
             self._lines_model.set_rows([])
+            self._timeline_model.set_rows([])
+            self._timeline_actors_model.set_rows([])
+            self._timeline_duration = 0.0
             return
         actors = self._session.data.get("actors", {})
         rows = []
+        timeline_rows = []
+        timeline_actor_stats: Dict[str, Dict[str, Any]] = {}
+        duration = 0.0
         for line in self._get_lines():
             character = str(line.get("char") or "")
             actor_ids = get_actor_ids_for_character(
                 self._session.data, character, episode
             )
             actor = actors.get(actor_ids[0], {}) if actor_ids else {}
+            start = max(0.0, float(line.get("s") or 0.0))
+            end = max(start, float(line.get("e") or start))
+            duration = max(duration, end)
             rows.append({
                 "time": f"{_format_time(line.get('s'))} - {_format_time(line.get('e'))}",
                 "character": character or "-",
                 "actor": self._actor_names(actor_ids),
                 "text": line.get("text", ""),
                 "color": actor.get("color", "#4F81BD") if len(actor_ids) == 1 else "transparent",
+                "start": start, "end": end, "actorIds": actor_ids,
             })
+            # A multiple cast produces one segment on each assigned actor's
+            # lane; unassigned lines stay visible on a neutral lane.
+            segment_actor_ids = actor_ids or [""]
+            for actor_id in segment_actor_ids:
+                timeline_actor = actors.get(actor_id, {})
+                lane_key = actor_id or "__unassigned__"
+                if lane_key not in timeline_actor_stats:
+                    timeline_actor_stats[lane_key] = {
+                        "id": actor_id,
+                        "name": str(timeline_actor.get("name") or "Без актёра"),
+                        "actorColor": str(timeline_actor.get("color") or "#9A9A9A"),
+                        "firstAppearance": len(timeline_actor_stats),
+                        "words": 0,
+                        "lines": 0,
+                    }
+                timeline_actor_stats[lane_key]["lines"] += 1
+                timeline_actor_stats[lane_key]["words"] += len(
+                    str(line.get("text") or "").split()
+                )
+                timeline_rows.append({
+                    "start": start, "end": end,
+                    "character": character or "-",
+                    "actor": str(timeline_actor.get("name") or "Без актёра"),
+                    "actorId": actor_id,
+                    "actorColor": str(timeline_actor.get("color") or "#9A9A9A"),
+                    "_laneKey": lane_key,
+                    "selected": character == self._selected_character,
+                })
+        timeline_actors = list(timeline_actor_stats.values())
+        if self._timeline_sort_mode == "words":
+            timeline_actors.sort(
+                key=lambda item: (
+                    -int(item["words"]), natural_sort_key(str(item["name"]))
+                )
+            )
+        elif self._timeline_sort_mode == "lines":
+            timeline_actors.sort(
+                key=lambda item: (
+                    -int(item["lines"]), natural_sort_key(str(item["name"]))
+                )
+            )
+        elif self._timeline_sort_mode == "name":
+            timeline_actors.sort(key=lambda item: natural_sort_key(str(item["name"])))
+        else:
+            timeline_actors.sort(key=lambda item: int(item["firstAppearance"]))
+        lane_by_actor = {
+            str(item["id"] or "__unassigned__"): lane
+            for lane, item in enumerate(timeline_actors)
+        }
+        for lane, item in enumerate(timeline_actors):
+            item["lane"] = lane
+            item.pop("firstAppearance", None)
+            item.pop("words", None)
+            item.pop("lines", None)
+        for item in timeline_rows:
+            item["lane"] = lane_by_actor[str(item.pop("_laneKey"))]
         self._lines_model.set_rows(rows)
+        self._timeline_model.set_rows(timeline_rows)
+        self._timeline_actors_model.set_rows(timeline_actors)
+        self._timeline_duration = duration
 
     def _refresh_characters(self) -> None:
         episode = self._session.current_episode
@@ -617,10 +806,16 @@ class CastingBridge(QObject):
         return ASSIGNMENT_SCOPE_EPISODE if character in local else ASSIGNMENT_SCOPE_GLOBAL
 
     def _set_selected_character(self, character: str) -> None:
+        changed = character != self._selected_character
         if character != self._selected_character:
             self._selected_character = character
             self.selectedCharacterChanged.emit()
         self._update_stats()
+        # The timeline mirrors the current selection with a stronger segment
+        # outline. It is intentionally refreshed only when selection changes.
+        if changed:
+            self._refresh_lines()
+            self.changed.emit()
 
     def _update_stats(self) -> None:
         text = "Выберите персонажа в таблице"

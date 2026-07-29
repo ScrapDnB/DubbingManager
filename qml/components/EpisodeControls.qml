@@ -216,56 +216,32 @@ ColumnLayout {
 
             Connections {
                 target: controls.castingBackend
-                function onActorFilterChanged() {
+                function syncActorFilter() {
                     if (!controls.castingBackend) {
                         return
                     }
-                    var idx = actorFilterCombo.indexOfValue(controls.castingBackend.actorFilter)
+                    var filterId = controls.castingBackend.showUnassignedOnly
+                        ? "__unassigned__" : controls.castingBackend.actorFilter
+                    var idx = actorFilterCombo.indexOfValue(filterId)
                     actorFilterCombo.currentIndex = idx >= 0 ? idx : 0
                 }
-            }
-        }
 
-        CheckBox {
-            text: qsTr("Неназначенные")
-            visible: !controls.narrow
-            enabled: controls.appBridge !== null
-            checked: controls.castingBackend ? controls.castingBackend.showUnassignedOnly : false
-            onToggled: if (controls.castingBackend) controls.castingBackend.setShowUnassignedOnly(checked)
-        }
-
-        TextField {
-            Layout.preferredWidth: controls.narrow ? 120
-                : (controls.compact ? 150 : 180)
-            Layout.minimumHeight: controls.controlHeight
-            Layout.preferredHeight: controls.controlHeight
-            Layout.maximumHeight: controls.controlHeight
-            Layout.alignment: Qt.AlignVCenter
-            placeholderText: qsTr("Поиск")
-            enabled: controls.appBridge !== null
-            text: controls.castingBackend ? controls.castingBackend.searchText : ""
-            selectByMouse: true
-            Accessible.name: qsTr("Поиск по персонажам")
-            onTextEdited: if (controls.castingBackend) controls.castingBackend.setSearchText(text)
-        }
-
-        CompactToolButton {
-            iconSource: Qt.resolvedUrl("../icons/x.svg")
-            toolTipText: qsTr("Сбросить фильтры")
-            enabled: controls.castingBackend && (controls.castingBackend.actorFilter.length > 0 || controls.castingBackend.showUnassignedOnly || controls.castingBackend.searchText.length > 0)
-            onClicked: {
-                if (!controls.castingBackend) {
-                    return
-                }
-                controls.castingBackend.setActorFilter("")
-                controls.castingBackend.setShowUnassignedOnly(false)
-                controls.castingBackend.setSearchText("")
+                function onActorFilterChanged() { syncActorFilter() }
+                function onShowUnassignedOnlyChanged() { syncActorFilter() }
             }
         }
 
         CompactToolButton {
+            visible: controls.width < 920
             iconSource: Qt.resolvedUrl("../icons/search.svg")
             toolTipText: qsTr("Глобальный поиск")
+            enabled: controls.projectBackend && controls.projectBackend.currentEpisode.length > 0
+            onClicked: controls.globalSearchRequested()
+        }
+
+        AdaptiveButton {
+            visible: controls.width >= 920
+            text: qsTr("Глобальный поиск")
             enabled: controls.projectBackend && controls.projectBackend.currentEpisode.length > 0
             onClicked: controls.globalSearchRequested()
         }

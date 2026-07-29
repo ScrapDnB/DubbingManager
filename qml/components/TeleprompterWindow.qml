@@ -1129,7 +1129,7 @@ NativeDialogWindow {
                             }
                         }
                     }
-                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff }
+                    ScrollBar.vertical: VisibleScrollBar { contentOverflow: false }
                 }
 
                 Label {

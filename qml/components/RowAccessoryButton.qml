@@ -14,8 +14,10 @@ ToolButton {
     property string overlayIconSource: ""
     property int overlayGlyphSize: 0
     property int overlayGlyphVerticalOffset: 0
+    property int buttonSize: 0
     readonly property bool macOSStyle: Qt.platform.os === "osx"
-    readonly property int controlSize: macOSStyle ? 22 : 30
+    readonly property int controlSize: buttonSize > 0
+        ? buttonSize : (macOSStyle ? 22 : 30)
     readonly property int glyphSize: macOSStyle ? 13 : 20
 
     implicitWidth: controlSize

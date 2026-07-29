@@ -18,6 +18,7 @@ Item {
     required property color panelSurface
     property int actorMarkerShape: 0
     property int actorMarkerSize: 0
+    property bool compactRows: false
     signal projectSummaryRequested()
     signal actorRolesRequested(string actorId)
     signal bulkTransferRequested()
@@ -73,8 +74,10 @@ Item {
         Math.ceil(panelFontMetrics.height + (macOSStyle ? 4 : 8))
     )
     readonly property int actorRowHeight: Math.max(
-        macOSStyle ? 28 : 32,
-        panelFontMetrics.height + (macOSStyle ? 12 : 16)
+        compactRows ? (macOSStyle ? 22 : 24) : (macOSStyle ? 28 : 32),
+        panelFontMetrics.height + (compactRows
+            ? (macOSStyle ? 6 : 8)
+            : (macOSStyle ? 12 : 16))
     )
 
     function sortTitle(label, key) {

@@ -11,17 +11,16 @@ Item {
     required property color softHeader
     required property color softMuted
     required property color panelSurface
-    signal montagePreviewRequested()
-    signal reaperExportRequested()
-    signal episodeSummaryRequested()
-    signal teleprompterRequested()
-    signal audiobookRequested()
-    signal rolesRequested()
+    property bool quickConverterVisible: true
     signal converterResultsRequested()
+    signal characterPreviewRequested()
+    signal characterRenameRequested()
+    signal characterSelectionCleared()
 
     SplitView.preferredWidth: 235
     SplitView.minimumWidth: 150
     readonly property bool macOSStyle: Qt.platform.os === "osx"
+    readonly property int topControlHeight: macOSStyle ? 28 : 40
 
     SystemPalette {
         id: palette
@@ -62,62 +61,38 @@ Item {
         anchors.margins: sidebar.macOSStyle ? 8 : 6
         spacing: sidebar.macOSStyle ? 5 : 6
 
-        Item {
+        RowLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: sidebar.macOSStyle ? 26 : 32
+            Layout.minimumHeight: sidebar.topControlHeight
+            Layout.preferredHeight: sidebar.topControlHeight
+            Layout.maximumHeight: sidebar.topControlHeight
+            spacing: sidebar.macOSStyle ? 5 : 4
 
-            Label {
-                anchors.fill: parent
-                text: qsTr("Сценарии")
-                font.bold: true
-                verticalAlignment: Text.AlignVCenter
+            TextField {
+                Layout.fillWidth: true
+                placeholderText: qsTr("Поиск персонажа")
+                enabled: sidebar.appBridge !== null
+                text: sidebar.castingBackend ? sidebar.castingBackend.searchText : ""
+                selectByMouse: true
+                Accessible.name: qsTr("Поиск по персонажам")
+                onTextEdited: if (sidebar.castingBackend) sidebar.castingBackend.setSearchText(text)
             }
-        }
 
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 4
-
-            SidebarCommandButton {
-                text: qsTr("Телесуфлёр")
-                Layout.fillWidth: true
-                Layout.preferredHeight: sidebar.macOSStyle ? 28 : 32
-                enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
-                onClicked: sidebar.teleprompterRequested()
-            }
-            SidebarCommandButton {
-                text: qsTr("Монтажный лист")
-                Layout.fillWidth: true
-                Layout.preferredHeight: sidebar.macOSStyle ? 28 : 32
-                enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
-                onClicked: sidebar.montagePreviewRequested()
-            }
-            SidebarCommandButton {
-                text: qsTr("Reaper")
-                Layout.fillWidth: true
-                Layout.preferredHeight: sidebar.macOSStyle ? 28 : 32
-                enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
-                onClicked: sidebar.reaperExportRequested()
-            }
-            SidebarCommandButton {
-                text: qsTr("Аудиокнига")
-                Layout.fillWidth: true
-                Layout.preferredHeight: sidebar.macOSStyle ? 28 : 32
-                onClicked: sidebar.audiobookRequested()
-            }
-            SidebarCommandButton {
-                text: qsTr("Отчёт серии")
-                Layout.fillWidth: true
-                Layout.preferredHeight: sidebar.macOSStyle ? 28 : 32
-                enabled: sidebar.appBridge && sidebar.appBridge.project.currentEpisode.length > 0
-                onClicked: sidebar.episodeSummaryRequested()
-            }
-            SidebarCommandButton {
-                text: qsTr("Назначить роли")
-                Layout.fillWidth: true
-                Layout.preferredHeight: sidebar.macOSStyle ? 28 : 32
-                enabled: sidebar.castingBackend !== null
-                onClicked: sidebar.rolesRequested()
+            CompactToolButton {
+                iconSource: Qt.resolvedUrl("../icons/x.svg")
+                toolTipText: qsTr("Сбросить фильтры")
+                enabled: sidebar.castingBackend && (
+                    sidebar.castingBackend.actorFilter.length > 0
+                    || sidebar.castingBackend.showUnassignedOnly
+                    || sidebar.castingBackend.searchText.length > 0
+                )
+                onClicked: {
+                    if (!sidebar.castingBackend)
+                        return
+                    sidebar.castingBackend.setActorFilter("")
+                    sidebar.castingBackend.setShowUnassignedOnly(false)
+                    sidebar.castingBackend.setSearchText("")
+                }
             }
         }
 
@@ -126,6 +101,7 @@ Item {
             Layout.fillHeight: true
             Layout.minimumHeight: 230
             Layout.preferredHeight: 320
+            clip: true
 
             Rectangle {
                 anchors.fill: parent
@@ -138,36 +114,10 @@ Item {
                 anchors.fill: parent
                 spacing: 0
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 28
-                    color: sidebar.macOSStyle
-                        ? "transparent" : sidebar.softHeader
-                    border.color: sidebar.macOSStyle
-                        ? "transparent" : sidebar.softBorder
-
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: 1
-                        visible: sidebar.macOSStyle
-                        color: sidebar.softBorder
-                    }
-
-                    Label {
-                        anchors.fill: parent
-                        anchors.leftMargin: 6
-                        anchors.rightMargin: 6
-                        text: qsTr("Статистика персонажа")
-                        font.bold: true
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    Layout.minimumHeight: 0
                     Layout.margins: 6
                     spacing: 6
 
@@ -180,34 +130,150 @@ Item {
                         wrapMode: Text.WordWrap
                     }
 
-                    PersistentListView {
-                        id: characterStatsList
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: sidebar.castingBackend
+                            && sidebar.castingBackend.selectedCharacter.length > 0
+                        spacing: sidebar.macOSStyle ? 5 : 4
+
+                        AdaptiveButton {
+                            text: qsTr("Реплики")
+                            Layout.fillWidth: true
+                            onClicked: sidebar.characterPreviewRequested()
+                        }
+                        AdaptiveButton {
+                            text: qsTr("Переименовать")
+                            Layout.fillWidth: true
+                            onClicked: sidebar.characterRenameRequested()
+                        }
+                        CompactToolButton {
+                            toolTipText: qsTr("Сбросить выбор")
+                            iconSource: Qt.resolvedUrl("../icons/x.svg")
+                            onClicked: sidebar.characterSelectionCleared()
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        visible: sidebar.castingBackend
+                            && sidebar.castingBackend.selectedCharacter.length > 0
+                        text: qsTr("Назначения по сериям")
+                        font.weight: Font.DemiBold
+                        font.pixelSize: sidebar.macOSStyle ? 11 : 12
+                    }
+
+                    Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        Layout.minimumHeight: 0
                         clip: true
-                        model: sidebar.castingBackend
-                            ? sidebar.castingBackend.characterEpisodeStatsModel
-                            : null
+                        readonly property bool statsOverflow: characterStatsList.count
+                            * (sidebar.macOSStyle ? 34 : 38)
+                            > characterStatsList.height + 1
 
-                        delegate: ItemDelegate {
-                            required property string episode
-                            required property int rings
-                            required property int words
-                            required property string actor
-                            width: characterStatsList.viewportWidth
-                            height: 38
-                            contentItem: Column {
-                                Label {
-                                    width: parent.width
-                                    text: episode + " · " + actor
-                                    elide: Text.ElideRight
+                        PersistentListView {
+                            id: characterStatsList
+                            anchors.fill: parent
+                            clip: true
+                            verticalScrollBarEnabled: !sidebar.macOSStyle
+                            model: sidebar.castingBackend
+                                ? sidebar.castingBackend.characterEpisodeStatsModel
+                                : null
+
+                            delegate: ItemDelegate {
+                                required property string episode
+                                required property int rings
+                                required property int words
+                                required property string actor
+                                required property string scope
+                                width: characterStatsList.viewportWidth
+                                height: sidebar.macOSStyle ? 34 : 38
+                                leftPadding: sidebar.macOSStyle ? 10 : 12
+                                rightPadding: sidebar.macOSStyle ? 10 : 12
+                                topPadding: sidebar.macOSStyle ? 3 : 4
+                                bottomPadding: sidebar.macOSStyle ? 3 : 4
+                                contentItem: Column {
+                                    width: Math.max(0, characterStatsList.viewportWidth
+                                        - (sidebar.macOSStyle ? 20 : 24))
+                                    spacing: 1
+                                    Label {
+                                        width: parent.width
+                                        text: qsTr("Серия ") + episode + " · " + actor
+                                        elide: Text.ElideRight
+                                        maximumLineCount: 1
+                                    }
+                                    Label {
+                                        width: parent.width
+                                        text: scope + " · " + rings + " колец · " + words + " слов"
+                                        elide: Text.ElideRight
+                                        maximumLineCount: 1
+                                        color: sidebar.softMuted
+                                        font.pixelSize: 11
+                                    }
                                 }
-                                Label {
-                                    width: parent.width
-                                    text: rings + " колец · " + words + " слов"
-                                    color: sidebar.softMuted
-                                    font.pixelSize: 11
+                            }
+                        }
+
+                        Rectangle {
+                            id: macStatsScrollBar
+                            // This panel may keep its content position while
+                            // the surrounding SplitView is relaid out. Keep
+                            // the macOS indicator available whenever the
+                            // selected character has assignments instead of
+                            // relying on ListView's delayed height report.
+                            visible: sidebar.macOSStyle && characterStatsList.count > 0
+                            z: 10
+                            width: 6
+                            height: Math.max(
+                                28,
+                                parent.height * parent.height / Math.max(
+                                    1, characterStatsList.count
+                                        * (sidebar.macOSStyle ? 34 : 38)
+                                )
+                            )
+                            anchors.right: parent.right
+                            anchors.rightMargin: 1
+                            y: Math.round((parent.height - height) * Math.max(0, Math.min(
+                                1,
+                                characterStatsList.contentY / Math.max(
+                                    1,
+                                    characterStatsList.count
+                                        * (sidebar.macOSStyle ? 34 : 38) - parent.height
+                                )
+                            )))
+                            radius: width / 2
+                            color: palette.text
+                            opacity: statsScrollDrag.pressed ? 0.62 : 0.40
+
+                            MouseArea {
+                                id: statsScrollDrag
+                                anchors.fill: parent
+                                cursorShape: Qt.OpenHandCursor
+                                property real pressY: 0
+                                property real initialContentY: 0
+                                onPressed: function(mouse) {
+                                    pressY = mouse.y
+                                    initialContentY = characterStatsList.contentY
+                                    cursorShape = Qt.ClosedHandCursor
                                 }
+                                onPositionChanged: function(mouse) {
+                                    if (!pressed)
+                                        return
+                                    var rowHeight = sidebar.macOSStyle ? 34 : 38
+                                    var trackHeight = Math.max(
+                                        1, parent.parent.height - macStatsScrollBar.height
+                                    )
+                                    var contentRange = Math.max(
+                                        0, characterStatsList.count * rowHeight
+                                            - parent.parent.height
+                                    )
+                                    characterStatsList.contentY = Math.max(0, Math.min(
+                                        contentRange,
+                                        initialContentY + (mouse.y - pressY)
+                                            * contentRange / trackHeight
+                                    ))
+                                }
+                                onReleased: cursorShape = Qt.OpenHandCursor
                             }
                         }
                     }
@@ -217,6 +283,7 @@ Item {
 
         QuickConverterPanel {
             appBridge: sidebar.appBridge
+            visible: sidebar.quickConverterVisible
             softBorder: sidebar.softBorder
             softHeader: sidebar.softHeader
             softMuted: sidebar.softMuted

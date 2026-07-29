@@ -124,6 +124,37 @@ class TestProjectHealthService:
         assert issues[0].category == "Рабочий текст"
         assert "Не удалось прочитать рабочий JSON" in issues[0].message
 
+    def test_can_ignore_empty_lines_and_their_diagnostics(self):
+        data = {
+            "episode_working_texts": {
+                "1": {
+                    "lines": [
+                        {
+                            "start": 2.0,
+                            "end": 2.0,
+                            "character": "",
+                            "text": "",
+                        },
+                        {
+                            "start": 3.0,
+                            "end": 4.0,
+                            "character": "Hero",
+                            "text": "Line",
+                        },
+                    ]
+                }
+            },
+            "actors": [{"id": "actor-1", "name": "Actor"}],
+            "global_map": {"Hero": "actor-1"},
+        }
+
+        issues = ProjectHealthService().check_project(
+            data,
+            ignore_empty_lines=True,
+        )
+
+        assert issues == []
+
     def test_summary_counts_severities(self):
         service = ProjectHealthService()
         issues = service.check_project({})
