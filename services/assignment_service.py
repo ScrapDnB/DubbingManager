@@ -135,6 +135,27 @@ def get_actor_roles(project_data: Dict[str, Any], actor_id: str) -> List[str]:
     return sorted(roles, key=str.lower)
 
 
+def build_actor_roles_index(project_data: Dict[str, Any]) -> Dict[str, List[str]]:
+    """Return all actor-to-role relations after one assignment-map pass."""
+    roles_by_actor: Dict[str, Set[str]] = {}
+
+    def collect(assignments: Any) -> None:
+        if not isinstance(assignments, dict):
+            return
+        for char_name, assignment in assignments.items():
+            for actor_id in actor_ids_from_assignment(assignment):
+                roles_by_actor.setdefault(actor_id, set()).add(str(char_name))
+
+    collect(project_data.get("global_map", {}))
+    for episode_map in ensure_episode_actor_map(project_data).values():
+        collect(episode_map)
+
+    return {
+        actor_id: sorted(roles, key=str.lower)
+        for actor_id, roles in roles_by_actor.items()
+    }
+
+
 def rename_character_assignments(
     project_data: Dict[str, Any],
     old_name: str,

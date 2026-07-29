@@ -3,6 +3,7 @@ from services.assignment_service import (
     ASSIGNMENT_SCOPE_GLOBAL,
     LOCAL_UNASSIGNED_ACTOR_ID,
     actor_ids_from_assignment,
+    build_actor_roles_index,
     get_actor_for_character,
     get_actor_ids_for_character,
     get_actor_roles,
@@ -54,6 +55,25 @@ def test_actor_roles_include_episode_local_roles() -> None:
     }
 
     assert get_actor_roles(data, "actor-1") == ["Hero", "Man 1"]
+
+
+def test_actor_roles_index_collects_every_actor_in_one_pass() -> None:
+    data = {
+        "global_map": {
+            "Hero": ["actor-1", "actor-2"],
+            "Narrator": "actor-1",
+        },
+        "episode_actor_map": {
+            "1": {"Crowd": "actor-2"},
+            "2": {"Guest": "actor-3", "Hero": "actor-3"},
+        },
+    }
+
+    assert build_actor_roles_index(data) == {
+        "actor-1": ["Hero", "Narrator"],
+        "actor-2": ["Crowd", "Hero"],
+        "actor-3": ["Guest", "Hero"],
+    }
 
 
 def test_multiple_actor_assignments_keep_legacy_primary_and_all_roles() -> None:

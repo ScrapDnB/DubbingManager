@@ -10,6 +10,34 @@ ROLE_NO_ACTOR = "__no_actor__"
 ROLE_MIXED_ACTOR = "__mixed_actor__"
 
 
+def resolve_role_actor(
+    project_data: Dict[str, Any],
+    role: str,
+    episodes: Set[str],
+) -> Dict[str, str]:
+    """Resolve the actor label for a known role without reading episode text."""
+    actor_ids = {
+        actor_id
+        for episode in episodes
+        for actor_id in get_actor_ids_for_character(project_data, role, episode)
+    }
+    if not actor_ids:
+        actor_ids.update(get_actor_ids_for_character(project_data, role))
+
+    actor_id = next(iter(actor_ids)) if len(actor_ids) == 1 else ROLE_MIXED_ACTOR
+    actors = project_data.get("actors", {})
+    if actor_id == ROLE_MIXED_ACTOR:
+        actor_name = " / ".join(
+            str(actors.get(item, {}).get("name") or item)
+            for item in sorted(actor_ids)
+        ) or "Разные"
+    elif not actor_id:
+        actor_name = "Без актёра"
+    else:
+        actor_name = str(actors.get(actor_id, {}).get("name", actor_id))
+    return {"actor_id": actor_id, "actor_name": actor_name}
+
+
 def collect_project_roles(
     project_data: Dict[str, Any],
     get_episode_lines: Optional[Callable[[str], List[Dict[str, Any]]]] = None,
@@ -36,32 +64,16 @@ def collect_project_roles(
                 roles.add(role)
                 episodes_by_role.setdefault(role, set()).add(str(episode))
 
-    actors = project_data.get("actors", {})
     result = []
     for role in sorted(roles, key=str.casefold):
-        actor_ids = {
-            actor_id
-            for episode in episodes_by_role.get(role, set())
-            for actor_id in get_actor_ids_for_character(
-                project_data, role, episode
-            )
-        }
-        if not actor_ids:
-            actor_ids.update(get_actor_ids_for_character(project_data, role))
-        actor_id = next(iter(actor_ids)) if len(actor_ids) == 1 else ROLE_MIXED_ACTOR
-        if actor_id == ROLE_MIXED_ACTOR:
-            actor_name = " / ".join(
-                str(actors.get(item, {}).get("name") or item)
-                for item in sorted(actor_ids)
-            ) or "Разные"
-        elif not actor_id:
-            actor_name = "Без актёра"
-        else:
-            actor_name = actors.get(actor_id, {}).get("name", actor_id)
+        assignment = resolve_role_actor(
+            project_data,
+            role,
+            episodes_by_role.get(role, set()),
+        )
         result.append({
             "name": role,
-            "actor_id": actor_id,
-            "actor_name": actor_name,
+            **assignment,
             "episodes": sorted(
                 episodes_by_role.get(role, set()),
                 key=natural_sort_key,

@@ -144,6 +144,11 @@ class ProjectFilesBridge(QObject):
         self._refresh_files()
         self._refresh_health()
 
+    @Slot()
+    def refresh_health(self) -> None:
+        """Refresh validation without rescanning project-folder file paths."""
+        self._refresh_health()
+
     def materialize_missing_source_lines(self) -> int:
         """Embed original source lines for legacy working texts before saving."""
         return self._materialize_missing_source_lines(self._session.data)

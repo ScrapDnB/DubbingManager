@@ -36,8 +36,9 @@ def test_character_stats_service_counts_episode_and_project_stats():
 
     assert project_stats["rings"] == 2
     assert project_stats["words"] == 3
+    assert project_stats["lines"] == 2
     assert project_stats["episodes"] == [
-        {"episode": "1", "rings": 2, "words": 3}
+        {"episode": "1", "lines": 2, "rings": 2, "words": 3}
     ]
 
 

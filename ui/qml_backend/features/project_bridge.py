@@ -514,17 +514,17 @@ class ProjectBridge(QObject):
         episodes = self._session.data.get("episodes", {})
         rows = []
         for name in ordered_episode_names(self._session.data):
-            lines = self._script_text_service.load_episode_lines(
+            line_count = self._script_text_service.episode_line_count(
                 self._session.data,
                 name,
             )
             source = episodes.get(name) or ""
             rows.append({
                 "name": name,
-                "subtitle": f"{len(lines)} реплик" + (
+                "subtitle": f"{line_count} реплик" + (
                     f" · {Path(source).name}" if source else ""
                 ),
-                "lineCount": len(lines),
+                "lineCount": line_count,
                 "hasVideo": bool(
                     self._session.data.get("video_paths", {}).get(name)
                 ),

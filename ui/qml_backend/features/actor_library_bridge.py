@@ -190,7 +190,6 @@ class ActorLibraryBridge(QObject):
             self._gender(actor.get("gender", "")),
         ), "actors")
         self.projectDataChanged.emit("actors")
-        self.refresh()
         self.statusRequested.emit(f"Добавлен в проект: {name}")
 
     @Slot("QVariantList")
@@ -247,7 +246,6 @@ class ActorLibraryBridge(QObject):
             f"Добавлены актёры из глобальной базы: {len(additions)}",
         ), "actors")
         self.projectDataChanged.emit("actors")
-        self.refresh()
         self.statusRequested.emit(
             f"Добавлено в проект: {len(additions)} · уже было: {len(ids) - len(additions)}"
         )
@@ -321,7 +319,6 @@ class ActorLibraryBridge(QObject):
             self._session.data, updates, "Синхронизирована глобальная база актёров",
         ), "actors")
         self.projectDataChanged.emit("actors")
-        self.refresh()
         self.statusRequested.emit(f"Синхронизировано актёров: {changed}")
         return changed
 
@@ -414,7 +411,6 @@ class ActorLibraryBridge(QObject):
             f"Объединён актёр {source_name}",
         ), "actors")
         self.projectDataChanged.emit("actors")
-        self.refresh()
         target = self._session.data.get("actors", {}).get(target_actor_id, {})
         self.statusRequested.emit(
             f"Актёры объединены: {source_name} → "

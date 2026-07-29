@@ -108,6 +108,21 @@ class ScriptTextService:
 
         return result
 
+    def episode_line_count(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str,
+    ) -> int:
+        """Return an episode line count without normalizing every line."""
+        payload = self.get_episode_payload(project_data, ep_num)
+        if not payload:
+            text_path = project_data.get("episode_texts", {}).get(str(ep_num))
+            if not text_path or not os.path.exists(text_path):
+                return 0
+            payload = self.load_episode_text(text_path)
+        lines = payload.get("lines", []) if isinstance(payload, dict) else []
+        return len(lines) if isinstance(lines, list) else 0
+
     def get_source_lines(
         self,
         project_data: Dict[str, Any],

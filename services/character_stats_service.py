@@ -65,6 +65,7 @@ class CharacterStatsService:
     ) -> Dict[str, Any]:
         """Calculate per-character stats across all project episodes."""
         result: Dict[str, Any] = {
+            "lines": 0,
             "rings": 0,
             "words": 0,
             "episodes": []
@@ -85,6 +86,9 @@ class CharacterStatsService:
             )
             ep_rings = 0
             ep_words = 0
+            ep_lines = sum(
+                1 for line in lines if line.get("char") == char_name
+            )
 
             for line in processed:
                 if line.get("char") != char_name:
@@ -95,9 +99,11 @@ class CharacterStatsService:
             if ep_rings:
                 result["episodes"].append({
                     "episode": str(ep),
+                    "lines": ep_lines,
                     "rings": ep_rings,
                     "words": ep_words
                 })
+                result["lines"] += ep_lines
                 result["rings"] += ep_rings
                 result["words"] += ep_words
 

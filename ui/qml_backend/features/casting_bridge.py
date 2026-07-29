@@ -21,7 +21,9 @@ from core.commands import (
 from services import (
     ASSIGNMENT_SCOPE_EPISODE,
     ASSIGNMENT_SCOPE_GLOBAL,
+    CharacterStatsService,
     LOCAL_UNASSIGNED_ACTOR_ID,
+    build_actor_roles_index,
     get_assignment_map,
     get_actor_for_character,
     get_actor_ids_for_character,
@@ -74,6 +76,8 @@ class CastingBridge(QObject):
         self._search_text = ""
         self._selected_character = ""
         self._selected_character_stats = "Выберите персонажа в таблице"
+        self._episode_lines_cache: Dict[str, list[Dict[str, Any]]] = {}
+        self._project_stats_cache: Dict[str, Dict[str, Any]] = {}
         self._timeline_sort_mode = "appearance"
         self._actor_sort_key, self._actor_sort_ascending = self._restore_sort(
             "tableSort/projectActors", {"name", "gender", "roleCount"}, "name"
@@ -584,13 +588,15 @@ class CastingBridge(QObject):
             f"Персонаж переименован: {old_name} -> {new_name}"
         )
 
-    def refresh(self) -> None:
+    def refresh(self, domain: str = "") -> None:
+        self.invalidate_cache(domain)
         self._refresh_actors()
         self._refresh_lines()
         self._refresh_characters()
         self.changed.emit()
 
     def reset(self) -> None:
+        self.invalidate_cache("project")
         self.resetFilters()
         self._set_selected_character("")
         self.refresh()
@@ -617,12 +623,13 @@ class CastingBridge(QObject):
             {"id": "__unassigned__", "name": "Без актёра"},
         ]
         actors = self._session.data.get("actors", {})
+        roles_by_actor = build_actor_roles_index(self._session.data)
         for actor_id, actor in actors.items():
             name = actor.get("name", actor_id)
             rows.append({
                 "id": actor_id, "name": name,
                 "color": actor.get("color", "#8FAADC"),
-                "roleCount": len(get_actor_roles(self._session.data, actor_id)),
+                "roleCount": len(roles_by_actor.get(actor_id, ())),
                 "gender": actor.get("gender", ""),
             })
             filters.append({"id": actor_id, "name": name})
@@ -814,46 +821,35 @@ class CastingBridge(QObject):
         # The timeline mirrors the current selection with a stronger segment
         # outline. It is intentionally refreshed only when selection changes.
         if changed:
-            self._refresh_lines()
+            self._timeline_model.update_rows({
+                index: {"selected": row.get("character") == character}
+                for index, row in enumerate(self._timeline_model.rows())
+            })
             self.changed.emit()
 
     def _update_stats(self) -> None:
         text = "Выберите персонажа в таблице"
         episode_rows = []
         if self._selected_character:
-            total_lines = total_rings = total_words = 0
             actors = self._session.data.get("actors", {})
-            for episode in sorted(
-                self._session.data.get("episodes", {}),
-                key=natural_sort_key,
-            ):
-                lines = [
-                    line for line in self._script_text_service.load_episode_lines(
-                        self._session.data, str(episode)
-                    )
-                    if str(line.get("char") or "") == self._selected_character
-                ]
-                if not lines:
-                    continue
-                line_count = len(lines)
-                rings = sum(max(1, len(line.get("parts") or [])) for line in lines)
-                words = sum(len(str(line.get("text") or "").split()) for line in lines)
+            stats = self._project_stats(self._selected_character)
+            for episode_stats in stats["episodes"]:
+                episode = str(episode_stats["episode"])
                 actor_ids = get_actor_ids_for_character(
-                    self._session.data, self._selected_character, str(episode)
+                    self._session.data, self._selected_character, episode
                 )
                 local = self._session.data.get("episode_actor_map", {}).get(
-                    str(episode), {}
+                    episode, {}
                 )
                 episode_rows.append({
-                    "episode": str(episode), "lines": line_count,
-                    "rings": rings, "words": words,
+                    "episode": episode,
+                    "lines": int(episode_stats.get("lines", 0)),
+                    "rings": int(episode_stats.get("rings", 0)),
+                    "words": int(episode_stats.get("words", 0)),
                     "actor": self._actor_names(actor_ids),
                     "scope": "Серия" if self._selected_character in local
                         else "Проект",
                 })
-                total_lines += line_count
-                total_rings += rings
-                total_words += words
             actor_ids = get_actor_ids_for_character(
                 self._session.data, self._selected_character,
                 self._session.current_episode,
@@ -861,8 +857,8 @@ class CastingBridge(QObject):
             actor_name = self._actor_names(actor_ids)
             text = (
                 f"{self._selected_character}\nАктёр: {actor_name}\n"
-                f"Реплик: {total_lines}\nКолец: {total_rings}\n"
-                f"Слов: {total_words}"
+                f"Реплик: {stats['lines']}\nКолец: {stats['rings']}\n"
+                f"Слов: {stats['words']}"
                 if episode_rows else
                 f"{self._selected_character}\nНет реплик в проекте"
             )
@@ -878,9 +874,29 @@ class CastingBridge(QObject):
         return str(value or "").casefold(), str(row.get("character", "")).casefold()
 
     def _get_lines(self):
-        return self._script_text_service.load_episode_lines(
-            self._session.data, self._session.current_episode
-        )
+        return self._get_episode_lines(self._session.current_episode)
+
+    def _get_episode_lines(self, episode: str) -> list[Dict[str, Any]]:
+        episode = str(episode or "")
+        if episode not in self._episode_lines_cache:
+            self._episode_lines_cache[episode] = (
+                self._script_text_service.load_episode_lines(
+                    self._session.data, episode
+                )
+            )
+        return self._episode_lines_cache[episode]
+
+    def _project_stats(self, character: str) -> Dict[str, Any]:
+        if character not in self._project_stats_cache:
+            self._project_stats_cache[character] = CharacterStatsService(
+                self._session.data
+            ).project_stats(character, self._get_episode_lines)
+        return self._project_stats_cache[character]
+
+    def invalidate_cache(self, domain: str = "") -> None:
+        if domain in {"", "project", "working_text", "project_files", "settings"}:
+            self._episode_lines_cache.clear()
+            self._project_stats_cache.clear()
 
     def _find_actor_by_name(self, name: str) -> Optional[str]:
         name = name.strip().casefold()

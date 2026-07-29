@@ -344,7 +344,7 @@ class AppBridge(QObject):
 
     def refresh(self) -> None:
         self._project.refresh_models()
-        self._casting.refresh()
+        self._casting.refresh("project")
         self._actor_library.refresh()
         self._roles.refresh()
         self._settings.refresh()
@@ -363,13 +363,40 @@ class AppBridge(QObject):
         video bindings. Keeping this path focused avoids a noticeable pause when
         assigning an actor in large projects.
         """
-        self._project.refresh_models()
-        self._casting.refresh()
+        self._casting.refresh("assignments")
         self._actor_library.refresh()
-        self._roles.refresh()
+        self._roles.refresh_assignments()
         self._montage.refresh()
         self._teleprompter.refresh_if_active()
         self._reports.refresh()
+
+    def _refresh_actor_dependents(self) -> None:
+        self._casting.refresh("actors")
+        self._actor_library.refresh()
+        self._roles.refresh_assignments()
+        self._montage.refresh()
+        self._teleprompter.refresh_if_active()
+        self._reports.refresh()
+        self._project_files.refresh_health()
+
+    def _refresh_working_text_dependents(self, domain: str) -> None:
+        self._project.refresh_models()
+        self._casting.refresh(domain)
+        self._roles.refresh()
+        self._montage.refresh()
+        self._video.refresh_if_active()
+        self._project_files.refresh()
+        self._teleprompter.refresh_if_active()
+        self._reports.refresh()
+
+    def _refresh_settings_dependents(self) -> None:
+        self._project.nameChanged.emit()
+        self._casting.refresh("settings")
+        self._settings.refresh()
+        self._montage.refresh()
+        self._teleprompter.refresh_if_active()
+        self._reports.refresh()
+        self._project_files.refresh_health()
 
     def _clear_auxiliary_models(self) -> None:
         self._teleprompter.reset()
@@ -399,10 +426,14 @@ class AppBridge(QObject):
         if domain == "assignments":
             self._refresh_assignment_dependents()
             return
+        if domain == "actors":
+            self._refresh_actor_dependents()
+            return
+        if domain in {"working_text", "project_files"}:
+            self._refresh_working_text_dependents(domain)
+            return
         if domain == "settings":
-            self._project.nameChanged.emit()
-        self.refresh()
-        if domain == "settings":
+            self._refresh_settings_dependents()
             self._teleprompter.notify_config_changed()
             self._montage.notify_project_changed()
 

@@ -8,6 +8,7 @@ from core.commands import ReplaceMappingValueCommand
 from services.project_service import ProjectService
 from ui.qml_backend import ProjectSession
 from ui.qml_backend.models import DictListModel
+from ui.qml_backend.features.roles_bridge import RolesBridge
 from ui.qml_backend.features.update_bridge import UpdateBridge
 from services.update_service import UpdateInfo
 
@@ -64,6 +65,49 @@ def test_dict_list_model_get_returns_copy_and_handles_bounds():
     assert model.get(0) == {"name": "Alice"}
     assert model.get(-1) == {}
     assert model.get(1) == {}
+
+
+def test_dict_list_model_updates_stable_rows_without_resetting():
+    model = DictListModel({
+        "id": Qt.UserRole + 1,
+        "name": Qt.UserRole + 2,
+    })
+    model.set_rows([{"id": "1", "name": "Alice"}])
+    resets = []
+    changes = []
+    model.modelReset.connect(lambda: resets.append(True))
+    model.dataChanged.connect(lambda *args: changes.append(args))
+
+    model.set_rows([{"id": "1", "name": "Alicia"}])
+
+    assert resets == []
+    assert len(changes) == 1
+    assert model.get(0)["name"] == "Alicia"
+
+
+def test_roles_bridge_reassigns_known_roles_without_loading_scripts():
+    _app()
+    data = {
+        "actors": {
+            "actor-1": {"name": "Alice"},
+            "actor-2": {"name": "Bob"},
+        },
+        "episodes": {"1": {}},
+        "global_map": {"Hero": "actor-1"},
+        "episode_actor_map": {},
+    }
+    scripts = Mock()
+    scripts.load_episode_lines.return_value = [
+        {"char": "Hero", "text": "Hello"},
+    ]
+    bridge = RolesBridge(ProjectSession(ProjectService(), data), scripts)
+    scripts.load_episode_lines.reset_mock()
+
+    data["global_map"]["Hero"] = "actor-2"
+    bridge.refresh_assignments()
+
+    scripts.load_episode_lines.assert_not_called()
+    assert bridge.model.get(0)["actorName"] == "Bob"
 
 
 def test_update_bridge_distinguishes_current_update_and_forced_install(monkeypatch):
