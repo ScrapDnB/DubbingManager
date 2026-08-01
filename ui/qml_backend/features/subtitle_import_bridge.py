@@ -25,12 +25,14 @@ class SubtitleImportBridge(QObject):
         session: ProjectSession,
         episode_service,
         script_text_service,
+        global_settings_service,
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
         self._session = session
         self._episode_service = episode_service
         self._script_text_service = script_text_service
+        self._global_settings_service = global_settings_service
         self._rows: list[dict[str, Any]] = []
         self._model = DictListModel({
             "fileName": Qt.UserRole + 1,
@@ -114,11 +116,11 @@ class SubtitleImportBridge(QObject):
         candidate = deepcopy(self._session.data)
         import_service = EpisodeService()
         import_service.set_merge_gap_from_config(
-            candidate.get("replica_merge_config", {})
+            self._global_settings_service.get_replica_merge_config()
         )
         import_service.set_import_configs(
-            candidate.get("ass_import_config", {}),
-            candidate.get("srt_import_config", {}),
+            self._global_settings_service.get_ass_import_config(),
+            self._global_settings_service.get_srt_import_config(),
         )
         controller = ImportController(
             candidate,

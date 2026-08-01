@@ -11,12 +11,43 @@ PersistentScrollView {
     required property var configuration
     signal configEdited(var config)
     property string colorTarget: ""
+    property bool globalScope: false
+    readonly property var layoutTypes: [
+        "Сценарий 1", "Сценарий 2", "Сценарий 3"
+    ]
 
     clip: true
     contentWidth: availableWidth
 
     function setValue(key, value) {
         var next = Object.assign({}, configuration)
+        next[key] = value
+        configEdited(next)
+    }
+
+    function setLayout(layoutType) {
+        var next = Object.assign({}, configuration)
+        var profiles = Object.assign({}, next.layout_font_sizes || {})
+        var profile = Object.assign({}, profiles[layoutType] || {})
+        next.layout_type = layoutType
+        var fontKeys = ["f_tc", "f_char", "f_actor", "f_text"]
+        for (var index = 0; index < fontKeys.length; ++index) {
+            var key = fontKeys[index]
+            next[key] = Number(profile[key] || {
+                f_tc: 20, f_char: 24, f_actor: 18, f_text: 36
+            }[key])
+        }
+        configEdited(next)
+    }
+
+    function setLayoutFontSize(key, value) {
+        var next = Object.assign({}, configuration)
+        var layoutType = next.layout_type || "Сценарий 1"
+        var profiles = Object.assign({}, next.layout_font_sizes || {})
+        var profile = Object.assign({}, profiles[layoutType] || {})
+        profile[key] = value
+        profiles[layoutType] = profile
+        next.layout_font_sizes = profiles
         next[key] = value
         configEdited(next)
     }
@@ -70,19 +101,82 @@ PersistentScrollView {
         }
 
         FormSection {
+            visible: pane.globalScope
+            title: qsTr("Разметка")
+            Layout.fillWidth: true
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 4
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label { text: qsTr("Сценарий") }
+                    PlatformComboBox {
+                        Layout.fillWidth: true
+                        model: pane.layoutTypes
+                        currentIndex: Math.max(
+                            0, pane.layoutTypes.indexOf(
+                                String(pane.configuration.layout_type || "Сценарий 1")
+                            )
+                        )
+                        onActivated: pane.setLayout(currentText)
+                    }
+                }
+
+                CollapsibleSection {
+                    title: qsTr("Элементы")
+                    expanded: true
+                    Layout.fillWidth: true
+
+                    CheckBox {
+                        text: qsTr("Таймкод")
+                        checked: Boolean(pane.configuration.show_timecode)
+                        onToggled: pane.setValue("show_timecode", checked)
+                    }
+                    CheckBox {
+                        text: qsTr("Персонаж")
+                        checked: Boolean(pane.configuration.show_character)
+                        onToggled: pane.setValue("show_character", checked)
+                    }
+                    CheckBox {
+                        text: qsTr("Актёр")
+                        checked: Boolean(pane.configuration.show_actor)
+                        onToggled: pane.setValue("show_actor", checked)
+                    }
+                    CheckBox {
+                        text: qsTr("Реплика")
+                        checked: Boolean(pane.configuration.show_replica)
+                        onToggled: pane.setValue("show_replica", checked)
+                    }
+                    CheckBox {
+                        text: qsTr("Границы блоков")
+                        checked: Boolean(pane.configuration.show_block_borders)
+                        onToggled: pane.setValue("show_block_borders", checked)
+                    }
+                    CheckBox {
+                        text: qsTr("Скрывать нули")
+                        checked: Boolean(pane.configuration.hide_leading_timecode_zeros)
+                        onToggled: pane.setValue("hide_leading_timecode_zeros", checked)
+                    }
+                }
+            }
+        }
+
+        FormSection {
+            visible: pane.globalScope
             title: qsTr("Размер текста")
             Layout.fillWidth: true
             GridLayout {
                 anchors.fill: parent
                 columns: 4
                 Label { text: qsTr("Таймкод") }
-                SpinBox { from: 10; to: 150; value: Number(pane.configuration.f_tc || 20); onValueModified: pane.setValue("f_tc", value) }
+                SpinBox { from: 10; to: 150; value: Number(pane.configuration.f_tc || 20); onValueModified: pane.setLayoutFontSize("f_tc", value) }
                 Label { text: qsTr("Персонаж") }
-                SpinBox { from: 10; to: 150; value: Number(pane.configuration.f_char || 24); onValueModified: pane.setValue("f_char", value) }
+                SpinBox { from: 10; to: 150; value: Number(pane.configuration.f_char || 24); onValueModified: pane.setLayoutFontSize("f_char", value) }
                 Label { text: qsTr("Актёр") }
-                SpinBox { from: 10; to: 150; value: Number(pane.configuration.f_actor || 18); onValueModified: pane.setValue("f_actor", value) }
+                SpinBox { from: 10; to: 150; value: Number(pane.configuration.f_actor || 18); onValueModified: pane.setLayoutFontSize("f_actor", value) }
                 Label { text: qsTr("Реплика") }
-                SpinBox { from: 10; to: 300; value: Number(pane.configuration.f_text || 36); onValueModified: pane.setValue("f_text", value) }
+                SpinBox { from: 10; to: 300; value: Number(pane.configuration.f_text || 36); onValueModified: pane.setLayoutFontSize("f_text", value) }
             }
         }
 
@@ -100,7 +194,8 @@ PersistentScrollView {
                         { key: "tc", label: "Таймкод" },
                         { key: "actor", label: "Актёр" },
                         { key: "header_bg", label: "Фон заголовка" },
-                        { key: "header_text", label: "Текст заголовка" }
+                        { key: "header_text", label: "Текст заголовка" },
+                        { key: "block_border", label: "Границы блоков" }
                     ]
                     delegate: RowLayout {
                         id: colorRow

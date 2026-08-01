@@ -14,6 +14,8 @@ from config.constants import (
     DEFAULT_PROMPTER_CONFIG,
     DEFAULT_REPLICA_MERGE_CONFIG,
     DEFAULT_SRT_IMPORT_CONFIG,
+    PROMPTER_FONT_KEYS,
+    PROMPTER_LAYOUT_TYPES,
 )
 from core.commands import UpdateProjectFileStateCommand
 from ui.qml_backend.models import DictListModel
@@ -29,6 +31,7 @@ class SettingsBridge(QObject):
     statusRequested = Signal(str)
     errorRequested = Signal(str)
     backupConfigChanged = Signal(dict)
+    globalMontageConfigChanged = Signal()
     globalPrompterConfigChanged = Signal()
 
     def __init__(
@@ -131,7 +134,7 @@ class SettingsBridge(QObject):
 
     @Property("QVariantMap", notify=changed)
     def projectMontageConfig(self) -> dict:
-        return self._export_config(self._session.data.get("export_config"))
+        return self.globalMontageConfig
 
     @Property("QVariantMap", notify=changed)
     def globalMontageConfig(self) -> dict:
@@ -141,39 +144,12 @@ class SettingsBridge(QObject):
 
     @Property("QVariantMap", notify=changed)
     def projectPrompterConfig(self) -> dict:
-        config = self._prompter_config(
-            self._global_settings_service.get_default_prompter_config()
-        )
-        return self._prompter_config(
-            self._session.data.get("prompter_config"), config
-        )
+        return self.globalPrompterConfig
 
     @Property("QVariantMap", notify=changed)
     def globalPrompterConfig(self) -> dict:
         return self._prompter_config(
             self._global_settings_service.get_default_prompter_config()
-        )
-
-    @Property("QVariantMap", notify=changed)
-    def projectMergeConfig(self) -> dict:
-        return self._merge_config()
-
-    @Property("QVariantMap", notify=changed)
-    def projectAssImportConfig(self) -> dict:
-        return self._ass_import_config(
-            self._session.data.get("ass_import_config")
-        )
-
-    @Property("QVariantMap", notify=changed)
-    def projectSrtImportConfig(self) -> dict:
-        return self._srt_import_config(
-            self._session.data.get("srt_import_config")
-        )
-
-    @Property("QVariantMap", notify=changed)
-    def projectDocxImportConfig(self) -> dict:
-        return self._docx_import_config(
-            self._session.data.get("docx_import_config")
         )
 
     @Property("QVariantMap", notify=changed)
@@ -212,154 +188,29 @@ class SettingsBridge(QObject):
             self._global_settings_service.get_backup_config()
         )
 
-    @Slot(str, str, str, bool, float, float, float, float, result=bool)
-    def applyProjectSettings(
-        self,
-        name: str,
-        author: str,
-        studio: str,
-        merge_enabled: bool,
-        fps: float,
-        gap_seconds: float,
-        short_pause: float,
-        long_pause: float,
-    ) -> bool:
-        return self._apply_project_bundle(
-            name, author, studio, merge_enabled, fps, gap_seconds,
-            short_pause, long_pause, self.projectMontageConfig,
-            self.projectPrompterConfig,
-        )
-
-    @Slot(
-        str, str, str, bool, float, float, float, float,
-        "QVariantMap", "QVariantMap", result=bool,
-    )
-    def applyProjectSettingsBundle(
-        self,
-        name: str,
-        author: str,
-        studio: str,
-        merge_enabled: bool,
-        fps: float,
-        gap_seconds: float,
-        short_pause: float,
-        long_pause: float,
-        montage_config: dict,
-        prompter_config: dict,
-    ) -> bool:
-        return self._apply_project_bundle(
-            name, author, studio, merge_enabled, fps, gap_seconds,
-            short_pause, long_pause, montage_config, prompter_config,
-        )
-
-    @Slot(
-        str, str, str, "QVariantMap", "QVariantMap", "QVariantMap",
-        "QVariantMap", "QVariantMap", "QVariantMap", result=bool,
-    )
+    @Slot(str, str, str, result=bool)
     def applyProjectSettingsFull(
         self,
         name: str,
         author: str,
         studio: str,
-        montage_config: dict,
-        prompter_config: dict,
-        merge_config: dict,
-        ass_config: dict,
-        srt_config: dict,
-        docx_config: dict,
     ) -> bool:
-        normalized_merge = self._merge_config(merge_config)
-        fps = float(normalized_merge["fps"])
-        return self._apply_project_bundle(
-            name,
-            author,
-            studio,
-            bool(normalized_merge["merge"]),
-            fps,
-            float(normalized_merge["merge_gap"]) / fps,
-            float(normalized_merge["p_short"]),
-            float(normalized_merge["p_long"]),
-            montage_config,
-            prompter_config,
-            ass_config,
-            srt_config,
-            docx_config,
-        )
-
-    def _apply_project_bundle(
-        self,
-        name: str,
-        author: str,
-        studio: str,
-        merge_enabled: bool,
-        fps: float,
-        gap_seconds: float,
-        short_pause: float,
-        long_pause: float,
-        montage_config: dict,
-        prompter_config: dict,
-        ass_config=None,
-        srt_config=None,
-        docx_config=None,
-    ) -> bool:
-        name = (name or "").strip()
-        if not name:
-            self.errorRequested.emit("Введите название проекта")
-            return False
-        if not 1.0 <= fps <= 120.0:
-            self.errorRequested.emit("FPS должен быть от 1 до 120")
-            return False
-        if not 0.0 <= gap_seconds <= 10.0:
-            self.errorRequested.emit("Порог слияния должен быть от 0 до 10 секунд")
-            return False
-        if not 0.0 <= short_pause <= 5.0 or not 0.0 <= long_pause <= 10.0:
-            self.errorRequested.emit("Проверьте длительность короткой и длинной паузы")
-            return False
-
         metadata = deepcopy(self._session.data.get("metadata", {}))
         metadata.update({
             "created_by": (author or "").strip(),
             "studio": (studio or "").strip(),
         })
-        merge_config = self._merge_config()
-        merge_config.update({
-            "merge": bool(merge_enabled),
-            "fps": float(fps),
-            "merge_gap": int(round(float(gap_seconds) * float(fps))),
-            "p_short": float(short_pause),
-            "p_long": float(long_pause),
-        })
-        updates = {
-            "project_name": name,
-            "metadata": metadata,
-            "replica_merge_config": merge_config,
-            "export_config": self._export_config(montage_config),
-            "prompter_config": self._prompter_config(prompter_config),
-            "ass_import_config": self._ass_import_config(
-                ass_config if ass_config is not None else self.projectAssImportConfig
-            ),
-            "srt_import_config": self._srt_import_config(
-                srt_config if srt_config is not None else self.projectSrtImportConfig
-            ),
-            "docx_import_config": self._docx_import_config(
-                docx_config if docx_config is not None else self.projectDocxImportConfig
-            ),
-        }
-        current = {key: self._session.data.get(key) for key in updates}
-        if current == updates:
+        updates = {"project_name": (name or "").strip(), "metadata": metadata}
+        if not updates["project_name"]:
+            self.errorRequested.emit("Введите название проекта")
+            return False
+        if all(self._session.data.get(key) == value for key, value in updates.items()):
             return True
-
         self._session.execute(UpdateProjectFileStateCommand(
-            self._session.data,
-            updates,
-            "Изменены настройки проекта",
+            self._session.data, updates, "Изменены настройки проекта",
         ), "settings")
-        self._episode_service.set_merge_gap_from_config(merge_config)
-        for episode in self._session.data.get("episodes", {}):
-            self._episode_service.invalidate_episode(str(episode))
         self.changed.emit()
         self.projectDataChanged.emit("settings")
-        self.statusRequested.emit("Настройки проекта сохранены")
         return True
 
     @Slot(str, str, result=bool)
@@ -508,6 +359,14 @@ class SettingsBridge(QObject):
         self._global_settings.clear()
         self._global_settings.update(self._global_settings_service.get_settings())
         self.backupConfigChanged.emit(self.globalBackupConfig)
+        self.globalMontageConfigChanged.emit()
+        self._episode_service.set_merge_gap_from_config(
+            self._global_settings_service.get_replica_merge_config()
+        )
+        self._episode_service.set_import_configs(
+            self._global_settings_service.get_ass_import_config(),
+            self._global_settings_service.get_srt_import_config(),
+        )
         self.globalPrompterConfigChanged.emit()
         self.changed.emit()
         message = "Глобальные настройки сохранены"
@@ -541,8 +400,10 @@ class SettingsBridge(QObject):
             return False
         if kind == "prompter":
             self.globalPrompterConfigChanged.emit()
+        elif kind == "montage":
+            self.globalMontageConfigChanged.emit()
         self.changed.emit()
-        self.statusRequested.emit("Настройки проекта сохранены по умолчанию")
+        self.statusRequested.emit("Глобальные настройки сохранены")
         return True
 
     @Slot(
@@ -570,67 +431,6 @@ class SettingsBridge(QObject):
         self._global_settings.update(self._global_settings_service.get_settings())
         self.changed.emit()
         self.statusRequested.emit("Настройки импорта сохранены по умолчанию")
-        return True
-
-    @Slot(
-        "QVariantMap", "QVariantMap", "QVariantMap", "QVariantMap",
-        result=bool,
-    )
-    def applyImportConfigToProject(
-        self,
-        merge_config: dict,
-        ass_config: dict,
-        srt_config: dict,
-        docx_config: dict,
-    ) -> bool:
-        updates = {
-            "replica_merge_config": self._merge_config(merge_config),
-            "ass_import_config": self._ass_import_config(ass_config),
-            "srt_import_config": self._srt_import_config(srt_config),
-            "docx_import_config": self._docx_import_config(docx_config),
-        }
-        current = {key: self._session.data.get(key) for key in updates}
-        if current == updates:
-            return True
-        self._session.execute(UpdateProjectFileStateCommand(
-            self._session.data,
-            updates,
-            "Применены глобальные настройки импорта",
-        ), "settings")
-        self._episode_service.set_merge_gap_from_config(
-            updates["replica_merge_config"]
-        )
-        self.changed.emit()
-        self.projectDataChanged.emit("settings")
-        self.statusRequested.emit("Глобальные настройки импорта применены к проекту")
-        return True
-
-    @Slot(str, "QVariantMap", result=bool)
-    def applyGlobalConfigToProject(self, kind: str, config: dict) -> bool:
-        if kind == "montage":
-            key, value = "export_config", self._export_config(config)
-        elif kind == "prompter":
-            key, value = "prompter_config", self._prompter_config(config)
-        elif kind == "merge":
-            key, value = "replica_merge_config", self._merge_config(config)
-        elif kind == "ass":
-            key, value = "ass_import_config", self._ass_import_config(config)
-        elif kind == "srt":
-            key, value = "srt_import_config", self._srt_import_config(config)
-        elif kind == "docx":
-            key, value = "docx_import_config", self._docx_import_config(config)
-        else:
-            return False
-        if self._session.data.get(key) == value:
-            return True
-        self._session.execute(UpdateProjectFileStateCommand(
-            self._session.data,
-            {key: value},
-            "Применены глобальные настройки к проекту",
-        ), "settings")
-        self.changed.emit()
-        self.projectDataChanged.emit("settings")
-        self.statusRequested.emit("Глобальные настройки применены к проекту")
         return True
 
     @Slot(str, bool, result=bool)
@@ -714,10 +514,8 @@ class SettingsBridge(QObject):
 
     def _merge_config(self, value=None) -> dict:
         config = deepcopy(DEFAULT_REPLICA_MERGE_CONFIG)
-        stored = (
-            self._session.data.get("replica_merge_config", {})
-            if value is None else value
-        )
+        stored = (self._global_settings_service.get_replica_merge_config()
+                  if value is None else value)
         if isinstance(stored, dict):
             config.update(stored)
         config["merge"] = bool(config.get("merge", True))
@@ -816,6 +614,20 @@ class SettingsBridge(QObject):
         if isinstance(source.get("colors"), dict):
             colors.update(source["colors"])
         config["colors"] = colors
+        layout_type = str(config.get("layout_type", "Сценарий 1"))
+        if layout_type not in PROMPTER_LAYOUT_TYPES:
+            layout_type = "Сценарий 1"
+        profiles = deepcopy(config.get("layout_font_sizes", {}))
+        profile = deepcopy(profiles.get(
+            layout_type,
+            DEFAULT_PROMPTER_CONFIG["layout_font_sizes"][layout_type],
+        ))
+        for key in PROMPTER_FONT_KEYS:
+            if key in source:
+                profile[key] = source[key]
+        profiles[layout_type] = profile
+        config["layout_type"] = layout_type
+        config["layout_font_sizes"] = profiles
         return config
 
     def _save_global_service_state(self) -> bool:

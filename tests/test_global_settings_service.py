@@ -13,6 +13,7 @@ from services.global_settings_service import (
 from config.constants import (
     DEFAULT_EXPORT_CONFIG,
     DEFAULT_PROMPTER_CONFIG,
+    PROMPTER_LAYOUT_TYPES,
     DEFAULT_REPLICA_MERGE_CONFIG,
 )
 
@@ -467,6 +468,73 @@ class TestGlobalSettingsService:
         
         assert service.settings['default_prompter_config']['f_tc'] == 100
         assert 'prompter_config' not in service.settings
+
+    def test_legacy_prompter_font_sizes_migrate_to_scenario_one(self, service):
+        """Старые плоские размеры становятся профилем исходной разметки."""
+        config = service._normalize_prompter_config({
+            'f_tc': 31,
+            'f_char': 42,
+            'f_actor': 23,
+            'f_text': 57,
+        })
+
+        assert config['layout_type'] == 'Сценарий 1'
+        assert config['layout_font_sizes']['Сценарий 1'] == {
+            'f_tc': 31,
+            'f_char': 42,
+            'f_actor': 23,
+            'f_text': 57,
+        }
+        assert config['layout_font_sizes']['Сценарий 2']['f_text'] == 36
+        assert config['layout_font_sizes']['Сценарий 3']['f_text'] == 36
+
+    def test_prompter_layout_font_profiles_are_independent(self, service):
+        """Каждая разметка хранит и отдаёт собственные размеры шрифтов."""
+        service.settings = {}
+        profiles = {
+            name: dict(DEFAULT_PROMPTER_CONFIG['layout_font_sizes'][name])
+            for name in PROMPTER_LAYOUT_TYPES
+        }
+        profiles['Сценарий 1']['f_text'] = 41
+        profiles['Сценарий 2']['f_text'] = 52
+        profiles['Сценарий 3']['f_text'] = 63
+
+        service.update_prompter_config({
+            'layout_type': 'Сценарий 2',
+            'layout_font_sizes': profiles,
+            'f_text': 52,
+        })
+        config = service.get_default_prompter_config()
+
+        assert config['layout_type'] == 'Сценарий 2'
+        assert config['f_text'] == 52
+        assert [
+            config['layout_font_sizes'][name]['f_text']
+            for name in PROMPTER_LAYOUT_TYPES
+        ] == [41, 52, 63]
+
+    def test_prompter_layout_bold_profiles_are_independent(self, service):
+        """Начертание текста хранится отдельно для каждой разметки."""
+        service.settings = {}
+
+        service.update_prompter_config({
+            'layout_type': 'Сценарий 2',
+            'bold_tc': True,
+            'bold_char': False,
+            'bold_actor': True,
+            'bold_text': True,
+        })
+        config = service.get_default_prompter_config()
+
+        assert config['layout_font_bold']['Сценарий 1']['bold_char'] is True
+        assert config['layout_font_bold']['Сценарий 1']['bold_text'] is False
+        assert config['layout_font_bold']['Сценарий 2'] == {
+            'bold_tc': True,
+            'bold_char': False,
+            'bold_actor': True,
+            'bold_text': True,
+        }
+        assert config['bold_text'] is True
 
     def test_prompter_color_presets(self, service):
         """Тест глобальных пресетов цветовых схем суфлёра."""

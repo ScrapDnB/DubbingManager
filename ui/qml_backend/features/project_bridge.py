@@ -334,11 +334,11 @@ class ProjectBridge(QObject):
         )
         old_name = self.name
         self._episode_service.set_merge_gap_from_config(
-            self._session.data.get("replica_merge_config", {})
+            self._global_settings_service.get_replica_merge_config()
         )
         self._episode_service.set_import_configs(
-            self._session.data.get("ass_import_config", {}),
-            self._session.data.get("srt_import_config", {}),
+            self._global_settings_service.get_ass_import_config(),
+            self._global_settings_service.get_srt_import_config(),
         )
         try:
             _stats, lines = controller.add_subtitle_episode(episode, path)
@@ -542,10 +542,6 @@ class ProjectBridge(QObject):
         data.update({
             "export_config": self._global_settings_service.get_default_export_config(),
             "prompter_config": self._global_settings_service.get_default_prompter_config(),
-            "replica_merge_config": self._global_settings_service.get_replica_merge_config(),
-            "ass_import_config": self._global_settings_service.get_ass_import_config(),
-            "srt_import_config": self._global_settings_service.get_srt_import_config(),
-            "docx_import_config": self._global_settings_service.get_docx_import_config(),
         })
         service.current_project_path = None
         service.is_dirty = False

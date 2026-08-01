@@ -40,6 +40,8 @@ NativeDialogWindow {
     property int actorMarkerShape: 0
     property int actorMarkerSizeDraft: 0
     property int actorMarkerSize: 0
+    property int uiScalePercent: 75
+    property int uiScalePercentDraft: 75
     property string characterColumnsOrder: "[]"
     property string characterColumnsHidden: "[]"
     property string characterColumnWidths: "{}"
@@ -96,6 +98,7 @@ NativeDialogWindow {
         actorColorCellFillFullHeightDraft = actorColorCellFillFullHeight
         actorMarkerShapeDraft = actorMarkerShape
         actorMarkerSizeDraft = actorMarkerSize
+        uiScalePercentDraft = uiScalePercent
         characterColumnsOrderDraft = arrayPreference(characterColumnsOrder, [
             "character", "lines", "rings", "words", "scope", "actor", "preview"
         ])
@@ -141,13 +144,12 @@ NativeDialogWindow {
             Layout.fillHeight: true
             currentIndex: globalNavigation.currentIndex
 
-            ScrollView {
+            PersistentScrollView {
                 id: interfaceSettingsScroll
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
                 contentWidth: availableWidth
-                rightPadding: 12
 
                 ColumnLayout {
                     width: interfaceSettingsScroll.availableWidth
@@ -155,6 +157,40 @@ NativeDialogWindow {
                 SettingsPageHeader {
                     title: qsTr("Интерфейс")
                     subtitle: qsTr("Отображение цветов актёров в главной таблице.")
+                }
+
+                FormSection {
+                    visible: Qt.platform.os === "windows"
+                    title: qsTr("Масштаб интерфейса")
+                    Layout.fillWidth: true
+
+                    GridLayout {
+                        anchors.fill: parent
+                        columns: 2
+                        columnSpacing: 12
+                        rowSpacing: 8
+
+                        Label { text: qsTr("Масштаб:") }
+                        RowLayout {
+                            SpinBox {
+                                from: 50
+                                to: 200
+                                stepSize: 5
+                                editable: true
+                                value: dialog.uiScalePercentDraft
+                                onValueModified: dialog.uiScalePercentDraft = value
+                            }
+                            Label { text: qsTr("%"); color: dialog.softMuted }
+                            Item { Layout.fillWidth: true }
+                        }
+                        Label {
+                            Layout.columnSpan: 2
+                            Layout.fillWidth: true
+                            text: qsTr("Изменение применяется после перезапуска программы.")
+                            wrapMode: Text.WordWrap
+                            color: dialog.softMuted
+                        }
+                    }
                 }
 
                 CheckBox {
@@ -519,19 +555,6 @@ NativeDialogWindow {
                     title: qsTr("Импорт")
                     subtitle: qsTr("Общие правила для ASS, SRT, DOCX и объединения реплик.")
                 }
-                RowLayout {
-                    Layout.fillWidth: true
-                    AdaptiveButton {
-                        text: qsTr("Применить к проекту")
-                        onClicked: dialog.backend.applyImportConfigToProject(
-                            dialog.mergeDraft,
-                            dialog.assDraft,
-                            dialog.srtDraft,
-                            dialog.docxDraft
-                        )
-                    }
-                    Item { Layout.fillWidth: true }
-                }
                 ImportSettingsPane {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -558,17 +581,7 @@ NativeDialogWindow {
                 spacing: 8
                 SettingsPageHeader {
                     title: qsTr("Монтажный лист")
-                    subtitle: qsTr("Настройки, применяемые к новым проектам.")
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    AdaptiveButton {
-                        text: qsTr("Применить к проекту")
-                        onClicked: dialog.backend.applyGlobalConfigToProject(
-                            "montage", dialog.montageDraft
-                        )
-                    }
-                    Item { Layout.fillWidth: true }
+                    subtitle: qsTr("Единые настройки предпросмотра и экспорта для всех проектов.")
                 }
                 MontageSettingsPane {
                     Layout.fillWidth: true
@@ -582,21 +595,12 @@ NativeDialogWindow {
                 spacing: 8
                 SettingsPageHeader {
                     title: qsTr("Телесуфлёр")
-                    subtitle: qsTr("Настройки, применяемые к новым проектам.")
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    AdaptiveButton {
-                        text: qsTr("Применить к проекту")
-                        onClicked: dialog.backend.applyGlobalConfigToProject(
-                            "prompter", dialog.prompterDraft
-                        )
-                    }
-                    Item { Layout.fillWidth: true }
+                    subtitle: qsTr("Единые настройки отображения и управления для всех проектов.")
                 }
                 TeleprompterSettingsPane {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    globalScope: true
                     configuration: dialog.prompterDraft
                     onConfigEdited: function(config) { dialog.prompterDraft = config }
                 }
@@ -647,6 +651,10 @@ NativeDialogWindow {
                 dialog.appBridge.uiState.setIntValue(
                     "actorMarkerSize",
                     dialog.actorMarkerSizeDraft
+                )
+                dialog.appBridge.uiState.setIntValue(
+                    "main.uiScalePercent",
+                    dialog.uiScalePercentDraft
                 )
                 dialog.actorColorDisplayModeAccepted(
                     cellColorRadio.checked ? "cell" : "marker",

@@ -18,9 +18,14 @@ from config.constants import (
     DEFAULT_GLOBAL_SETTINGS,
     DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
+    DEFAULT_PROMPTER_FONT_BOLD,
+    DEFAULT_PROMPTER_FONT_SIZES,
     DEFAULT_PROMPTER_CONFIG,
     DEFAULT_REPLICA_MERGE_CONFIG,
     DEFAULT_SRT_IMPORT_CONFIG,
+    PROMPTER_FONT_BOLD_KEYS,
+    PROMPTER_FONT_KEYS,
+    PROMPTER_LAYOUT_TYPES,
 )
 from utils.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, translate_source
 
@@ -475,7 +480,47 @@ class GlobalSettingsService:
     def update_prompter_config(self, config: Dict[str, Any]) -> None:
         """Update teleprompter settings."""
         default_config = self.get_default_prompter_config()
-        default_config.update(config)
+        font_sizes = deepcopy(default_config["layout_font_sizes"])
+        font_bold = deepcopy(default_config["layout_font_bold"])
+        incoming_profiles = config.get("layout_font_sizes")
+        if isinstance(incoming_profiles, dict):
+            for profile_name in PROMPTER_LAYOUT_TYPES:
+                incoming_profile = incoming_profiles.get(profile_name)
+                if not isinstance(incoming_profile, dict):
+                    continue
+                for key in PROMPTER_FONT_KEYS:
+                    if key in incoming_profile:
+                        font_sizes[profile_name][key] = incoming_profile[key]
+        layout_type = str(
+            config.get("layout_type", default_config["layout_type"])
+        )
+        if layout_type not in PROMPTER_LAYOUT_TYPES:
+            layout_type = default_config["layout_type"]
+        for key in PROMPTER_FONT_KEYS:
+            if key in config:
+                font_sizes[layout_type][key] = config[key]
+        incoming_bold_profiles = config.get("layout_font_bold")
+        if isinstance(incoming_bold_profiles, dict):
+            for profile_name in PROMPTER_LAYOUT_TYPES:
+                incoming_profile = incoming_bold_profiles.get(profile_name)
+                if not isinstance(incoming_profile, dict):
+                    continue
+                for key in PROMPTER_FONT_BOLD_KEYS:
+                    if key in incoming_profile:
+                        font_bold[profile_name][key] = bool(
+                            incoming_profile[key]
+                        )
+        for key in PROMPTER_FONT_BOLD_KEYS:
+            if key in config:
+                font_bold[layout_type][key] = bool(config[key])
+        default_config.update({
+            key: value
+            for key, value in config.items()
+            if key not in {"layout_font_sizes", "layout_font_bold"}
+        })
+        default_config["layout_type"] = layout_type
+        default_config["layout_font_sizes"] = font_sizes
+        default_config["layout_font_bold"] = font_bold
         self.set_default_prompter_config(default_config)
 
     def update_replica_merge_config(self, config: Dict[str, Any]) -> None:
@@ -735,7 +780,9 @@ class GlobalSettingsService:
         result = deepcopy(DEFAULT_PROMPTER_CONFIG)
         if isinstance(config, dict):
             for key in DEFAULT_PROMPTER_CONFIG:
-                if key == "colors":
+                if key in {
+                    "colors", "layout_font_sizes", "layout_font_bold",
+                }:
                     continue
                 if key in config:
                     result[key] = deepcopy(config[key])
@@ -744,7 +791,69 @@ class GlobalSettingsService:
             )
             if normalized_colors is not None:
                 result["colors"] = normalized_colors
+
+        layout_type = str(result.get("layout_type", "Сценарий 1"))
+        if layout_type not in PROMPTER_LAYOUT_TYPES:
+            layout_type = "Сценарий 1"
+
+        profiles = deepcopy(DEFAULT_PROMPTER_FONT_SIZES)
+        source_profiles = (
+            config.get("layout_font_sizes") if isinstance(config, dict) else None
+        )
+        if isinstance(source_profiles, dict):
+            for profile_name in PROMPTER_LAYOUT_TYPES:
+                source_profile = source_profiles.get(profile_name)
+                if not isinstance(source_profile, dict):
+                    continue
+                for key in PROMPTER_FONT_KEYS:
+                    if key in source_profile:
+                        profiles[profile_name][key] = self._prompter_font_size(
+                            key, source_profile[key]
+                        )
+        elif isinstance(config, dict):
+            # Existing installations stored one flat set of font sizes. It is
+            # the natural starting point for the original layout.
+            for key in PROMPTER_FONT_KEYS:
+                if key in config:
+                    profiles["Сценарий 1"][key] = self._prompter_font_size(
+                        key, config[key]
+                    )
+
+        result["layout_type"] = layout_type
+        result["layout_font_sizes"] = profiles
+        result.update(profiles[layout_type])
+
+        bold_profiles = deepcopy(DEFAULT_PROMPTER_FONT_BOLD)
+        source_bold_profiles = (
+            config.get("layout_font_bold")
+            if isinstance(config, dict) else None
+        )
+        if isinstance(source_bold_profiles, dict):
+            for profile_name in PROMPTER_LAYOUT_TYPES:
+                source_profile = source_bold_profiles.get(profile_name)
+                if not isinstance(source_profile, dict):
+                    continue
+                for key in PROMPTER_FONT_BOLD_KEYS:
+                    if key in source_profile:
+                        bold_profiles[profile_name][key] = bool(
+                            source_profile[key]
+                        )
+        elif isinstance(config, dict):
+            for key in PROMPTER_FONT_BOLD_KEYS:
+                if key in config:
+                    bold_profiles["Сценарий 1"][key] = bool(config[key])
+        result["layout_font_bold"] = bold_profiles
+        result.update(bold_profiles[layout_type])
         return result
+
+    @staticmethod
+    def _prompter_font_size(key: str, value: Any) -> int:
+        maximum = 300 if key == "f_text" else 150
+        fallback = DEFAULT_PROMPTER_CONFIG[key]
+        try:
+            return max(10, min(maximum, int(value)))
+        except (TypeError, ValueError):
+            return fallback
 
     def _normalize_prompter_colors(
         self,

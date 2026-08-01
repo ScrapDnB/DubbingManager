@@ -20,13 +20,9 @@ except ImportError:
 
 from config.constants import (
     APP_VERSION,
-    DEFAULT_ASS_IMPORT_CONFIG,
     DEFAULT_BACKUP_CONFIG,
-    DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
     DEFAULT_PROMPTER_CONFIG,
-    DEFAULT_REPLICA_MERGE_CONFIG,
-    DEFAULT_SRT_IMPORT_CONFIG,
     PROJECT_VERSION,
     PROJECT_BACKUP_FILE_EXTENSION,
 )
@@ -96,10 +92,6 @@ class ProjectService:
             },
             "export_config": deepcopy(DEFAULT_EXPORT_CONFIG),
             "prompter_config": deepcopy(DEFAULT_PROMPTER_CONFIG),
-            "replica_merge_config": deepcopy(DEFAULT_REPLICA_MERGE_CONFIG),
-            "ass_import_config": deepcopy(DEFAULT_ASS_IMPORT_CONFIG),
-            "srt_import_config": deepcopy(DEFAULT_SRT_IMPORT_CONFIG),
-            "docx_import_config": deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
             "project_folder": None,
         }
 
@@ -165,6 +157,7 @@ class ProjectService:
             self._validate_project_structure(data)
             save_data = self._project_data_for_disk(data)
             self._ensure_compatibility(save_data)
+            self._strip_global_ui_config(save_data)
             self._update_metadata_on_save(save_data)
             self._validate_supported_schema(save_data)
             self._validate_current_schema(save_data)
@@ -239,6 +232,7 @@ class ProjectService:
             self._validate_project_structure(data)
             save_data = self._project_data_for_disk(data)
             self._ensure_compatibility(save_data)
+            self._strip_global_ui_config(save_data)
             self._update_metadata_on_save(save_data)
             self._validate_supported_schema(save_data)
             self._validate_current_schema(save_data)
@@ -331,6 +325,12 @@ class ProjectService:
         save_data = deepcopy(data)
         save_data.pop("loaded_episodes", None)
         return save_data
+
+    @staticmethod
+    def _strip_global_ui_config(data: Dict[str, Any]) -> None:
+        """Keep global presentation settings out of project snapshots."""
+        data.pop("export_config", None)
+        data.pop("prompter_config", None)
 
     @staticmethod
     def _write_json_atomic(path: Path, data: Dict[str, Any]) -> None:

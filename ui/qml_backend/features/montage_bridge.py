@@ -9,11 +9,11 @@ from PySide6.QtGui import QDesktopServices
 
 from config.constants import DEFAULT_EXPORT_CONFIG
 from core.commands import (
-    UpdateExportConfigCommand,
     UpdateProjectFileStateCommand,
     UpdateWorkingTextLineCommand,
 )
 from services import ExportService
+from services.global_settings_service import GlobalSettingsService
 from services.script_text_service import ScriptTextService
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.export_config import normalize_export_option
@@ -44,6 +44,7 @@ class MontageBridge(QObject):
         session: ProjectSession,
         episode_service,
         script_text_service: ScriptTextService,
+        global_settings_service: GlobalSettingsService,
         episodes_model: QObject,
         parent: Optional[QObject] = None,
     ) -> None:
@@ -51,6 +52,7 @@ class MontageBridge(QObject):
         self._session = session
         self._episode_service = episode_service
         self._script_text_service = script_text_service
+        self._global_settings_service = global_settings_service
         self._episodes_model = episodes_model
         self._episode = ""
         self._html = ""
@@ -60,6 +62,8 @@ class MontageBridge(QObject):
         self._batch_busy = False
         self._batch_cancel_requested = False
         self._batch_folder = ""
+        self._highlight_ids: Optional[list[str]] = None
+        self._negative_highlight_ids: list[str] = []
         self._model = DictListModel({
             "number": Qt.UserRole + 1,
             "time": Qt.UserRole + 2,
@@ -87,7 +91,11 @@ class MontageBridge(QObject):
     @Property("QVariantMap", notify=configChanged)
     def config(self) -> Dict[str, Any]:
         config = deepcopy(DEFAULT_EXPORT_CONFIG)
-        config.update(self._session.data.get("export_config", {}))
+        config.update(self._global_settings_service.get_default_export_config())
+        config["highlight_ids_export"] = deepcopy(self._highlight_ids)
+        config["highlight_negative_ids_export"] = deepcopy(
+            self._negative_highlight_ids
+        )
         if config.get("layout_type") == "Сценарий":
             config["layout_type"] = "Сценарий 1"
         return config
@@ -243,10 +251,8 @@ class MontageBridge(QObject):
         if config.get(key) == normalized:
             return
         config[key] = normalized
-        self._session.execute(
-            UpdateExportConfigCommand(self._session.data, config),
-            "export_config",
-        )
+        if not self._save_global_config(config):
+            return
         self.configChanged.emit()
         self.refresh_preview()
         self.statusRequested.emit("Настройки монтажного листа изменены")
@@ -460,10 +466,10 @@ class MontageBridge(QObject):
             return
         lines = self._get_lines(self._episode)
         config = self.config
-        service = ExportService(self._session.data)
+        service = ExportService(self._export_project_data(config))
         processed = service.process_merge_logic(
             lines,
-            self._session.data.get("replica_merge_config", {}),
+            self._global_settings_service.get_replica_merge_config(),
         ) if lines else []
         self._html = (
             service.generate_html(
@@ -537,9 +543,16 @@ class MontageBridge(QObject):
         self.configChanged.emit()
         self.refresh()
 
+    @Slot()
+    def notify_global_config_changed(self) -> None:
+        self.configChanged.emit()
+        self.refresh()
+
     def reset(self) -> None:
         self._episode = ""
         self._html = ""
+        self._highlight_ids = None
+        self._negative_highlight_ids = []
         self._model.set_rows([])
         self._highlight_model.set_rows([])
         self._batch_queue = []
@@ -560,22 +573,15 @@ class MontageBridge(QObject):
     ) -> None:
         actors = self._session.data.get("actors", {})
         all_ids = list(actors)
-        config = self.config
         if selected is not None:
             selected_ids = [item for item in all_ids if item in selected]
-            config["highlight_ids_export"] = (
+            self._highlight_ids = (
                 None if len(selected_ids) == len(all_ids) else selected_ids
             )
         if negative is not None:
-            config["highlight_negative_ids_export"] = [
+            self._negative_highlight_ids = [
                 item for item in all_ids if item in negative
             ]
-        if config == self._session.data.get("export_config", {}):
-            return
-        self._session.execute(
-            UpdateExportConfigCommand(self._session.data, config),
-            "export_config",
-        )
         self.configChanged.emit()
         self.refresh_highlights()
         self.refresh_preview()
@@ -593,9 +599,9 @@ class MontageBridge(QObject):
                 f"Для серии {episode} не найден рабочий текст. "
                 "Создайте его в окне «Файлы проекта»."
             )
-        service = ExportService(self._session.data)
         config = self.config
-        merge_config = self._session.data.get("replica_merge_config", {})
+        service = ExportService(self._export_project_data(config))
+        merge_config = self._global_settings_service.get_replica_merge_config()
         try:
             if export_format == "html":
                 processed = service.process_merge_logic(lines, merge_config)
@@ -624,6 +630,25 @@ class MontageBridge(QObject):
         except Exception as exc:
             return False, f"Ошибка экспорта: {exc}"
         return False, "Неизвестный формат экспорта"
+
+    def _save_global_config(self, config: Dict[str, Any]) -> bool:
+        config = deepcopy(config)
+        config.pop("highlight_ids_export", None)
+        config.pop("highlight_negative_ids_export", None)
+        previous = deepcopy(self._global_settings_service.settings)
+        self._global_settings_service.set_default_export_config(config)
+        if self._global_settings_service.save_settings(
+            self._global_settings_service.settings
+        ):
+            return True
+        self._global_settings_service.settings = previous
+        self.errorRequested.emit("Не удалось сохранить настройки монтажного листа")
+        return False
+
+    def _export_project_data(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        data = dict(self._session.data)
+        data["export_config"] = config
+        return data
 
     def _open_if_enabled(self, path: Path) -> None:
         if self.config.get("open_auto", True):

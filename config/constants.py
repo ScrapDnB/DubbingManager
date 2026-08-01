@@ -13,14 +13,24 @@ _ACTOR_PALETTE_BASE = [
     "#708090", "#B65C72", "#8064A2", "#5F497A", "#7B3F61"
 ]
 
+# Evenly distributed colour families used for the generated rows. The original
+# custom colours above remain first; these anchors keep the rest of the palette
+# from clustering around muted browns, blues, and purples.
+_ACTOR_PALETTE_FAMILIES = [
+    "#D64545", "#E05A2A", "#E67E22", "#D89B00", "#C8A600",
+    "#7EA72D", "#2F9E44", "#178F66", "#168C8C", "#1597B8",
+    "#2E86C1", "#3973C6", "#4C5BC0", "#744DB7", "#9249A8",
+    "#B54891", "#D64F7A", "#C74E61", "#9A623E", "#66717D",
+]
+
 
 def _build_actor_palette() -> list[str]:
     """Build a broad but cohesive set of stable actor colours."""
-    # Preserve the original custom colours, then add seven related rows. The
-    # result is 160 stable choices and remains safe for existing projects.
+    # Preserve the original custom colours, then add seven rows spanning the
+    # full colour wheel. The result remains 160 stable choices.
     palette = list(_ACTOR_PALETTE_BASE)
     for lightness in (0.33, 0.40, 0.47, 0.54, 0.61, 0.68, 0.75):
-        for base in _ACTOR_PALETTE_BASE:
+        for base in _ACTOR_PALETTE_FAMILIES:
             red = int(base[1:3], 16) / 255
             green = int(base[3:5], 16) / 255
             blue = int(base[5:7], 16) / 255
@@ -28,7 +38,9 @@ def _build_actor_palette() -> list[str]:
             color_hue = hue
             while True:
                 variant = hls_to_rgb(
-                    color_hue, lightness, max(0.42, saturation * 0.8)
+                    color_hue,
+                    lightness,
+                    max(0.18, min(0.78, saturation * 0.9)),
                 )
                 color = "#{:02X}{:02X}{:02X}".format(
                     *(round(channel * 255) for channel in variant)
@@ -187,11 +199,48 @@ FPS = 25
 # Default Configuration
 # =============================================================================
 
+PROMPTER_LAYOUT_TYPES = ("Сценарий 1", "Сценарий 2", "Сценарий 3")
+PROMPTER_FONT_KEYS = ("f_tc", "f_char", "f_actor", "f_text")
+PROMPTER_FONT_BOLD_KEYS = (
+    "bold_tc", "bold_char", "bold_actor", "bold_text",
+)
+DEFAULT_PROMPTER_FONT_SIZES = {
+    layout_type: {
+        "f_tc": 20,
+        "f_char": 24,
+        "f_actor": 18,
+        "f_text": 36,
+    }
+    for layout_type in PROMPTER_LAYOUT_TYPES
+}
+DEFAULT_PROMPTER_FONT_BOLD = {
+    layout_type: {
+        "bold_tc": False,
+        "bold_char": True,
+        "bold_actor": False,
+        "bold_text": False,
+    }
+    for layout_type in PROMPTER_LAYOUT_TYPES
+}
+
 DEFAULT_PROMPTER_CONFIG = {
     "f_tc": 20,
     "f_char": 24,
     "f_actor": 18,
     "f_text": 36,
+    "bold_tc": False,
+    "bold_char": True,
+    "bold_actor": False,
+    "bold_text": False,
+    "layout_type": "Сценарий 1",
+    "layout_font_sizes": DEFAULT_PROMPTER_FONT_SIZES,
+    "layout_font_bold": DEFAULT_PROMPTER_FONT_BOLD,
+    "show_timecode": True,
+    "show_character": True,
+    "show_actor": True,
+    "show_replica": True,
+    "show_block_borders": False,
+    "hide_leading_timecode_zeros": False,
     "focus_ratio": 0.5,
     "is_mirrored": False,
     "show_header": False,
@@ -213,7 +262,8 @@ DEFAULT_PROMPTER_CONFIG = {
         "tc": "#888888",
         "actor": "#AAAAAA",
         "header_bg": "#111111",
-        "header_text": "#00FF00"
+        "header_text": "#00FF00",
+        "block_border": "#4D4D4D"
     }
 }
 
@@ -240,7 +290,6 @@ DEFAULT_EXPORT_CONFIG = {
     'round_time': False,
     'time_display': 'range',
     'allow_edit': True,
-    'highlight_negative_ids_export': [],
 }
 
 DEFAULT_REPLICA_MERGE_CONFIG = {

@@ -6,12 +6,8 @@ from typing import Any, Dict
 
 from config.constants import (
     APP_VERSION,
-    DEFAULT_ASS_IMPORT_CONFIG,
-    DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
     DEFAULT_PROMPTER_CONFIG,
-    DEFAULT_REPLICA_MERGE_CONFIG,
-    DEFAULT_SRT_IMPORT_CONFIG,
     PROJECT_VERSION,
 )
 
@@ -41,26 +37,13 @@ def ensure_project_compatibility(data: Dict[str, Any]) -> None:
         data["global_map"] = {}
     if "episode_actor_map" not in data:
         data["episode_actor_map"] = {}
-    if "replica_merge_config" not in data:
-        if "export_config" in data:
-            # Older projects stored replica merge settings inside export_config.
-            export_cfg = data["export_config"]
-            data["replica_merge_config"] = {
-                'merge': export_cfg.get('merge', True),
-                'merge_gap': export_cfg.get('merge_gap', 5),
-                'p_short': export_cfg.get('p_short', 0.5),
-                'p_long': export_cfg.get('p_long', 2.0),
-            }
-        else:
-            data["replica_merge_config"] = deepcopy(
-                DEFAULT_REPLICA_MERGE_CONFIG
-            )
-    if "docx_import_config" not in data:
-        data["docx_import_config"] = deepcopy(DEFAULT_DOCX_IMPORT_CONFIG)
-    if "ass_import_config" not in data:
-        data["ass_import_config"] = deepcopy(DEFAULT_ASS_IMPORT_CONFIG)
-    if "srt_import_config" not in data:
-        data["srt_import_config"] = deepcopy(DEFAULT_SRT_IMPORT_CONFIG)
+    # Import rules belong to the application, not to a project.  Drop legacy
+    # copies while loading so the next save transparently migrates old files.
+    for key in (
+        "replica_merge_config", "ass_import_config", "srt_import_config",
+        "docx_import_config",
+    ):
+        data.pop(key, None)
 
     if "project_folder" not in data:
         data["project_folder"] = None

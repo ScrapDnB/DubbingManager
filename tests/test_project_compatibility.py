@@ -28,18 +28,13 @@ def test_ensure_project_compatibility_adds_current_fields_to_legacy_project():
     assert data["global_map"] == {}
     assert data["episode_actor_map"] == {}
     assert data["prompter_config"]
-    assert data["ass_import_config"]["character_separator"] == ";"
-    assert data["srt_import_config"]["character_separator"] == ":"
-    assert data["docx_import_config"]
     assert data["project_folder"] is None
     assert data["export_config"]["layout_type"] == "Сценарий 1"
     assert data["export_config"]["col_tc"] is True
-    assert data["replica_merge_config"] == {
-        "merge": False,
-        "merge_gap": 12,
-        "p_short": 0.3,
-        "p_long": 1.7,
-    }
+    assert not {
+        "replica_merge_config", "ass_import_config", "srt_import_config",
+        "docx_import_config",
+    } & data.keys()
     assert data["metadata"]["format_version"] == PROJECT_VERSION
     assert data["metadata"]["created_by"] == ""
     assert data["metadata"]["studio"] == ""

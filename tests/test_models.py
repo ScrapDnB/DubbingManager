@@ -25,6 +25,7 @@ class TestPrompterColors:
         assert colors.actor == "#AAAAAA"
         assert colors.header_bg == "#111111"
         assert colors.header_text == "#00FF00"
+        assert colors.block_border == "#4D4D4D"
 
     def test_custom_values(self):
         """Тест пользовательских значений"""

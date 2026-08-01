@@ -256,8 +256,8 @@ Item {
             ? qsTr("Добавить в глобальную базу")
             : qsTr("Добавить актёра в проект")
         standardButtons: Dialog.Ok | Dialog.Cancel
-        width: 360
-        height: panel.globalMode ? 250 : 300
+        width: boundedWidth(500, 36)
+        height: panel.globalMode ? 280 : 330
 
         onOpened: {
             actorNameField.text = ""
@@ -289,16 +289,30 @@ Item {
 
             RowLayout {
                 Layout.fillWidth: true
+                spacing: 12
                 visible: panel.globalMode
 
-                Label {
-                    text: qsTr("Добавить существующих актёров")
-                    color: panel.softMuted
+                ColumnLayout {
                     Layout.fillWidth: true
+                    spacing: 2
+
+                    Label {
+                        text: qsTr("Из проекта")
+                        font.bold: true
+                        Layout.fillWidth: true
+                    }
+
+                    Label {
+                        text: qsTr("Можно выбрать сразу нескольких актёров")
+                        color: panel.softMuted
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
                 }
 
                 AdaptiveButton {
                     text: qsTr("Из проекта...")
+                    Layout.minimumWidth: implicitWidth
                     onClicked: {
                         addActorDialog.close()
                         panel.bulkTransferRequested()
@@ -315,16 +329,30 @@ Item {
 
             RowLayout {
                 Layout.fillWidth: true
+                spacing: 12
                 visible: !panel.globalMode
 
-                Label {
-                    text: qsTr("Добавить нескольких из глобальной базы")
-                    color: panel.softMuted
+                ColumnLayout {
                     Layout.fillWidth: true
+                    spacing: 2
+
+                    Label {
+                        text: qsTr("Из глобальной базы")
+                        font.bold: true
+                        Layout.fillWidth: true
+                    }
+
+                    Label {
+                        text: qsTr("Можно выбрать сразу нескольких актёров")
+                        color: panel.softMuted
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
                 }
 
                 AdaptiveButton {
                     text: qsTr("Выбрать...")
+                    Layout.minimumWidth: implicitWidth
                     onClicked: {
                         addActorDialog.close()
                         panel.globalBulkTransferRequested()

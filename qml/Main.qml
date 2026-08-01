@@ -46,6 +46,7 @@ ApplicationWindow {
     )
     property int actorMarkerShape: uiState.intValue("actorMarkerShape", 0)
     property int actorMarkerSize: uiState.intValue("actorMarkerSize", 0)
+    property int uiScalePercent: uiState.intValue("main.uiScalePercent", 75)
     property string characterColumnsOrderJson: uiState.stringValue(
         "main.characterColumnsOrder",
         "[\"character\",\"lines\",\"rings\",\"words\",\"scope\",\"actor\",\"preview\"]"
@@ -756,6 +757,7 @@ ApplicationWindow {
         actorColorCellFillFullHeight: root.actorColorCellFillFullHeight
         actorMarkerShape: root.actorMarkerShape
         actorMarkerSize: root.actorMarkerSize
+        uiScalePercent: root.uiScalePercent
         characterColumnsOrder: root.characterColumnsOrderJson
         characterColumnsHidden: root.characterColumnsHiddenJson
         characterColumnWidths: root.characterColumnWidthsJson

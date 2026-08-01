@@ -7,11 +7,7 @@ import tempfile
 import shutil
 from datetime import datetime
 from services import ProjectService
-from config.constants import (
-    DEFAULT_DOCX_IMPORT_CONFIG,
-    DEFAULT_PROMPTER_CONFIG,
-    PROJECT_VERSION,
-)
+from config.constants import DEFAULT_PROMPTER_CONFIG, PROJECT_VERSION
 
 
 class TestProjectFileStructure:
@@ -44,8 +40,10 @@ class TestProjectFileStructure:
         assert "audiobook_document" in data
         assert "export_config" in data
         assert "prompter_config" in data
-        assert "replica_merge_config" in data
-        assert "docx_import_config" in data
+        assert "replica_merge_config" not in data
+        assert "ass_import_config" not in data
+        assert "srt_import_config" not in data
+        assert "docx_import_config" not in data
         assert "project_folder" in data
         
         # Проверка metadata
@@ -64,7 +62,6 @@ class TestProjectFileStructure:
         assert isinstance(data["episode_working_texts"], dict)
         assert isinstance(data["episode_actor_map"], dict)
         assert isinstance(data["audiobook_document"], dict)
-        assert isinstance(data["docx_import_config"], dict)
 
     def test_create_new_project_deep_copies_default_configs(self):
         """Проверка, что вложенные настройки не разделяют default dict."""
@@ -72,12 +69,8 @@ class TestProjectFileStructure:
         second = self.project_service.create_new_project("Second")
 
         first["prompter_config"]["colors"]["bg"] = "#ABCDEF"
-        first["docx_import_config"]["mapping"]["text"] = 3
-
         assert second["prompter_config"]["colors"]["bg"] == "#000000"
-        assert second["docx_import_config"]["mapping"] == {}
         assert DEFAULT_PROMPTER_CONFIG["colors"]["bg"] == "#000000"
-        assert DEFAULT_DOCX_IMPORT_CONFIG["mapping"] == {}
 
     def test_save_and_load_project(self):
         """Проверка сохранения и загрузки проекта"""
@@ -198,8 +191,8 @@ class TestProjectFileStructure:
         assert len(loaded_data["episodes"]) == 50
         assert len(loaded_data["video_paths"]) == 50
 
-    def test_config_preservation(self):
-        """Проверка сохранения конфигураций"""
+    def test_global_ui_configs_are_not_persisted_in_project(self):
+        """Глобальные настройки оформления не входят в файл проекта."""
         data = self.project_service.create_new_project("Test Project")
         
         # Изменяем конфигурации
@@ -207,20 +200,19 @@ class TestProjectFileStructure:
         data["export_config"]["use_color"] = False
         data["prompter_config"]["f_tc"] = 30
         data["prompter_config"]["is_mirrored"] = True
-        data["replica_merge_config"]["merge"] = False
-        data["replica_merge_config"]["merge_gap"] = 10
         
         project_path = os.path.join(self.test_dir, "test.json")
         self.project_service.save_project(data, project_path)
         
+        with open(project_path, encoding="utf-8") as handle:
+            saved_data = json.load(handle)
+        assert "export_config" not in saved_data
+        assert "prompter_config" not in saved_data
+
         loaded_data = self.project_service.load_project(project_path)
-        
-        assert loaded_data["export_config"]["layout_type"] == "Сценарий 1"
-        assert loaded_data["export_config"]["use_color"] is False
-        assert loaded_data["prompter_config"]["f_tc"] == 30
-        assert loaded_data["prompter_config"]["is_mirrored"] is True
-        assert loaded_data["replica_merge_config"]["merge"] is False
-        assert loaded_data["replica_merge_config"]["merge_gap"] == 10
+        assert loaded_data["export_config"]["layout_type"] == "Таблица"
+        assert loaded_data["prompter_config"]["is_mirrored"] is False
+        assert "replica_merge_config" not in loaded_data
 
     def test_metadata_update_on_save(self):
         """Проверка обновления metadata при сохранении"""
@@ -338,7 +330,7 @@ class TestBackwardCompatibility:
         # Конфигурации должны добавиться
         assert "export_config" in loaded_data
         assert "prompter_config" in loaded_data
-        assert "replica_merge_config" in loaded_data
+        assert "replica_merge_config" not in loaded_data
         assert "video_paths" in loaded_data
         assert "episode_texts" in loaded_data
         assert "global_map" in loaded_data
@@ -364,10 +356,7 @@ class TestBackwardCompatibility:
         
         loaded_data = self.project_service.load_project(project_path)
         
-        # replica_merge_config должен создаться из export_config
-        assert "replica_merge_config" in loaded_data
-        assert loaded_data["replica_merge_config"]["merge"] is True
-        assert loaded_data["replica_merge_config"]["merge_gap"] == 7
+        assert "replica_merge_config" not in loaded_data
 
     def test_save_adds_metadata_to_old_project(self):
         """Сохранение добавляет metadata в старый проект"""

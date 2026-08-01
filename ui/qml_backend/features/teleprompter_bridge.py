@@ -6,7 +6,12 @@ from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot, Qt
 
-from config.constants import DEFAULT_PROMPTER_CONFIG
+from config.constants import (
+    DEFAULT_PROMPTER_CONFIG,
+    PROMPTER_FONT_BOLD_KEYS,
+    PROMPTER_FONT_KEYS,
+    PROMPTER_LAYOUT_TYPES,
+)
 from core.commands import ReplaceMappingValueCommand, UpdateProjectFileStateCommand
 from services import ExportService, get_actor_ids_for_character
 from services.episode_service import EpisodeService
@@ -17,17 +22,6 @@ from services.teleprompter_navigation_service import TeleprompterNavigationServi
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
 
-
-GLOBAL_PROMPTER_KEYS = {
-    "osc_enabled",
-    "port_in",
-    "port_out",
-    "sync_in",
-    "sync_out",
-    "page_scroll_mode",
-    "reaper_offset_enabled",
-    "reaper_offset_seconds",
-}
 
 REAPER_ACTIVITY_TIMEOUT_SECONDS = 3.0
 
@@ -122,9 +116,7 @@ class TeleprompterBridge(QObject):
 
     @Property("QVariantMap", notify=configChanged)
     def config(self) -> Dict[str, Any]:
-        return self._normalized_config(
-            self._session.data.get("prompter_config")
-        )
+        return self._normalized_config(None)
 
     @Property(float, notify=positionChanged)
     def time(self) -> float:
@@ -275,28 +267,88 @@ class TeleprompterBridge(QObject):
 
     @Slot(str, "QVariant")
     def setConfigValue(self, key: str, value: Any) -> None:
-        if key in GLOBAL_PROMPTER_KEYS:
+        if key.startswith("colors."):
+            self._set_global_color_value(key, value)
             return
-        config = self.config
+        self._set_global_layout_value(key, value)
+
+    def _set_global_color_value(self, key: str, value: Any) -> None:
         normalized = self._normalize_option(key, value)
         if normalized is None:
             return
-        if key.startswith("colors."):
-            color_key = key.split(".", 1)[1]
-            if config["colors"].get(color_key) == normalized:
+        color_key = key.split(".", 1)[1]
+        config = self._global_settings_service.get_default_prompter_config()
+        colors = deepcopy(config.get("colors", {}))
+        if colors.get(color_key) == normalized:
+            return
+        colors[color_key] = normalized
+        config["colors"] = colors
+        self._save_global_prompter_config(
+            config,
+            "Не удалось сохранить цвета телесуфлёра",
+        )
+
+    def _save_global_prompter_config(
+        self,
+        config: Dict[str, Any],
+        error_message: str,
+    ) -> bool:
+        previous = deepcopy(self._global_settings_service.settings)
+        self._global_settings_service.set_default_prompter_config(config)
+        if not self._global_settings_service.save_settings(
+            self._global_settings_service.settings
+        ):
+            self._global_settings_service.settings = previous
+            self.errorRequested.emit(error_message)
+            return False
+        self.configChanged.emit()
+        return True
+
+    def _set_global_layout_value(self, key: str, value: Any) -> None:
+        config = self._global_settings_service.get_default_prompter_config()
+        profiles = deepcopy(config.get("layout_font_sizes", {}))
+        bold_profiles = deepcopy(config.get("layout_font_bold", {}))
+        layout_type = str(config.get("layout_type", "Сценарий 1"))
+
+        if key == "layout_type":
+            normalized = str(value or "")
+            if normalized not in PROMPTER_LAYOUT_TYPES:
                 return
-            config["colors"][color_key] = normalized
+            if layout_type == normalized:
+                return
+            config["layout_type"] = normalized
+        elif key in PROMPTER_FONT_KEYS:
+            normalized = self._normalize_option(key, value)
+            if normalized is None:
+                return
+            profile = deepcopy(profiles.get(layout_type, {}))
+            if profile.get(key) == normalized:
+                return
+            profile[key] = normalized
+            profiles[layout_type] = profile
+            config["layout_font_sizes"] = profiles
+            config[key] = normalized
+        elif key in PROMPTER_FONT_BOLD_KEYS:
+            normalized = self._normalize_option(key, value)
+            if normalized is None:
+                return
+            profile = deepcopy(bold_profiles.get(layout_type, {}))
+            if profile.get(key) == normalized:
+                return
+            profile[key] = normalized
+            bold_profiles[layout_type] = profile
+            config["layout_font_bold"] = bold_profiles
+            config[key] = normalized
         else:
-            if config.get(key) == normalized:
+            normalized = self._normalize_option(key, value)
+            if normalized is None or config.get(key) == normalized:
                 return
             config[key] = normalized
-        self._session.execute(ReplaceMappingValueCommand(
-            self._session.data,
-            "prompter_config",
+
+        self._save_global_prompter_config(
             config,
-            "Изменены настройки телесуфлёра",
-        ), "teleprompter_config")
-        self.configChanged.emit()
+            "Не удалось сохранить настройки разметки телесуфлёра",
+        )
     @Slot(float)
     def jumpTo(self, seconds: float) -> None:
         self._set_time(max(0.0, float(seconds)))
@@ -446,15 +498,12 @@ class TeleprompterBridge(QObject):
         if not presets[index]:
             self.savePreset(index)
             return
-        config = self.config
+        config = self._global_settings_service.get_default_prompter_config()
         config["colors"] = deepcopy(presets[index])
-        self._session.execute(ReplaceMappingValueCommand(
-            self._session.data,
-            "prompter_config",
+        self._save_global_prompter_config(
             config,
-            f"Применён цветовой пресет телесуфлёра {index + 1}",
-        ), "teleprompter_config")
-        self.configChanged.emit()
+            f"Не удалось применить цветовой пресет {index + 1}",
+        )
 
     @Slot(int)
     def savePreset(self, index: int) -> None:
@@ -521,7 +570,7 @@ class TeleprompterBridge(QObject):
         )
         processed = ExportService(project_data).process_merge_logic(
             lines,
-            project_data.get("replica_merge_config", {}),
+            self._global_settings_service.get_replica_merge_config(),
         )
         actors = project_data.get("actors", {})
         all_actor_ids = set(actors)
@@ -608,7 +657,7 @@ class TeleprompterBridge(QObject):
     def _normalized_config(self, value: Any) -> Dict[str, Any]:
         config = deepcopy(DEFAULT_PROMPTER_CONFIG)
         defaults = self._global_settings_service.get_default_prompter_config()
-        for source in (defaults, value):
+        for source in (defaults,):
             if not isinstance(source, dict):
                 continue
             config.update({
@@ -618,14 +667,26 @@ class TeleprompterBridge(QObject):
             })
             if isinstance(source.get("colors"), dict):
                 config["colors"].update(source["colors"])
-        for key in GLOBAL_PROMPTER_KEYS:
-            config[key] = deepcopy(defaults.get(key, DEFAULT_PROMPTER_CONFIG[key]))
+        layout_type = config["layout_type"]
+        profiles = config.get("layout_font_sizes", {})
+        config.update(profiles.get(
+            layout_type,
+            DEFAULT_PROMPTER_CONFIG["layout_font_sizes"][layout_type],
+        ))
+        bold_profiles = config.get("layout_font_bold", {})
+        config.update(bold_profiles.get(
+            layout_type,
+            DEFAULT_PROMPTER_CONFIG["layout_font_bold"][layout_type],
+        ))
         return config
 
     def _normalize_option(self, key: str, value: Any) -> Any:
         if key in {
-            "is_mirrored", "show_header", "osc_enabled", "sync_in",
-            "sync_out", "reaper_offset_enabled", "page_scroll_mode",
+            "is_mirrored", "show_header", "show_timecode",
+            "show_character", "show_actor", "show_replica",
+            "show_block_borders", "hide_leading_timecode_zeros", "osc_enabled",
+            "sync_in", "sync_out", "reaper_offset_enabled", "page_scroll_mode",
+            *PROMPTER_FONT_BOLD_KEYS,
         }:
             return bool(value)
         limits = {

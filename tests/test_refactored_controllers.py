@@ -358,6 +358,8 @@ def test_reaper_export_service_previews_and_saves(tmp_path):
 
     assert controller.resolve_video_path("1") == "/resolved/video.mov"
     assert controller.default_filename("1") == "Show - Ep1.rpp"
+    assert controller.default_csv_filename("1") == "Show - 1.csv"
+    assert controller.default_csv_filename("1", "project_episode") == "Show - 1.csv"
 
     preview = controller.preview(
         "1",
@@ -381,3 +383,17 @@ def test_reaper_export_service_previews_and_saves(tmp_path):
     assert preview["video"] is True
     assert preview["sample_regions"]
     assert save_path.exists()
+
+
+def test_reaper_csv_filename_uses_imported_ass_name(tmp_path):
+    data = {
+        "project_name": "Show",
+        "episodes": {"1": str(tmp_path / "Fallback.ass")},
+        "episode_working_texts": {
+            "1": {"source_ass": {"filename": "Episode 01.ass"}}
+        },
+    }
+    controller = ReaperExportService(data, MagicMock())
+
+    assert controller.default_csv_filename("1") == "Episode 01.csv"
+    assert controller.default_csv_filename("1", "project_episode") == "Show - 1.csv"

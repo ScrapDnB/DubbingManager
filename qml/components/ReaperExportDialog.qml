@@ -33,6 +33,10 @@ NativeDialogWindow {
         return sourceMarkers.checked ? "source" : "merged"
     }
 
+    function csvFilenameFormat() {
+        return projectEpisodeFilename.checked ? "project_episode" : "source_ass"
+    }
+
     function refreshPreview(formatIndex) {
         var rppMode = Number(formatIndex) === 0
         preview = reaper.updatePreview(
@@ -64,7 +68,17 @@ NativeDialogWindow {
             : "Сохранить проект Reaper"
         fileMode: FileDialog.SaveFile
         currentFolder: dialog.appBridge.uiState.folderUrl("exports")
-        onVisibleChanged: if (visible) currentFolder = dialog.appBridge.uiState.folderUrl("exports")
+        onVisibleChanged: if (visible) {
+            var folder = dialog.appBridge.uiState.folderUrl("exports")
+            currentFolder = folder
+            var filename = dialog.reaper.suggestedCsvFilename(
+                dialog.csvFilenameFormat()
+            )
+            if (dialog.outputFormat === "csv" && filename) {
+                currentFile = folder.toString().replace(/\/$/, "") + "/"
+                    + encodeURIComponent(filename)
+            }
+        }
         nameFilters: dialog.outputFormat === "csv"
             ? ["Reaper marker CSV (*.csv)"]
             : ["Reaper project (*.rpp)"]
@@ -109,7 +123,8 @@ NativeDialogWindow {
                 dialog.outputFormat === "rpp" && videoCheck.checked,
                 dialog.outputFormat === "csv" || regionsCheck.checked,
                 dialog.outputFormat === "rpp" && transliterateCheck.checked,
-                dialog.markerMode()
+                dialog.markerMode(),
+                dialog.csvFilenameFormat()
             )
             if (success) {
                 dialog.batchCompleted = true
@@ -339,6 +354,46 @@ NativeDialogWindow {
 
                     ButtonGroup {
                         id: markerSourceGroup
+                    }
+
+                    Rectangle {
+                        visible: dialog.outputFormat === "csv"
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 1
+                        color: dialog.softBorder
+                    }
+
+                    Label {
+                        visible: dialog.outputFormat === "csv"
+                        text: qsTr("Имя файла CSV")
+                        font.bold: true
+                    }
+
+                    RadioButton {
+                        id: sourceAssFilename
+                        visible: dialog.outputFormat === "csv"
+                        text: qsTr("Имя исходного ASS-файла")
+                        checked: true
+                        ButtonGroup.group: csvFilenameGroup
+                    }
+
+                    RadioButton {
+                        id: projectEpisodeFilename
+                        visible: dialog.outputFormat === "csv"
+                        text: qsTr("Название проекта — номер серии")
+                        ButtonGroup.group: csvFilenameGroup
+                    }
+
+                    ButtonGroup {
+                        id: csvFilenameGroup
+                    }
+
+                    Label {
+                        visible: dialog.outputFormat === "csv"
+                        text: qsTr("Если имя ASS недоступно, используется название проекта и номер серии.")
+                        color: dialog.softMuted
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
                     }
 
                     Label {

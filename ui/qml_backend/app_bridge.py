@@ -63,24 +63,8 @@ class AppBridge(QObject):
         self._project_health_service = ProjectHealthService()
         initial_project = self._project_service.create_new_project("Новый проект")
         initial_project.update({
-            "export_config": (
-                self._global_settings_service.get_default_export_config()
-            ),
-            "prompter_config": (
-                self._global_settings_service.get_default_prompter_config()
-            ),
-            "replica_merge_config": (
-                self._global_settings_service.get_replica_merge_config()
-            ),
-            "ass_import_config": (
-                self._global_settings_service.get_ass_import_config()
-            ),
-            "srt_import_config": (
-                self._global_settings_service.get_srt_import_config()
-            ),
-            "docx_import_config": (
-                self._global_settings_service.get_docx_import_config()
-            ),
+            "export_config": self._global_settings_service.get_default_export_config(),
+            "prompter_config": self._global_settings_service.get_default_prompter_config(),
         })
         self._session = ProjectSession(
             self._project_service,
@@ -106,6 +90,7 @@ class AppBridge(QObject):
             self._project_health_service,
             self._episode_service,
             self._script_text_service,
+            self._global_settings_service,
             self,
         )
         self._project.set_save_preparer(
@@ -154,6 +139,7 @@ class AppBridge(QObject):
             self._session,
             self._episode_service,
             self._script_text_service,
+            self._global_settings_service,
             self,
         )
         self._converter = ConverterBridge(
@@ -192,6 +178,7 @@ class AppBridge(QObject):
             self._session,
             self._episode_service,
             self._script_text_service,
+            self._global_settings_service,
             self._project.episodesModel,
             self,
         )
@@ -258,6 +245,9 @@ class AppBridge(QObject):
         )
         self._settings.globalPrompterConfigChanged.connect(
             self._teleprompter.notify_global_config_changed
+        )
+        self._settings.globalMontageConfigChanged.connect(
+            self._montage.notify_global_config_changed
         )
         self._audiobook.projectNameChanged.connect(
             self._project.nameChanged

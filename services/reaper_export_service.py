@@ -1,5 +1,6 @@
 """UI-independent orchestration for Reaper project and marker exports."""
 
+from pathlib import Path
 from typing import Any, Dict, List
 
 from services.export_service import ExportService
@@ -49,11 +50,48 @@ class ReaperExportService:
     def default_filename(self, ep_num: str) -> str:
         return f"{self.data_ref.get('project_name', 'Project')} - Ep{ep_num}.rpp"
 
-    def default_csv_filename(self, ep_num: str) -> str:
-        return (
-            f"{self.data_ref.get('project_name', 'Project')} - "
-            f"Ep{ep_num} markers.csv"
+    def default_csv_filename(
+        self,
+        ep_num: str,
+        filename_format: str = "source_ass",
+    ) -> str:
+        """Return the preferred CSV filename for an episode's markers.
+
+        ASS imports retain the source filename in the working-text payload, so
+        marker CSVs can use the familiar subtitle filename.  Other sources use
+        a stable project-and-episode fallback.
+        """
+        if filename_format == "source_ass":
+            source_filename = self._source_ass_filename(ep_num)
+            if source_filename:
+                return str(Path(source_filename).with_suffix(".csv"))
+        return f"{self.data_ref.get('project_name', 'Project')} - {ep_num}.csv"
+
+    def _source_ass_filename(self, ep_num: str) -> str:
+        """Return an imported ASS basename, if this episode has one."""
+        payload = self.data_ref.get("episode_working_texts", {}).get(
+            str(ep_num), {}
         )
+        if isinstance(payload, dict):
+            source_ass = payload.get("source_ass")
+            if isinstance(source_ass, dict):
+                filename = str(source_ass.get("filename") or "")
+                if Path(filename).suffix.lower() == ".ass":
+                    return Path(filename).name
+
+            source = payload.get("source")
+            if isinstance(source, dict):
+                source_type = str(source.get("type") or "").lower()
+                if source_type and source_type != "ass":
+                    return ""
+                source_path = str(source.get("path") or "")
+                if Path(source_path).suffix.lower() == ".ass":
+                    return Path(source_path).name
+
+        episode_path = str(self.data_ref.get("episodes", {}).get(ep_num) or "")
+        if Path(episode_path).suffix.lower() == ".ass":
+            return Path(episode_path).name
+        return ""
 
     def save(
         self,

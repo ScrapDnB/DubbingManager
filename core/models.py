@@ -24,6 +24,7 @@ class PrompterColors:
     actor: str = "#AAAAAA"
     header_bg: str = "#111111"
     header_text: str = "#00FF00"
+    block_border: str = "#4D4D4D"
 
     def __post_init__(self) -> None:
         """Post init."""
@@ -34,6 +35,7 @@ class PrompterColors:
         _validate_hex_color(self.actor, "actor")
         _validate_hex_color(self.header_bg, "header_bg")
         _validate_hex_color(self.header_text, "header_text")
+        _validate_hex_color(self.block_border, "block_border")
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PrompterColors':

@@ -45,6 +45,7 @@ class ProjectFilesBridge(QObject):
         project_health_service,
         episode_service,
         script_text_service,
+        global_settings_service,
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
@@ -53,6 +54,7 @@ class ProjectFilesBridge(QObject):
         self._project_health_service = project_health_service
         self._episode_service = episode_service
         self._script_text_service = script_text_service
+        self._global_settings_service = global_settings_service
         self._files_summary = ""
         self._health_summary = ""
         self._ignore_empty_lines = False
@@ -305,7 +307,7 @@ class ProjectFilesBridge(QObject):
             if not lines:
                 failed += 1
                 continue
-            merge_config = candidate.get("replica_merge_config", {})
+            merge_config = self._global_settings_service.get_replica_merge_config()
             if Path(source).suffix.lower() == ".docx":
                 merge_config = {**merge_config, "merge": False}
             self._script_text_service.create_episode_text(
@@ -399,7 +401,7 @@ class ProjectFilesBridge(QObject):
             return
 
         candidate = deepcopy(self._session.data)
-        merge_config = candidate.get("replica_merge_config", {})
+        merge_config = self._global_settings_service.get_replica_merge_config()
         if Path(source).suffix.lower() == ".docx":
             merge_config = {**merge_config, "merge": False}
         self._script_text_service.create_episode_text(
@@ -762,7 +764,7 @@ class ProjectFilesBridge(QObject):
             _stats, lines = self._episode_service.parse_ass_file(path)
             return lines
         if suffix == ".docx":
-            config = project_data.get("docx_import_config", {})
+            config = self._global_settings_service.get_docx_import_config()
             service = DocxImportService(detection_config=config)
             mapping = config.get("mapping") if isinstance(config, dict) else None
             _stats, lines = service.parse_document(path, mapping)

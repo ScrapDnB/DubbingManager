@@ -32,6 +32,15 @@ Window {
     color: palette.window
     property bool uiStateReady: false
 
+    function displayedTimecode(value) {
+        var text = String(value || "")
+        if (Boolean(floatWindow.teleprompter.config.hide_leading_timecode_zeros)
+                && text.indexOf("0:") === 0) {
+            return text.slice(2)
+        }
+        return text
+    }
+
     function restoreSize() {
         width = Math.max(
             minimumWidth,
@@ -231,7 +240,7 @@ Window {
                         spacing: 7
 
                         Label {
-                            text: navigationRow.time
+                            text: floatWindow.displayedTimecode(navigationRow.time)
                             color: palette.text
                             Layout.preferredWidth: 60
                             horizontalAlignment: Text.AlignLeft

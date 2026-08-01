@@ -6,6 +6,44 @@ import sys
 from pathlib import Path
 
 
+WINDOWS_UI_SCALE_DEFAULT = 75
+WINDOWS_UI_SCALE_MINIMUM = 50
+WINDOWS_UI_SCALE_MAXIMUM = 200
+
+
+def _windows_ui_scale_percent() -> int:
+    """Read the saved Qt UI scale without importing Qt before startup."""
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\DubbingTools\Dubbing Manager\ui",
+        ) as key:
+            value, _kind = winreg.QueryValueEx(key, "main.uiScalePercent")
+        return max(
+            WINDOWS_UI_SCALE_MINIMUM,
+            min(WINDOWS_UI_SCALE_MAXIMUM, int(value)),
+        )
+    except (ImportError, OSError, TypeError, ValueError):
+        return WINDOWS_UI_SCALE_DEFAULT
+
+
+def configure_windows_ui_scale(platform: str | None = None) -> None:
+    """Apply the saved Windows UI scale without bypassing system DPI."""
+    target_platform = platform or sys.platform
+    if not target_platform.startswith("win"):
+        return
+
+    # QT_SCALE_FACTOR is multiplied by Qt's per-monitor system DPI factor, so
+    # Windows scaling at 100-200% still works normally. An explicit
+    # environment override remains useful for diagnostics on unusual display
+    # setups and takes precedence over the saved application preference.
+    if "QT_SCALE_FACTOR" not in os.environ:
+        scale = _windows_ui_scale_percent() / 100
+        os.environ["QT_SCALE_FACTOR"] = f"{scale:g}"
+
+
 def configure_windows_dpi_awareness(platform: str | None = None) -> None:
     """Opt into Windows per-monitor DPI before Qt creates its first window."""
     target_platform = platform or sys.platform
@@ -69,9 +107,10 @@ def configure_platform_graphics(platform: str | None = None) -> None:
 
 
 # QtWebEngine may probe its graphics stack while its Python module is loaded.
-# Set the process-wide backend choice before importing any PySide6 module.
+# Set process-wide graphics and scaling choices before importing PySide6.
 configure_platform_graphics()
 configure_windows_dpi_awareness()
+configure_windows_ui_scale()
 
 
 from PySide6.QtCore import QEvent, QUrl
@@ -118,6 +157,7 @@ def main() -> int:
     """Run the QML application."""
     configure_platform_graphics()
     configure_windows_dpi_awareness()
+    configure_windows_ui_scale()
     configure_qml_controls_style()
     setup_logging()
     QtWebEngineQuick.initialize()

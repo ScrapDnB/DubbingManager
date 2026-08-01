@@ -118,9 +118,6 @@ class DocxImportBridge(QObject):
         if not path:
             return False
         config = deepcopy(self._global_settings_service.get_docx_import_config())
-        project_config = self._session.data.get("docx_import_config", {})
-        if isinstance(project_config, dict):
-            config.update(deepcopy(project_config))
         self._service = DocxImportService(detection_config=config)
         try:
             tables = self._service.extract_tables_from_docx(path)
@@ -221,15 +218,18 @@ class DocxImportBridge(QObject):
             self._path,
             {"lines": all_lines},
         )
-        docx_config = deepcopy(candidate.get("docx_import_config", {}))
+        docx_config = self._global_settings_service.get_docx_import_config()
         docx_config.update({
             "mapping": deepcopy(self._mapping),
             "time_separators": list(self._service.time_separators),
         })
-        candidate["docx_import_config"] = docx_config
+        self._global_settings_service.update_docx_import_config(docx_config)
+        self._global_settings_service.save_settings(
+            self._global_settings_service.get_settings()
+        )
         fields = (
             "project_kind", "episodes", "loaded_episodes",
-            "episode_working_texts", "docx_import_config",
+            "episode_working_texts",
         )
         updates = {
             field: candidate.get(field)
@@ -279,13 +279,11 @@ class DocxImportBridge(QObject):
             }
             for index in range(max_columns)
         ])
-        saved = self._session.data.get("docx_import_config", {}).get(
-            "mapping", {}
-        )
+        saved = self._global_settings_service.get_docx_import_config().get("mapping", {})
         if use_saved_mapping and self._mapping_usable(saved, max_columns):
             self._service.detect_columns(rows)
             self._mapping = deepcopy(saved)
-            self._detection_summary = "Применён последний mapping проекта"
+            self._detection_summary = "Применён последний общий mapping"
         else:
             self._mapping = self._service.detect_columns(rows)
             self._update_detection_summary()

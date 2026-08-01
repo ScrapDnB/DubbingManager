@@ -56,7 +56,9 @@ def test_teleprompter_transfers_the_current_text_selection():
     )
 
     assert "selectedReplicaText" in source
-    assert "textEdit.selectionStart" in source
+    assert "rememberTransferSelection" in source
+    assert "transferSelectionStart" in source
+    assert "transferSelectionEnd" in source
     assert "Передать выделенное" in source
 
 
@@ -71,6 +73,14 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "pageScrollAnimation" in source
     assert "pausePageFollowAtVisibleBoundary" in source
     assert "resumePageFollowWhenBoundaryEnds" in source
+
+
+def test_windows_teleprompter_is_not_transient_to_the_main_window():
+    source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "transientParent: windowsStyle ? null : ownerWindow" in source
 
 
 def test_macos_main_window_waits_for_native_chrome_before_showing():

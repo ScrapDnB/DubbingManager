@@ -416,6 +416,60 @@ NativeDialogWindow {
                         }
 
                         CollapsibleSection {
+                            title: qsTr("Ширина колонок таблицы")
+                            visible: dialog.config.layout_type === "Таблица"
+                            expanded: true
+                            sidebarStyle: dialog.macOSStyle
+                            Layout.fillWidth: true
+
+                            Repeater {
+                                model: [
+                                    { label: "Таймкод", key: "table_width_time", value: Number(dialog.config.table_width_time || 7) },
+                                    { label: "Персонаж", key: "table_width_char", value: Number(dialog.config.table_width_char || 10) },
+                                    { label: "Актёр", key: "table_width_actor", value: Number(dialog.config.table_width_actor || 8.5) }
+                                ]
+
+                                delegate: RowLayout {
+                                    id: widthRow
+                                    required property var modelData
+                                    Layout.fillWidth: true
+
+                                    Label {
+                                        text: widthRow.modelData.label
+                                        Layout.fillWidth: true
+                                    }
+                                    SpinBox {
+                                        from: 8
+                                        to: 48
+                                        stepSize: 1
+                                        editable: true
+                                        value: Math.round(
+                                            widthRow.modelData.value * 2
+                                        )
+                                        textFromValue: function(value) {
+                                            return (value / 2).toFixed(1)
+                                        }
+                                        valueFromText: function(text) {
+                                            return Math.round(
+                                                Number(text.replace(",", ".")) * 2
+                                            )
+                                        }
+                                        onValueModified: dialog.montageBackend.setOption(
+                                            widthRow.modelData.key, value / 2
+                                        )
+                                    }
+                                }
+                            }
+
+                            Label {
+                                text: qsTr("Ширина реплики подстраивается автоматически.")
+                                color: dialog.softMuted
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        CollapsibleSection {
                             title: qsTr("Экспорт")
                             expanded: true
                             sidebarStyle: dialog.macOSStyle

@@ -450,10 +450,6 @@ def test_qml_multiple_actors_render_and_undo_across_casting_tools(tmp_path):
     assert bridge.montage.model.rows()[0]["background"] != "transparent"
 
     bridge.project.undo()
-    assert bridge._session.data["global_map"]["Hero"] == [
-        "actor-1", "actor-2",
-    ]
-    bridge.project.undo()
     assert bridge._session.data["global_map"]["Hero"] == "actor-1"
 
 
@@ -547,6 +543,44 @@ def test_qml_bridge_teleprompter_settings_and_presets(tmp_path, monkeypatch):
     monkeypatch.setattr(bridge, "refresh", original_refresh)
     assert bridge.teleprompter.config["f_text"] == 52
     assert bridge.teleprompter.config["colors"]["bg"] == "#102030"
+    global_prompter = bridge._global_settings_service.get_default_prompter_config()
+    assert global_prompter["layout_font_sizes"]["Сценарий 1"]["f_text"] == 52
+    assert global_prompter["colors"]["bg"] == "#102030"
+
+    bridge.teleprompter.setConfigValue("layout_type", "Сценарий 2")
+    assert bridge.teleprompter.config["f_text"] == 36
+    assert bridge.teleprompter.config["bold_char"] is True
+    assert bridge.teleprompter.config["bold_text"] is False
+    bridge.teleprompter.setConfigValue("f_text", 64)
+    bridge.teleprompter.setConfigValue("bold_char", False)
+    bridge.teleprompter.setConfigValue("bold_text", True)
+    bridge.teleprompter.setConfigValue("layout_type", "Сценарий 1")
+    assert bridge.teleprompter.config["f_text"] == 52
+    assert bridge.teleprompter.config["bold_char"] is True
+    assert bridge.teleprompter.config["bold_text"] is False
+    profiles = bridge._global_settings_service.get_default_prompter_config()[
+        "layout_font_sizes"
+    ]
+    assert profiles["Сценарий 2"]["f_text"] == 64
+    bold_profiles = bridge._global_settings_service.get_default_prompter_config()[
+        "layout_font_bold"
+    ]
+    assert bold_profiles["Сценарий 2"]["bold_char"] is False
+    assert bold_profiles["Сценарий 2"]["bold_text"] is True
+
+    bridge.teleprompter.setConfigValue("show_actor", False)
+    bridge.teleprompter.setConfigValue("show_replica", False)
+    bridge.teleprompter.setConfigValue("show_block_borders", True)
+    bridge.teleprompter.setConfigValue("hide_leading_timecode_zeros", True)
+    global_prompter = bridge._global_settings_service.get_default_prompter_config()
+    assert global_prompter["show_actor"] is False
+    assert global_prompter["show_replica"] is False
+    assert global_prompter["show_block_borders"] is True
+    assert global_prompter["hide_leading_timecode_zeros"] is True
+    assert bridge.teleprompter.config["show_actor"] is False
+    assert bridge.teleprompter.config["show_replica"] is False
+    assert bridge.teleprompter.config["show_block_borders"] is True
+    assert bridge.teleprompter.config["hide_leading_timecode_zeros"] is True
 
     bridge.teleprompter.savePreset(0)
     assert bridge.teleprompter.presetModel.rows()[0]["filled"]
@@ -554,9 +588,15 @@ def test_qml_bridge_teleprompter_settings_and_presets(tmp_path, monkeypatch):
     bridge.teleprompter.setConfigValue("colors.bg", "#000000")
     bridge.teleprompter.applyOrSavePreset(0)
     assert bridge.teleprompter.config["colors"]["bg"] == "#102030"
+    assert bridge._global_settings_service.get_default_prompter_config()[
+        "colors"
+    ]["bg"] == "#102030"
 
-    bridge.project.undo()
-    assert bridge.teleprompter.config["colors"]["bg"] == "#000000"
+    bridge.teleprompter.setConfigValue("colors.bg", "#405060")
+    bridge.teleprompter.savePreset(0)
+    assert bridge._global_settings_service.get_prompter_color_presets()[0][
+        "bg"
+    ] == "#405060"
 
 
 def test_qml_teleprompter_uses_global_reaper_osc_settings(tmp_path):
@@ -587,7 +627,7 @@ def test_qml_teleprompter_uses_global_reaper_osc_settings(tmp_path):
     assert bridge.teleprompter.config["port_out"] == 8101
     assert bridge.teleprompter.config["sync_in"] is True
     bridge.teleprompter.setConfigValue("port_in", 9100)
-    assert bridge.teleprompter.config["port_in"] == 8100
+    assert bridge.teleprompter.config["port_in"] == 9100
     assert bridge._session.data["prompter_config"]["port_in"] == 7100
 
 
@@ -644,7 +684,9 @@ def test_qml_teleprompter_reaper_indicator_tracks_osc_activity(tmp_path):
 def test_qml_bridge_normalizes_legacy_scenario_layout():
     _app()
     bridge = AppBridge()
-    bridge._session.data["export_config"]["layout_type"] = "Сценарий"
+    config = bridge._global_settings_service.get_default_export_config()
+    config["layout_type"] = "Сценарий"
+    bridge._global_settings_service.set_default_export_config(config)
 
     assert bridge.montage.config["layout_type"] == "Сценарий 1"
 
@@ -906,40 +948,20 @@ def test_qml_project_settings_are_atomic_and_undoable():
     _app()
     bridge = AppBridge()
     original_metadata = dict(bridge._session.data["metadata"])
-    original_merge = dict(bridge._session.data["replica_merge_config"])
-
-    assert bridge.settings.applyProjectSettings(
-        "Settings Project",
-        "Author",
-        "Studio",
-        False,
-        24.0,
-        1.5,
-        0.4,
-        1.8,
-    )
+    assert bridge.settings.applyProjectSettingsFull("Settings Project", "Author", "Studio")
 
     assert bridge.project.name == "Settings Project"
     assert bridge.settings.projectAuthor == "Author"
     assert bridge.settings.projectStudio == "Studio"
-    assert bridge._session.data["replica_merge_config"] == {
-        "merge": False,
-        "merge_gap": 36,
-        "p_short": 0.4,
-        "p_long": 1.8,
-        "fps": 24.0,
-    }
     assert bridge.project.canUndo
 
     bridge.project.undo()
 
     assert bridge.project.name == "Новый проект"
     assert bridge._session.data["metadata"] == original_metadata
-    assert bridge._session.data["replica_merge_config"] == original_merge
 
     bridge.project.redo()
     assert bridge.project.name == "Settings Project"
-    assert bridge.settings.mergeGapSeconds == pytest.approx(1.5)
 
 
 def test_audiobook_temporary_documents_use_platform_temp_directory():
@@ -954,25 +976,15 @@ def test_audiobook_temporary_documents_use_platform_temp_directory():
     assert os.path.samefile(Path(url.toLocalFile()).parent, tempfile.gettempdir())
 
 
-def test_qml_project_settings_bundle_includes_montage_and_prompter():
+def test_qml_project_settings_only_update_project_metadata():
     _app()
     bridge = AppBridge()
     original_export = dict(bridge._session.data["export_config"])
     original_prompter = dict(bridge._session.data["prompter_config"])
-    montage = dict(bridge.settings.projectMontageConfig)
-    montage.update({"layout_type": "Сценарий 3", "f_text": 42})
-    prompter = dict(bridge.settings.projectPrompterConfig)
-    prompter.update({"f_text": 64, "focus_ratio": 0.7})
+    assert bridge.settings.applyProjectSettingsFull("Bundle Project", "Author", "Studio")
 
-    assert bridge.settings.applyProjectSettingsBundle(
-        "Bundle Project", "Author", "Studio", True,
-        25.0, 2.0, 0.5, 2.0, montage, prompter,
-    )
-
-    assert bridge._session.data["export_config"]["layout_type"] == "Сценарий 3"
-    assert bridge._session.data["export_config"]["f_text"] == 42
-    assert bridge._session.data["prompter_config"]["f_text"] == 64
-    assert bridge._session.data["prompter_config"]["focus_ratio"] == 0.7
+    assert bridge._session.data["export_config"] == original_export
+    assert bridge._session.data["prompter_config"] == original_prompter
 
     bridge.project.undo()
 
@@ -982,40 +994,18 @@ def test_qml_project_settings_bundle_includes_montage_and_prompter():
     assert not bridge.project.canUndo
 
 
-def test_qml_project_settings_full_includes_all_import_configs():
+def test_qml_project_settings_do_not_include_import_configs():
     _app()
     bridge = AppBridge()
-    original_ass = dict(bridge._session.data["ass_import_config"])
-    merge = dict(bridge.settings.projectMergeConfig)
-    merge.update({"merge": False, "fps": 24.0, "merge_gap": 48})
-    ass = dict(bridge.settings.projectAssImportConfig)
-    ass.update({"split_character_names": False, "character_separator": "/"})
-    srt = dict(bridge.settings.projectSrtImportConfig)
-    srt.update({"keep_multiline": False, "default_character": "Narrator"})
-    docx = dict(bridge.settings.projectDocxImportConfig)
-    docx.update({"header_search_rows": 8, "time_separators": ["|", "—"]})
-
-    assert bridge.settings.applyProjectSettingsFull(
-        "Import Project",
-        "Author",
-        "Studio",
-        bridge.settings.projectMontageConfig,
-        bridge.settings.projectPrompterConfig,
-        merge,
-        ass,
-        srt,
-        docx,
-    )
-
-    assert bridge._session.data["replica_merge_config"]["merge_gap"] == 48
-    assert bridge._session.data["ass_import_config"]["character_separator"] == "/"
-    assert bridge._session.data["srt_import_config"]["default_character"] == "Narrator"
-    assert bridge._session.data["docx_import_config"]["header_search_rows"] == 8
+    assert bridge.settings.applyProjectSettingsFull("Import Project", "Author", "Studio")
+    assert not {
+        "replica_merge_config", "ass_import_config", "srt_import_config",
+        "docx_import_config",
+    } & bridge._session.data.keys()
 
     bridge.project.undo()
 
     assert bridge.project.name == "Новый проект"
-    assert bridge._session.data["ass_import_config"] == original_ass
     assert not bridge.project.canUndo
 
 
@@ -1053,10 +1043,7 @@ def test_qml_global_settings_bundle_and_project_transfer(tmp_path):
     assert saved["default_prompter_config"]["f_text"] == 72
     assert saved["default_prompter_config"]["show_header"] is True
 
-    assert bridge.settings.applyGlobalConfigToProject("montage", montage)
-    assert bridge._session.data["export_config"]["layout_type"] == "Сценарий 2"
-    bridge.project.undo()
-    assert bridge._session.data["export_config"]["layout_type"] == "Таблица"
+    assert bridge._global_settings_service.get_default_export_config()["layout_type"] == "Сценарий 2"
 
 
 def test_qml_global_settings_full_persists_unified_import_defaults():
@@ -1269,18 +1256,9 @@ def test_qml_project_files_creates_missing_source_lines_with_undo(tmp_path):
     assert "source_lines" not in bridge._session.data["episode_working_texts"]["1"]
 
 
-def test_qml_applies_unified_global_import_profile_with_one_undo():
+def test_qml_global_import_profile_does_not_modify_project():
     _app()
     bridge = AppBridge()
-    original = {
-        key: dict(bridge._session.data[key])
-        for key in (
-            "replica_merge_config",
-            "ass_import_config",
-            "srt_import_config",
-            "docx_import_config",
-        )
-    }
     merge = dict(bridge.settings.globalMergeConfig)
     merge["merge"] = False
     ass = dict(bridge.settings.globalAssImportConfig)
@@ -1290,18 +1268,11 @@ def test_qml_applies_unified_global_import_profile_with_one_undo():
     docx = dict(bridge.settings.globalDocxImportConfig)
     docx["rows_to_skip"] = 2
 
-    assert bridge.settings.applyImportConfigToProject(
-        merge, ass, srt, docx
-    )
-    assert bridge._session.data["replica_merge_config"]["merge"] is False
-    assert bridge._session.data["ass_import_config"]["strip_override_tags"] is False
-    assert bridge._session.data["srt_import_config"]["keep_multiline"] is False
-    assert bridge._session.data["docx_import_config"]["rows_to_skip"] == 2
-
-    bridge.project.undo()
-
-    for key, value in original.items():
-        assert bridge._session.data[key] == value
+    assert bridge.settings.saveImportConfigAsDefault(merge, ass, srt, docx)
+    assert bridge._global_settings_service.get_replica_merge_config()["merge"] is False
+    assert bridge._global_settings_service.get_ass_import_config()["strip_override_tags"] is False
+    assert bridge._global_settings_service.get_srt_import_config()["keep_multiline"] is False
+    assert bridge._global_settings_service.get_docx_import_config()["rows_to_skip"] == 2
     assert not bridge.project.canUndo
 
 
@@ -1745,7 +1716,7 @@ def test_qml_bridge_imports_docx_with_preview_and_atomic_undo(tmp_path):
     assert bridge._session.data["episode_working_texts"]["03"]["lines"][0][
         "text"
     ] == "First line"
-    assert bridge._session.data["docx_import_config"]["mapping"]["text"] == 2
+    assert bridge._global_settings_service.get_docx_import_config()["mapping"]["text"] == 2
 
     bridge.project.undo()
 
@@ -2105,7 +2076,7 @@ def test_qml_casting_builds_actor_role_stats_and_bulk_global_transfer(tmp_path):
     } == {"One", "Two"}
 
 
-def test_qml_bridge_previews_montage_and_undoes_export_settings(tmp_path):
+def test_qml_bridge_previews_montage_and_saves_global_export_settings(tmp_path):
     _app()
     bridge = AppBridge()
     bridge._session.data["episodes"] = {"1": str(tmp_path / "one.ass")}
@@ -2149,12 +2120,28 @@ def test_qml_bridge_previews_montage_and_undoes_export_settings(tmp_path):
     assert montage.config["layout_type"] == "Сценарий 2"
     assert montage.config["round_time"] is True
     assert "script2-container" in montage.html
-    assert bridge.project.canUndo
+    assert not bridge.project.canUndo
+    saved = bridge._global_settings_service.load_settings()[
+        "default_export_config"
+    ]
+    assert saved["layout_type"] == "Сценарий 2"
+    assert saved["round_time"] is True
 
-    bridge.project.undo()
-    assert montage.config["round_time"] is False
-    bridge.project.undo()
-    assert montage.config["layout_type"] == "Таблица"
+
+def test_qml_montage_accepts_table_column_width_changes():
+    _app()
+    bridge = AppBridge()
+
+    bridge.montage.setOption("table_width_time", 6.5)
+    bridge.montage.setOption("table_width_char", 12.0)
+    bridge.montage.setOption("table_width_actor", 9.5)
+
+    saved = bridge._global_settings_service.load_settings()[
+        "default_export_config"
+    ]
+    assert saved["table_width_time"] == 6.5
+    assert saved["table_width_char"] == 12.0
+    assert saved["table_width_actor"] == 9.5
 
 
 def test_qml_bridge_edits_montage_text_through_undo_stack(tmp_path):
@@ -2199,20 +2186,19 @@ def test_qml_bridge_edits_montage_text_through_undo_stack(tmp_path):
     assert line["text"] == "Edited in WebEngine"
 
 
-def test_qml_bridge_controls_actor_highlights_with_undo():
+def test_qml_bridge_keeps_actor_highlights_in_runtime_only():
     _app()
     bridge = AppBridge()
     bridge._session.data["actors"] = {
         "actor-1": {"name": "One", "color": "#112233"},
         "actor-2": {"name": "Two", "color": "#445566"},
     }
-    bridge._session.data["export_config"]["highlight_ids_export"] = ["actor-1"]
-    bridge._session.data["export_config"]["highlight_negative_ids_export"] = [
-        "actor-1"
-    ]
     bridge.refresh()
 
     montage = bridge.montage
+    montage.setAllActorsHighlighted(False)
+    montage.setActorHighlighted("actor-1", True)
+    montage.setActorNegative("actor-1", True)
     rows = {row["actorId"]: row for row in montage.highlightModel.rows()}
     assert rows["actor-1"]["selected"] is True
     assert rows["actor-1"]["negative"] is True
@@ -2223,9 +2209,6 @@ def test_qml_bridge_controls_actor_highlights_with_undo():
     assert montage.config["highlight_ids_export"] is None
     assert montage.highlightSummary == "Все актёры"
 
-    bridge.project.undo()
-    assert montage.config["highlight_ids_export"] == ["actor-1"]
-
     montage.setAllActorsHighlighted(False)
     assert montage.config["highlight_ids_export"] == []
     assert montage.highlightSummary == "Подсветка отключена"
@@ -2235,6 +2218,16 @@ def test_qml_bridge_controls_actor_highlights_with_undo():
         "actor-1",
         "actor-2",
     ]
+    assert not bridge.project.canUndo
+    saved = bridge._global_settings_service.load_settings()[
+        "default_export_config"
+    ]
+    assert "highlight_ids_export" not in saved
+    assert "highlight_negative_ids_export" not in saved
+
+    montage.reset()
+    assert montage.config["highlight_ids_export"] is None
+    assert montage.config["highlight_negative_ids_export"] == []
 
 
 def test_qml_bridge_exports_montage_files_and_current_episode_batch(tmp_path):
@@ -2467,7 +2460,7 @@ def test_qml_bridge_exports_reaper_for_all_episodes(tmp_path):
 
     rpp_folder = tmp_path / "rpp"
     assert reaper.exportAll(
-        "rpp", str(rpp_folder), False, True, False, "source"
+        "rpp", str(rpp_folder), False, True, False, "source", "source_ass"
     )
     assert reaper.lastExportCount == 2
     assert reaper.lastExportPath == str(rpp_folder)
@@ -2480,10 +2473,10 @@ def test_qml_bridge_exports_reaper_for_all_episodes(tmp_path):
 
     csv_folder = tmp_path / "csv"
     assert reaper.exportAll(
-        "csv", str(csv_folder), False, True, False, "merged"
+        "csv", str(csv_folder), False, True, False, "merged", "project_episode"
     )
-    assert (csv_folder / "Demo - Ep1 markers.csv").exists()
-    assert (csv_folder / "Demo - Ep2 markers.csv").exists()
+    assert (csv_folder / "Demo - 1.csv").exists()
+    assert (csv_folder / "Demo - 2.csv").exists()
 
 
 def test_qml_reaper_batch_rejects_partial_source_marker_mode(tmp_path):
@@ -3167,7 +3160,7 @@ def test_qml_bridge_regenerates_docx_using_saved_mapping_without_merging(tmp_pat
     table.cell(2, 1).text = "Hero"
     document.save(source)
     bridge._session.data["episodes"] = {"2": str(source)}
-    bridge._session.data["docx_import_config"].update({
+    bridge._global_settings_service.update_docx_import_config({
         "header_mode": "first",
         "minimum_header_matches": 1,
         "mapping": {
@@ -3217,7 +3210,7 @@ def test_qml_bridge_creates_missing_srt_and_docx_texts_with_one_undo(tmp_path):
         "1": str(srt_source),
         "2": str(docx_source),
     }
-    bridge._session.data["docx_import_config"]["header_mode"] = "first"
+    bridge._global_settings_service.update_docx_import_config({"header_mode": "first"})
     bridge.refresh()
 
     bridge.projectFiles.createMissingWorkingTexts()

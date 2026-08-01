@@ -398,11 +398,11 @@ class ConverterBridge(QObject):
     def _service(self) -> QuickSubtitleService:
         episode_service = EpisodeService()
         episode_service.set_merge_gap_from_config(
-            self._session.data.get("replica_merge_config", {})
+            self._global_settings_service.get_replica_merge_config()
         )
         episode_service.set_import_configs(
-            self._session.data.get("ass_import_config", {}),
-            self._session.data.get("srt_import_config", {}),
+            self._global_settings_service.get_ass_import_config(),
+            self._global_settings_service.get_srt_import_config(),
         )
         return QuickSubtitleService(episode_service, self._session.data)
 

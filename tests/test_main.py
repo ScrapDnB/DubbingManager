@@ -104,6 +104,44 @@ class TestQmlStartup:
         assert "SetProcessDpiAwarenessContext" in source
         assert "DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2" in source
 
+    def test_windows_ui_scale_is_configured_before_qt_import(self):
+        source = Path("qml_main.py").read_text(encoding="utf-8")
+
+        assert source.index("configure_windows_ui_scale()") < source.index(
+            "from PySide6.QtCore"
+        )
+
+    def test_windows_ui_scale_compacts_qt_without_overriding_explicit_value(
+        self, monkeypatch
+    ):
+        from qml_main import configure_windows_ui_scale
+
+        monkeypatch.delenv("QT_SCALE_FACTOR", raising=False)
+        configure_windows_ui_scale("win32")
+        assert os.environ["QT_SCALE_FACTOR"] == "0.75"
+
+        monkeypatch.setenv("QT_SCALE_FACTOR", "1.0")
+        configure_windows_ui_scale("win32")
+        assert os.environ["QT_SCALE_FACTOR"] == "1.0"
+
+    def test_windows_ui_scale_does_not_affect_other_platforms(self, monkeypatch):
+        from qml_main import configure_windows_ui_scale
+
+        monkeypatch.delenv("QT_SCALE_FACTOR", raising=False)
+        configure_windows_ui_scale("darwin")
+
+        assert "QT_SCALE_FACTOR" not in os.environ
+
+    def test_windows_ui_scale_uses_saved_preference(self, monkeypatch):
+        from qml_main import configure_windows_ui_scale
+
+        monkeypatch.delenv("QT_SCALE_FACTOR", raising=False)
+        monkeypatch.setattr("qml_main._windows_ui_scale_percent", lambda: 125)
+
+        configure_windows_ui_scale("win32")
+
+        assert os.environ["QT_SCALE_FACTOR"] == "1.25"
+
     def test_windows_webengine_disables_vulkan_without_losing_other_flags(self, monkeypatch):
         from qml_main import configure_platform_graphics
 

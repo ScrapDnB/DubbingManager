@@ -15,12 +15,6 @@ NativeDialogWindow {
     signal assignmentExportRequested()
     signal assignmentImportRequested()
 
-    property var montageDraft: ({})
-    property var prompterDraft: ({})
-    property var mergeDraft: ({})
-    property var assDraft: ({})
-    property var srtDraft: ({})
-    property var docxDraft: ({})
 
     modal: true
     title: qsTr("Настройки проекта")
@@ -33,12 +27,6 @@ NativeDialogWindow {
         projectNameField.text = backend.projectName
         authorField.text = backend.projectAuthor
         studioField.text = backend.projectStudio
-        montageDraft = Object.assign({}, backend.projectMontageConfig)
-        prompterDraft = Object.assign({}, backend.projectPrompterConfig)
-        mergeDraft = Object.assign({}, backend.projectMergeConfig)
-        assDraft = Object.assign({}, backend.projectAssImportConfig)
-        srtDraft = Object.assign({}, backend.projectSrtImportConfig)
-        docxDraft = Object.assign({}, backend.projectDocxImportConfig)
         open()
     }
 
@@ -54,9 +42,6 @@ NativeDialogWindow {
                 "Проект",
                 "Серии и файлы",
                 "Роли",
-                "Монтажный лист",
-                "Импорт",
-                "Телесуфлёр",
                 "Перенос"
             ]
             softMuted: dialog.softMuted
@@ -181,116 +166,6 @@ NativeDialogWindow {
             }
 
             ColumnLayout {
-                spacing: 8
-                SettingsPageHeader {
-                    title: qsTr("Монтажный лист")
-                    subtitle: qsTr("Параметры экспорта для этого проекта.")
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    AdaptiveButton {
-                        text: qsTr("Применить глобальные")
-                        onClicked: dialog.montageDraft = Object.assign(
-                            {}, dialog.backend.globalMontageConfig
-                        )
-                    }
-                    AdaptiveButton {
-                        text: qsTr("Сохранить по умолчанию")
-                        onClicked: dialog.backend.saveConfigAsDefault(
-                            "montage", dialog.montageDraft
-                        )
-                    }
-                    Item { Layout.fillWidth: true }
-                }
-                MontageSettingsPane {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    configuration: dialog.montageDraft
-                    onConfigEdited: function(config) { dialog.montageDraft = config }
-                }
-            }
-
-            ColumnLayout {
-                spacing: 8
-                SettingsPageHeader {
-                    title: qsTr("Импорт")
-                    subtitle: qsTr("Правила импорта и объединения реплик для этого проекта.")
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    AdaptiveButton {
-                        text: qsTr("Применить глобальные")
-                        onClicked: {
-                            dialog.mergeDraft = Object.assign({}, dialog.backend.globalMergeConfig)
-                            dialog.assDraft = Object.assign({}, dialog.backend.globalAssImportConfig)
-                            dialog.srtDraft = Object.assign({}, dialog.backend.globalSrtImportConfig)
-                            dialog.docxDraft = Object.assign({}, dialog.backend.globalDocxImportConfig)
-                        }
-                    }
-                    AdaptiveButton {
-                        text: qsTr("Сохранить по умолчанию")
-                        onClicked: dialog.backend.saveImportConfigAsDefault(
-                            dialog.mergeDraft,
-                            dialog.assDraft,
-                            dialog.srtDraft,
-                            dialog.docxDraft
-                        )
-                    }
-                    Item { Layout.fillWidth: true }
-                }
-                ImportSettingsPane {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    mergeConfiguration: dialog.mergeDraft
-                    assConfiguration: dialog.assDraft
-                    srtConfiguration: dialog.srtDraft
-                    docxConfiguration: dialog.docxDraft
-                    docxPresets: dialog.backend.globalDocxImportPresets
-                    softMuted: dialog.softMuted
-                    onMergeEdited: function(config) { dialog.mergeDraft = config }
-                    onAssEdited: function(config) { dialog.assDraft = config }
-                    onSrtEdited: function(config) { dialog.srtDraft = config }
-                    onDocxEdited: function(config) { dialog.docxDraft = config }
-                    onSaveDocxPresetRequested: function(name, config) {
-                        dialog.backend.saveDocxImportPreset(name, config)
-                    }
-                    onDeleteDocxPresetRequested: function(name) {
-                        dialog.backend.deleteDocxImportPreset(name)
-                    }
-                }
-            }
-
-            ColumnLayout {
-                spacing: 8
-                SettingsPageHeader {
-                    title: qsTr("Телесуфлёр")
-                    subtitle: qsTr("Параметры отображения и прокрутки для этого проекта.")
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    AdaptiveButton {
-                        text: qsTr("Применить глобальные")
-                        onClicked: dialog.prompterDraft = Object.assign(
-                            {}, dialog.backend.globalPrompterConfig
-                        )
-                    }
-                    AdaptiveButton {
-                        text: qsTr("Сохранить по умолчанию")
-                        onClicked: dialog.backend.saveConfigAsDefault(
-                            "prompter", dialog.prompterDraft
-                        )
-                    }
-                    Item { Layout.fillWidth: true }
-                }
-                TeleprompterSettingsPane {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    configuration: dialog.prompterDraft
-                    onConfigEdited: function(config) { dialog.prompterDraft = config }
-                }
-            }
-
-            ColumnLayout {
                 spacing: 12
                 SettingsPageHeader {
                     title: qsTr("Перенос")
@@ -333,13 +208,7 @@ NativeDialogWindow {
                 var saved = dialog.backend.applyProjectSettingsFull(
                     projectNameField.text,
                     authorField.text,
-                    studioField.text,
-                    dialog.montageDraft,
-                    dialog.prompterDraft,
-                    dialog.mergeDraft,
-                    dialog.assDraft,
-                    dialog.srtDraft,
-                    dialog.docxDraft
+                    studioField.text
                 )
                 if (saved) dialog.close()
             }

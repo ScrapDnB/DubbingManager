@@ -87,6 +87,23 @@ class ReaperBridge(QObject):
     def lastExportCount(self) -> int:
         return self._last_export_count
 
+    @Property(str, notify=changed)
+    def csvFilename(self) -> str:
+        """Suggested filename for the current episode's marker CSV."""
+        episode = self._episode or self._session.current_episode
+        return self._controller().default_csv_filename(episode) if episode else ""
+
+    @Slot(str, result=str)
+    def suggestedCsvFilename(self, filename_format: str) -> str:
+        """Return a marker CSV filename for the selected naming format."""
+        episode = self._episode or self._session.current_episode
+        if not episode:
+            return ""
+        return self._controller().default_csv_filename(
+            episode,
+            str(filename_format or "source_ass"),
+        )
+
     @Property(int, notify=changed)
     def exportableEpisodeCount(self) -> int:
         return len(self._exportable_episodes())
@@ -212,7 +229,7 @@ class ReaperBridge(QObject):
         self.changed.emit()
         return True
 
-    @Slot(str, str, bool, bool, bool, str, result=bool)
+    @Slot(str, str, bool, bool, bool, str, str, result=bool)
     def exportAll(
         self,
         output_format: str,
@@ -221,6 +238,7 @@ class ReaperBridge(QObject):
         use_regions: bool,
         transliterate_actor_names: bool,
         marker_mode: str,
+        csv_filename_format: str = "source_ass",
     ) -> bool:
         output_format = str(output_format or "").lower()
         output_folder = Path(_display_path(path_or_url)).expanduser()
@@ -240,7 +258,12 @@ class ReaperBridge(QObject):
         marker_mode = "source" if marker_mode == "source" else "merged"
 
         controller = self._controller()
-        filenames = self._batch_filenames(controller, episodes, output_format)
+        filenames = self._batch_filenames(
+            controller,
+            episodes,
+            output_format,
+            csv_filename_format,
+        )
         try:
             output_folder.mkdir(parents=True, exist_ok=True)
             with TemporaryDirectory(
@@ -365,12 +388,13 @@ class ReaperBridge(QObject):
         controller: ReaperExportService,
         episodes: list[str],
         output_format: str,
+        csv_filename_format: str = "source_ass",
     ) -> list[str]:
         filenames = []
         used = set()
         for episode in episodes:
             raw = (
-                controller.default_csv_filename(episode)
+                controller.default_csv_filename(episode, csv_filename_format)
                 if output_format == "csv"
                 else controller.default_filename(episode)
             )
