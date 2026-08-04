@@ -25,7 +25,7 @@ PersistentScrollView {
         spacing: 14
 
         FormSection {
-            title: qsTr("Подключение")
+            title: qsTr("Синхронизация")
             Layout.fillWidth: true
 
             GridLayout {
@@ -47,11 +47,34 @@ PersistentScrollView {
                     Layout.columnSpan: 2
                 }
                 CheckBox {
+                    text: qsTr("Следовать только во время Play")
+                    checked: Boolean(pane.configuration.sync_play_only)
+                    enabled: Boolean(pane.configuration.sync_in)
+                    onToggled: pane.setValue("sync_play_only", checked)
+                    Layout.columnSpan: 2
+                    PlatformToolTip {
+                        target: parent
+                        text: qsTr("Игнорирует изменения курсора, пока транспорт REAPER остановлен или на паузе.")
+                    }
+                }
+                CheckBox {
                     text: qsTr("Навигация телесуфлёра управляет REAPER")
                     checked: Boolean(pane.configuration.sync_out)
                     onToggled: pane.setValue("sync_out", checked)
                     Layout.columnSpan: 2
                 }
+            }
+        }
+
+        FormSection {
+            title: qsTr("OSC-подключение")
+            Layout.fillWidth: true
+
+            GridLayout {
+                anchors.fill: parent
+                columns: 2
+                columnSpacing: 14
+                rowSpacing: 8
 
                 Label { text: qsTr("Dubbing Manager принимает:") }
                 RowLayout {
@@ -76,13 +99,29 @@ PersistentScrollView {
                     }
                     Label { text: qsTr("UDP"); color: pane.softMuted }
                 }
+            }
+        }
+
+        FormSection {
+            title: qsTr("Исходящие переходы")
+            Layout.fillWidth: true
+
+            GridLayout {
+                anchors.fill: parent
+                columns: 2
+                columnSpacing: 14
+                rowSpacing: 8
 
                 CheckBox {
                     id: offsetEnabled
-                    text: qsTr("Корректировать позицию перед отправкой")
+                    text: qsTr("Смещать позицию REAPER относительно телесуфлёра")
                     checked: Boolean(pane.configuration.reaper_offset_enabled)
                     onToggled: pane.setValue("reaper_offset_enabled", checked)
                     Layout.columnSpan: 2
+                    PlatformToolTip {
+                        target: parent
+                        text: qsTr("Применяется только к переходам, которые телесуфлёр отправляет в REAPER. Автоматическая прокрутка использует фактический Time REAPER.")
+                    }
                 }
                 Label {
                     text: qsTr("Смещение:")

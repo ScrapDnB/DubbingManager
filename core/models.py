@@ -25,6 +25,7 @@ class PrompterColors:
     header_bg: str = "#111111"
     header_text: str = "#00FF00"
     block_border: str = "#4D4D4D"
+    page_target_highlight: str = "#FFD54F"
 
     def __post_init__(self) -> None:
         """Post init."""
@@ -36,6 +37,7 @@ class PrompterColors:
         _validate_hex_color(self.header_bg, "header_bg")
         _validate_hex_color(self.header_text, "header_text")
         _validate_hex_color(self.block_border, "block_border")
+        _validate_hex_color(self.page_target_highlight, "page_target_highlight")
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PrompterColors':
@@ -62,12 +64,17 @@ class PrompterConfig:
     port_out: int = 9000
     sync_in: bool = True
     sync_out: bool = False
+    sync_play_only: bool = False
     reaper_offset_enabled: bool = False
     reaper_offset_seconds: float = -2.0
     key_prev: str = "Left"
     key_next: str = "Right"
     scroll_smoothness_slider: int = 18
     page_scroll_mode: bool = False
+    page_gap_prefetch_seconds: float = 1.0
+    page_gap_prefetch_delay_seconds: float = 1.0
+    page_target_highlight_enabled: bool = True
+    page_debug_overlay: bool = False
     colors: PrompterColors = field(default_factory=PrompterColors)
 
     def __post_init__(self) -> None:
@@ -82,6 +89,16 @@ class PrompterConfig:
             raise ValueError(f"f_text must be 10-300, got {self.f_text}")
         if not 0.0 <= self.focus_ratio <= 1.0:
             raise ValueError(f"focus_ratio must be 0.0-1.0, got {self.focus_ratio}")
+        if not 0.0 <= self.page_gap_prefetch_seconds <= 60.0:
+            raise ValueError(
+                "page_gap_prefetch_seconds must be 0.0-60.0, "
+                f"got {self.page_gap_prefetch_seconds}"
+            )
+        if not 0.0 <= self.page_gap_prefetch_delay_seconds <= 60.0:
+            raise ValueError(
+                "page_gap_prefetch_delay_seconds must be 0.0-60.0, "
+                f"got {self.page_gap_prefetch_delay_seconds}"
+            )
         if not 1024 <= self.port_in <= 65535:
             raise ValueError(f"port_in must be 1024-65535, got {self.port_in}")
         if not 1024 <= self.port_out <= 65535:

@@ -19,7 +19,8 @@ class OscWorker(QThread):
     """Osc Worker class."""
     
     time_changed = Signal(float)
-    navigation_requested = Signal(str)
+    transport_playing_changed = Signal(bool)
+    error_occurred = Signal(object, str)
     
     def __init__(self, port: int = 8000, parent=None):
         super().__init__(parent)
@@ -35,8 +36,9 @@ class OscWorker(QThread):
         try:
             dispatcher = self._setup_dispatcher()
             self._start_server(dispatcher)
-        except Exception as e:
-            logger.error(f"OSC server error: {e}", exc_info=True)
+        except Exception as exc:
+            logger.error("OSC server error: %s", exc, exc_info=True)
+            self.error_occurred.emit(self, str(exc))
     
     def _setup_dispatcher(self) -> Dispatcher:
         dispatcher = Dispatcher()
@@ -44,13 +46,9 @@ class OscWorker(QThread):
         # Receive time from standard Reaper addresses
         dispatcher.map("/time/seconds", self._handle_time)
         dispatcher.map("/time", self._handle_time)
-        
-        # Receive navigation through the track-name address
-        dispatcher.map("/track/1/name", self._handle_nav_via_name)
-        
-        # Fallback direct addresses
-        dispatcher.map("/prompter/next", lambda addr, *args: self.navigation_requested.emit("next"))
-        dispatcher.map("/prompter/prev", lambda addr, *args: self.navigation_requested.emit("prev"))
+        dispatcher.map("/play", self._handle_play)
+        dispatcher.map("/stop", self._handle_stop_or_pause)
+        dispatcher.map("/pause", self._handle_stop_or_pause)
         
         # Debug logger
         dispatcher.set_default_handler(self._debug_handler)
@@ -73,22 +71,28 @@ class OscWorker(QThread):
             return
         logger.debug(f"OSC Message: {address} {args}")
     
-    def _handle_nav_via_name(self, address: str, *args) -> None:
-        if args and isinstance(args[0], str):
-            cmd = args[0].lower().strip()
-            if cmd == "next":
-                logger.info("OSC: Next command received")
-                self.navigation_requested.emit("next")
-            elif cmd == "prev":
-                logger.info("OSC: Prev command received")
-                self.navigation_requested.emit("prev")
-    
     def _handle_time(self, address: str, *args) -> None:
         if args:
             try:
                 self.time_changed.emit(float(args[0]))
             except (ValueError, TypeError) as e:
                 logger.warning(f"Invalid time value: {args[0]}, error: {e}")
+
+    @staticmethod
+    def _osc_bool(args, default: bool) -> bool:
+        if not args:
+            return default
+        value = args[0]
+        if isinstance(value, str):
+            return value.strip().lower() not in {"", "0", "false", "off"}
+        return bool(value)
+
+    def _handle_play(self, address: str, *args) -> None:
+        self.transport_playing_changed.emit(self._osc_bool(args, True))
+
+    def _handle_stop_or_pause(self, address: str, *args) -> None:
+        if self._osc_bool(args, True):
+            self.transport_playing_changed.emit(False)
     
     @Slot()
     def stop(self) -> None:

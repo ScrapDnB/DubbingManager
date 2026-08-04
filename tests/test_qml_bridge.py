@@ -342,6 +342,228 @@ def test_qml_bridge_prepares_and_navigates_teleprompter(tmp_path):
     assert [row["colorActive"] for row in rows] == [False, False]
 
 
+def test_qml_teleprompter_navigates_from_current_replica(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.data["episode_working_texts"]["1"]["lines"] = [
+        {
+            "id": "line-1",
+            "start": 10.0,
+            "end": 40.0,
+            "character": "Hero",
+            "text": "Long line",
+        },
+        {
+            "id": "line-2",
+            "start": 41.0,
+            "end": 42.0,
+            "character": "Villain",
+            "text": "Next line",
+        },
+        {
+            "id": "line-3",
+            "start": 43.0,
+            "end": 44.0,
+            "character": "Hero",
+            "text": "Following line",
+        },
+    ]
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    prompter._set_time(35.0, "reaper")
+    assert prompter.currentIndex == 0
+
+    prompter.navigate(1)
+    assert prompter.time == 41.0
+
+    prompter._set_time(35.0, "reaper")
+    prompter.navigate(-1)
+    assert prompter.time == 43.0
+
+    prompter._set_time(41.5, "reaper")
+    prompter.setActorSelected("actor-2", False)
+    assert prompter.currentIndex == 1
+
+    prompter.navigate(1)
+    assert prompter.time == 43.0
+    prompter._set_time(41.5, "reaper")
+    prompter.navigate(-1)
+    assert prompter.time == 10.0
+
+
+def test_qml_teleprompter_defers_reaper_time_after_local_navigation(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    prompter.jumpTo(3.0)
+    assert prompter.positionOrigin == "local"
+    prompter._on_osc_transport(True)
+
+    prompter._pending_reaper_time = (3.0, float("inf"))
+    prompter._on_osc_time(1.0)
+    assert prompter.time == 3.0
+
+    prompter._on_osc_time(3.0)
+    assert prompter.time == 3.0
+    assert prompter._pending_reaper_time is None
+
+    prompter._on_osc_time(1.0)
+    assert prompter.time == 1.0
+    assert prompter.positionOrigin == "reaper"
+
+
+def test_qml_teleprompter_follows_reaper_only_while_playing(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    config = prompter.config
+    config["sync_play_only"] = True
+    bridge._global_settings_service.set_default_prompter_config(config)
+    prompter._on_osc_time(3.0)
+    assert prompter.time == 0.0
+
+    prompter._on_osc_transport(True)
+    assert prompter.time == 3.0
+
+    prompter._on_osc_transport(False)
+    prompter._on_osc_time(1.0)
+    assert prompter.time == 3.0
+
+    config = prompter.config
+    config["sync_play_only"] = False
+    bridge._global_settings_service.set_default_prompter_config(config)
+    prompter._on_osc_time(1.0)
+    assert prompter.time == 1.0
+
+
+
+def test_qml_teleprompter_refresh_marks_position_as_internal(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    prompter._on_osc_transport(True)
+    prompter._on_osc_time(3.0)
+    assert prompter.positionOrigin == "reaper"
+
+    prompter.refresh()
+    assert prompter.positionOrigin == "internal"
+
+
+def test_qml_teleprompter_does_not_offset_reaper_input(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+    config = prompter.config
+    config.update({
+        "sync_in": True,
+        "sync_out": True,
+        "reaper_offset_enabled": True,
+        "reaper_offset_seconds": -2.0,
+    })
+    bridge._global_settings_service.set_default_prompter_config(config)
+
+    assert prompter.prepare("1")
+    prompter._on_osc_transport(True)
+    prompter._set_time(60.0, "local")
+    prompter._pending_reaper_time = (58.0, float("inf"))
+
+    prompter._on_osc_time(58.0)
+    assert prompter.time == 60.0
+
+    prompter._on_osc_time(58.1)
+    assert prompter.time == 58.1
+    assert prompter.positionOrigin == "reaper"
+
+
+def test_qml_teleprompter_retries_osc_after_worker_error(tmp_path, monkeypatch):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+    config = prompter.config
+    config["osc_enabled"] = True
+    bridge._global_settings_service.set_default_prompter_config(config)
+    prompter._episode = "1"
+    worker = object()
+    prompter._osc_worker = worker
+    prompter._osc_client = object()
+    prompter._osc_runtime_config = (8000, 9000)
+
+    prompter._on_osc_error(worker, "port already in use")
+
+    assert prompter.reaperConnectionState == "error"
+    assert prompter.oscStatus == "Ошибка OSC: port already in use"
+    assert prompter._osc_client is None
+    assert prompter._osc_runtime_config is None
+
+    starts = []
+    monkeypatch.setattr(prompter, "_start_osc", lambda: starts.append(True))
+    prompter.notify_global_config_changed()
+    assert starts == [True]
+
+
+def test_qml_teleprompter_restarts_osc_without_resetting_reader_state(
+    tmp_path, monkeypatch
+):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+    config = prompter.config
+    config["osc_enabled"] = True
+    bridge._global_settings_service.set_default_prompter_config(config)
+
+    starts = []
+    monkeypatch.setattr(prompter, "_start_osc", lambda: starts.append(True))
+    assert prompter.prepare("1")
+    prompter._set_time(3.0, "local")
+    starts.clear()
+
+    prompter.restartOsc()
+
+    assert starts == [True]
+    assert prompter.time == 3.0
+    assert prompter.currentIndex == 1
+    assert prompter.positionOrigin == "local"
+
+
+def test_qml_teleprompter_restarts_osc_only_after_transport_changes(
+    tmp_path, monkeypatch
+):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+    prompter._episode = "1"
+
+    config = prompter.config
+    config["osc_enabled"] = True
+    bridge._global_settings_service.set_default_prompter_config(config)
+    prompter._osc_runtime_config = (8000, 9000)
+    starts = []
+    monkeypatch.setattr(prompter, "_start_osc", lambda: starts.append(True))
+
+    prompter.notify_global_config_changed()
+    assert starts == []
+
+    config["port_out"] = 9001
+    bridge._global_settings_service.set_default_prompter_config(config)
+    prompter.notify_global_config_changed()
+    assert starts == [True]
+
+
 def test_qml_teleprompter_keeps_replicas_active_without_actors(tmp_path):
     _app()
     bridge = AppBridge()
@@ -642,11 +864,13 @@ def test_qml_teleprompter_sync_toggles_update_global_settings(tmp_path):
 
     assert bridge.settings.setPrompterSyncEnabled("sync_in", True)
     assert bridge.settings.setPrompterSyncEnabled("sync_out", True)
+    assert bridge.settings.setPrompterSyncEnabled("sync_play_only", True)
     assert bridge.settings.setPrompterPageScrollMode(True)
 
     saved = bridge._global_settings_service.load_settings()
     assert saved["default_prompter_config"]["sync_in"] is True
     assert saved["default_prompter_config"]["sync_out"] is True
+    assert saved["default_prompter_config"]["sync_play_only"] is True
     assert saved["default_prompter_config"]["page_scroll_mode"] is True
     assert bridge.teleprompter.config["sync_in"] is True
     assert bridge.teleprompter.config["sync_out"] is True
@@ -654,6 +878,31 @@ def test_qml_teleprompter_sync_toggles_update_global_settings(tmp_path):
     assert bridge._session.data["prompter_config"]["sync_in"] is False
     assert bridge._session.data["prompter_config"]["page_scroll_mode"] is False
     assert not bridge.settings.setPrompterSyncEnabled("port_in", True)
+
+
+def test_qml_teleprompter_saves_page_gap_prefetch_threshold(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+
+    prompter.setConfigValue("page_gap_prefetch_seconds", 2.5)
+    assert prompter.config["page_gap_prefetch_seconds"] == 2.5
+
+    prompter.setConfigValue("page_gap_prefetch_seconds", 99.0)
+    assert prompter.config["page_gap_prefetch_seconds"] == 60.0
+
+    prompter.setConfigValue("page_gap_prefetch_delay_seconds", 1.5)
+    assert prompter.config["page_gap_prefetch_delay_seconds"] == 1.5
+
+    prompter.setConfigValue("page_gap_prefetch_delay_seconds", 99.0)
+    assert prompter.config["page_gap_prefetch_delay_seconds"] == 60.0
+
+    prompter.setConfigValue("page_target_highlight_enabled", False)
+    assert prompter.config["page_target_highlight_enabled"] is False
+
+    prompter.setConfigValue("colors.page_target_highlight", "#336699")
+    assert prompter.config["colors"]["page_target_highlight"] == "#336699"
 
 
 def test_qml_teleprompter_reaper_indicator_tracks_osc_activity(tmp_path):

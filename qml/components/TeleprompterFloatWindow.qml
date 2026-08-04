@@ -14,6 +14,9 @@ Window {
     required property color softBorder
     required property color softMuted
     property var ownerWindow
+    signal replicaJumpRequested(real seconds)
+    signal navigationRequested(int direction)
+    signal episodeChangeRequested(string episode)
 
     width: 300
     height: 440
@@ -143,7 +146,7 @@ Window {
                 Layout.minimumWidth: 0
                 Layout.maximumWidth: Number.POSITIVE_INFINITY
                 Layout.preferredHeight: 50
-                onClicked: floatWindow.teleprompter.navigate(-1)
+                onClicked: floatWindow.navigationRequested(-1)
             }
             AdaptiveButton {
                 text: qsTr("Вперёд")
@@ -152,7 +155,7 @@ Window {
                 Layout.minimumWidth: 0
                 Layout.maximumWidth: Number.POSITIVE_INFINITY
                 Layout.preferredHeight: 50
-                onClicked: floatWindow.teleprompter.navigate(1)
+                onClicked: floatWindow.navigationRequested(1)
             }
         }
 
@@ -168,7 +171,7 @@ Window {
                 Component.onCompleted: currentIndex = indexOfValue(
                     floatWindow.teleprompter.episode
                 )
-                onActivated: floatWindow.teleprompter.setEpisode(currentValue)
+                onActivated: floatWindow.episodeChangeRequested(currentValue)
             }
         }
 
@@ -228,7 +231,7 @@ Window {
 
                     HoverHandler { id: navigationHover }
                     TapHandler {
-                        onTapped: floatWindow.teleprompter.jumpTo(
+                        onTapped: floatWindow.replicaJumpRequested(
                             navigationRow.start
                         )
                     }

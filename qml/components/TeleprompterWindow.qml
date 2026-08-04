@@ -32,10 +32,20 @@ NativeDialogWindow {
 
     property bool sidePanelVisible: true
     property bool followEnabled: true
+    property string observedEpisode: ""
     property var editingSourceIds: []
     property int colorTarget: -1
     readonly property var config: teleprompter.config
     readonly property var colors: config.colors
+    readonly property bool pageDebugVisible: Boolean(config.page_debug_overlay)
+    readonly property int scrollDurationMs: Math.round(
+        150 * Math.pow(
+            5000 / 150,
+            Math.max(0, Math.min(
+                100, Number(config.scroll_smoothness_slider || 0)
+            )) / 100
+        )
+    )
     readonly property int toolbarControlHeight: Math.max(macOSStyle ? 28 : 40, Math.ceil(interfaceFontMetrics.height + (macOSStyle ? 10 : 18)))
 
     FontMetrics {
@@ -49,6 +59,7 @@ NativeDialogWindow {
     }
 
     function openFor(episode) {
+        resetFollowingState();
         if (!teleprompter.prepare(episode)) {
             return;
         }
@@ -56,10 +67,32 @@ NativeDialogWindow {
         requestActivate();
     }
 
+    function setEpisode(episode) {
+        if (String(episode) === String(teleprompter.episode)) {
+            return;
+        }
+        resetFollowingState();
+        teleprompter.setEpisode(episode);
+    }
+
+    function resetFollowingState() {
+        followEnabled = true;
+        replicaView.resetPageFollowState();
+    }
+
     function navigate(direction) {
         followEnabled = true;
         replicaView.cancelPageHold();
         teleprompter.navigate(direction);
+    }
+
+    function jumpToReplica(seconds) {
+        followEnabled = true;
+        replicaView.cancelPageHold();
+        teleprompter.jumpTo(seconds);
+        Qt.callLater(function() {
+            replicaView.scrollCurrentReplicaToFocusBoundary();
+        });
     }
 
     function displayedTimecode(value) {
@@ -88,10 +121,23 @@ NativeDialogWindow {
     Connections {
         target: window.teleprompter
         function onChanged() {
-            episodeBox.currentIndex = episodeBox.indexOfValue(window.teleprompter.episode);
+            var currentEpisode = String(window.teleprompter.episode);
+            episodeBox.currentIndex = episodeBox.indexOfValue(currentEpisode);
+            if (window.observedEpisode !== currentEpisode) {
+                window.observedEpisode = currentEpisode;
+                window.resetFollowingState();
+            }
         }
         function onPositionChanged() {
-            replicaView.resumePageFollowWhenBoundaryEnds();
+            if (window.teleprompter.positionOrigin === "reaper"
+                    && !replicaView.pageScrollMode
+                    && !window.followEnabled) {
+                window.followEnabled = true;
+            }
+            if (window.teleprompter.positionOrigin === "reaper") {
+                replicaView.resumePageFollowForReaperPosition();
+                replicaView.prefetchNextReplicaDuringGap();
+            }
         }
     }
 
@@ -103,7 +149,6 @@ NativeDialogWindow {
         sequence: window.config.key_next || "Right"
         onActivated: window.navigate(1)
     }
-
     TeleprompterFloatWindow {
         id: floatWindow
         ownerWindow: window
@@ -117,6 +162,15 @@ NativeDialogWindow {
         target: floatWindow
         function onVisibleChanged() {
             floatButton.checked = floatWindow.visible;
+        }
+        function onReplicaJumpRequested(seconds) {
+            window.jumpToReplica(seconds);
+        }
+        function onNavigationRequested(direction) {
+            window.navigate(direction);
+        }
+        function onEpisodeChangeRequested(episode) {
+            window.setEpisode(episode);
         }
     }
 
@@ -419,7 +473,7 @@ NativeDialogWindow {
                 valueRole: "name"
                 model: window.teleprompter.episodesModel
                 Component.onCompleted: currentIndex = indexOfValue(window.teleprompter.episode)
-                onActivated: window.teleprompter.setEpisode(currentValue)
+                onActivated: window.setEpisode(currentValue)
             }
             AdaptiveButton {
                 text: qsTr("Обновить каст")
@@ -430,31 +484,39 @@ NativeDialogWindow {
             Item {
                 Layout.fillWidth: true
             }
-            AdaptiveButton {
-                text: qsTr("Предыдущая реплика")
-                Layout.preferredHeight: window.toolbarControlHeight
+            CompactToolButton {
+                iconSource: Qt.resolvedUrl("../icons/chevron-left.svg")
+                toolTipText: qsTr("Предыдущая реплика")
                 Layout.alignment: Qt.AlignVCenter
                 onClicked: window.navigate(-1)
             }
-            AdaptiveButton {
-                text: qsTr("Следующая реплика")
-                Layout.preferredHeight: window.toolbarControlHeight
+            CompactToolButton {
+                iconSource: Qt.resolvedUrl("../icons/chevron-right.svg")
+                toolTipText: qsTr("Следующая реплика")
                 Layout.alignment: Qt.AlignVCenter
                 onClicked: window.navigate(1)
             }
-            AdaptiveButton {
+            CompactToolButton {
                 id: floatButton
                 visible: true
-                text: qsTr("Плавающее окно")
-                Layout.preferredHeight: window.toolbarControlHeight
+                iconSource: Qt.resolvedUrl("../icons/remote-control.svg")
+                toolTipText: qsTr("Плавающий контроллер")
                 Layout.alignment: Qt.AlignVCenter
                 enabled: true
                 checkable: true
                 checked: floatWindow.visible
                 onToggled: checked ? floatWindow.openNearOwner() : floatWindow.close()
+            }
+            CompactToolButton {
+                visible: Boolean(window.config.osc_enabled)
+                enabled: window.teleprompter.oscAvailable
+                iconSource: Qt.resolvedUrl("../icons/refresh.svg")
+                toolTipText: qsTr("Переподключить REAPER")
+                Layout.alignment: Qt.AlignVCenter
+                onClicked: window.teleprompter.restartOsc()
                 PlatformToolTip {
-                    target: floatButton
-                    text: qsTr("Плавающий контроллер")
+                    target: parent
+                    text: qsTr("Перезапустить подключение OSC без сброса позиции")
                 }
             }
         }
@@ -878,9 +940,30 @@ NativeDialogWindow {
                                     onToggled: window.appBridge.settings.setPrompterSyncEnabled("sync_in", checked)
                                 }
                                 CheckBox {
+                                    text: qsTr("Следовать только во время Play")
+                                    checked: Boolean(window.config.sync_play_only)
+                                    enabled: Boolean(window.config.sync_in)
+                                    onToggled: window.appBridge.settings.setPrompterSyncEnabled(
+                                        "sync_play_only", checked
+                                    )
+                                }
+                                CheckBox {
                                     text: qsTr("REAPER следует за навигацией")
                                     checked: window.config.sync_out
                                     onToggled: window.appBridge.settings.setPrompterSyncEnabled("sync_out", checked)
+                                }
+                                CheckBox {
+                                    text: qsTr("Смещение REAPER (%1 с)").arg(
+                                        Number(window.config.reaper_offset_seconds || 0)
+                                    )
+                                    checked: Boolean(window.config.reaper_offset_enabled)
+                                    onToggled: window.teleprompter.setConfigValue(
+                                        "reaper_offset_enabled", checked
+                                    )
+                                    PlatformToolTip {
+                                        target: parent
+                                        text: qsTr("Число секунд задаётся в глобальных настройках REAPER / OSC.")
+                                    }
                                 }
                                 CheckBox {
                                     text: qsTr("Постраничный режим")
@@ -893,7 +976,7 @@ NativeDialogWindow {
                                 }
 
                                 Label {
-                                    text: qsTr("Плавность · ") + Math.round(smoothSlider.value)
+                                    text: qsTr("Плавность · %1 мс").arg(window.scrollDurationMs)
                                 }
                                 Slider {
                                     id: smoothSlider
@@ -960,9 +1043,7 @@ NativeDialogWindow {
                                 }
                                 TapHandler {
                                     onTapped: {
-                                        window.followEnabled = true;
-                                        replicaView.cancelPageHold();
-                                        window.teleprompter.jumpTo(navigationRow.start);
+                                        window.jumpToReplica(navigationRow.start);
                                     }
                                 }
 
@@ -1019,41 +1100,244 @@ NativeDialogWindow {
                     verticalScrollBarEnabled: false
                     spacing: Math.max(14, window.config.f_text * 0.45)
                     model: window.teleprompter.model
+                    footer: Item {
+                        width: replicaView.width
+                        height: replicaView.pageScrollMode ? replicaView.height : 0
+                    }
                     currentIndex: window.followEnabled ? window.teleprompter.currentIndex : -1
                     readonly property bool pageScrollMode: Boolean(window.config.page_scroll_mode)
                     property real pageScrollHoldUntil: -1
+                    property real pageHoldLastReaperTime: -1
+                    property real pageHoldLastReaperReceivedAt: -1
+                    property bool pageFollowQueued: false
+                    property bool pageFocusAlignmentActive: false
+                    property int pageGapPrefetchIndex: -1
+                    property int pageTargetHighlightIndex: -1
+                    property real pageTargetHighlightOpacity: 0
+                    property bool manualDragScroll: false
+                    property string pageDebugEvent: "Ожидание"
+                    property real pageDebugSourceY: 0
+                    property real pageDebugTargetY: 0
+                    property real pageDebugItemTop: -1
+                    property real pageDebugItemBottom: -1
                     preferredHighlightBegin: height * focusSlider.value
                     preferredHighlightEnd: preferredHighlightBegin
                     highlightRangeMode: pageScrollMode ? ListView.NoHighlightRange : ListView.StrictlyEnforceRange
-                    highlightMoveDuration: Math.round(smoothSlider.value * 12)
+                    highlightMoveDuration: window.scrollDurationMs
 
                     NumberAnimation {
                         id: pageScrollAnimation
                         target: replicaView
                         property: "contentY"
-                        duration: Math.max(120, Math.round(120 + smoothSlider.value * 10))
+                        duration: window.scrollDurationMs
+                        easing.type: Easing.OutCubic
+                        onStopped: {
+                            replicaView.pageFocusAlignmentActive = false;
+                            replicaView.fadePageTargetHighlight();
+                        }
+                    }
+
+                    NumberAnimation {
+                        id: pageTargetHighlightFade
+                        target: replicaView
+                        property: "pageTargetHighlightOpacity"
+                        duration: 1000
                         easing.type: Easing.OutCubic
                     }
 
-                    function followCurrentReplicaByPage() {
-                        if (!pageScrollMode || !window.followEnabled || currentIndex < 0 || pageScrollHoldUntil >= 0) {
+                    function capturePageDebug(event, sourceY, targetY, itemTop, itemBottom) {
+                        pageDebugEvent = event;
+                        pageDebugSourceY = sourceY;
+                        pageDebugTargetY = targetY;
+                        pageDebugItemTop = itemTop;
+                        pageDebugItemBottom = itemBottom;
+                    }
+
+                    function replicaFocusTargetY(index) {
+                        positionViewAtIndex(index, ListView.Beginning);
+                        forceLayout();
+                        return Math.max(
+                            0,
+                            Math.min(
+                                contentHeight - height,
+                                contentY - preferredHighlightBegin
+                            )
+                        );
+                    }
+
+                    function currentReplicaFocusTargetY() {
+                        return replicaFocusTargetY(currentIndex);
+                    }
+
+                    function showPageTargetHighlight(index) {
+                        pageTargetHighlightFade.stop();
+                        if (!Boolean(window.config.page_target_highlight_enabled)) {
+                            pageTargetHighlightIndex = -1;
+                            pageTargetHighlightOpacity = 0;
                             return;
                         }
-                        // positionViewAtIndex resolves the real delegate
-                        // geometry, including wrapped text after a resize.
+                        pageTargetHighlightIndex = index;
+                        pageTargetHighlightOpacity = 0.22;
+                    }
+
+                    function fadePageTargetHighlight() {
+                        if (pageTargetHighlightOpacity <= 0) {
+                            return;
+                        }
+                        pageTargetHighlightFade.stop();
+                        pageTargetHighlightFade.from = pageTargetHighlightOpacity;
+                        pageTargetHighlightFade.to = 0;
+                        pageTargetHighlightFade.start();
+                    }
+
+                    function startPageScroll(sourceY, targetY, targetIndex) {
+                        showPageTargetHighlight(targetIndex);
+                        pageScrollAnimation.from = sourceY;
+                        pageScrollAnimation.to = targetY;
+                        pageScrollAnimation.start();
+                    }
+
+                    function followCurrentReplicaByPage() {
+                        if (!pageScrollMode) {
+                            capturePageDebug("Пропуск: постраничный режим выключен", contentY, contentY, -1, -1);
+                            return;
+                        }
+                        if (!window.followEnabled) {
+                            capturePageDebug("Пропуск: следование выключено", contentY, contentY, -1, -1);
+                            return;
+                        }
+                        if (currentIndex < 0) {
+                            capturePageDebug("Пропуск: нет текущей реплики", contentY, contentY, -1, -1);
+                            return;
+                        }
+                        if (pageScrollHoldUntil >= 0) {
+                            capturePageDebug("Пропуск: ручная пауза", contentY, contentY, -1, -1);
+                            return;
+                        }
+                        if (pageFocusAlignmentActive) {
+                            capturePageDebug("Пропуск: выравнивание по клику", contentY, contentY, -1, -1);
+                            return;
+                        }
+                        if (manualDragScroll) {
+                            capturePageDebug("Пропуск: ручное перетаскивание", contentY, contentY, -1, -1);
+                            return;
+                        }
+                        if (pageGapPrefetchIndex === currentIndex
+                                && pageScrollAnimation.running) {
+                            capturePageDebug("Пропуск: следующая реплика уже подтягивается", contentY, contentY, -1, -1);
+                            return;
+                        }
+                        forceLayout();
                         var sourceY = contentY;
                         pageScrollAnimation.stop();
-                        positionViewAtIndex(currentIndex, ListView.Beginning);
-                        var targetY = contentY;
-                        var targetItem = currentItem;
+                        var targetY = currentReplicaFocusTargetY();
+                        var targetItem = itemAtIndex(currentIndex);
+                        var itemTop = targetItem ? targetItem.y : targetY;
+                        var itemBottom = targetItem ? itemTop + targetItem.height : itemTop;
+                        var viewportBottom = sourceY + height;
+                        contentY = sourceY;
+                        if (itemTop < sourceY || itemBottom > viewportBottom) {
+                            capturePageDebug("Переход к реплике", sourceY, targetY, itemTop, itemBottom);
+                            if (Math.abs(targetY - sourceY) > 0.5) {
+                                startPageScroll(sourceY, targetY, currentIndex);
+                            }
+                        } else {
+                            capturePageDebug("Реплика уже видима", sourceY, targetY, itemTop, itemBottom);
+                        }
+                    }
+
+                    function prefetchNextReplicaDuringGap() {
+                        if (!pageScrollMode || !window.followEnabled
+                                || pageScrollHoldUntil >= 0
+                                || pageFocusAlignmentActive || manualDragScroll
+                                || currentIndex < 0) {
+                            return;
+                        }
+                        var currentReplica = window.teleprompter.model.get(currentIndex);
+                        if (!currentReplica) {
+                            return;
+                        }
+                        var nextIndex = -1;
+                        for (var index = currentIndex + 1; index < count; index++) {
+                            var candidate = window.teleprompter.model.get(index);
+                            if (candidate && candidate.active) {
+                                nextIndex = index;
+                                break;
+                            }
+                        }
+                        if (nextIndex < 0) {
+                            pageGapPrefetchIndex = -1;
+                            return;
+                        }
+                        var nextReplica = window.teleprompter.model.get(nextIndex);
+                        var currentEnd = Number(currentReplica.end);
+                        var nextStart = Number(nextReplica.start);
+                        var gapThreshold = Number(
+                            window.config.page_gap_prefetch_seconds || 0
+                        );
+                        var delay = Number(
+                            window.config.page_gap_prefetch_delay_seconds || 0
+                        );
+                        var currentTime = Number(window.teleprompter.time);
+                        if (gapThreshold <= 0
+                                || nextStart - currentEnd < gapThreshold
+                                || currentTime < currentEnd + delay
+                                || currentTime >= nextStart) {
+                            pageGapPrefetchIndex = -1;
+                            return;
+                        }
+                        if (pageGapPrefetchIndex === nextIndex) {
+                            return;
+                        }
+                        forceLayout();
+                        var sourceY = contentY;
+                        pageScrollAnimation.stop();
+                        var targetY = replicaFocusTargetY(nextIndex);
+                        var targetItem = itemAtIndex(nextIndex);
+                        var itemTop = targetItem ? targetItem.y : targetY;
+                        var itemBottom = targetItem ? itemTop + targetItem.height : itemTop;
+                        var viewportBottom = sourceY + height;
+                        contentY = sourceY;
+                        pageGapPrefetchIndex = nextIndex;
+                        if (itemTop < sourceY || itemBottom > viewportBottom) {
+                            capturePageDebug("Пауза: следующая реплика", sourceY, targetY, itemTop, itemBottom);
+                            if (Math.abs(targetY - sourceY) > 0.5) {
+                                startPageScroll(sourceY, targetY, nextIndex);
+                            }
+                        } else {
+                            capturePageDebug("Пауза: следующая реплика уже видима", sourceY, targetY, itemTop, itemBottom);
+                        }
+                    }
+
+                    function scrollCurrentReplicaToFocusBoundary() {
+                        if (!pageScrollMode || currentIndex < 0) {
+                            return;
+                        }
+                        forceLayout();
+                        pageGapPrefetchIndex = -1;
+                        var sourceY = contentY;
+                        pageScrollAnimation.stop();
+                        var targetY = currentReplicaFocusTargetY();
+                        var targetItem = itemAtIndex(currentIndex);
                         var itemTop = targetItem ? targetItem.y : targetY;
                         var itemBottom = targetItem ? itemTop + targetItem.height : itemTop;
                         contentY = sourceY;
-                        if (itemTop < sourceY || itemBottom > sourceY + height) {
-                            pageScrollAnimation.from = sourceY;
-                            pageScrollAnimation.to = targetY;
-                            pageScrollAnimation.start();
+                        capturePageDebug("Клик: выравнивание реплики к фокусу", sourceY, targetY, itemTop, itemBottom);
+                        if (Math.abs(targetY - sourceY) > 0.5) {
+                            pageFocusAlignmentActive = true;
+                            startPageScroll(sourceY, targetY, currentIndex);
                         }
+                    }
+
+                    function queuePageFollow() {
+                        if (pageFollowQueued) {
+                            return;
+                        }
+                        pageFollowQueued = true;
+                        Qt.callLater(function() {
+                            pageFollowQueued = false;
+                            followCurrentReplicaByPage();
+                        });
                     }
 
                     function pausePageFollowAtVisibleBoundary() {
@@ -1069,7 +1353,8 @@ NativeDialogWindow {
                             }
                         }
                         if (index < 0) {
-                            pageScrollHoldUntil = -1;
+                            cancelPageHold();
+                            capturePageDebug("Пауза отменена: нет строки", contentY, contentY, -1, -1);
                             return;
                         }
                         var item = itemAtIndex(index);
@@ -1078,36 +1363,127 @@ NativeDialogWindow {
                             item = itemAtIndex(index);
                         }
                         if (!item || item.y < contentY || item.y + item.height > viewportBottom) {
-                            pageScrollHoldUntil = -1;
+                            cancelPageHold();
+                            capturePageDebug("Пауза отменена: строка вне экрана", contentY, contentY, -1, -1);
                             return;
                         }
                         pageScrollHoldUntil = Number(window.teleprompter.model.get(index).end);
+                        pageHoldLastReaperTime = Number(window.teleprompter.time);
+                        pageHoldLastReaperReceivedAt = Date.now();
+                        capturePageDebug("Ручная пауза до конца строки " + index, contentY, contentY, item.y, item.y + item.height);
                     }
 
-                    function resumePageFollowWhenBoundaryEnds() {
-                        if (!pageScrollMode || pageScrollHoldUntil < 0 || window.teleprompter.time < pageScrollHoldUntil) {
+                    function resumePageFollowForReaperPosition() {
+                        if (!pageScrollMode || pageScrollHoldUntil < 0) {
+                            return;
+                        }
+                        var currentTime = Number(window.teleprompter.time);
+                        var receivedAt = Date.now();
+                        var elapsed = Math.max(
+                            0,
+                            (receivedAt - pageHoldLastReaperReceivedAt) / 1000
+                        );
+                        var delta = Math.abs(
+                            currentTime - pageHoldLastReaperTime
+                        );
+                        var seekedBack = currentTime < pageHoldLastReaperTime - 0.02;
+                        var jumped = delta >= Math.max(0.5, elapsed * 4);
+                        var changedAfterPause = elapsed >= 0.75 && delta >= 0.02
+                            && (delta > 3 || delta < elapsed * 0.5
+                                || delta > elapsed * 3);
+                        pageHoldLastReaperTime = currentTime;
+                        pageHoldLastReaperReceivedAt = receivedAt;
+                        if (seekedBack || jumped || changedAfterPause) {
+                            cancelPageHold();
+                            capturePageDebug("Ручная пауза отменена: seek REAPER", contentY, contentY, -1, -1);
+                            queuePageFollow();
+                            return;
+                        }
+                        if (currentTime < pageScrollHoldUntil) {
                             return;
                         }
                         pageScrollHoldUntil = -1;
-                        Qt.callLater(followCurrentReplicaByPage);
+                        queuePageFollow();
                     }
 
                     function cancelPageHold() {
                         pageScrollHoldUntil = -1;
+                        pageHoldLastReaperTime = -1;
+                        pageHoldLastReaperReceivedAt = -1;
                     }
 
-                    onCurrentIndexChanged: Qt.callLater(followCurrentReplicaByPage)
-                    onHeightChanged: Qt.callLater(pageScrollHoldUntil >= 0 ? pausePageFollowAtVisibleBoundary : followCurrentReplicaByPage)
-                    onWidthChanged: Qt.callLater(pageScrollHoldUntil >= 0 ? pausePageFollowAtVisibleBoundary : followCurrentReplicaByPage)
-                    onContentHeightChanged: if (pageScrollHoldUntil >= 0)
-                        Qt.callLater(pausePageFollowAtVisibleBoundary)
+                    function resetPageFollowState() {
+                        pageScrollAnimation.stop();
+                        pageTargetHighlightFade.stop();
+                        pageFocusAlignmentActive = false;
+                        pageGapPrefetchIndex = -1;
+                        pageTargetHighlightIndex = -1;
+                        pageTargetHighlightOpacity = 0;
+                        manualDragScroll = false;
+                        cancelPageHold();
+                    }
+
+                    function beginManualDragScroll() {
+                        pageScrollAnimation.stop();
+                        pageGapPrefetchIndex = -1;
+                        manualDragScroll = true;
+                        if (!pageScrollMode) {
+                            window.followEnabled = false;
+                        }
+                    }
+
+                    function finishManualDragScroll() {
+                        if (!manualDragScroll) {
+                            return;
+                        }
+                        manualDragScroll = false;
+                        if (pageScrollMode) {
+                            Qt.callLater(pausePageFollowAtVisibleBoundary);
+                        }
+                    }
+
+                    onCurrentIndexChanged: {
+                        var wasPrefetched = pageGapPrefetchIndex === currentIndex;
+                        pageGapPrefetchIndex = -1;
+                        if (!wasPrefetched || !pageScrollAnimation.running) {
+                            queuePageFollow();
+                        }
+                    }
+                    onHeightChanged: Qt.callLater(function() {
+                        if (pageScrollHoldUntil >= 0) {
+                            pausePageFollowAtVisibleBoundary();
+                        } else {
+                            queuePageFollow();
+                        }
+                    })
+                    onWidthChanged: Qt.callLater(function() {
+                        if (pageScrollHoldUntil >= 0) {
+                            pausePageFollowAtVisibleBoundary();
+                        } else {
+                            queuePageFollow();
+                        }
+                    })
+                    onContentHeightChanged: Qt.callLater(function() {
+                        if (pageScrollHoldUntil >= 0) {
+                            pausePageFollowAtVisibleBoundary();
+                        }
+                    })
                     onPageScrollModeChanged: {
                         if (!pageScrollMode) {
                             pageScrollAnimation.stop();
                         }
+                        pageGapPrefetchIndex = -1;
                         cancelPageHold();
-                        Qt.callLater(followCurrentReplicaByPage);
+                        queuePageFollow();
                     }
+                    onDraggingChanged: {
+                        if (dragging) {
+                            beginManualDragScroll();
+                        } else if (manualDragScroll && !moving) {
+                            finishManualDragScroll();
+                        }
+                    }
+                    onMovementEnded: finishManualDragScroll()
                     transform: Scale {
                         origin.x: replicaView.width / 2
                         xScale: window.config.is_mirrored ? -1 : 1
@@ -1117,6 +1493,7 @@ NativeDialogWindow {
                         target: null
                         onWheel: function (event) {
                             pageScrollAnimation.stop();
+                            replicaView.pageGapPrefetchIndex = -1;
                             replicaView.contentY = Math.max(0, Math.min(replicaView.contentHeight - replicaView.height, replicaView.contentY - event.angleDelta.y));
                             if (replicaView.pageScrollMode) {
                                 Qt.callLater(replicaView.pausePageFollowAtVisibleBoundary);
@@ -1146,11 +1523,22 @@ NativeDialogWindow {
                             Math.max(150, replicaView.viewportWidth * 0.24)
                         )
                         readonly property color blockBorderColor: window.colors.block_border || "#4D4D4D"
+                        readonly property real pageTargetHighlightOpacity: (
+                            replicaView.pageTargetHighlightIndex === index
+                            && Boolean(window.config.page_target_highlight_enabled)
+                        ) ? replicaView.pageTargetHighlightOpacity : 0
 
                         x: horizontalMargin
                         width: replicaView.viewportWidth - horizontalMargin * 2
                         height: layoutContent.implicitHeight + (window.config.show_block_borders ? 20 : 18)
                         opacity: active ? 1 : 0.72
+
+                        Rectangle {
+                            anchors.fill: parent
+                            color: window.colors.page_target_highlight || "#FFD54F"
+                            opacity: replicaDelegate.pageTargetHighlightOpacity
+                            radius: window.macOSStyle ? 5 : 3
+                        }
 
                         Rectangle {
                             anchors.fill: parent
@@ -1166,9 +1554,7 @@ NativeDialogWindow {
                         MouseArea {
                             anchors.fill: parent
                             onClicked: {
-                                window.followEnabled = true;
-                                replicaView.cancelPageHold();
-                                window.teleprompter.jumpTo(replicaDelegate.start);
+                                window.jumpToReplica(replicaDelegate.start);
                             }
                             onDoubleClicked: window.openReplicaEditor(replicaDelegate.sourceIds, replicaDelegate.character, replicaDelegate.replicaText)
                         }
@@ -1375,6 +1761,63 @@ NativeDialogWindow {
                     }
                     ScrollBar.vertical: VisibleScrollBar {
                         contentOverflow: false
+                    }
+                }
+
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.margins: 12
+                    width: Math.min(parent.width - 24, 430)
+                    height: debugColumn.implicitHeight + 20
+                    visible: window.pageDebugVisible
+                    z: 10
+                    radius: 6
+                    color: "#DD111111"
+                    border.width: 1
+                    border.color: "#99FFFFFF"
+
+                    Column {
+                        id: debugColumn
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        spacing: 3
+
+                        Text {
+                            text: qsTr("Диагностика постраничного режима")
+                            color: "#FFFFFF"
+                            font.bold: true
+                        }
+                        Text {
+                            text: "event: " + replicaView.pageDebugEvent
+                            color: "#FFD166"
+                            wrapMode: Text.WordWrap
+                            width: parent.width
+                        }
+                        Text {
+                            text: "time=" + window.teleprompter.time.toFixed(3)
+                                + "  index=" + replicaView.currentIndex
+                                + "  follow=" + window.followEnabled
+                            color: "#FFFFFF"
+                        }
+                        Text {
+                            text: "viewport=" + replicaView.width.toFixed(1)
+                                + " × " + replicaView.height.toFixed(1)
+                                + "  contentHeight=" + replicaView.contentHeight.toFixed(1)
+                            color: "#FFFFFF"
+                        }
+                        Text {
+                            text: "contentY=" + replicaView.contentY.toFixed(1)
+                                + "  sourceY=" + replicaView.pageDebugSourceY.toFixed(1)
+                                + "  targetY=" + replicaView.pageDebugTargetY.toFixed(1)
+                            color: "#FFFFFF"
+                        }
+                        Text {
+                            text: "item=" + replicaView.pageDebugItemTop.toFixed(1)
+                                + "…" + replicaView.pageDebugItemBottom.toFixed(1)
+                                + "  holdUntil=" + replicaView.pageScrollHoldUntil.toFixed(3)
+                            color: "#FFFFFF"
+                        }
                     }
                 }
 

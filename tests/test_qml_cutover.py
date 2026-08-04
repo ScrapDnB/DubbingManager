@@ -68,11 +68,118 @@ def test_teleprompter_has_a_page_scroll_mode():
     )
 
     assert "Постраничный режим" in source
+    assert 'qsTr("Смещение REAPER (%1 с)")' in source
+    assert '"reaper_offset_enabled", checked' in source
     assert "followCurrentReplicaByPage" in source
     assert "ListView.NoHighlightRange" in source
     assert "pageScrollAnimation" in source
+    assert "scrollDurationMs" in source
+    assert 'qsTr("Плавность · %1 мс")' in source
+    assert "5000 / 150" in source
     assert "pausePageFollowAtVisibleBoundary" in source
-    assert "resumePageFollowWhenBoundaryEnds" in source
+    assert "function resumePageFollowForReaperPosition()" in source
+    assert "Ручная пауза отменена: seek REAPER" in source
+    assert "forceLayout();" in source
+    assert "function queuePageFollow()" in source
+    assert "function scrollCurrentReplicaToFocusBoundary()" in source
+    assert "function resetPageFollowState()" in source
+    assert "height: replicaView.pageScrollMode ? replicaView.height : 0" in source
+    assert "property bool pageFocusAlignmentActive: false" in source
+    assert "property bool manualDragScroll: false" in source
+    assert "var viewportBottom = sourceY + height;" in source
+    assert "function currentReplicaFocusTargetY()" in source
+    assert "function replicaFocusTargetY(index)" in source
+    assert "function prefetchNextReplicaDuringGap()" in source
+    assert "function startPageScroll(sourceY, targetY, targetIndex)" in source
+    assert "function showPageTargetHighlight(index)" in source
+    assert "function fadePageTargetHighlight()" in source
+    assert "pageTargetHighlightFade" in source
+    assert "page_target_highlight_enabled" in source
+    assert "page_target_highlight" in source
+    assert "page_gap_prefetch_seconds" in source
+    assert "page_gap_prefetch_delay_seconds" in source
+    assert "nextStart - currentEnd < gapThreshold" in source
+    assert "currentTime < currentEnd + delay" in source
+    assert "Пауза: следующая реплика" in source
+    assert "contentY - preferredHighlightBegin" in source
+    assert "onDraggingChanged:" in source
+    assert "onMovementEnded: finishManualDragScroll()" in source
+    assert "onContentHeightChanged: Qt.callLater(function()" in source
+    assert "onContentHeightChanged: Qt.callLater(function() {\n                        if (pageScrollHoldUntil >= 0)" in source
+    assert "function capturePageDebug(" in source
+    assert 'toolTipText: qsTr("Переподключить REAPER")' in source
+    assert "window.teleprompter.restartOsc()" in source
+    assert "pageDebugButton" not in source
+    assert "readonly property bool pageDebugVisible" in source
+    assert "visible: window.pageDebugVisible" in source
+    assert "Следовать только во время Play" in source
+    assert '"sync_play_only", checked' in source
+    assert 'qsTr("Смещение REAPER (%1 с)")' in source
+
+    osc_settings = (ROOT / "qml" / "components" / "ReaperOscSettingsPane.qml").read_text(
+        encoding="utf-8"
+    )
+    assert "Следовать только во время Play" in osc_settings
+    assert '"sync_play_only", checked' in osc_settings
+    assert 'title: qsTr("Синхронизация")' in osc_settings
+    assert 'title: qsTr("OSC-подключение")' in osc_settings
+    assert 'title: qsTr("Исходящие переходы")' in osc_settings
+    assert "Показывать диагностику постраничного режима" not in osc_settings
+
+    automation_settings = (ROOT / "qml" / "components" / "TeleprompterSettingsPane.qml").read_text(
+        encoding="utf-8"
+    )
+    assert 'title: qsTr("Автопрокрутка")' in automation_settings
+    assert "Показывать диагностику постраничного режима" in automation_settings
+    assert "Считать паузой интервал от:" in automation_settings
+    assert "Подтягивать следующую реплику через:" in automation_settings
+    assert 'title: qsTr("Подсветка цели")' in automation_settings
+    assert "Выделять реплику при перемотке" in automation_settings
+
+
+def test_teleprompter_restores_following_after_manual_scroll_and_list_jump():
+    source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "function jumpToReplica(seconds)" in source
+    assert "function resetFollowingState()" in source
+    assert "function setEpisode(episode)" in source
+    assert "followCurrentReplicaByPage();" in source
+    assert 'window.teleprompter.positionOrigin === "reaper"' in source
+    assert "if (window.teleprompter.positionOrigin === \"reaper\") {\n                replicaView.resumePageFollowForReaperPosition();" in source
+    assert "Qt.callLater(function() {\n                replicaView.followCurrentReplicaByPage();" not in source
+
+
+def test_teleprompter_routes_float_navigation_through_window_state():
+    source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
+        encoding="utf-8"
+    )
+    float_source = (ROOT / "qml" / "components" / "TeleprompterFloatWindow.qml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "function onNavigationRequested(direction)" in source
+    assert "signal navigationRequested(int direction)" in float_source
+    assert "signal episodeChangeRequested(string episode)" in float_source
+    assert "navigateFromOsc" not in source
+    assert "oscNavigationRequested" not in source
+    assert "floatWindow.navigationRequested(-1)" in float_source
+    assert "floatWindow.navigationRequested(1)" in float_source
+
+
+def test_teleprompter_list_click_aligns_page_mode_replica_to_the_top():
+    source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
+        encoding="utf-8"
+    )
+    float_source = (ROOT / "qml" / "components" / "TeleprompterFloatWindow.qml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "replicaView.scrollCurrentReplicaToFocusBoundary();" in source
+    assert "Клик: выравнивание реплики к фокусу" in source
+    assert "signal replicaJumpRequested(real seconds)" in float_source
+    assert "floatWindow.replicaJumpRequested(" in float_source
 
 
 def test_windows_teleprompter_is_not_transient_to_the_main_window():

@@ -133,7 +133,8 @@ NativeDialogWindow {
                 "Актёры",
                 "Импорт",
                 "Монтажный лист",
-                "Телесуфлёр",
+                "Вид телесуфлёра",
+                "Автоматика телесуфлёра",
                 "REAPER / OSC"
             ]
             softMuted: dialog.softMuted
@@ -594,13 +595,32 @@ NativeDialogWindow {
             ColumnLayout {
                 spacing: 8
                 SettingsPageHeader {
-                    title: qsTr("Телесуфлёр")
-                    subtitle: qsTr("Единые настройки отображения и управления для всех проектов.")
+                    title: qsTr("Вид телесуфлёра")
+                    subtitle: qsTr("Оформление, разметка и размеры текста для всех проектов.")
                 }
                 TeleprompterSettingsPane {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     globalScope: true
+                    appearanceScope: true
+                    automationScope: false
+                    configuration: dialog.prompterDraft
+                    onConfigEdited: function(config) { dialog.prompterDraft = config }
+                }
+            }
+
+            ColumnLayout {
+                spacing: 8
+                SettingsPageHeader {
+                    title: qsTr("Автоматика телесуфлёра")
+                    subtitle: qsTr("Прокрутка, постраничные паузы, диагностика и клавиши навигации.")
+                }
+                TeleprompterSettingsPane {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    globalScope: false
+                    appearanceScope: false
+                    automationScope: true
                     configuration: dialog.prompterDraft
                     onConfigEdited: function(config) { dialog.prompterDraft = config }
                 }

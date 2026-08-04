@@ -97,6 +97,9 @@ class TestPrompterConfig:
         assert config.focus_ratio == 0.5
         assert config.is_mirrored == False
         assert config.page_scroll_mode == False
+        assert config.page_gap_prefetch_seconds == 1.0
+        assert config.page_gap_prefetch_delay_seconds == 1.0
+        assert config.page_target_highlight_enabled is True
         assert config.port_in == 8000
         assert config.port_out == 9000
 
@@ -222,6 +225,19 @@ class TestPrompterConfig:
         
         with pytest.raises(ValueError):
             PrompterConfig(scroll_smoothness_slider=101)
+
+    def test_post_init_invalid_page_gap_prefetch_seconds(self):
+        with pytest.raises(ValueError):
+            PrompterConfig(page_gap_prefetch_seconds=-0.1)
+
+        with pytest.raises(ValueError):
+            PrompterConfig(page_gap_prefetch_seconds=60.1)
+
+        with pytest.raises(ValueError):
+            PrompterConfig(page_gap_prefetch_delay_seconds=-0.1)
+
+        with pytest.raises(ValueError):
+            PrompterConfig(page_gap_prefetch_delay_seconds=60.1)
 
 
 class TestReplicaMergeConfig:

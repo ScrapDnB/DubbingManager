@@ -435,7 +435,7 @@ class SettingsBridge(QObject):
 
     @Slot(str, bool, result=bool)
     def setPrompterSyncEnabled(self, key: str, enabled: bool) -> bool:
-        if key not in {"sync_in", "sync_out"}:
+        if key not in {"sync_in", "sync_out", "sync_play_only"}:
             return False
         return self._set_global_prompter_flag(
             key,

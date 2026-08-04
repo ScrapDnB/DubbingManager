@@ -249,12 +249,17 @@ DEFAULT_PROMPTER_CONFIG = {
     "osc_enabled": False,
     "sync_in": True,
     "sync_out": False,
+    "sync_play_only": False,
     "reaper_offset_enabled": False,
     "reaper_offset_seconds": -2.0,
     "key_prev": "Left",
     "key_next": "Right",
     "scroll_smoothness_slider": 18,
     "page_scroll_mode": False,
+    "page_gap_prefetch_seconds": 1.0,
+    "page_gap_prefetch_delay_seconds": 1.0,
+    "page_target_highlight_enabled": True,
+    "page_debug_overlay": False,
     "colors": {
         "bg": "#000000",
         "active_text": "#FFFFFF",
@@ -263,7 +268,8 @@ DEFAULT_PROMPTER_CONFIG = {
         "actor": "#AAAAAA",
         "header_bg": "#111111",
         "header_text": "#00FF00",
-        "block_border": "#4D4D4D"
+        "block_border": "#4D4D4D",
+        "page_target_highlight": "#FFD54F"
     }
 }
 
@@ -372,7 +378,7 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Application version shown in the UI and build metadata.
-APP_VERSION = "2.0.0-rc3"
+APP_VERSION = "2.0.0-rc4"
 
 # Project file format version used for compatibility migrations.
 PROJECT_VERSION = "2.0"

@@ -24,6 +24,8 @@ from ui.qml_backend.project_session import ProjectSession
 
 
 REAPER_ACTIVITY_TIMEOUT_SECONDS = 3.0
+LOCAL_REAPER_SETTLE_SECONDS = 0.5
+REAPER_TIME_ACK_TOLERANCE_SECONDS = 0.25
 
 
 def _format_time(seconds: Any, include_milliseconds: bool = False) -> str:
@@ -72,10 +74,15 @@ class TeleprompterBridge(QObject):
         self._selected_actor_ids: Optional[List[str]] = None
         self._time = 0.0
         self._current_index = -1
+        self._position_origin = "internal"
         self._osc_status = "OSC выключен"
         self._osc_worker: Optional[OscWorker] = None
         self._osc_client = None
         self._last_osc_activity: Optional[float] = None
+        self._last_reaper_time: Optional[float] = None
+        self._reaper_playing = False
+        self._pending_reaper_time: Optional[tuple[float, float]] = None
+        self._osc_runtime_config: Optional[tuple[int, int]] = None
         self._reaper_connection_state = "disabled"
         self._osc_activity_timer = QTimer(self)
         self._osc_activity_timer.setInterval(500)
@@ -129,6 +136,10 @@ class TeleprompterBridge(QObject):
     @Property(int, notify=positionChanged)
     def currentIndex(self) -> int:
         return self._current_index
+
+    @Property(str, notify=positionChanged)
+    def positionOrigin(self) -> str:
+        return self._position_origin
 
     @Property(str, notify=oscChanged)
     def oscStatus(self) -> str:
@@ -210,6 +221,7 @@ class TeleprompterBridge(QObject):
         self._episode = target
         self._time = 0.0
         self._current_index = -1
+        self._position_origin = "internal"
         self.refresh()
         if self.config.get("osc_enabled"):
             self._start_osc()
@@ -219,6 +231,12 @@ class TeleprompterBridge(QObject):
     @Slot()
     def close(self) -> None:
         self._stop_osc()
+
+    @Slot()
+    def restartOsc(self) -> None:
+        """Reconnect the OSC transport without resetting the reader state."""
+        if self._episode and self.config.get("osc_enabled"):
+            self._start_osc()
 
     @Slot(str)
     def setEpisode(self, episode: str) -> None:
@@ -232,6 +250,7 @@ class TeleprompterBridge(QObject):
         self._episode = episode
         self._time = 0.0
         self._current_index = -1
+        self._position_origin = "internal"
         self.refresh()
         self.changed.emit()
 
@@ -349,39 +368,92 @@ class TeleprompterBridge(QObject):
             config,
             "Не удалось сохранить настройки разметки телесуфлёра",
         )
+
     @Slot(float)
     def jumpTo(self, seconds: float) -> None:
-        self._set_time(max(0.0, float(seconds)))
+        self._jump_to(seconds, "local", send_sync=True)
+
+    @Slot(int)
+    def navigate(self, direction: int) -> None:
+        self._navigate(direction, "local", send_sync=True)
+
+    def _jump_to(
+        self,
+        seconds: float,
+        origin: str,
+        send_sync: bool,
+    ) -> None:
+        self._set_time(max(0.0, float(seconds)), origin)
         config = self.config
         if not (
-            config.get("osc_enabled")
+            send_sync
+            and config.get("osc_enabled")
             and config.get("sync_out")
             and self._osc_client
         ):
             return
-        send_time = self._time
-        if config.get("reaper_offset_enabled"):
-            send_time += float(config.get("reaper_offset_seconds", -2.0))
+        send_time = self._reaper_time(self._time, config)
         try:
             self._osc_client.send_message("/time", send_time)
             self._osc_client.send_message("/track/0/pos", send_time)
+            self._pending_reaper_time = (
+                send_time,
+                monotonic() + LOCAL_REAPER_SETTLE_SECONDS,
+            )
         except Exception as exc:
             self._osc_status = f"Ошибка отправки OSC: {exc}"
             self.oscChanged.emit()
 
-    @Slot(int)
-    def navigate(self, direction: int) -> None:
+    @staticmethod
+    def _uses_reaper_output_offset(config: Dict[str, Any]) -> bool:
+        return bool(
+            config.get("reaper_offset_enabled") and config.get("sync_out")
+        )
+
+    def _reaper_time(self, seconds: float, config: Dict[str, Any]) -> float:
+        if not self._uses_reaper_output_offset(config):
+            return seconds
+        return seconds + float(config.get("reaper_offset_seconds", -2.0))
+
+    def _navigate(
+        self,
+        direction: int,
+        origin: str,
+        send_sync: bool,
+    ) -> None:
         rows = self._model.rows()
         active = [index for index, row in enumerate(rows) if row.get("active")]
         if not active:
             return
-        nearest = min(
-            active,
-            key=lambda index: abs(float(rows[index]["start"]) - self._time),
-        )
-        position = active.index(nearest)
-        target = active[(position + (1 if direction >= 0 else -1)) % len(active)]
-        self.jumpTo(float(rows[target]["start"]))
+        if direction >= 0:
+            target = next(
+                (index for index in active if index > self._current_index),
+                active[0],
+            )
+        else:
+            target = next(
+                (index for index in reversed(active) if index < self._current_index),
+                active[-1],
+            )
+        self._jump_to(float(rows[target]["start"]), origin, send_sync)
+
+    def _should_apply_reaper_time(self, seconds: float) -> bool:
+        pending = self._pending_reaper_time
+        if pending is None:
+            return True
+        expected_time, expires_at = pending
+        if monotonic() >= expires_at:
+            self._pending_reaper_time = None
+            return True
+        if abs(float(seconds) - expected_time) <= REAPER_TIME_ACK_TOLERANCE_SECONDS:
+            self._pending_reaper_time = None
+        return False
+
+    def _osc_config_signature(self) -> Optional[tuple[int, int]]:
+        config = self.config
+        if not config.get("osc_enabled"):
+            return None
+        return int(config["port_in"]), int(config["port_out"])
 
     @Slot("QVariantList", str, str, result=bool)
     def editReplica(
@@ -547,14 +619,17 @@ class TeleprompterBridge(QObject):
         self.configChanged.emit()
         if not self._episode:
             return
-        if self.config.get("osc_enabled"):
+        signature = self._osc_config_signature()
+        if signature is None:
+            if self._osc_worker is not None or self._osc_client is not None:
+                self._stop_osc()
+        elif signature != self._osc_runtime_config:
             self._start_osc()
-        else:
-            self._stop_osc()
         self._refresh_reaper_connection_state()
 
     def refresh(self) -> None:
         project_data = self._session.data
+        self._position_origin = "internal"
         if self._episode not in project_data.get("episodes", {}):
             self._model.set_rows([])
             self._actor_model.set_rows([])
@@ -649,6 +724,7 @@ class TeleprompterBridge(QObject):
         self._selected_actor_ids = None
         self._time = 0.0
         self._current_index = -1
+        self._position_origin = "internal"
         self._model.set_rows([])
         self._actor_model.set_rows([])
         self.changed.emit()
@@ -685,7 +761,8 @@ class TeleprompterBridge(QObject):
             "is_mirrored", "show_header", "show_timecode",
             "show_character", "show_actor", "show_replica",
             "show_block_borders", "hide_leading_timecode_zeros", "osc_enabled",
-            "sync_in", "sync_out", "reaper_offset_enabled", "page_scroll_mode",
+            "sync_in", "sync_out", "sync_play_only", "reaper_offset_enabled", "page_scroll_mode",
+            "page_debug_overlay", "page_target_highlight_enabled",
             *PROMPTER_FONT_BOLD_KEYS,
         }:
             return bool(value)
@@ -714,6 +791,14 @@ class TeleprompterBridge(QObject):
                 return max(-60.0, min(60.0, float(value)))
             except (TypeError, ValueError):
                 return None
+        if key in {
+            "page_gap_prefetch_seconds",
+            "page_gap_prefetch_delay_seconds",
+        }:
+            try:
+                return max(0.0, min(60.0, float(value)))
+            except (TypeError, ValueError):
+                return None
         if key.startswith("colors."):
             color_key = key.split(".", 1)[1]
             if color_key not in DEFAULT_PROMPTER_CONFIG["colors"]:
@@ -740,8 +825,9 @@ class TeleprompterBridge(QObject):
         ])
         self.changed.emit()
 
-    def _set_time(self, seconds: float) -> None:
+    def _set_time(self, seconds: float, origin: str = "internal") -> None:
         self._time = max(0.0, float(seconds))
+        self._position_origin = origin
         self._update_index()
         self.positionChanged.emit()
 
@@ -797,6 +883,9 @@ class TeleprompterBridge(QObject):
     def _start_osc(self) -> None:
         self._stop_osc()
         self._last_osc_activity = None
+        self._last_reaper_time = None
+        self._reaper_playing = False
+        self._pending_reaper_time = None
         if not OSC_AVAILABLE:
             self._osc_status = "OSC недоступен: установите python-osc"
             self._refresh_reaper_connection_state()
@@ -808,7 +897,8 @@ class TeleprompterBridge(QObject):
 
             worker = OscWorker(int(config["port_in"]), self)
             worker.time_changed.connect(self._on_osc_time)
-            worker.navigation_requested.connect(self._on_osc_navigation)
+            worker.transport_playing_changed.connect(self._on_osc_transport)
+            worker.error_occurred.connect(self._on_osc_error)
             worker.start()
             self._osc_worker = worker
             self._osc_client = SimpleUDPClient(
@@ -817,11 +907,13 @@ class TeleprompterBridge(QObject):
             self._osc_status = (
                 f"OSC: {config['port_in']} -> {config['port_out']}"
             )
+            self._osc_runtime_config = self._osc_config_signature()
             self._osc_activity_timer.start()
         except Exception as exc:
             self._osc_status = f"Ошибка OSC: {exc}"
             self._osc_worker = None
             self._osc_client = None
+            self._osc_runtime_config = None
         self._refresh_reaper_connection_state()
         self.oscChanged.emit()
 
@@ -833,6 +925,10 @@ class TeleprompterBridge(QObject):
         self._osc_worker = None
         self._osc_client = None
         self._last_osc_activity = None
+        self._last_reaper_time = None
+        self._reaper_playing = False
+        self._pending_reaper_time = None
+        self._osc_runtime_config = None
         self._osc_status = "OSC выключен"
         self._refresh_reaper_connection_state()
         self.oscChanged.emit()
@@ -840,6 +936,8 @@ class TeleprompterBridge(QObject):
     def _refresh_reaper_connection_state(self) -> None:
         if not self.config.get("osc_enabled"):
             state = "disabled"
+        elif self._osc_status.startswith("Ошибка OSC:"):
+            state = "error"
         elif self._osc_worker is None:
             if self._osc_status.startswith("OSC недоступен"):
                 state = "unavailable"
@@ -859,13 +957,54 @@ class TeleprompterBridge(QObject):
         self._last_osc_activity = monotonic()
         self._refresh_reaper_connection_state()
 
+    @Slot(object, str)
+    def _on_osc_error(self, worker: object, message: str) -> None:
+        if worker is not self._osc_worker:
+            return
+        self._osc_activity_timer.stop()
+        self._osc_client = None
+        self._last_osc_activity = None
+        self._last_reaper_time = None
+        self._reaper_playing = False
+        self._pending_reaper_time = None
+        self._osc_runtime_config = None
+        self._osc_status = f"Ошибка OSC: {message}"
+        self._refresh_reaper_connection_state()
+        self.oscChanged.emit()
+
     @Slot(float)
     def _on_osc_time(self, seconds: float) -> None:
+        self._last_reaper_time = float(seconds)
         self._mark_osc_activity()
-        if self.config.get("sync_in"):
-            self._set_time(seconds)
+        config = self.config
+        if self._should_follow_reaper_time(config) and self._apply_reaper_time(seconds):
+            return
 
-    @Slot(str)
-    def _on_osc_navigation(self, direction: str) -> None:
+    def _should_follow_reaper_time(self, config: Dict[str, Any]) -> bool:
+        return bool(
+            config.get("sync_in")
+            and (
+                not config.get("sync_play_only")
+                or self._reaper_playing
+            )
+        )
+
+    def _apply_reaper_time(self, seconds: float) -> bool:
+        if self._should_apply_reaper_time(seconds):
+            self._set_time(seconds, "reaper")
+            return True
+        return False
+
+    @Slot(bool)
+    def _on_osc_transport(self, playing: bool) -> None:
+        playing = bool(playing)
+        if self._reaper_playing != playing:
+            self._reaper_playing = playing
+            self.oscChanged.emit()
         self._mark_osc_activity()
-        self.navigate(1 if direction == "next" else -1)
+        if (
+            self._reaper_playing
+            and self.config.get("sync_play_only")
+            and self._last_reaper_time is not None
+        ):
+            self._apply_reaper_time(self._last_reaper_time)

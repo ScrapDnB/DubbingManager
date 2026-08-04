@@ -10,8 +10,17 @@ PersistentScrollView {
 
     required property var configuration
     signal configEdited(var config)
+
+    function scrollDurationMs() {
+        var position = Math.max(0, Math.min(
+            100, Number(pane.configuration.scroll_smoothness_slider || 0)
+        ));
+        return Math.round(150 * Math.pow(5000 / 150, position / 100));
+    }
     property string colorTarget: ""
     property bool globalScope: false
+    property bool appearanceScope: true
+    property bool automationScope: true
     readonly property var layoutTypes: [
         "Сценарий 1", "Сценарий 2", "Сценарий 3"
     ]
@@ -71,6 +80,7 @@ PersistentScrollView {
         spacing: 10
 
         FormSection {
+            visible: pane.appearanceScope
             title: qsTr("Отображение")
             Layout.fillWidth: true
             GridLayout {
@@ -84,7 +94,8 @@ PersistentScrollView {
         }
 
         FormSection {
-            title: qsTr("Прокрутка")
+            visible: pane.automationScope
+            title: qsTr("Автопрокрутка")
             Layout.fillWidth: true
             GridLayout {
                 anchors.fill: parent
@@ -95,13 +106,132 @@ PersistentScrollView {
                     onToggled: pane.setValue("page_scroll_mode", checked)
                     Layout.columnSpan: 3
                 }
-                Label { text: qsTr("Плавность: ") + Number(pane.configuration.scroll_smoothness_slider || 18); Layout.columnSpan: 2 }
+                Label { text: qsTr("Плавность: %1 мс").arg(pane.scrollDurationMs()); Layout.columnSpan: 2 }
                 Slider { from: 0; to: 100; value: Number(pane.configuration.scroll_smoothness_slider || 18); onMoved: pane.setValue("scroll_smoothness_slider", Math.round(value)); Layout.fillWidth: true }
+                CheckBox {
+                    text: qsTr("Показывать диагностику постраничного режима")
+                    checked: Boolean(pane.configuration.page_debug_overlay)
+                    onToggled: pane.setValue("page_debug_overlay", checked)
+                    Layout.columnSpan: 3
+                }
             }
         }
 
         FormSection {
-            visible: pane.globalScope
+            visible: pane.automationScope
+                && Boolean(pane.configuration.page_scroll_mode)
+            title: qsTr("Паузы в постраничном режиме")
+            Layout.fillWidth: true
+            GridLayout {
+                anchors.fill: parent
+                columns: 2
+                columnSpacing: 14
+                rowSpacing: 8
+
+                Label { text: qsTr("Считать паузой интервал от:") }
+                RowLayout {
+                    SpinBox {
+                        from: 0
+                        to: 600
+                        stepSize: 1
+                        editable: true
+                        value: Math.round(Number(
+                            pane.configuration.page_gap_prefetch_seconds === undefined
+                                ? 1 : pane.configuration.page_gap_prefetch_seconds
+                        ) * 10)
+                        textFromValue: function(value) {
+                            return (value / 10).toFixed(1)
+                        }
+                        valueFromText: function(text) {
+                            return Math.round(Number.fromLocaleString(locale, text) * 10)
+                        }
+                        onValueModified: pane.setValue(
+                            "page_gap_prefetch_seconds", value / 10
+                        )
+                    }
+                    Label { text: qsTr("с") }
+                }
+                Label { text: qsTr("Подтягивать следующую реплику через:") }
+                RowLayout {
+                    SpinBox {
+                        from: 0
+                        to: 600
+                        stepSize: 1
+                        editable: true
+                        value: Math.round(Number(
+                            pane.configuration.page_gap_prefetch_delay_seconds === undefined
+                                ? 1 : pane.configuration.page_gap_prefetch_delay_seconds
+                        ) * 10)
+                        textFromValue: function(value) {
+                            return (value / 10).toFixed(1)
+                        }
+                        valueFromText: function(text) {
+                            return Math.round(Number.fromLocaleString(locale, text) * 10)
+                        }
+                        onValueModified: pane.setValue(
+                            "page_gap_prefetch_delay_seconds", value / 10
+                        )
+                    }
+                    Label { text: qsTr("с") }
+                }
+            }
+        }
+
+        FormSection {
+            visible: pane.automationScope
+                && Boolean(pane.configuration.page_scroll_mode)
+            title: qsTr("Подсветка цели")
+            Layout.fillWidth: true
+            GridLayout {
+                anchors.fill: parent
+                columns: 2
+                columnSpacing: 14
+                rowSpacing: 8
+
+                CheckBox {
+                    id: pageTargetHighlightEnabled
+                    text: qsTr("Выделять реплику при перемотке")
+                    checked: Boolean(pane.configuration.page_target_highlight_enabled)
+                    onToggled: pane.setValue("page_target_highlight_enabled", checked)
+                    Layout.columnSpan: 2
+                }
+                Label {
+                    text: qsTr("Цвет выделения:")
+                    enabled: pageTargetHighlightEnabled.checked
+                }
+                RowLayout {
+                    spacing: 8
+
+                    AdaptiveButton {
+                        id: pageTargetHighlightColorButton
+                        enabled: pageTargetHighlightEnabled.checked
+                        text: qsTr("Выбрать...")
+                        onClicked: {
+                            pane.colorTarget = "page_target_highlight"
+                            colorDialog.selectedColor = (pane.configuration.colors || {}).page_target_highlight
+                                || "#FFD54F"
+                            colorDialog.open()
+                        }
+                        PlatformToolTip {
+                            target: pageTargetHighlightColorButton
+                            text: qsTr("Цвет краткой подсветки целевой реплики")
+                        }
+                    }
+                    Rectangle {
+                        width: 26
+                        height: 14
+                        Layout.alignment: Qt.AlignVCenter
+                        color: (pane.configuration.colors || {}).page_target_highlight
+                            || "#FFD54F"
+                        border.color: palette.mid
+                        radius: 2
+                    }
+                }
+            }
+        }
+
+        FormSection {
+            visible: pane.globalScope && pane.appearanceScope
             title: qsTr("Разметка")
             Layout.fillWidth: true
             ColumnLayout {
@@ -163,7 +293,7 @@ PersistentScrollView {
         }
 
         FormSection {
-            visible: pane.globalScope
+            visible: pane.globalScope && pane.appearanceScope
             title: qsTr("Размер текста")
             Layout.fillWidth: true
             GridLayout {
@@ -181,6 +311,7 @@ PersistentScrollView {
         }
 
         FormSection {
+            visible: pane.appearanceScope
             title: qsTr("Цветовая схема")
             Layout.fillWidth: true
             GridLayout {
@@ -234,6 +365,7 @@ PersistentScrollView {
         }
 
         FormSection {
+            visible: pane.automationScope
             title: qsTr("Навигация")
             Layout.fillWidth: true
             GridLayout {
