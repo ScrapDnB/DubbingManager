@@ -424,6 +424,11 @@ def test_qml_teleprompter_navigates_exactly_across_overlapping_rows(tmp_path):
     prompter = bridge.teleprompter
 
     assert prompter.prepare("1")
+    prompter._set_time(15.0, "reaper")
+    assert prompter.currentIndex == 1
+    prompter._set_time(18.0, "reaper")
+    assert prompter.currentIndex == 2
+
     prompter.jumpToIndex(1)
     assert prompter.time == 15.0
     assert prompter.currentIndex == 1
@@ -1016,6 +1021,18 @@ def test_qml_teleprompter_saves_page_gap_prefetch_threshold(tmp_path):
 
     prompter.setConfigValue("page_target_highlight_enabled", False)
     assert prompter.config["page_target_highlight_enabled"] is False
+
+    prompter.setConfigValue("page_target_highlight_opacity", 0.31)
+    assert prompter.config["page_target_highlight_opacity"] == 0.31
+
+    prompter.setConfigValue("page_target_highlight_opacity", 1.0)
+    assert prompter.config["page_target_highlight_opacity"] == 0.44
+
+    prompter.setConfigValue("page_target_highlight_fade_ms", 1750)
+    assert prompter.config["page_target_highlight_fade_ms"] == 1750
+
+    prompter.setConfigValue("page_target_highlight_fade_ms", 20000)
+    assert prompter.config["page_target_highlight_fade_ms"] == 10000
 
     prompter.setConfigValue("colors.page_target_highlight", "#336699")
     assert prompter.config["colors"]["page_target_highlight"] == "#336699"

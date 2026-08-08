@@ -38,9 +38,24 @@ NativeDialogWindow {
     property int colorTarget: -1
     property bool debugSimulationRunning: false
     property real debugSimulationSpeed: 1
+    property real lastObservedPositionTime: -1
+    property string lastViewportConfigSignature: ""
     readonly property var config: teleprompter.config
     readonly property var colors: config.colors
     readonly property bool pageDebugVisible: Boolean(config.page_debug_overlay)
+    readonly property real targetHighlightOpacity: Math.max(0, Math.min(
+        0.44,
+        config.page_target_highlight_opacity === undefined
+            ? 0.22 : Number(config.page_target_highlight_opacity)
+    ))
+    readonly property int targetHighlightTransparencyPercent: Math.round(
+        (1 - targetHighlightOpacity / 0.44) * 100
+    )
+    readonly property int targetHighlightFadeMs: Math.max(0, Math.min(
+        10000,
+        config.page_target_highlight_fade_ms === undefined
+            ? 1000 : Number(config.page_target_highlight_fade_ms)
+    ))
     readonly property int scrollDurationMs: Math.round(
         150 * Math.pow(
             5000 / 150,
@@ -92,6 +107,26 @@ NativeDialogWindow {
             seconds = seconds * 60 + part;
         }
         return seconds;
+    }
+
+    function viewportConfigSignature() {
+        // Only settings that can change delegate or viewport geometry belong
+        // here. Colors, target-highlight options and OSC settings update
+        // their bindings without interrupting an active scroll transaction.
+        return [
+            config.layout_type,
+            config.f_tc, config.f_char, config.f_actor, config.f_text,
+            config.bold_tc, config.bold_char,
+            config.bold_actor, config.bold_text,
+            config.show_header, config.show_timecode,
+            config.show_character, config.show_actor, config.show_replica,
+            config.hide_leading_timecode_zeros,
+            config.focus_ratio, config.page_scroll_mode
+        ].join("|");
+    }
+
+    Component.onCompleted: {
+        lastViewportConfigSignature = viewportConfigSignature();
     }
 
     onPageDebugVisibleChanged: {
@@ -168,10 +203,23 @@ NativeDialogWindow {
             episodeBox.currentIndex = episodeBox.indexOfValue(currentEpisode);
             if (window.observedEpisode !== currentEpisode) {
                 window.observedEpisode = currentEpisode;
+                window.lastObservedPositionTime = -1;
                 window.resetFollowingState();
+            } else {
+                replicaView.queueModelRefresh();
             }
         }
         function onPositionChanged() {
+            var currentTime = Number(window.teleprompter.time);
+            var previousTime = window.lastObservedPositionTime;
+            var discontinuity = previousTime >= 0
+                && (currentTime < previousTime - 0.02
+                    || Math.abs(currentTime - previousTime) > 3);
+            window.lastObservedPositionTime = currentTime;
+            if (window.teleprompter.positionOrigin === "local"
+                    || discontinuity) {
+                replicaView.prepareForTimeSeek();
+            }
             if (window.teleprompter.positionOrigin === "reaper"
                     && !replicaView.pageScrollMode
                     && !window.followEnabled
@@ -188,6 +236,11 @@ NativeDialogWindow {
             }
         }
         function onConfigChanged() {
+            var signature = window.viewportConfigSignature();
+            if (signature === window.lastViewportConfigSignature) {
+                return;
+            }
+            window.lastViewportConfigSignature = signature;
             // Font profiles, layout and focus can change delegate geometry
             // without changing the window itself.  Recalculate against the
             // newly rendered items instead of reusing old pixel targets.
@@ -232,7 +285,7 @@ NativeDialogWindow {
         id: colorDialog
         title: qsTr("Цвет телесуфлёра")
         onAccepted: {
-            var keys = ["bg", "active_text", "inactive_text", "tc", "actor", "header_bg", "header_text", "block_border"];
+            var keys = ["bg", "active_text", "inactive_text", "tc", "actor", "header_bg", "header_text", "block_border", "page_target_highlight"];
             if (window.colorTarget >= 0 && window.colorTarget < keys.length) {
                 window.teleprompter.setConfigValue("colors." + keys[window.colorTarget], selectedColor.toString());
             }
@@ -941,12 +994,12 @@ NativeDialogWindow {
                                 }
 
                                 Repeater {
-                                    model: ["Фон", "Активный текст", "Неактивный текст", "Таймкод", "Актёр", "Фон заголовка", "Текст заголовка", "Границы блоков"]
+                                    model: ["Фон", "Активный текст", "Неактивный текст", "Таймкод", "Актёр", "Фон заголовка", "Текст заголовка", "Границы блоков", "Подсветка прокрутки"]
                                     delegate: RowLayout {
                                         id: colorRow
                                         required property int index
                                         required property string modelData
-                                        readonly property color swatchColor: [window.colors.bg, window.colors.active_text, window.colors.inactive_text, window.colors.tc, window.colors.actor, window.colors.header_bg, window.colors.header_text, window.colors.block_border][colorRow.index]
+                                        readonly property color swatchColor: [window.colors.bg, window.colors.active_text, window.colors.inactive_text, window.colors.tc, window.colors.actor, window.colors.header_bg, window.colors.header_text, window.colors.block_border, window.colors.page_target_highlight][colorRow.index]
 
                                         Layout.fillWidth: true
                                         spacing: 8
@@ -967,12 +1020,39 @@ NativeDialogWindow {
                                             Accessible.name: qsTr("Изменить цвет: ") + colorRow.modelData
 
                                             onClicked: {
-                                                var values = [window.colors.bg, window.colors.active_text, window.colors.inactive_text, window.colors.tc, window.colors.actor, window.colors.header_bg, window.colors.header_text, window.colors.block_border];
+                                                var values = [window.colors.bg, window.colors.active_text, window.colors.inactive_text, window.colors.tc, window.colors.actor, window.colors.header_bg, window.colors.header_text, window.colors.block_border, window.colors.page_target_highlight];
                                                 window.colorTarget = colorRow.index;
                                                 colorDialog.selectedColor = values[colorRow.index];
                                                 colorDialog.open();
                                             }
                                         }
+                                    }
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Прозрачность подсветки · %1%").arg(
+                                        window.targetHighlightTransparencyPercent
+                                    )
+                                }
+                                Slider {
+                                    id: targetHighlightTransparencySlider
+                                    Layout.fillWidth: true
+                                    from: 0
+                                    to: 100
+                                    stepSize: 1
+                                    value: window.targetHighlightTransparencyPercent
+                                    onPressedChanged: if (!pressed) {
+                                        window.teleprompter.setConfigValue(
+                                            "page_target_highlight_opacity",
+                                            Math.max(0, Math.min(
+                                                0.44, (100 - value) * 0.0044
+                                            ))
+                                        )
+                                    }
+                                    PlatformToolTip {
+                                        target: targetHighlightTransparencySlider
+                                        text: qsTr("0% — наиболее заметная, 100% — полностью прозрачная")
                                     }
                                 }
 
@@ -983,6 +1063,169 @@ NativeDialogWindow {
                                 expanded: true
                                 sidebarStyle: window.macOSStyle
                                 Layout.fillWidth: true
+
+                                Label {
+                                    text: qsTr("Режим прокрутки")
+                                    color: window.softMuted
+                                }
+                                Rectangle {
+                                    id: scrollModeSelector
+                                    readonly property bool pageSelected:
+                                        Boolean(window.config.page_scroll_mode)
+
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: Math.max(
+                                        34, window.toolbarControlHeight
+                                    )
+                                    radius: window.macOSStyle ? 7 : 4
+                                    color: Qt.rgba(
+                                        systemPalette.text.r,
+                                        systemPalette.text.g,
+                                        systemPalette.text.b,
+                                        0.055
+                                    )
+                                    border.width: 1
+                                    border.color: window.softBorder
+
+                                    function setPageMode(enabled) {
+                                        if (pageSelected !== enabled) {
+                                            window.appBridge.settings.setPrompterPageScrollMode(
+                                                enabled
+                                            );
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: 2
+                                        spacing: 2
+
+                                        Rectangle {
+                                            id: continuousModeSegment
+                                            readonly property bool selected:
+                                                !scrollModeSelector.pageSelected
+
+                                            Layout.fillWidth: true
+                                            Layout.fillHeight: true
+                                            radius: window.macOSStyle ? 5 : 3
+                                            color: selected
+                                                ? systemPalette.button
+                                                : continuousModeMouse.containsMouse
+                                                    ? Qt.rgba(
+                                                        systemPalette.text.r,
+                                                        systemPalette.text.g,
+                                                        systemPalette.text.b,
+                                                        0.07
+                                                    )
+                                                    : "transparent"
+                                            border.width: selected || activeFocus ? 1 : 0
+                                            border.color: window.softBorder
+                                            activeFocusOnTab: true
+                                            Accessible.role: Accessible.RadioButton
+                                            Accessible.name: qsTr("Обычный режим прокрутки")
+                                            Accessible.checked: selected
+                                            Accessible.onPressAction:
+                                                scrollModeSelector.setPageMode(false)
+                                            Keys.onPressed: function(event) {
+                                                if (event.key === Qt.Key_Space
+                                                        || event.key === Qt.Key_Return
+                                                        || event.key === Qt.Key_Enter) {
+                                                    scrollModeSelector.setPageMode(false);
+                                                    event.accepted = true;
+                                                }
+                                            }
+
+                                            MouseArea {
+                                                id: continuousModeMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: scrollModeSelector.setPageMode(false)
+                                            }
+
+                                            Text {
+                                                anchors.fill: parent
+                                                anchors.leftMargin: 8
+                                                anchors.rightMargin: 8
+                                                text: qsTr("Обычный")
+                                                color: continuousModeSegment.selected
+                                                    ? systemPalette.buttonText
+                                                    : window.softMuted
+                                                font.weight: continuousModeSegment.selected
+                                                    ? Font.DemiBold : Font.Normal
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            id: pageModeSegment
+                                            readonly property bool selected:
+                                                scrollModeSelector.pageSelected
+
+                                            Layout.fillWidth: true
+                                            Layout.fillHeight: true
+                                            radius: window.macOSStyle ? 5 : 3
+                                            color: selected
+                                                ? systemPalette.button
+                                                : pageModeMouse.containsMouse
+                                                    ? Qt.rgba(
+                                                        systemPalette.text.r,
+                                                        systemPalette.text.g,
+                                                        systemPalette.text.b,
+                                                        0.07
+                                                    )
+                                                    : "transparent"
+                                            border.width: selected || activeFocus ? 1 : 0
+                                            border.color: window.softBorder
+                                            activeFocusOnTab: true
+                                            Accessible.role: Accessible.RadioButton
+                                            Accessible.name: qsTr("Постраничный режим прокрутки")
+                                            Accessible.checked: selected
+                                            Accessible.onPressAction:
+                                                scrollModeSelector.setPageMode(true)
+                                            Keys.onPressed: function(event) {
+                                                if (event.key === Qt.Key_Space
+                                                        || event.key === Qt.Key_Return
+                                                        || event.key === Qt.Key_Enter) {
+                                                    scrollModeSelector.setPageMode(true);
+                                                    event.accepted = true;
+                                                }
+                                            }
+
+                                            MouseArea {
+                                                id: pageModeMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: scrollModeSelector.setPageMode(true)
+                                            }
+
+                                            Text {
+                                                anchors.fill: parent
+                                                anchors.leftMargin: 8
+                                                anchors.rightMargin: 8
+                                                text: qsTr("Постраничный")
+                                                color: pageModeSegment.selected
+                                                    ? systemPalette.buttonText
+                                                    : window.softMuted
+                                                font.weight: pageModeSegment.selected
+                                                    ? Font.DemiBold : Font.Normal
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                    }
+
+                                    PlatformToolTip {
+                                        target: parent
+                                        text: scrollModeSelector.pageSelected
+                                            ? qsTr("Прокрутка экранными фрагментами")
+                                            : qsTr("Плавное следование по окончании реплик")
+                                    }
+                                }
 
                                 Label {
                                     text: qsTr("Синхронизация REAPER")
@@ -1019,16 +1262,6 @@ NativeDialogWindow {
                                         text: qsTr("Число секунд задаётся в глобальных настройках REAPER / OSC.")
                                     }
                                 }
-                                CheckBox {
-                                    text: qsTr("Постраничный режим")
-                                    checked: Boolean(window.config.page_scroll_mode)
-                                    onToggled: window.appBridge.settings.setPrompterPageScrollMode(checked)
-                                    PlatformToolTip {
-                                        target: parent
-                                        text: qsTr("Прокручивать после последней полностью видимой реплики")
-                                    }
-                                }
-
                                 Label {
                                     text: qsTr("Плавность · %1 мс").arg(window.scrollDurationMs)
                                 }
@@ -1166,12 +1399,18 @@ NativeDialogWindow {
                     property real pageHoldLastReaperReceivedAt: -1
                     property bool pageFollowQueued: false
                     property bool viewportFollowQueued: false
+                    property bool modelRefreshQueued: false
                     property bool pageFocusAlignmentActive: false
                     property int pageGapPrefetchIndex: -1
                     property int pageScrollTargetIndex: -1
                     property int lastPageFollowIndex: -1
                     property int pageTargetHighlightIndex: -1
                     property real pageTargetHighlightOpacity: 0
+                    property bool pageTargetHighlightLineOnly: false
+                    property real pageTargetHighlightX: 0
+                    property real pageTargetHighlightY: 0
+                    property real pageTargetHighlightWidth: 0
+                    property real pageTargetHighlightHeight: 0
                     property bool manualDragScroll: false
                     property string pageDebugEvent: "Ожидание"
                     property real pageDebugSourceY: 0
@@ -1200,18 +1439,31 @@ NativeDialogWindow {
                         property: "contentY"
                         duration: window.scrollDurationMs
                         easing.type: Easing.OutCubic
-                        onStopped: {
-                            replicaView.pageFocusAlignmentActive = false;
+                        onStopped: replicaView.pageFocusAlignmentActive = false
+                        onFinished: {
+                            replicaView.correctPageScrollTarget();
                             replicaView.fadePageTargetHighlight();
                         }
-                        onFinished: replicaView.correctPageScrollTarget()
+                    }
+
+                    Timer {
+                        id: manualWheelReleaseTimer
+                        interval: 140
+                        repeat: false
+                        onTriggered: {
+                            if (replicaView.dragging || replicaView.moving) {
+                                restart();
+                                return;
+                            }
+                            replicaView.finishManualDragScroll();
+                        }
                     }
 
                     NumberAnimation {
                         id: pageTargetHighlightFade
                         target: replicaView
                         property: "pageTargetHighlightOpacity"
-                        duration: 1000
+                        duration: window.targetHighlightFadeMs
                         easing.type: Easing.OutCubic
                     }
 
@@ -1256,19 +1508,63 @@ NativeDialogWindow {
                     }
 
                     function replicaFocusTargetY(index) {
-                        positionViewAtIndex(index, ListView.Beginning);
-                        forceLayout();
-                        return Math.max(
-                            0,
-                            Math.min(
-                                contentHeight - height,
-                                contentY - preferredHighlightBegin
-                            )
+                        var item = itemAtIndex(index);
+                        // positionViewAtIndex() may change originY while a
+                        // variable-height ListView materializes distant
+                        // delegates.  Avoid that coordinate-system change
+                        // whenever the target is already available.
+                        if (!item) {
+                            positionViewAtIndex(index, ListView.Beginning);
+                            forceLayout();
+                            item = itemAtIndex(index);
+                        }
+                        if (!item) {
+                            return clampedContentY(contentY);
+                        }
+                        return clampedContentY(
+                            item.y - preferredHighlightBegin
                         );
                     }
 
+                    function minimumContentY() {
+                        return isFinite(originY) ? Number(originY) : 0;
+                    }
+
+                    function maximumContentY() {
+                        return minimumContentY()
+                            + Math.max(0, contentHeight - height);
+                    }
+
                     function clampedContentY(value) {
-                        return Math.max(0, Math.min(contentHeight - height, value));
+                        return Math.max(
+                            minimumContentY(),
+                            Math.min(maximumContentY(), value)
+                        );
+                    }
+
+                    function restoreValidContentBounds() {
+                        var minimumY = minimumContentY();
+                        var maximumY = maximumContentY();
+                        if (isFinite(contentY)
+                                && contentY >= minimumY - 0.5
+                                && contentY <= maximumY + 0.5) {
+                            return false;
+                        }
+                        // A variable-height ListView refines contentHeight as
+                        // delegates are created and recycled. After a large
+                        // manual scroll, resize or model refresh the previous
+                        // pixel target can consequently lie beyond the new
+                        // extent and leave the viewport effectively empty.
+                        pageScrollAnimation.stop();
+                        longReplicaScrollAnimation.stop();
+                        pageScrollTargetIndex = -1;
+                        pageGapPrefetchIndex = -1;
+                        pageFocusAlignmentActive = false;
+                        contentY = Math.max(minimumY, Math.min(
+                            maximumY,
+                            isFinite(contentY) ? contentY : minimumY
+                        ));
+                        return true;
                     }
 
                     // A replica can be taller than the reading viewport.  In
@@ -1276,15 +1572,10 @@ NativeDialogWindow {
                     // the target must also depend on the current time inside
                     // the replica.  The same bounds are used by both modes.
                     function replicaReadingBounds(index) {
-                        var item = itemAtIndex(index);
+                        var item = ensureReplicaItem(index);
                         // Measuring an already instantiated delegate must be
                         // read-only. positionViewAtIndex() on every OSC tick
                         // fights manual scrolling and ListView virtualization.
-                        if (!item) {
-                            positionViewAtIndex(index, ListView.Beginning);
-                            forceLayout();
-                            item = itemAtIndex(index);
-                        }
                         if (!item) {
                             return null;
                         }
@@ -1296,6 +1587,16 @@ NativeDialogWindow {
                             bottomY: Math.max(topY, bottomY),
                             tall: item.height > height
                         };
+                    }
+
+                    function ensureReplicaItem(index) {
+                        var item = itemAtIndex(index);
+                        if (!item) {
+                            positionViewAtIndex(index, ListView.Beginning);
+                            forceLayout();
+                            item = itemAtIndex(index);
+                        }
+                        return item;
                     }
 
                     function replicaTimeProgress(index) {
@@ -1508,10 +1809,20 @@ NativeDialogWindow {
                             return;
                         }
                         forceLayout();
-                        var sourceY = contentY;
+                        // Materializing a distant delegate can change originY.
+                        // Establish the ListView coordinate system first, then
+                        // capture the animation source in that same system.
+                        if (!ensureReplicaItem(currentIndex)) {
+                            capturePageDebug(
+                                "Обычный режим: реплика не создана",
+                                contentY, contentY, -1, -1
+                            );
+                            return;
+                        }
+                        var sourceY = clampedContentY(contentY);
+                        contentY = sourceY;
                         var bounds = replicaReadingBounds(currentIndex);
                         var targetY = longReplicaTargetY(currentIndex, false);
-                        contentY = sourceY;
                         var itemTop = bounds ? bounds.item.y : -1;
                         var itemBottom = bounds
                             ? bounds.item.y + bounds.item.height : -1;
@@ -1525,6 +1836,15 @@ NativeDialogWindow {
                         }
                         if (!bounds.tall && longReplicaScrollAnimation.running
                                 && Math.abs(longReplicaScrollAnimation.to - targetY) <= 0.5) {
+                            return;
+                        }
+                        var retargetThreshold = Math.max(
+                            2, Number(window.config.f_text) * 0.12
+                        );
+                        if (bounds.tall && longReplicaScrollAnimation.running
+                                && Math.abs(
+                                    longReplicaScrollAnimation.to - targetY
+                                ) <= retargetThreshold) {
                             return;
                         }
                         longReplicaScrollAnimation.stop();
@@ -1543,15 +1863,40 @@ NativeDialogWindow {
                         return replicaFocusTargetY(currentIndex);
                     }
 
-                    function showPageTargetHighlight(index) {
+                    function updatePageTargetHighlightGeometry(index, targetY) {
+                        pageTargetHighlightLineOnly = false;
+                        pageTargetHighlightX = 0;
+                        pageTargetHighlightY = 0;
+                        pageTargetHighlightWidth = 0;
+                        pageTargetHighlightHeight = 0;
+                        var bounds = replicaReadingBounds(index);
+                        if (!bounds || !bounds.tall) {
+                            return;
+                        }
+                        var geometry = bounds.item.targetLineHighlightGeometry(
+                            targetY
+                        );
+                        if (!geometry) {
+                            return;
+                        }
+                        pageTargetHighlightLineOnly = true;
+                        pageTargetHighlightX = Number(geometry.x);
+                        pageTargetHighlightY = Number(geometry.y);
+                        pageTargetHighlightWidth = Number(geometry.width);
+                        pageTargetHighlightHeight = Number(geometry.height);
+                    }
+
+                    function showPageTargetHighlight(index, targetY) {
                         pageTargetHighlightFade.stop();
                         if (!Boolean(window.config.page_target_highlight_enabled)) {
                             pageTargetHighlightIndex = -1;
                             pageTargetHighlightOpacity = 0;
+                            pageTargetHighlightLineOnly = false;
                             return;
                         }
                         pageTargetHighlightIndex = index;
-                        pageTargetHighlightOpacity = 0.22;
+                        updatePageTargetHighlightGeometry(index, targetY);
+                        pageTargetHighlightOpacity = window.targetHighlightOpacity;
                     }
 
                     function fadePageTargetHighlight() {
@@ -1564,11 +1909,41 @@ NativeDialogWindow {
                         pageTargetHighlightFade.start();
                     }
 
+                    function pageScrollDurationForTarget(targetIndex) {
+                        var duration = window.scrollDurationMs;
+                        var currentTime = Number(window.teleprompter.time);
+                        var replica = window.teleprompter.model.get(targetIndex);
+                        var deadline = targetIndex === currentIndex
+                            ? Number(pageDebugThresholdTime)
+                            : replica ? Number(replica.start) : -1;
+                        if (!isFinite(deadline) || deadline <= currentTime) {
+                            deadline = replica ? Number(replica.end) : -1;
+                        }
+                        if (isFinite(deadline) && deadline > currentTime) {
+                            // Leave a small reading pause after movement and
+                            // always finish before the next timed fragment.
+                            duration = Math.min(
+                                duration,
+                                Math.max(80, (deadline - currentTime) * 800)
+                            );
+                        }
+                        return Math.round(duration);
+                    }
+
                     function startPageScroll(sourceY, targetY, targetIndex) {
-                        showPageTargetHighlight(targetIndex);
+                        if (pageScrollAnimation.running
+                                && pageScrollTargetIndex === targetIndex
+                                && Math.abs(pageScrollAnimation.to - targetY) <= 0.5) {
+                            return;
+                        }
+                        pageScrollAnimation.stop();
+                        showPageTargetHighlight(targetIndex, targetY);
                         pageScrollTargetIndex = targetIndex;
                         pageScrollAnimation.from = sourceY;
                         pageScrollAnimation.to = targetY;
+                        pageScrollAnimation.duration = pageScrollDurationForTarget(
+                            targetIndex
+                        );
                         pageScrollAnimation.start();
                     }
 
@@ -1593,7 +1968,7 @@ NativeDialogWindow {
                         var itemTop = item ? item.y : targetY;
                         var itemBottom = item ? itemTop + item.height : itemTop;
                         capturePageDebug(event, targetY, targetY, itemTop, itemBottom);
-                        showPageTargetHighlight(index);
+                        showPageTargetHighlight(index, targetY);
                         fadePageTargetHighlight();
                     }
 
@@ -1609,6 +1984,7 @@ NativeDialogWindow {
                         var sourceY = contentY;
                         var targetY = exactPageTargetY(index);
                         contentY = targetY;
+                        updatePageTargetHighlightGeometry(index, targetY);
                         var item = itemAtIndex(index);
                         var itemTop = item ? item.y : targetY;
                         var itemBottom = item ? item.y + item.height : targetY;
@@ -1642,9 +2018,12 @@ NativeDialogWindow {
                             capturePageDebug("Пропуск: ручное перетаскивание", contentY, contentY, -1, -1);
                             return;
                         }
-                        if (pageGapPrefetchIndex === currentIndex
-                                && pageScrollAnimation.running) {
-                            capturePageDebug("Пропуск: следующая реплика уже подтягивается", contentY, contentY, -1, -1);
+                        // During a gap the next replica owns the scroll
+                        // position, including after its animation has already
+                        // finished.  Do not let the queued follow for the
+                        // previous currentIndex pull the view back.
+                        if (pageGapPrefetchIndex >= 0
+                                && pageGapPrefetchIndex !== currentIndex) {
                             return;
                         }
                         var previousIndex = lastPageFollowIndex;
@@ -1659,15 +2038,55 @@ NativeDialogWindow {
                             return;
                         }
                         forceLayout();
-                        var sourceY = contentY;
-                        pageScrollAnimation.stop();
+                        if (!ensureReplicaItem(currentIndex)) {
+                            capturePageDebug(
+                                "Постраничный режим: реплика не создана",
+                                contentY, contentY, -1, -1
+                            );
+                            return;
+                        }
+                        var sourceY = clampedContentY(contentY);
+                        contentY = sourceY;
                         var targetY = longReplicaTargetY(currentIndex, true);
                         var targetItem = itemAtIndex(currentIndex);
                         var itemTop = targetItem ? targetItem.y : targetY;
                         var itemBottom = targetItem ? itemTop + targetItem.height : itemTop;
                         var viewportBottom = sourceY + height;
                         contentY = sourceY;
-                        if (itemTop < sourceY || itemBottom > viewportBottom) {
+                        // OSC position updates arrive much faster than the
+                        // configured animation duration. Keep an unchanged
+                        // target running, but allow the next screen fragment
+                        // of the same long replica to retarget the animation.
+                        if (pageScrollAnimation.running
+                                && pageScrollTargetIndex === currentIndex
+                                && Math.abs(
+                                    pageScrollAnimation.to - targetY
+                                ) <= 0.5) {
+                            capturePageDebug(
+                                "Анимация к фокусу продолжается",
+                                sourceY, pageScrollAnimation.to,
+                                itemTop, itemBottom
+                            );
+                            return;
+                        }
+                        var animationNeedsRetarget = false;
+                        if (pageScrollAnimation.running) {
+                            var finalViewportTop = pageScrollAnimation.to;
+                            var finalViewportBottom = finalViewportTop + height;
+                            animationNeedsRetarget = itemTop < finalViewportTop
+                                || itemBottom > finalViewportBottom;
+                            if (!animationNeedsRetarget) {
+                                capturePageDebug(
+                                    "Текущий переход уже открывает реплику",
+                                    sourceY, finalViewportTop,
+                                    itemTop, itemBottom
+                                );
+                                return;
+                            }
+                        }
+                        if (animationNeedsRetarget
+                                || itemTop < sourceY
+                                || itemBottom > viewportBottom) {
                             capturePageDebug("Переход к реплике", sourceY, targetY, itemTop, itemBottom);
                             if (Math.abs(targetY - sourceY) > 0.5) {
                                 startPageScroll(sourceY, targetY, currentIndex);
@@ -1722,13 +2141,25 @@ NativeDialogWindow {
                         }
                         forceLayout();
                         var sourceY = contentY;
-                        pageScrollAnimation.stop();
-                        var targetY = replicaFocusTargetY(nextIndex);
                         var targetItem = itemAtIndex(nextIndex);
+                        if (!targetItem) {
+                            // A seek can land deep inside a long gap, with the
+                            // next delegate outside the instantiated range.
+                            // Materializing it changes originY, so there is no
+                            // safe old pixel coordinate to animate from.
+                            pageGapPrefetchIndex = nextIndex;
+                            positionReplicaExactly(
+                                nextIndex,
+                                "Пауза: точное позиционирование следующей реплики"
+                            );
+                            return;
+                        }
+                        var targetY = clampedContentY(
+                            targetItem.y - preferredHighlightBegin
+                        );
                         var itemTop = targetItem ? targetItem.y : targetY;
                         var itemBottom = targetItem ? itemTop + targetItem.height : itemTop;
                         var viewportBottom = sourceY + height;
-                        contentY = sourceY;
                         pageGapPrefetchIndex = nextIndex;
                         if (itemTop < sourceY || itemBottom > viewportBottom) {
                             capturePageDebug("Пауза: следующая реплика", sourceY, targetY, itemTop, itemBottom);
@@ -1776,6 +2207,7 @@ NativeDialogWindow {
                             // Delegate heights change after a resize, a font
                             // update, or a mode switch.  Never continue an
                             // animation calculated for the old viewport.
+                            pageScrollTargetIndex = -1;
                             pageScrollAnimation.stop();
                             longReplicaScrollAnimation.stop();
                             pageFocusAlignmentActive = false;
@@ -1790,6 +2222,35 @@ NativeDialogWindow {
                             } else {
                                 followCurrentLongReplica();
                             }
+                        });
+                    }
+
+                    function prepareForTimeSeek() {
+                        manualWheelReleaseTimer.stop();
+                        pageScrollAnimation.stop();
+                        longReplicaScrollAnimation.stop();
+                        pageTargetHighlightFade.stop();
+                        pageScrollTargetIndex = -1;
+                        pageGapPrefetchIndex = -1;
+                        lastPageFollowIndex = -1;
+                        pageFocusAlignmentActive = false;
+                        pageTargetHighlightIndex = -1;
+                        pageTargetHighlightOpacity = 0;
+                        pageTargetHighlightLineOnly = false;
+                        manualDragScroll = false;
+                        cancelPageHold();
+                    }
+
+                    function queueModelRefresh() {
+                        if (modelRefreshQueued) {
+                            return;
+                        }
+                        modelRefreshQueued = true;
+                        Qt.callLater(function() {
+                            modelRefreshQueued = false;
+                            prepareForTimeSeek();
+                            forceLayout();
+                            queueViewportFollow();
                         });
                     }
 
@@ -1866,6 +2327,7 @@ NativeDialogWindow {
                     }
 
                     function resetPageFollowState() {
+                        manualWheelReleaseTimer.stop();
                         pageScrollAnimation.stop();
                         longReplicaScrollAnimation.stop();
                         pageTargetHighlightFade.stop();
@@ -1875,11 +2337,14 @@ NativeDialogWindow {
                         lastPageFollowIndex = -1;
                         pageTargetHighlightIndex = -1;
                         pageTargetHighlightOpacity = 0;
+                        pageTargetHighlightLineOnly = false;
                         manualDragScroll = false;
                         cancelPageHold();
                     }
 
                     function beginManualDragScroll() {
+                        manualWheelReleaseTimer.stop();
+                        pageScrollTargetIndex = -1;
                         pageScrollAnimation.stop();
                         longReplicaScrollAnimation.stop();
                         pageGapPrefetchIndex = -1;
@@ -1893,10 +2358,13 @@ NativeDialogWindow {
                         if (!manualDragScroll) {
                             return;
                         }
-                        manualDragScroll = false;
                         if (pageScrollMode) {
-                            Qt.callLater(pausePageFollowAtVisibleBoundary);
+                            // Establish the hold before releasing the manual
+                            // guard, leaving no event-loop gap in which an OSC
+                            // follow can overwrite the user's position.
+                            pausePageFollowAtVisibleBoundary();
                         }
+                        manualDragScroll = false;
                     }
 
                     onCurrentIndexChanged: {
@@ -1913,6 +2381,11 @@ NativeDialogWindow {
                         // contentHeight also changes while ListView creates
                         // and recycles delegates during a manual scroll.  It
                         // must not initiate automatic positioning.
+                        var recovered = restoreValidContentBounds();
+                        if (recovered && window.followEnabled
+                                && !manualDragScroll && !dragging && !moving) {
+                            queueViewportFollow();
+                        }
                         if (pageScrollHoldUntil >= 0
                                 && !manualDragScroll && !dragging && !moving) {
                             pausePageFollowAtVisibleBoundary();
@@ -1941,15 +2414,15 @@ NativeDialogWindow {
                     WheelHandler {
                         target: null
                         onWheel: function (event) {
-                            pageScrollAnimation.stop();
-                            longReplicaScrollAnimation.stop();
-                            replicaView.pageGapPrefetchIndex = -1;
-                            replicaView.contentY = Math.max(0, Math.min(replicaView.contentHeight - replicaView.height, replicaView.contentY - event.angleDelta.y));
-                            if (replicaView.pageScrollMode) {
-                                Qt.callLater(replicaView.pausePageFollowAtVisibleBoundary);
-                            } else {
-                                window.followEnabled = false;
-                            }
+                            // Set manualDragScroll synchronously so a page
+                            // follow already queued by the latest OSC packet
+                            // cannot undo this wheel step before the hold is
+                            // calculated.
+                            replicaView.beginManualDragScroll();
+                            replicaView.contentY = replicaView.clampedContentY(
+                                replicaView.contentY - event.angleDelta.y
+                            );
+                            manualWheelReleaseTimer.restart();
                             event.accepted = true;
                         }
                     }
@@ -2051,6 +2524,41 @@ NativeDialogWindow {
                             return result;
                         }
 
+                        function targetLineHighlightGeometry(targetContentY) {
+                            var textItem = activeReplicaTextItem();
+                            if (!textItem || textItem.width <= 0
+                                    || timingTextLayout.contentHeight <= 0) {
+                                return null;
+                            }
+                            var mapped = textItem.mapToItem(
+                                replicaDelegate, 0, 0
+                            );
+                            var focusY = Number(targetContentY)
+                                + replicaView.preferredHighlightBegin
+                                - replicaDelegate.y;
+                            var textY = Math.max(0, Math.min(
+                                timingTextLayout.contentHeight - 1,
+                                focusY - mapped.y + 1
+                            ));
+                            var position = timingTextLayout.positionAt(1, textY);
+                            var cursorRect = timingTextLayout.positionToRectangle(
+                                Math.max(0, position)
+                            );
+                            if (!cursorRect || !isFinite(cursorRect.y)
+                                    || !isFinite(cursorRect.height)) {
+                                return null;
+                            }
+                            return {
+                                x: mapped.x,
+                                y: mapped.y + cursorRect.y,
+                                width: textItem.width,
+                                height: Math.max(
+                                    cursorRect.height,
+                                    Number(window.config.f_text) * 1.15
+                                )
+                            };
+                        }
+
                         // Use the same Qt text layout engine as the visible
                         // Text items to translate UTF-16 source offsets into
                         // rendered Y coordinates.  It does not participate in
@@ -2077,7 +2585,16 @@ NativeDialogWindow {
                         }
 
                         Rectangle {
-                            anchors.fill: parent
+                            x: replicaView.pageTargetHighlightLineOnly
+                                ? replicaView.pageTargetHighlightX : 0
+                            y: replicaView.pageTargetHighlightLineOnly
+                                ? replicaView.pageTargetHighlightY : 0
+                            width: replicaView.pageTargetHighlightLineOnly
+                                ? replicaView.pageTargetHighlightWidth
+                                : parent.width
+                            height: replicaView.pageTargetHighlightLineOnly
+                                ? replicaView.pageTargetHighlightHeight
+                                : parent.height
                             color: window.colors.page_target_highlight || "#FFD54F"
                             opacity: replicaDelegate.pageTargetHighlightOpacity
                             radius: window.macOSStyle ? 5 : 3

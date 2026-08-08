@@ -39,8 +39,11 @@ def test_diagnostics_parser_exposes_scrolling_modes_and_seeks():
         "--all-samples",
         "--resize", "1000x650",
         "--font-size", "48",
+        "--smoothness", "100",
         "--focus", "0.3",
         "--layout", "Сценарий 3",
+        "--stress-events", "25",
+        "--seed", "42",
     ])
 
     assert args.mode == "continuous"
@@ -49,8 +52,11 @@ def test_diagnostics_parser_exposes_scrolling_modes_and_seeks():
     assert args.all_samples
     assert args.resize == [(1000, 650)]
     assert args.font_size == [48]
+    assert args.smoothness == [100]
     assert args.focus == [0.3]
     assert args.layout == ["Сценарий 3"]
+    assert args.stress_events == 25
+    assert args.seed == 42
 
 
 def test_parse_viewport_accepts_ascii_and_typographic_separator():

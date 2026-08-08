@@ -488,6 +488,28 @@ class TestGlobalSettingsService:
         assert config['layout_font_sizes']['Сценарий 2']['f_text'] == 36
         assert config['layout_font_sizes']['Сценарий 3']['f_text'] == 36
 
+    def test_prompter_highlight_opacity_is_normalized(self, service):
+        assert service._normalize_prompter_config({
+            'page_target_highlight_opacity': 0.31,
+        })['page_target_highlight_opacity'] == 0.31
+        assert service._normalize_prompter_config({
+            'page_target_highlight_opacity': 1,
+        })['page_target_highlight_opacity'] == 0.44
+        assert service._normalize_prompter_config({
+            'page_target_highlight_opacity': 'invalid',
+        })['page_target_highlight_opacity'] == 0.22
+
+    def test_prompter_highlight_fade_time_is_normalized(self, service):
+        assert service._normalize_prompter_config({
+            'page_target_highlight_fade_ms': 1750,
+        })['page_target_highlight_fade_ms'] == 1750
+        assert service._normalize_prompter_config({
+            'page_target_highlight_fade_ms': 20000,
+        })['page_target_highlight_fade_ms'] == 10000
+        assert service._normalize_prompter_config({
+            'page_target_highlight_fade_ms': 'invalid',
+        })['page_target_highlight_fade_ms'] == 1000
+
     def test_prompter_layout_font_profiles_are_independent(self, service):
         """Каждая разметка хранит и отдаёт собственные размеры шрифтов."""
         service.settings = {}
@@ -543,12 +565,14 @@ class TestGlobalSettingsService:
         service.set_prompter_color_preset(1, {
             'bg': '#222222',
             'active_text': '#eeeeee',
+            'page_target_highlight': '#336699',
         })
         presets = service.get_prompter_color_presets()
 
         assert presets[0] is None
         assert presets[1]['bg'] == '#222222'
         assert presets[1]['active_text'] == '#eeeeee'
+        assert presets[1]['page_target_highlight'] == '#336699'
         assert presets[1]['inactive_text'] == (
             DEFAULT_PROMPTER_CONFIG['colors']['inactive_text']
         )

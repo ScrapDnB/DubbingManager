@@ -74,6 +74,8 @@ class PrompterConfig:
     page_gap_prefetch_seconds: float = 1.0
     page_gap_prefetch_delay_seconds: float = 1.0
     page_target_highlight_enabled: bool = True
+    page_target_highlight_opacity: float = 0.22
+    page_target_highlight_fade_ms: int = 1000
     page_debug_overlay: bool = False
     colors: PrompterColors = field(default_factory=PrompterColors)
 
@@ -98,6 +100,16 @@ class PrompterConfig:
             raise ValueError(
                 "page_gap_prefetch_delay_seconds must be 0.0-60.0, "
                 f"got {self.page_gap_prefetch_delay_seconds}"
+            )
+        if not 0.0 <= self.page_target_highlight_opacity <= 0.44:
+            raise ValueError(
+                "page_target_highlight_opacity must be 0.0-0.44, "
+                f"got {self.page_target_highlight_opacity}"
+            )
+        if not 0 <= self.page_target_highlight_fade_ms <= 10000:
+            raise ValueError(
+                "page_target_highlight_fade_ms must be 0-10000, "
+                f"got {self.page_target_highlight_fade_ms}"
             )
         if not 1024 <= self.port_in <= 65535:
             raise ValueError(f"port_in must be 1024-65535, got {self.port_in}")

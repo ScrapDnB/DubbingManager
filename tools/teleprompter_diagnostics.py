@@ -8,6 +8,7 @@ from copy import deepcopy
 import json
 import math
 import os
+import random
 import sys
 from pathlib import Path
 from typing import Any
@@ -22,7 +23,7 @@ if str(ROOT) not in sys.path:
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_QUICK_BACKEND", "software")
 
-from PySide6.QtCore import QObject, QUrl  # noqa: E402
+from PySide6.QtCore import QObject, QMetaObject, QUrl  # noqa: E402
 from PySide6.QtGui import QGuiApplication  # noqa: E402
 from PySide6.QtQml import QQmlApplicationEngine, QQmlComponent  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
@@ -121,6 +122,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Live-change replica font size before playback; may be repeated.",
     )
     parser.add_argument(
+        "--smoothness", action="append", type=int, default=[],
+        help="Live-change scroll smoothness (0..100) before playback.",
+    )
+    parser.add_argument(
         "--focus", action="append", type=float, default=[],
         help="Live-change focus ratio (0.1..0.9); may be repeated.",
     )
@@ -145,6 +150,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--all-samples", action="store_true",
         help="Print every changed scroll target instead of concise transitions.",
     )
+    parser.add_argument(
+        "--stress-events", type=int, default=0,
+        help="Run deterministic disruptive mid-session events after playback.",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=20260808,
+        help="Random seed used by --stress-events.",
+    )
     parser.add_argument("--json-lines", action="store_true")
     return parser
 
@@ -157,6 +170,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.step <= 0:
         print("--step must be positive", file=sys.stderr)
+        return 2
+    if args.stress_events < 0:
+        print("--stress-events must not be negative", file=sys.stderr)
         return 2
 
     app = QGuiApplication.instance() or QGuiApplication([sys.argv[0]])
@@ -273,6 +289,11 @@ def main(argv: list[str] | None = None) -> int:
         "from": round(args.start, 3),
         "to": round(end, 3),
         "step": args.step,
+        "gap_prefetch_seconds": config.get("page_gap_prefetch_seconds"),
+        "gap_prefetch_delay_seconds": config.get(
+            "page_gap_prefetch_delay_seconds"
+        ),
+        "highlight_fade_ms": config.get("page_target_highlight_fade_ms"),
     }, args.json_lines)
 
     failures: list[str] = []
@@ -282,9 +303,23 @@ def main(argv: list[str] | None = None) -> int:
         process_for(args.settle_ms)
         index = bridge.teleprompter.currentIndex
         qml_index = int_property(view, "currentIndex", -1)
+        content_y = numeric_property(view, "contentY")
+        origin_y = numeric_property(view, "originY")
+        content_height = numeric_property(view, "contentHeight")
+        viewport_height = numeric_property(view, "height")
+        maximum_y = origin_y + max(0.0, content_height - viewport_height)
+        geometry_ok = (
+            math.isfinite(content_y)
+            and origin_y - 2 <= content_y <= maximum_y + 2
+        )
         if index != qml_index:
             failures.append(
                 f"{cause}: backend index {index}, QML index {qml_index}"
+            )
+        if not geometry_ok:
+            failures.append(
+                f"{cause}: contentY {content_y:.1f} outside "
+                f"{origin_y:.1f}..{maximum_y:.1f}"
             )
         emit({
             "type": "reflow",
@@ -307,11 +342,15 @@ def main(argv: list[str] | None = None) -> int:
             "threshold_time": round(
                 numeric_property(view, "pageDebugThresholdTime", -1), 3
             ),
-            "content_y": round(numeric_property(view, "contentY"), 1),
+            "prefetch_index": int_property(
+                view, "pageGapPrefetchIndex", -1
+            ),
+            "content_y": round(content_y, 1),
+            "origin_y": round(origin_y, 1),
             "target_y": round(
                 numeric_property(view, "pageDebugTargetY"), 1
             ),
-            "ok": index == qml_index,
+            "ok": index == qml_index and geometry_ok,
         }, args.json_lines)
 
     for width, height in args.resize:
@@ -345,6 +384,12 @@ def main(argv: list[str] | None = None) -> int:
         update_config(f_text=font_size)
         record_reflow(f"font-size:{font_size:g}")
 
+    for smoothness in args.smoothness:
+        if not 0 <= smoothness <= 100:
+            print("--smoothness must be between 0 and 100", file=sys.stderr)
+            return 2
+        update_config(scroll_smoothness_slider=smoothness)
+
     for focus in args.focus:
         if not 0.1 <= focus <= 0.9:
             print("--focus must be between 0.1 and 0.9", file=sys.stderr)
@@ -363,6 +408,8 @@ def main(argv: list[str] | None = None) -> int:
     previous_timing_source = ""
     ass_page_turns = 0
     fallback_page_turns = 0
+    prefetch_starts = 0
+    previous_prefetch_index = -1
     sample_count = 0
     transition_count = 0
     long_replica_motion: dict[int, dict[str, list[float]]] = {}
@@ -382,7 +429,17 @@ def main(argv: list[str] | None = None) -> int:
         threshold_time = numeric_property(
             view, "pageDebugThresholdTime", -1
         )
+        prefetch_index = int_property(view, "pageGapPrefetchIndex", -1)
         rendered_height = numeric_property(view, "pageDebugRenderedHeight")
+        highlight_opacity = numeric_property(
+            view, "pageTargetHighlightOpacity"
+        )
+        highlight_line_only = bool(
+            view.property("pageTargetHighlightLineOnly")
+        )
+        highlight_height = numeric_property(
+            view, "pageTargetHighlightHeight"
+        )
         settled = False
         if (
             args.mode == "page"
@@ -406,12 +463,28 @@ def main(argv: list[str] | None = None) -> int:
             threshold_time = numeric_property(
                 view, "pageDebugThresholdTime", -1
             )
+            prefetch_index = int_property(
+                view, "pageGapPrefetchIndex", -1
+            )
             rendered_height = numeric_property(
                 view, "pageDebugRenderedHeight"
             )
+            highlight_opacity = numeric_property(
+                view, "pageTargetHighlightOpacity"
+            )
+            highlight_line_only = bool(
+                view.property("pageTargetHighlightLineOnly")
+            )
+            highlight_height = numeric_property(
+                view, "pageTargetHighlightHeight"
+            )
+        origin_y = numeric_property(view, "originY")
+        content_height = numeric_property(view, "contentHeight")
+        viewport_height = numeric_property(view, "height")
         signature = (
             index, page, pages, round(target_y, 1), event,
             timing_source, round(threshold_time, 3),
+            prefetch_index,
         )
 
         if qml_index != index:
@@ -420,6 +493,32 @@ def main(argv: list[str] | None = None) -> int:
             )
         if not all(math.isfinite(value) for value in (content_y, target_y)):
             failures.append(f"time {current:.3f}: non-finite scroll coordinate")
+        maximum_y = origin_y + max(0.0, content_height - viewport_height)
+        if content_y < origin_y - 2 or content_y > maximum_y + 2:
+            failures.append(
+                f"time {current:.3f}: contentY {content_y:.1f} outside "
+                f"{origin_y:.1f}..{maximum_y:.1f}"
+            )
+        if (
+            highlight_opacity > 0.001
+            and highlight_line_only
+            and (not math.isfinite(highlight_height) or highlight_height <= 0)
+        ):
+            failures.append(
+                f"time {current:.3f}: invalid line highlight height "
+                f"{highlight_height:.1f}"
+            )
+        if prefetch_index >= 0 and previous_prefetch_index < 0:
+            prefetch_starts += 1
+            row = rows[index] if 0 <= index < len(rows) else {}
+            expected_earliest = float(row.get("end", current)) + float(
+                config.get("page_gap_prefetch_delay_seconds", 0) or 0
+            )
+            if current + 0.001 < expected_earliest:
+                failures.append(
+                    f"time {current:.3f}: prefetch started before "
+                    f"{expected_earliest:.3f}"
+                )
         if index == previous_index and page < previous_page:
             failures.append(
                 f"time {current:.3f}: page moved backwards {previous_page}->{page}"
@@ -452,7 +551,9 @@ def main(argv: list[str] | None = None) -> int:
             motion["target"].append(target_y)
             motion["content"].append(content_y)
 
-        concise_signature = (index, page, pages, event, timing_source)
+        concise_signature = (
+            index, page, pages, event, timing_source, prefetch_index
+        )
         output_signature = signature if args.all_samples else concise_signature
         if output_signature != previous_signature:
             transition_count += 1
@@ -475,8 +576,15 @@ def main(argv: list[str] | None = None) -> int:
                 "timing_guides": len(row.get("timingGuides") or []),
                 "timing_source": timing_source,
                 "threshold_time": round(threshold_time, 3),
+                "prefetch_index": prefetch_index,
                 "content_y": round(content_y, 1),
                 "target_y": round(target_y, 1),
+                "highlight_scope": (
+                    "none" if highlight_opacity <= 0.001
+                    else "line" if highlight_line_only else "block"
+                ),
+                "highlight_height": round(highlight_height, 1),
+                "highlight_opacity": round(highlight_opacity, 3),
                 "settled": settled,
                 "event": event,
             }, args.json_lines)
@@ -485,6 +593,7 @@ def main(argv: list[str] | None = None) -> int:
         previous_page = page
         previous_threshold = threshold_time
         previous_timing_source = timing_source
+        previous_prefetch_index = prefetch_index
         current += args.step
 
     for seconds in args.seek:
@@ -515,6 +624,9 @@ def main(argv: list[str] | None = None) -> int:
             ),
             "threshold_time": round(
                 numeric_property(view, "pageDebugThresholdTime", -1), 3
+            ),
+            "prefetch_index": int_property(
+                view, "pageGapPrefetchIndex", -1
             ),
             "content_y": round(numeric_property(view, "contentY"), 1),
             "target_y": round(numeric_property(view, "pageDebugTargetY"), 1),
@@ -569,6 +681,182 @@ def main(argv: list[str] | None = None) -> int:
                 f"{target_travel:.1f}px, content only {content_travel:.1f}px"
             )
 
+    stress_rng = random.Random(args.seed)
+    edited_originals: dict[str, str] = {}
+    stress_actions = (
+        "rapid-seek",
+        "seek-resize",
+        "font",
+        "focus",
+        "mode",
+        "model-refresh",
+        "edit-current",
+        "manual-scroll",
+        "actor-filter",
+    )
+
+    def stress_time() -> float:
+        return stress_rng.uniform(args.start, end)
+
+    def validate_stress(event_number: int, action: str) -> None:
+        process_for(min(max(args.tick_ms, 20), max(args.settle_ms, 20), 120))
+        live_rows = bridge.teleprompter.model.rows()
+        index = bridge.teleprompter.currentIndex
+        qml_index = int_property(view, "currentIndex", -1)
+        content_y = numeric_property(view, "contentY")
+        origin_y = numeric_property(view, "originY")
+        content_height = numeric_property(view, "contentHeight")
+        viewport_height = numeric_property(view, "height")
+        target_y = numeric_property(view, "pageDebugTargetY")
+        highlight_opacity = numeric_property(
+            view, "pageTargetHighlightOpacity"
+        )
+        highlight_line_only = bool(
+            view.property("pageTargetHighlightLineOnly")
+        )
+        highlight_height = numeric_property(
+            view, "pageTargetHighlightHeight"
+        )
+        prefetch_index = int_property(view, "pageGapPrefetchIndex", -1)
+        event_failures: list[str] = []
+        if index != qml_index:
+            event_failures.append(
+                f"backend index {index}, QML index {qml_index}"
+            )
+        if not all(math.isfinite(value) for value in (
+            content_y, content_height, viewport_height, target_y
+        )):
+            event_failures.append("non-finite QML geometry")
+        maximum_y = origin_y + max(0.0, content_height - viewport_height)
+        if content_y < origin_y - 2 or content_y > maximum_y + 2:
+            event_failures.append(
+                f"contentY {content_y:.1f} outside "
+                f"{origin_y:.1f}..{maximum_y:.1f}"
+            )
+        if (
+            highlight_opacity > 0.001
+            and highlight_line_only
+            and (not math.isfinite(highlight_height) or highlight_height <= 0)
+        ):
+            event_failures.append(
+                f"invalid line highlight height {highlight_height:.1f}"
+            )
+        if prefetch_index >= 0:
+            if prefetch_index >= len(live_rows):
+                event_failures.append(
+                    f"stale prefetch index {prefetch_index}/{len(live_rows)}"
+                )
+            elif (
+                prefetch_index <= index
+                or not live_rows[prefetch_index].get("active")
+            ):
+                event_failures.append(
+                    f"invalid prefetch target {prefetch_index} from {index}"
+                )
+        for message in event_failures:
+            failures.append(
+                f"stress {event_number} {action}: {message}"
+            )
+        emit({
+            "type": "stress",
+            "event": event_number,
+            "action": action,
+            "time": round(bridge.teleprompter.time, 3),
+            "index": index,
+            "qml_index": qml_index,
+            "mode": "page" if bool(view.property("pageScrollMode"))
+                else "continuous",
+            "viewport": (
+                f"{numeric_property(view, 'width'):.1f}x"
+                f"{viewport_height:.1f}"
+            ),
+            "content_y": round(content_y, 1),
+            "origin_y": round(origin_y, 1),
+            "target_y": round(target_y, 1),
+            "highlight_scope": (
+                "none" if highlight_opacity <= 0.001
+                else "line" if highlight_line_only else "block"
+            ),
+            "highlight_height": round(highlight_height, 1),
+            "highlight_opacity": round(highlight_opacity, 3),
+            "prefetch_index": prefetch_index,
+            "ok": not event_failures,
+        }, args.json_lines)
+
+    for event_number in range(1, args.stress_events + 1):
+        action = stress_rng.choice(stress_actions)
+        if action == "rapid-seek":
+            bridge.teleprompter.debugSetReaperTime(stress_time())
+            bridge.teleprompter.debugSetReaperTime(stress_time())
+        elif action == "seek-resize":
+            bridge.teleprompter.debugSetReaperTime(stress_time())
+            window.setProperty("width", stress_rng.randint(760, 1500))
+            window.setProperty("height", stress_rng.randint(520, 980))
+        elif action == "font":
+            update_config(f_text=stress_rng.choice((20, 28, 36, 48, 64)))
+        elif action == "focus":
+            update_config(focus_ratio=stress_rng.choice((0.15, 0.25, 0.5, 0.75)))
+        elif action == "mode":
+            update_config(
+                page_scroll_mode=not bool(view.property("pageScrollMode"))
+            )
+        elif action == "model-refresh":
+            bridge.teleprompter.refresh()
+        elif action == "edit-current":
+            live_rows = bridge.teleprompter.model.rows()
+            index = bridge.teleprompter.currentIndex
+            payload = bridge._script_text_service.get_episode_payload(
+                bridge._session.data, episode
+            )
+            if 0 <= index < len(live_rows) and isinstance(payload, dict):
+                source_ids = list(live_rows[index].get("sourceIds") or [])
+                working_id = str(source_ids[0]) if source_ids else ""
+                for line in payload.get("lines", []):
+                    if str(line.get("id")) != working_id:
+                        continue
+                    if working_id not in edited_originals:
+                        edited_originals[working_id] = str(line.get("text") or "")
+                    original = edited_originals[working_id]
+                    line["text"] = (
+                        original
+                        if str(line.get("text") or "") != original
+                        else original + " [диагностический reflow]"
+                    )
+                    bridge.teleprompter.refresh()
+                    break
+        elif action == "manual-scroll":
+            invoked = QMetaObject.invokeMethod(
+                view, "beginManualDragScroll"
+            )
+            if not invoked:
+                view.setProperty("manualDragScroll", True)
+            origin_y = numeric_property(view, "originY")
+            maximum_y = origin_y + max(
+                0.0,
+                numeric_property(view, "contentHeight")
+                    - numeric_property(view, "height"),
+            )
+            view.setProperty(
+                "contentY", stress_rng.uniform(origin_y, maximum_y)
+            )
+            invoked = QMetaObject.invokeMethod(
+                view, "finishManualDragScroll"
+            )
+            if not invoked:
+                view.setProperty("manualDragScroll", False)
+            bridge.teleprompter.debugSetReaperTime(stress_time())
+        elif action == "actor-filter":
+            actor_rows = bridge.teleprompter.actorModel.rows()
+            if actor_rows:
+                actor = stress_rng.choice(actor_rows)
+                bridge.teleprompter.setActorSelected(
+                    str(actor.get("actorId") or ""),
+                    not bool(actor.get("selected")),
+                )
+            else:
+                bridge.teleprompter.refresh()
+        validate_stress(event_number, action)
+
     for failure in failures:
         emit({"type": "failure", "message": failure}, args.json_lines)
     emit({
@@ -579,6 +867,9 @@ def main(argv: list[str] | None = None) -> int:
         "transitions": transition_count,
         "ass_page_turns": ass_page_turns,
         "fallback_page_turns": fallback_page_turns,
+        "prefetch_starts": prefetch_starts,
+        "stress_events": args.stress_events,
+        "seed": args.seed,
     }, args.json_lines)
 
     window.setProperty("visible", False)

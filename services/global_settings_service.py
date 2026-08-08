@@ -844,6 +844,24 @@ class GlobalSettingsService:
                     bold_profiles["Сценарий 1"][key] = bool(config[key])
         result["layout_font_bold"] = bold_profiles
         result.update(bold_profiles[layout_type])
+        try:
+            result["page_target_highlight_opacity"] = max(
+                0.0,
+                min(0.44, float(result["page_target_highlight_opacity"])),
+            )
+        except (KeyError, TypeError, ValueError):
+            result["page_target_highlight_opacity"] = (
+                DEFAULT_PROMPTER_CONFIG["page_target_highlight_opacity"]
+            )
+        try:
+            result["page_target_highlight_fade_ms"] = max(
+                0,
+                min(10000, int(result["page_target_highlight_fade_ms"])),
+            )
+        except (KeyError, TypeError, ValueError):
+            result["page_target_highlight_fade_ms"] = (
+                DEFAULT_PROMPTER_CONFIG["page_target_highlight_fade_ms"]
+            )
         return result
 
     @staticmethod

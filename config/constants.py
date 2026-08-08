@@ -259,6 +259,8 @@ DEFAULT_PROMPTER_CONFIG = {
     "page_gap_prefetch_seconds": 1.0,
     "page_gap_prefetch_delay_seconds": 1.0,
     "page_target_highlight_enabled": True,
+    "page_target_highlight_opacity": 0.22,
+    "page_target_highlight_fade_ms": 1000,
     "page_debug_overlay": False,
     "colors": {
         "bg": "#000000",
@@ -378,7 +380,7 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Application version shown in the UI and build metadata.
-APP_VERSION = "2.0.0-rc4"
+APP_VERSION = "2.0.0-rc5"
 
 # Project file format version used for compatibility migrations.
 PROJECT_VERSION = "2.0"

@@ -903,6 +903,7 @@ class TeleprompterBridge(QObject):
             "port_in": (1, 65535),
             "port_out": (1, 65535),
             "scroll_smoothness_slider": (0, 100),
+            "page_target_highlight_fade_ms": (0, 10000),
         }
         if key in limits:
             try:
@@ -926,6 +927,11 @@ class TeleprompterBridge(QObject):
         }:
             try:
                 return max(0.0, min(60.0, float(value)))
+            except (TypeError, ValueError):
+                return None
+        if key == "page_target_highlight_opacity":
+            try:
+                return max(0.0, min(0.44, float(value)))
             except (TypeError, ValueError):
                 return None
         if key.startswith("colors."):
@@ -970,8 +976,9 @@ class TeleprompterBridge(QObject):
             if self._time < float(row["start"]):
                 break
             current = index
-            if self._time <= float(row["end"]):
-                break
+            # Multiple ASS events may overlap. Incoming REAPER time has no
+            # row identity, so prefer the latest row that has already begun;
+            # local list navigation carries an exact index separately.
         self._current_index = current
 
     def _replace_payload(

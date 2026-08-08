@@ -69,6 +69,23 @@ PersistentScrollView {
         configEdited(next)
     }
 
+    function targetHighlightOpacity() {
+        var raw = configuration.page_target_highlight_opacity
+        var value = raw === undefined ? 0.22 : Number(raw)
+        return Math.max(0, Math.min(0.44, value))
+    }
+
+    function targetHighlightTransparencyPercent() {
+        return Math.round((1 - targetHighlightOpacity() / 0.44) * 100)
+    }
+
+    function setTargetHighlightTransparency(percent) {
+        setValue(
+            "page_target_highlight_opacity",
+            Math.max(0, Math.min(0.44, (100 - percent) * 0.0044))
+        )
+    }
+
     ColorDialog {
         id: colorDialog
         title: qsTr("Цвет телесуфлёра")
@@ -178,59 +195,6 @@ PersistentScrollView {
         }
 
         FormSection {
-            visible: pane.automationScope
-                && Boolean(pane.configuration.page_scroll_mode)
-            title: qsTr("Подсветка цели")
-            Layout.fillWidth: true
-            GridLayout {
-                anchors.fill: parent
-                columns: 2
-                columnSpacing: 14
-                rowSpacing: 8
-
-                CheckBox {
-                    id: pageTargetHighlightEnabled
-                    text: qsTr("Выделять реплику при перемотке")
-                    checked: Boolean(pane.configuration.page_target_highlight_enabled)
-                    onToggled: pane.setValue("page_target_highlight_enabled", checked)
-                    Layout.columnSpan: 2
-                }
-                Label {
-                    text: qsTr("Цвет выделения:")
-                    enabled: pageTargetHighlightEnabled.checked
-                }
-                RowLayout {
-                    spacing: 8
-
-                    AdaptiveButton {
-                        id: pageTargetHighlightColorButton
-                        enabled: pageTargetHighlightEnabled.checked
-                        text: qsTr("Выбрать...")
-                        onClicked: {
-                            pane.colorTarget = "page_target_highlight"
-                            colorDialog.selectedColor = (pane.configuration.colors || {}).page_target_highlight
-                                || "#FFD54F"
-                            colorDialog.open()
-                        }
-                        PlatformToolTip {
-                            target: pageTargetHighlightColorButton
-                            text: qsTr("Цвет краткой подсветки целевой реплики")
-                        }
-                    }
-                    Rectangle {
-                        width: 26
-                        height: 14
-                        Layout.alignment: Qt.AlignVCenter
-                        color: (pane.configuration.colors || {}).page_target_highlight
-                            || "#FFD54F"
-                        border.color: palette.mid
-                        radius: 2
-                    }
-                }
-            }
-        }
-
-        FormSection {
             visible: pane.globalScope && pane.appearanceScope
             title: qsTr("Разметка")
             Layout.fillWidth: true
@@ -326,7 +290,8 @@ PersistentScrollView {
                         { key: "actor", label: "Актёр" },
                         { key: "header_bg", label: "Фон заголовка" },
                         { key: "header_text", label: "Текст заголовка" },
-                        { key: "block_border", label: "Границы блоков" }
+                        { key: "block_border", label: "Границы блоков" },
+                        { key: "page_target_highlight", label: "Подсветка прокрутки" }
                     ]
                     delegate: RowLayout {
                         id: colorRow
@@ -360,6 +325,66 @@ PersistentScrollView {
                             }
                         }
                     }
+                }
+
+                CheckBox {
+                    id: pageTargetHighlightEnabled
+                    Layout.columnSpan: 4
+                    text: qsTr("Подсвечивать цель при перемотке")
+                    checked: Boolean(
+                        pane.configuration.page_target_highlight_enabled
+                    )
+                    onToggled: pane.setValue(
+                        "page_target_highlight_enabled", checked
+                    )
+                }
+                Label {
+                    Layout.columnSpan: 4
+                    Layout.fillWidth: true
+                    enabled: pageTargetHighlightEnabled.checked
+                    text: qsTr("Прозрачность подсветки: %1%").arg(
+                        pane.targetHighlightTransparencyPercent()
+                    )
+                }
+                Slider {
+                    Layout.columnSpan: 4
+                    Layout.fillWidth: true
+                    from: 0
+                    to: 100
+                    stepSize: 1
+                    enabled: pageTargetHighlightEnabled.checked
+                    value: pane.targetHighlightTransparencyPercent()
+                    onMoved: pane.setTargetHighlightTransparency(value)
+                    PlatformToolTip {
+                        target: parent
+                        text: qsTr("0% — наиболее заметная, 100% — полностью прозрачная")
+                    }
+                }
+                Label {
+                    Layout.columnSpan: 2
+                    text: qsTr("Время угасания:")
+                    enabled: pageTargetHighlightEnabled.checked
+                }
+                RowLayout {
+                    Layout.columnSpan: 2
+                    enabled: pageTargetHighlightEnabled.checked
+
+                    SpinBox {
+                        from: 0
+                        to: 10000
+                        stepSize: 100
+                        editable: true
+                        value: Number(
+                            pane.configuration.page_target_highlight_fade_ms
+                                === undefined
+                                ? 1000
+                                : pane.configuration.page_target_highlight_fade_ms
+                        )
+                        onValueModified: pane.setValue(
+                            "page_target_highlight_fade_ms", value
+                        )
+                    }
+                    Label { text: qsTr("мс") }
                 }
             }
         }

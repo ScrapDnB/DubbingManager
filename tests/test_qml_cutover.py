@@ -68,6 +68,12 @@ def test_teleprompter_has_a_page_scroll_mode():
     )
 
     assert "Постраничный режим" in source
+    assert 'text: qsTr("Режим прокрутки")' in source
+    assert 'text: qsTr("Обычный")' in source
+    assert 'text: qsTr("Постраничный")' in source
+    assert "id: scrollModeSelector" in source
+    assert "systemPalette.button" in source
+    assert 'Accessible.name: qsTr("Постраничный режим прокрутки")' in source
     assert 'qsTr("Смещение REAPER (%1 с)")' in source
     assert '"reaper_offset_enabled", checked' in source
     assert "followCurrentReplicaByPage" in source
@@ -82,6 +88,9 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "forceLayout();" in source
     assert "function queuePageFollow()" in source
     assert "function queueViewportFollow()" in source
+    assert "function viewportConfigSignature()" in source
+    assert "lastViewportConfigSignature" in source
+    assert "signature === window.lastViewportConfigSignature" in source
     assert "property bool viewportFollowQueued: false" in source
     assert "onHeightChanged: queueViewportFollow()" in source
     assert "onWidthChanged: queueViewportFollow()" in source
@@ -95,6 +104,8 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "var viewportBottom = sourceY + height;" in source
     assert "function currentReplicaFocusTargetY()" in source
     assert "function replicaReadingBounds(index)" in source
+    assert "function ensureReplicaItem(index)" in source
+    assert "var sourceY = clampedContentY(contentY);" in source
     assert "function longReplicaTargetY(index, pageMode)" in source
     assert "function pageFragmentStep()" in source
     assert "height - preferredHighlightBegin" in source
@@ -118,15 +129,38 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert 'text: qsTr("Фрагмент %1").arg(fragmentGuide.index + 1)' in source
     assert "guides: cyan lines start at the focus line" in source
     assert "function replicaFocusTargetY(index)" in source
+    assert "function minimumContentY()" in source
+    assert "function maximumContentY()" in source
+    assert "function restoreValidContentBounds()" in source
+    assert "isFinite(originY)" in source
     assert "function prefetchNextReplicaDuringGap()" in source
+    assert "pageGapPrefetchIndex >= 0" in source
+    assert "pageGapPrefetchIndex !== currentIndex" in source
+    assert "function prepareForTimeSeek()" in source
+    assert "function queueModelRefresh()" in source
+    assert "retargetThreshold" in source
     assert "function startPageScroll(sourceY, targetY, targetIndex)" in source
+    assert "function pageScrollDurationForTarget(targetIndex)" in source
+    assert "(deadline - currentTime) * 800" in source
+    assert "pageScrollTargetIndex === targetIndex" in source
+    assert "pageScrollTargetIndex === currentIndex" in source
+    assert '"Анимация к фокусу продолжается"' in source
+    assert "var finalViewportTop = pageScrollAnimation.to;" in source
+    assert "var animationNeedsRetarget = false;" in source
     assert "function positionReplicaExactly(index, event)" in source
     assert "function correctPageScrollTarget()" in source
+    assert "replicaView.correctPageScrollTarget();" in source
+    assert "replicaView.fadePageTargetHighlight();" in source
+    assert "function updatePageTargetHighlightGeometry(index, targetY)" in source
+    assert "function targetLineHighlightGeometry(targetContentY)" in source
+    assert "pageTargetHighlightLineOnly" in source
     assert "var targetY = exactPageTargetY(index);" in source
     assert "contentY = targetY;" in source
     assert 'window.teleprompter.positionOrigin === "local"' in source
     assert "Math.abs(currentIndex - previousIndex) > 1" in source
-    assert "function showPageTargetHighlight(index)" in source
+    assert "item.y - preferredHighlightBegin" in source
+    assert '"Пауза: точное позиционирование следующей реплики"' in source
+    assert "function showPageTargetHighlight(index, targetY)" in source
     assert "function fadePageTargetHighlight()" in source
     assert "pageTargetHighlightFade" in source
     assert "page_target_highlight_enabled" in source
@@ -136,9 +170,12 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "nextStart - currentEnd < gapThreshold" in source
     assert "currentTime < currentEnd + delay" in source
     assert "Пауза: следующая реплика" in source
-    assert "contentY - preferredHighlightBegin" in source
+    assert "targetItem.y - preferredHighlightBegin" in source
     assert "onDraggingChanged:" in source
     assert "onMovementEnded: finishManualDragScroll()" in source
+    assert "manualWheelReleaseTimer" in source
+    assert "replicaView.beginManualDragScroll();" in source
+    assert "pausePageFollowAtVisibleBoundary();" in source
     assert "longReplicaScrollAnimation.stop();" in source
     assert "function capturePageDebug(" in source
     assert 'text: qsTr("Mock REAPER")' in source
@@ -173,8 +210,17 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "Показывать диагностику постраничного режима" in automation_settings
     assert "Считать паузой интервал от:" in automation_settings
     assert "Подтягивать следующую реплику через:" in automation_settings
-    assert 'title: qsTr("Подсветка цели")' in automation_settings
-    assert "Выделять реплику при перемотке" in automation_settings
+    assert "Подсвечивать цель при перемотке" in automation_settings
+    assert 'key: "page_target_highlight"' in automation_settings
+    assert "Прозрачность подсветки:" in automation_settings
+    assert "Время угасания:" in automation_settings
+    assert '"page_target_highlight_opacity"' in automation_settings
+    assert '"page_target_highlight_fade_ms"' in automation_settings
+    assert "targetHighlightTransparencyPercent" in source
+    assert "targetHighlightFadeMs" in source
+    assert "duration: window.targetHighlightFadeMs" in source
+    assert "Подсветка прокрутки" in source
+    assert "Прозрачность подсветки · %1%" in source
 
 
 def test_teleprompter_restores_following_after_manual_scroll_and_list_jump():
