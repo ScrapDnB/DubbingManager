@@ -81,6 +81,11 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "Ручная пауза отменена: seek REAPER" in source
     assert "forceLayout();" in source
     assert "function queuePageFollow()" in source
+    assert "function queueViewportFollow()" in source
+    assert "property bool viewportFollowQueued: false" in source
+    assert "onHeightChanged: queueViewportFollow()" in source
+    assert "onWidthChanged: queueViewportFollow()" in source
+    assert "onContentHeightChanged: queueViewportFollow()" in source
     assert "function scrollCurrentReplicaToFocusBoundary()" in source
     assert "function resetPageFollowState()" in source
     assert "height: replicaView.pageScrollMode ? replicaView.height : 0" in source
@@ -88,6 +93,20 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "property bool manualDragScroll: false" in source
     assert "var viewportBottom = sourceY + height;" in source
     assert "function currentReplicaFocusTargetY()" in source
+    assert "function replicaReadingBounds(index)" in source
+    assert "function longReplicaTargetY(index, pageMode)" in source
+    assert "function pageFragmentStep()" in source
+    assert "height - preferredHighlightBegin" in source
+    assert "function followCurrentLongReplica()" in source
+    assert "longReplicaScrollAnimation" in source
+    assert "replicaView.followCurrentLongReplica();" in source
+    assert "var page = Math.min(pages, Math.floor(progress * (pages + 1)));" in source
+    assert "readonly property int debugFragmentCount" in source
+    assert "including one reached by manual scrolling" in source
+    assert "readonly property real debugFocusFragmentY" in source
+    assert "replicaView.contentY + replicaView.preferredHighlightBegin" in source
+    assert 'text: qsTr("Фрагмент %1").arg(index + 1)' in source
+    assert "guides: cyan lines start at the focus line" in source
     assert "function replicaFocusTargetY(index)" in source
     assert "function prefetchNextReplicaDuringGap()" in source
     assert "function startPageScroll(sourceY, targetY, targetIndex)" in source
@@ -104,8 +123,7 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "contentY - preferredHighlightBegin" in source
     assert "onDraggingChanged:" in source
     assert "onMovementEnded: finishManualDragScroll()" in source
-    assert "onContentHeightChanged: Qt.callLater(function()" in source
-    assert "onContentHeightChanged: Qt.callLater(function() {\n                        if (pageScrollHoldUntil >= 0)" in source
+    assert "onContentHeightChanged: queueViewportFollow()" in source
     assert "function capturePageDebug(" in source
     assert 'toolTipText: qsTr("Переподключить REAPER")' in source
     assert "window.teleprompter.restartOsc()" in source
