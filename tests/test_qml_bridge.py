@@ -15,6 +15,7 @@ from services.audiobook_document_service import AudiobookDocumentService
 from ui.qml_backend.app_bridge import AppBridge
 from ui.qml_backend.features.teleprompter_bridge import (
     REAPER_ACTIVITY_TIMEOUT_SECONDS,
+    TeleprompterBridge,
 )
 from ui.qml_backend.features.ui_state_bridge import UiStateBridge
 
@@ -391,6 +392,121 @@ def test_qml_teleprompter_navigates_from_current_replica(tmp_path):
     prompter._set_time(41.5, "reaper")
     prompter.navigate(-1)
     assert prompter.time == 10.0
+
+
+def test_qml_teleprompter_navigates_exactly_across_overlapping_rows(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.data["episode_working_texts"]["1"]["lines"] = [
+        {
+            "id": "overlap-1",
+            "start": 10.0,
+            "end": 20.0,
+            "character": "Hero",
+            "text": "First overlapping line",
+        },
+        {
+            "id": "overlap-2",
+            "start": 15.0,
+            "end": 16.0,
+            "character": "Villain",
+            "text": "Second overlapping line",
+        },
+        {
+            "id": "overlap-3",
+            "start": 18.0,
+            "end": 19.0,
+            "character": "Hero",
+            "text": "Third overlapping line",
+        },
+    ]
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    prompter.jumpToIndex(1)
+    assert prompter.time == 15.0
+    assert prompter.currentIndex == 1
+
+    prompter.navigate(1)
+    assert prompter.time == 18.0
+    assert prompter.currentIndex == 2
+
+    prompter.navigate(-1)
+    assert prompter.time == 15.0
+    assert prompter.currentIndex == 1
+
+
+def test_qml_teleprompter_maps_imported_source_timings_to_text_offsets():
+    guides = TeleprompterBridge._replica_timing_guides(
+        {
+            "s": 10.0,
+            "e": 20.0,
+            "text": "😀 Первая / Вторая",
+            "source_ids": ["a", "b"],
+            "source_texts": ["😀 Первая", "Вторая"],
+        },
+        {
+            "a": {"id": "a", "s": 10.0, "e": 14.0, "text": "😀 Первая"},
+            "b": {"id": "b", "s": 15.0, "e": 20.0, "text": "Вторая"},
+        },
+    )
+
+    assert guides == [
+        {
+            "sourceId": "a",
+            "start": 10.0,
+            "end": 14.0,
+            "textStart": 0,
+            "textEnd": 9,
+        },
+        {
+            "sourceId": "b",
+            "start": 15.0,
+            "end": 20.0,
+            "textStart": 12,
+            "textEnd": 18,
+        },
+    ]
+
+
+def test_qml_teleprompter_rejects_stale_source_text_offsets():
+    assert TeleprompterBridge._replica_timing_guides(
+        {
+            "s": 10.0,
+            "e": 20.0,
+            "text": "Отредактированная реплика",
+            "source_ids": [1],
+            "source_texts": ["Исходная реплика"],
+        },
+        {"1": {"id": 1, "s": 10.0, "e": 20.0, "text": "Исходная реплика"}},
+    ) == []
+
+def test_qml_teleprompter_debug_reaper_simulator(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    prompter.debugSetSimulationActive(True)
+    assert not prompter.debugSimulationActive
+
+    prompter.setConfigValue("page_debug_overlay", True)
+    prompter.debugSetSimulationActive(True)
+    assert prompter.debugSimulationActive
+
+    prompter.debugSetReaperTime(3.5)
+    assert prompter.time == 3.5
+    assert prompter.currentIndex == 1
+    assert prompter.positionOrigin == "reaper"
+
+    prompter._on_osc_time(1.5)
+    assert prompter.time == 3.5
+
+    prompter.debugSetSimulationActive(False)
+    assert not prompter.debugSimulationActive
+    assert not prompter._reaper_playing
 
 
 def test_qml_teleprompter_defers_reaper_time_after_local_navigation(tmp_path):

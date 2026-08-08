@@ -85,7 +85,8 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "property bool viewportFollowQueued: false" in source
     assert "onHeightChanged: queueViewportFollow()" in source
     assert "onWidthChanged: queueViewportFollow()" in source
-    assert "onContentHeightChanged: queueViewportFollow()" in source
+    assert "contentHeight also changes while ListView creates" in source
+    assert "&& !manualDragScroll && !dragging && !moving" in source
     assert "function scrollCurrentReplicaToFocusBoundary()" in source
     assert "function resetPageFollowState()" in source
     assert "height: replicaView.pageScrollMode ? replicaView.height : 0" in source
@@ -100,16 +101,31 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "function followCurrentLongReplica()" in source
     assert "longReplicaScrollAnimation" in source
     assert "replicaView.followCurrentLongReplica();" in source
-    assert "var page = Math.min(pages, Math.floor(progress * (pages + 1)));" in source
+    assert "var renderedHeight = bounds.item.height;" in source
+    assert "Math.floor((renderedHeight - 1) / step)" in source
+    assert "function sourceTimedContinuousTarget(index, bounds)" in source
+    assert "function pageTransitionForFragment(" in source
+    assert "bounds.item.laidOutTimingGuides()" in source
+    assert 'source: "ASS: конец строки " + selected.sourceId' in source
+    assert 'source: guides.length > 0' in source
+    assert '"визуальный fallback"' in source
+    assert "positionToRectangle(" in source
+    assert "pageDebugThresholdTime" in source
     assert "readonly property int debugFragmentCount" in source
     assert "including one reached by manual scrolling" in source
     assert "readonly property real debugFocusFragmentY" in source
     assert "replicaView.contentY + replicaView.preferredHighlightBegin" in source
-    assert 'text: qsTr("Фрагмент %1").arg(index + 1)' in source
+    assert 'text: qsTr("Фрагмент %1").arg(fragmentGuide.index + 1)' in source
     assert "guides: cyan lines start at the focus line" in source
     assert "function replicaFocusTargetY(index)" in source
     assert "function prefetchNextReplicaDuringGap()" in source
     assert "function startPageScroll(sourceY, targetY, targetIndex)" in source
+    assert "function positionReplicaExactly(index, event)" in source
+    assert "function correctPageScrollTarget()" in source
+    assert "var targetY = exactPageTargetY(index);" in source
+    assert "contentY = targetY;" in source
+    assert 'window.teleprompter.positionOrigin === "local"' in source
+    assert "Math.abs(currentIndex - previousIndex) > 1" in source
     assert "function showPageTargetHighlight(index)" in source
     assert "function fadePageTargetHighlight()" in source
     assert "pageTargetHighlightFade" in source
@@ -123,8 +139,14 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "contentY - preferredHighlightBegin" in source
     assert "onDraggingChanged:" in source
     assert "onMovementEnded: finishManualDragScroll()" in source
-    assert "onContentHeightChanged: queueViewportFollow()" in source
+    assert "longReplicaScrollAnimation.stop();" in source
     assert "function capturePageDebug(" in source
+    assert 'text: qsTr("Mock REAPER")' in source
+    assert "debugSetSimulationActive" in source
+    assert "debugSetReaperTime" in source
+    assert "debugSimulationSpeed" in source
+    assert "pageDebugTrace" in source
+    assert "pageDebugRenderedHeight" in source
     assert 'toolTipText: qsTr("Переподключить REAPER")' in source
     assert "window.teleprompter.restartOsc()" in source
     assert "pageDebugButton" not in source
@@ -160,7 +182,8 @@ def test_teleprompter_restores_following_after_manual_scroll_and_list_jump():
         encoding="utf-8"
     )
 
-    assert "function jumpToReplica(seconds)" in source
+    assert "function jumpToReplica(index)" in source
+    assert "teleprompter.jumpToIndex(index);" in source
     assert "function resetFollowingState()" in source
     assert "function setEpisode(episode)" in source
     assert "followCurrentReplicaByPage();" in source
@@ -195,8 +218,8 @@ def test_teleprompter_list_click_aligns_page_mode_replica_to_the_top():
     )
 
     assert "replicaView.scrollCurrentReplicaToFocusBoundary();" in source
-    assert "Клик: выравнивание реплики к фокусу" in source
-    assert "signal replicaJumpRequested(real seconds)" in float_source
+    assert "Клик: точное выравнивание реплики к фокусу" in source
+    assert "signal replicaJumpRequested(int index)" in float_source
     assert "floatWindow.replicaJumpRequested(" in float_source
 
 
@@ -205,7 +228,7 @@ def test_windows_teleprompter_is_not_transient_to_the_main_window():
         encoding="utf-8"
     )
 
-    assert "transientParent: windowsStyle ? null : ownerWindow" in source
+    assert "transientParent: windowsStyle || !ownerWindow ? null : ownerWindow" in source
 
 
 def test_macos_main_window_waits_for_native_chrome_before_showing():

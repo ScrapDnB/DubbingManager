@@ -81,6 +81,7 @@ class TeleprompterBridge(QObject):
         self._last_osc_activity: Optional[float] = None
         self._last_reaper_time: Optional[float] = None
         self._reaper_playing = False
+        self._debug_simulation_active = False
         self._pending_reaper_time: Optional[tuple[float, float]] = None
         self._osc_runtime_config: Optional[tuple[int, int]] = None
         self._reaper_connection_state = "disabled"
@@ -101,6 +102,7 @@ class TeleprompterBridge(QObject):
             "active": Qt.UserRole + 9,
             "sourceIds": Qt.UserRole + 10,
             "colorActive": Qt.UserRole + 11,
+            "timingGuides": Qt.UserRole + 12,
         }, self)
         self._actor_model = DictListModel({
             "actorId": Qt.UserRole + 1,
@@ -140,6 +142,10 @@ class TeleprompterBridge(QObject):
     @Property(str, notify=positionChanged)
     def positionOrigin(self) -> str:
         return self._position_origin
+
+    @Property(bool, notify=oscChanged)
+    def debugSimulationActive(self) -> bool:
+        return self._debug_simulation_active
 
     @Property(str, notify=oscChanged)
     def oscStatus(self) -> str:
@@ -230,7 +236,32 @@ class TeleprompterBridge(QObject):
 
     @Slot()
     def close(self) -> None:
+        self._debug_simulation_active = False
         self._stop_osc()
+
+    @Slot(bool)
+    def debugSetSimulationActive(self, active: bool) -> None:
+        """Enable a deterministic REAPER input simulator for QML diagnostics."""
+        active = bool(active) and bool(self.config.get("page_debug_overlay"))
+        if self._debug_simulation_active == active:
+            return
+        self._debug_simulation_active = active
+        if not active:
+            self._reaper_playing = False
+        self.oscChanged.emit()
+
+    @Slot(float)
+    def debugSetReaperTime(self, seconds: float) -> None:
+        """Inject one simulated REAPER position through the normal UI path."""
+        if not (
+            self._debug_simulation_active
+            and self.config.get("page_debug_overlay")
+        ):
+            return
+        seconds = max(0.0, float(seconds))
+        self._last_reaper_time = seconds
+        self._reaper_playing = True
+        self._set_time(seconds, "reaper")
 
     @Slot()
     def restartOsc(self) -> None:
@@ -374,6 +405,11 @@ class TeleprompterBridge(QObject):
         self._jump_to(seconds, "local", send_sync=True)
 
     @Slot(int)
+    def jumpToIndex(self, index: int) -> None:
+        """Jump to an exact row even when replica time ranges overlap."""
+        self._jump_to_index(index, "local", send_sync=True)
+
+    @Slot(int)
     def navigate(self, direction: int) -> None:
         self._navigate(direction, "local", send_sync=True)
 
@@ -384,6 +420,25 @@ class TeleprompterBridge(QObject):
         send_sync: bool,
     ) -> None:
         self._set_time(max(0.0, float(seconds)), origin)
+        self._send_time_to_reaper(send_sync)
+
+    def _jump_to_index(
+        self,
+        index: int,
+        origin: str,
+        send_sync: bool,
+    ) -> None:
+        rows = self._model.rows()
+        index = int(index)
+        if index < 0 or index >= len(rows) or not rows[index].get("active"):
+            return
+        self._time = max(0.0, float(rows[index]["start"]))
+        self._position_origin = origin
+        self._current_index = index
+        self.positionChanged.emit()
+        self._send_time_to_reaper(send_sync)
+
+    def _send_time_to_reaper(self, send_sync: bool) -> None:
         config = self.config
         if not (
             send_sync
@@ -435,7 +490,7 @@ class TeleprompterBridge(QObject):
                 (index for index in reversed(active) if index < self._current_index),
                 active[-1],
             )
-        self._jump_to(float(rows[target]["start"]), origin, send_sync)
+        self._jump_to_index(target, origin, send_sync)
 
     def _should_apply_reaper_time(self, seconds: float) -> bool:
         pending = self._pending_reaper_time
@@ -647,6 +702,17 @@ class TeleprompterBridge(QObject):
             lines,
             self._global_settings_service.get_replica_merge_config(),
         )
+        source_timing_by_id: Dict[str, Dict[str, Any]] = {}
+        if self._script_text_service.has_imported_source_lines(
+            project_data, self._episode
+        ):
+            source_timing_by_id = {
+                str(line.get("id")): line
+                for line in self._script_text_service.get_source_lines(
+                    project_data, self._episode
+                )
+                if line.get("id") is not None
+            }
         actors = project_data.get("actors", {})
         all_actor_ids = set(actors)
         selected_actor_ids = (
@@ -698,6 +764,9 @@ class TeleprompterBridge(QObject):
                 "active": show_all_as_active or bool(selected_for_replica),
                 "colorActive": bool(color_actor_id),
                 "sourceIds": list(source_ids),
+                "timingGuides": self._replica_timing_guides(
+                    replica, source_timing_by_id
+                ),
             })
         self._model.set_rows(rows)
         self._actor_model.set_rows([
@@ -717,6 +786,66 @@ class TeleprompterBridge(QObject):
         self._update_index()
         self.changed.emit()
         self.positionChanged.emit()
+
+    @staticmethod
+    def _replica_timing_guides(
+        replica: Dict[str, Any],
+        source_timing_by_id: Dict[str, Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Map imported source-line ends to exact offsets in rendered text.
+
+        Edited working text is intentionally not matched approximately: an
+        incorrect character offset is worse than falling back to proportional
+        scrolling for that replica.
+        """
+        if not source_timing_by_id:
+            return []
+        text = str(replica.get("text") or "")
+        source_ids = list(replica.get("source_ids") or [])
+        source_texts = list(replica.get("source_texts") or [])
+        if not text or not source_ids:
+            return []
+
+        replica_start = float(replica.get("s", 0.0) or 0.0)
+        replica_end = float(replica.get("e", replica_start) or replica_start)
+        cursor = 0
+        last_end = replica_start
+        guides: List[Dict[str, Any]] = []
+        for position, source_id in enumerate(source_ids):
+            source = source_timing_by_id.get(str(source_id))
+            if source is None:
+                return []
+            source_text = str(
+                source_texts[position]
+                if position < len(source_texts)
+                else source.get("text") or ""
+            )
+            if not source_text:
+                return []
+            text_start = text.find(source_text, cursor)
+            if text_start < 0:
+                return []
+            text_end = text_start + len(source_text)
+            start = float(source.get("s", replica_start) or replica_start)
+            end = float(source.get("e", start) or start)
+            if end < last_end or start > end:
+                return []
+            start = max(replica_start, min(replica_end, start))
+            end = max(start, min(replica_end, end))
+            # QML text positions use UTF-16 code units rather than Python
+            # Unicode code points.
+            utf16_start = len(text[:text_start].encode("utf-16-le")) // 2
+            utf16_end = len(text[:text_end].encode("utf-16-le")) // 2
+            guides.append({
+                "sourceId": source_id,
+                "start": start,
+                "end": end,
+                "textStart": utf16_start,
+                "textEnd": utf16_end,
+            })
+            cursor = text_end
+            last_end = end
+        return guides
 
     def reset(self) -> None:
         self.close()
@@ -976,6 +1105,8 @@ class TeleprompterBridge(QObject):
     def _on_osc_time(self, seconds: float) -> None:
         self._last_reaper_time = float(seconds)
         self._mark_osc_activity()
+        if self._debug_simulation_active:
+            return
         config = self.config
         if self._should_follow_reaper_time(config) and self._apply_reaper_time(seconds):
             return
@@ -997,6 +1128,8 @@ class TeleprompterBridge(QObject):
 
     @Slot(bool)
     def _on_osc_transport(self, playing: bool) -> None:
+        if self._debug_simulation_active:
+            return
         playing = bool(playing)
         if self._reaper_playing != playing:
             self._reaper_playing = playing

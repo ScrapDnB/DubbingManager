@@ -14,7 +14,7 @@ Window {
     required property color softBorder
     required property color softMuted
     property var ownerWindow
-    signal replicaJumpRequested(real seconds)
+    signal replicaJumpRequested(int index)
     signal navigationRequested(int direction)
     signal episodeChangeRequested(string episode)
 
@@ -232,7 +232,7 @@ Window {
                     HoverHandler { id: navigationHover }
                     TapHandler {
                         onTapped: floatWindow.replicaJumpRequested(
-                            navigationRow.start
+                            navigationRow.index
                         )
                     }
 
