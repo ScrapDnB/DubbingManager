@@ -41,9 +41,11 @@ class TestGlobalSettingsService:
         assert 'prompter_config' not in settings
         assert 'replica_merge_config' not in settings
         assert settings['default_export_config'] == DEFAULT_EXPORT_CONFIG
+        assert settings['default_export_config']['highlight_character_only'] is False
         assert settings['quick_converter_config']['layout_type'] == 'Таблица'
         assert settings['quick_converter_config']['use_color'] is False
         assert settings['default_prompter_config'] == DEFAULT_PROMPTER_CONFIG
+        assert settings['default_prompter_config']['show_end_timecode'] is True
         assert settings['language'] == 'ru'
         assert settings['backup_config'] == {
             'enabled': True,

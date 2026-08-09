@@ -72,13 +72,14 @@ PersistentScrollView {
         }
 
         FormSection {
-            title: qsTr("Оформление")
+            title: qsTr("Цвета и подсветка")
             Layout.fillWidth: true
             GridLayout {
                 anchors.fill: parent
                 columns: 2
                 CheckBox { text: qsTr("Цвета актёров"); checked: Boolean(pane.configuration.use_color); onToggled: pane.setValue("use_color", checked) }
-                CheckBox { text: qsTr("Смягчать фон"); enabled: Boolean(pane.configuration.use_color); checked: Boolean(pane.configuration.soften_colors); onToggled: pane.setValue("soften_colors", checked) }
+                CheckBox { text: qsTr("Выделять только персонажа"); enabled: Boolean(pane.configuration.use_color); checked: Boolean(pane.configuration.highlight_character_only); onToggled: pane.setValue("highlight_character_only", checked) }
+                CheckBox { text: qsTr("Смягчать цвета"); enabled: Boolean(pane.configuration.use_color); checked: Boolean(pane.configuration.soften_colors); onToggled: pane.setValue("soften_colors", checked) }
                 CheckBox { visible: pane.showEditableHtml; text: qsTr("Разрешить правку"); checked: Boolean(pane.configuration.allow_edit); onToggled: pane.setValue("allow_edit", checked) }
                 CheckBox { visible: pane.showOpenAfterExport; text: qsTr("Открывать экспорт"); checked: Boolean(pane.configuration.open_auto); onToggled: pane.setValue("open_auto", checked) }
             }

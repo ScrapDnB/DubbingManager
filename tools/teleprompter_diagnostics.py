@@ -92,6 +92,33 @@ def int_property(obj: QObject, name: str, default: int = 0) -> int:
     return int(round(numeric_property(obj, name, default)))
 
 
+def scroll_plan_properties(view: QObject) -> dict[str, Any]:
+    """Return the last duration decision made by the real QML scheduler."""
+    return {
+        "smoothness_level": int_property(
+            view, "scrollDebugSmoothnessLevel"
+        ),
+        "distance_screens": round(numeric_property(
+            view, "scrollDebugDistanceScreens"
+        ), 3),
+        "desired_duration_ms": int_property(
+            view, "scrollDebugDesiredDurationMs"
+        ),
+        "available_duration_ms": int_property(
+            view, "scrollDebugAvailableDurationMs", -1
+        ),
+        "actual_duration_ms": int_property(
+            view, "scrollDebugActualDurationMs"
+        ),
+        "scroll_deadline": round(numeric_property(
+            view, "scrollDebugDeadline", -1
+        ), 3),
+        "duration_limit": str(
+            view.property("scrollDebugDurationLimit") or ""
+        ),
+    }
+
+
 def process_for(milliseconds: int) -> None:
     QTest.qWait(max(0, int(milliseconds)))
     QGuiApplication.processEvents()
@@ -145,6 +172,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--check-navigation", action="store_true",
         help="Validate local jump and next/previous navigation for every row.",
+    )
+    parser.add_argument(
+        "--jump-index", action="append", type=int, default=[],
+        help="Perform and inspect an exact local replica jump; may be repeated.",
     )
     parser.add_argument(
         "--all-samples", action="store_true",
@@ -294,6 +325,21 @@ def main(argv: list[str] | None = None) -> int:
             "page_gap_prefetch_delay_seconds"
         ),
         "highlight_fade_ms": config.get("page_target_highlight_fade_ms"),
+        # Live configuration changes below are applied before playback.  The
+        # config record reports the final requested level accordingly.
+        "smoothness_level": (
+            args.smoothness[-1] if args.smoothness
+            else int_property(window, "scrollSmoothnessLevel")
+        ),
+        "full_screen_duration_ms": round(
+            150 * math.pow(
+                5000 / 150,
+                (
+                    args.smoothness[-1] if args.smoothness
+                    else int_property(window, "scrollSmoothnessLevel")
+                ) / 100,
+            )
+        ),
     }, args.json_lines)
 
     failures: list[str] = []
@@ -412,7 +458,7 @@ def main(argv: list[str] | None = None) -> int:
     previous_prefetch_index = -1
     sample_count = 0
     transition_count = 0
-    long_replica_motion: dict[int, dict[str, list[float]]] = {}
+    long_replica_motion: dict[int, dict[str, Any]] = {}
     current = args.start
     while current <= end + 1e-9:
         bridge.teleprompter.debugSetReaperTime(current)
@@ -448,7 +494,7 @@ def main(argv: list[str] | None = None) -> int:
         ):
             process_for(max(
                 args.settle_ms,
-                int(numeric_property(window, "scrollDurationMs")) + 30,
+                int_property(view, "scrollDebugActualDurationMs") + 30,
             ))
             settled = True
             qml_index = int_property(view, "currentIndex", -1)
@@ -519,6 +565,25 @@ def main(argv: list[str] | None = None) -> int:
                     f"time {current:.3f}: prefetch started before "
                     f"{expected_earliest:.3f}"
                 )
+        scroll_plan = scroll_plan_properties(view)
+        desired_duration = int(scroll_plan["desired_duration_ms"])
+        available_duration = int(scroll_plan["available_duration_ms"])
+        actual_duration = int(scroll_plan["actual_duration_ms"])
+        if desired_duration > 0:
+            if actual_duration < 80 or actual_duration > desired_duration:
+                failures.append(
+                    f"time {current:.3f}: invalid scroll duration "
+                    f"{actual_duration}ms for desired {desired_duration}ms"
+                )
+            if (
+                available_duration >= 80
+                and actual_duration > available_duration
+            ):
+                failures.append(
+                    f"time {current:.3f}: scroll duration "
+                    f"{actual_duration}ms exceeds budget "
+                    f"{available_duration}ms"
+                )
         if index == previous_index and page < previous_page:
             failures.append(
                 f"time {current:.3f}: page moved backwards {previous_page}->{page}"
@@ -546,10 +611,15 @@ def main(argv: list[str] | None = None) -> int:
 
         if index >= 0 and rendered_height > numeric_property(view, "height"):
             motion = long_replica_motion.setdefault(
-                index, {"target": [], "content": []}
+                index, {
+                    "target": [], "content": [],
+                    "elapsed_ms": 0, "duration_ms": [],
+                }
             )
             motion["target"].append(target_y)
             motion["content"].append(content_y)
+            motion["elapsed_ms"] += args.tick_ms
+            motion["duration_ms"].append(actual_duration)
 
         concise_signature = (
             index, page, pages, event, timing_source, prefetch_index
@@ -587,6 +657,7 @@ def main(argv: list[str] | None = None) -> int:
                 "highlight_opacity": round(highlight_opacity, 3),
                 "settled": settled,
                 "event": event,
+                **scroll_plan,
             }, args.json_lines)
             previous_signature = output_signature
         previous_index = index
@@ -632,6 +703,64 @@ def main(argv: list[str] | None = None) -> int:
             "target_y": round(numeric_property(view, "pageDebugTargetY"), 1),
             "event": str(view.property("pageDebugEvent") or ""),
             "ok": ok,
+            **scroll_plan_properties(view),
+        }, args.json_lines)
+
+    for requested_index in args.jump_index:
+        if requested_index < 0 or requested_index >= len(rows):
+            print(
+                f"--jump-index must be between 0 and {len(rows) - 1}",
+                file=sys.stderr,
+            )
+            return 2
+        jump_source_y = numeric_property(view, "contentY")
+        bridge.teleprompter.jumpToIndex(requested_index)
+        process_for(5)
+        initial_content_y = numeric_property(view, "contentY")
+        # Let QML materialize a potentially distant delegate and calculate
+        # the actual duration before waiting for the animation itself.
+        process_for(45)
+        process_for(max(
+            args.settle_ms,
+            int_property(view, "scrollDebugActualDurationMs") + 200,
+        ))
+        actual_index = bridge.teleprompter.currentIndex
+        qml_index = int_property(view, "currentIndex", -1)
+        content_y = numeric_property(view, "contentY")
+        target_y = numeric_property(view, "pageDebugTargetY")
+        navigation_active = bool(view.property("localNavigationActive"))
+        aligned = abs(content_y - target_y) <= 2
+        ok = (
+            actual_index == requested_index
+            and qml_index == requested_index
+            and aligned
+            and not navigation_active
+        )
+        if not ok:
+            failures.append(
+                f"local jump {requested_index}: backend {actual_index}, "
+                f"QML {qml_index}, contentY {content_y:.1f}, "
+                f"targetY {target_y:.1f}, active {navigation_active}"
+            )
+        emit({
+            "type": "local-jump",
+            "requested_index": requested_index,
+            "index": actual_index,
+            "qml_index": qml_index,
+            "time": round(float(rows[requested_index]["start"]), 3),
+            "content_y": round(content_y, 1),
+            "source_y": round(jump_source_y, 1),
+            "initial_content_y": round(initial_content_y, 1),
+            "initial_displacement": round(
+                initial_content_y - jump_source_y, 1
+            ),
+            "origin_y": round(numeric_property(view, "originY"), 1),
+            "target_y": round(target_y, 1),
+            "event": str(view.property("pageDebugEvent") or ""),
+            "aligned": aligned,
+            "navigation_active": navigation_active,
+            "ok": ok,
+            **scroll_plan_properties(view),
         }, args.json_lines)
 
     if args.check_navigation:
@@ -675,7 +804,15 @@ def main(argv: list[str] | None = None) -> int:
     for index, motion in long_replica_motion.items():
         target_travel = max(motion["target"]) - min(motion["target"])
         content_travel = max(motion["content"]) - min(motion["content"])
-        if target_travel > 100 and content_travel < min(20, target_travel * 0.1):
+        longest_duration = max(motion["duration_ms"] or [0])
+        observed_long_enough = motion["elapsed_ms"] >= max(
+            250, longest_duration
+        )
+        if (
+            observed_long_enough
+            and target_travel > 100
+            and content_travel < min(20, target_travel * 0.1)
+        ):
             failures.append(
                 f"row {index}: scroll appears stuck; target travelled "
                 f"{target_travel:.1f}px, content only {content_travel:.1f}px"
@@ -781,6 +918,7 @@ def main(argv: list[str] | None = None) -> int:
             "highlight_opacity": round(highlight_opacity, 3),
             "prefetch_index": prefetch_index,
             "ok": not event_failures,
+            **scroll_plan_properties(view),
         }, args.json_lines)
 
     for event_number in range(1, args.stress_events + 1):

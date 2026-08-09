@@ -332,6 +332,8 @@ class ExportService(ExportLayoutMixin):
         col_char = cfg.get('col_char', True)
         col_actor = cfg.get('col_actor', True)
         col_text = cfg.get('col_text', True)
+        character_only = bool(cfg.get('highlight_character_only', False))
+        character_column = 2 + int(bool(col_tc)) if col_char else None
 
         # Headers only for selected columns
         headers = [translate_source('Номер')]
@@ -430,8 +432,16 @@ class ExportService(ExportLayoutMixin):
                     cell,
                     font_size=font_size,
                     wrap_text=wrap_text,
-                    fill_color=color_hex,
-                    text_color=text_color,
+                    fill_color=(
+                        color_hex
+                        if not character_only or col == character_column
+                        else 'FFFFFF'
+                    ),
+                    text_color=(
+                        text_color
+                        if not character_only or col == character_column
+                        else None
+                    ),
                     border=thin_border
                 )
 

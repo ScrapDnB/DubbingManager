@@ -34,6 +34,17 @@ def test_macos_integration_is_a_safe_noop_on_other_platforms(monkeypatch):
     window.winId.assert_not_called()
 
 
+def test_selected_native_popup_payload_does_not_depend_on_menu_index():
+    sender = Mock()
+    selected_item = Mock()
+    sender.selectedItem.return_value = selected_item
+    selected_item.representedObject.return_value = "__clear__"
+    sender.indexOfSelectedItem.return_value = 2
+
+    assert macos_integration._selected_menu_payload(sender) == "__clear__"
+    sender.indexOfSelectedItem.assert_not_called()
+
+
 def test_native_toolbar_defines_every_project_action_once():
     integration = macos_integration.MacOSIntegration()
 

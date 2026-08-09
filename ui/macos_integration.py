@@ -14,6 +14,15 @@ from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 logger = logging.getLogger(__name__)
 
 
+def _selected_menu_payload(sender: Any) -> str:
+    """Return the payload attached to the selected native popup item."""
+    try:
+        item = sender.selectedItem()
+        return "" if item is None else str(item.representedObject() or "")
+    except (AttributeError, TypeError):
+        return ""
+
+
 if sys.platform == "darwin":
     import objc
     from AppKit import (
@@ -121,9 +130,12 @@ if sys.platform == "darwin":
                 callback(self.owner, self.project)
 
         def recentProjectSelected_(self, sender):
-            index = int(sender.indexOfSelectedItem()) - 1
-            if 0 <= index < len(self.recent_paths):
-                self.project.openRecent(self.recent_paths[index])
+            # Resolve the path from the selected item itself. The recent model
+            # is reordered (or cleared) while openRecent() is running, so an
+            # index into a parallel list can point at another project.
+            path = _selected_menu_payload(sender)
+            if path:
+                self.project.openRecent(path)
             sender.selectItemAtIndex_(0)
 
         def openSettings_(self, _sender):
@@ -150,7 +162,6 @@ if sys.platform == "darwin":
                 return
             popup.removeAllItems()
             popup.addItemWithTitle_("Недавние проекты")
-            self.recent_paths = []
             model = self.project.recentProjectsModel
             roles = {
                 bytes(name).decode("utf-8"): role
@@ -163,7 +174,7 @@ if sys.platform == "darwin":
                 if not path:
                     continue
                 popup.addItemWithTitle_(name or Path(path).name)
-                self.recent_paths.append(path)
+                popup.lastItem().setRepresentedObject_(path)
 
 
     class _ComboMenuTarget(NSObject):

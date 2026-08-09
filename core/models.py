@@ -198,6 +198,8 @@ class ExportConfig:
     f_actor: int = 14
     f_text: int = 30
     use_color: bool = True
+    soften_colors: bool = True
+    highlight_character_only: bool = False
     open_auto: bool = True
     round_time: bool = False
     time_display: str = 'range'

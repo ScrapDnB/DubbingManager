@@ -6,7 +6,8 @@ from typing import Any
 def normalize_export_option(key: str, value: Any) -> Any:
     bool_keys = {
         "col_tc", "col_char", "col_actor", "col_text", "use_color",
-        "soften_colors", "open_auto", "round_time", "allow_edit",
+        "soften_colors", "highlight_character_only", "open_auto",
+        "round_time", "allow_edit",
         "format_html", "format_xls", "format_docx", "format_pdf",
     }
     if key in bool_keys:

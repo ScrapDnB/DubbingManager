@@ -11,13 +11,13 @@ PersistentScrollView {
     required property var configuration
     signal configEdited(var config)
 
-    function scrollDurationMs() {
-        var position = Math.max(0, Math.min(
+    function scrollSmoothnessLevel() {
+        return Math.round(Math.max(0, Math.min(
             100, Number(pane.configuration.scroll_smoothness_slider || 0)
-        ));
-        return Math.round(150 * Math.pow(5000 / 150, position / 100));
+        )))
     }
     property string colorTarget: ""
+    property string colorOriginalValue: ""
     property bool globalScope: false
     property bool appearanceScope: true
     property bool automationScope: true
@@ -75,21 +75,34 @@ PersistentScrollView {
         return Math.max(0, Math.min(0.44, value))
     }
 
-    function targetHighlightTransparencyPercent() {
-        return Math.round((1 - targetHighlightOpacity() / 0.44) * 100)
+    function targetHighlightBrightnessPercent() {
+        return Math.round(targetHighlightOpacity() / 0.44 * 100)
     }
 
-    function setTargetHighlightTransparency(percent) {
+    function setTargetHighlightBrightness(percent) {
         setValue(
             "page_target_highlight_opacity",
-            Math.max(0, Math.min(0.44, (100 - percent) * 0.0044))
+            Math.max(0, Math.min(0.44, percent * 0.0044))
         )
     }
 
     ColorDialog {
         id: colorDialog
         title: qsTr("Цвет телесуфлёра")
-        onAccepted: pane.setColor(pane.colorTarget, selectedColor.toString())
+        property bool previewActive: false
+        onSelectedColorChanged: {
+            if (previewActive) {
+                pane.setColor(pane.colorTarget, selectedColor.toString())
+            }
+        }
+        onAccepted: {
+            previewActive = false
+            pane.setColor(pane.colorTarget, selectedColor.toString())
+        }
+        onRejected: {
+            previewActive = false
+            pane.setColor(pane.colorTarget, pane.colorOriginalValue)
+        }
     }
 
     ColumnLayout {
@@ -123,8 +136,8 @@ PersistentScrollView {
                     onToggled: pane.setValue("page_scroll_mode", checked)
                     Layout.columnSpan: 3
                 }
-                Label { text: qsTr("Плавность: %1 мс").arg(pane.scrollDurationMs()); Layout.columnSpan: 2 }
-                Slider { from: 0; to: 100; value: Number(pane.configuration.scroll_smoothness_slider || 18); onMoved: pane.setValue("scroll_smoothness_slider", Math.round(value)); Layout.fillWidth: true }
+                Label { text: qsTr("Уровень плавности: %1%").arg(pane.scrollSmoothnessLevel()); Layout.columnSpan: 2 }
+                Slider { from: 0; to: 100; value: pane.configuration.scroll_smoothness_slider === undefined ? 18 : Number(pane.configuration.scroll_smoothness_slider); onMoved: pane.setValue("scroll_smoothness_slider", Math.round(value)); Layout.fillWidth: true }
                 CheckBox {
                     text: qsTr("Показывать диагностику постраничного режима")
                     checked: Boolean(pane.configuration.page_debug_overlay)
@@ -228,6 +241,14 @@ PersistentScrollView {
                         onToggled: pane.setValue("show_timecode", checked)
                     }
                     CheckBox {
+                        text: qsTr("Окончание реплики")
+                        checked: Boolean(pane.configuration.show_end_timecode)
+                        enabled: Boolean(pane.configuration.show_timecode)
+                        onToggled: pane.setValue(
+                            "show_end_timecode", checked
+                        )
+                    }
+                    CheckBox {
                         text: qsTr("Персонаж")
                         checked: Boolean(pane.configuration.show_character)
                         onToggled: pane.setValue("show_character", checked)
@@ -288,7 +309,6 @@ PersistentScrollView {
                         { key: "inactive_text", label: "Неактивный текст" },
                         { key: "tc", label: "Таймкод" },
                         { key: "actor", label: "Актёр" },
-                        { key: "header_bg", label: "Фон заголовка" },
                         { key: "header_text", label: "Текст заголовка" },
                         { key: "block_border", label: "Границы блоков" },
                         { key: "page_target_highlight", label: "Подсветка прокрутки" }
@@ -313,10 +333,13 @@ PersistentScrollView {
                                 radius: 2
                             }
                             onClicked: {
+                                colorDialog.previewActive = false
                                 pane.colorTarget = colorRow.modelData.key
-                                colorDialog.selectedColor = (pane.configuration.colors || {})[
+                                pane.colorOriginalValue = (pane.configuration.colors || {})[
                                     colorRow.modelData.key
                                 ] || "#000000"
+                                colorDialog.selectedColor = pane.colorOriginalValue
+                                colorDialog.previewActive = true
                                 colorDialog.open()
                             }
                             PlatformToolTip {
@@ -342,8 +365,8 @@ PersistentScrollView {
                     Layout.columnSpan: 4
                     Layout.fillWidth: true
                     enabled: pageTargetHighlightEnabled.checked
-                    text: qsTr("Прозрачность подсветки: %1%").arg(
-                        pane.targetHighlightTransparencyPercent()
+                    text: qsTr("Яркость подсветки: %1%").arg(
+                        pane.targetHighlightBrightnessPercent()
                     )
                 }
                 Slider {
@@ -353,11 +376,11 @@ PersistentScrollView {
                     to: 100
                     stepSize: 1
                     enabled: pageTargetHighlightEnabled.checked
-                    value: pane.targetHighlightTransparencyPercent()
-                    onMoved: pane.setTargetHighlightTransparency(value)
+                    value: pane.targetHighlightBrightnessPercent()
+                    onMoved: pane.setTargetHighlightBrightness(value)
                     PlatformToolTip {
                         target: parent
-                        text: qsTr("0% — наиболее заметная, 100% — полностью прозрачная")
+                        text: qsTr("0% — полностью прозрачная, 100% — наиболее заметная")
                     }
                 }
                 Label {

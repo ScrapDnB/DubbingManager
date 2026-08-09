@@ -103,6 +103,7 @@ class TeleprompterBridge(QObject):
             "sourceIds": Qt.UserRole + 10,
             "colorActive": Qt.UserRole + 11,
             "timingGuides": Qt.UserRole + 12,
+            "endTime": Qt.UserRole + 13,
         }, self)
         self._actor_model = DictListModel({
             "actorId": Qt.UserRole + 1,
@@ -412,6 +413,11 @@ class TeleprompterBridge(QObject):
     @Slot(int)
     def navigate(self, direction: int) -> None:
         self._navigate(direction, "local", send_sync=True)
+
+    @Slot(result=int)
+    def currentIndexNow(self) -> int:
+        """Return the current index without QML property-binding latency."""
+        return self._current_index
 
     def _jump_to(
         self,
@@ -754,6 +760,7 @@ class TeleprompterBridge(QObject):
                 "start": start,
                 "end": end,
                 "time": _format_time(start),
+                "endTime": _format_time(end),
                 "character": character or "-",
                 "actor": " / ".join(
                     str(actors.get(actor_id, {}).get("name") or actor_id)
@@ -888,6 +895,7 @@ class TeleprompterBridge(QObject):
     def _normalize_option(self, key: str, value: Any) -> Any:
         if key in {
             "is_mirrored", "show_header", "show_timecode",
+            "show_end_timecode",
             "show_character", "show_actor", "show_replica",
             "show_block_borders", "hide_leading_timecode_zeros", "osc_enabled",
             "sync_in", "sync_out", "sync_play_only", "reaper_offset_enabled", "page_scroll_mode",

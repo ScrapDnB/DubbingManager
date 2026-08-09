@@ -80,7 +80,8 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "ListView.NoHighlightRange" in source
     assert "pageScrollAnimation" in source
     assert "scrollDurationMs" in source
-    assert 'qsTr("Плавность · %1 мс")' in source
+    assert "scrollSmoothnessLevel" in source
+    assert 'qsTr("Уровень плавности · %1%")' in source
     assert "5000 / 150" in source
     assert "pausePageFollowAtVisibleBoundary" in source
     assert "function resumePageFollowForReaperPosition()" in source
@@ -140,14 +141,55 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "function queueModelRefresh()" in source
     assert "retargetThreshold" in source
     assert "function startPageScroll(sourceY, targetY, targetIndex)" in source
-    assert "function pageScrollDurationForTarget(targetIndex)" in source
-    assert "(deadline - currentTime) * 800" in source
+    assert "function scrollDurationForMove(" in source
+    assert "function continuousScrollDeadline(index, bounds)" in source
+    assert "function pageScrollDurationForTarget(" in source
+    assert "function nextActiveReplicaStart(index)" in source
+    assert "Math.pow(" in source
+    assert "Math.min(1, distanceScreens), 0.65" in source
+    assert "(deadline - currentTime) * 1000 - 100" in source
+    assert 'limit = "дедлайн"' in source
+    assert "scrollDebugDesiredDurationMs" in source
+    assert "scrollDebugAvailableDurationMs" in source
+    assert "scrollDebugActualDurationMs" in source
+    assert "Easing.InOutCubic" in source
+    assert "scrollDurationForMove(sourceY, targetY, -1)" in source
+    assert 'qsTr("Окончание реплики")' in source
+    assert "required property string endTime" in source
+    assert "function timeRangeText(bracketed, multiline)" in source
+    assert '(multiline ? " -\\n" : " - ")' in source
+    assert "replicaDelegate.timeRangeText(true, false)" in source
+    assert "replicaDelegate.timeRangeText(false, false)" in source
+    assert "replicaDelegate.timeRangeText(false, true)" in source
+    assert source.count("replicaDelegate.timeRangeText(") == 3
+    assert "id: teleprompterHeader" in source
+    assert "id: teleprompterHeaderDivider" in source
+    assert "id: headerResizeHandler" in source
+    assert "readonly property bool hideLeadingTimecodeZeros:" in source
+    assert 'text.replace(/^0+:/, "")' in source
+    assert "parent.height * 0.72" in source
+    assert '"teleprompter.headerHeight"' in source
+    assert "teleprompterSurface.height - 160" in source
+    assert "initialHeight + translation.y" in source
+    assert "anchors.top: teleprompterHeader.visible" in source
+    assert "readonly property real teleprompterFocusY:" in source
+    assert "Math.min(height, teleprompterFocusY - y)" in source
+    assert "window.colors.header_bg" not in source
+    assert '"Фон заголовка"' not in source
+    focus_index = source.index("id: focusSlider")
+    elements_index = source.index('title: qsTr("Элементы")')
+    text_size_index = source.index('title: qsTr("Размер текста")')
+    assert focus_index < elements_index < text_size_index
+    assert "Math.min(window.scrollDurationMs, 500)" not in source
     assert "pageScrollTargetIndex === targetIndex" in source
     assert "pageScrollTargetIndex === currentIndex" in source
     assert '"Анимация к фокусу продолжается"' in source
     assert "var finalViewportTop = pageScrollAnimation.to;" in source
     assert "var animationNeedsRetarget = false;" in source
     assert "function positionReplicaExactly(index, event)" in source
+    assert "function materializeLocalNavigationIndex(index)" in source
+    assert "var item = itemAtIndex(index);" in source
+    assert "if (item) {\n                            return item;" in source
     assert "function correctPageScrollTarget()" in source
     assert "replicaView.correctPageScrollTarget();" in source
     assert "replicaView.fadePageTargetHighlight();" in source
@@ -212,15 +254,30 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "Подтягивать следующую реплику через:" in automation_settings
     assert "Подсвечивать цель при перемотке" in automation_settings
     assert 'key: "page_target_highlight"' in automation_settings
-    assert "Прозрачность подсветки:" in automation_settings
+    assert 'key: "header_bg"' not in automation_settings
+    assert "Фон заголовка" not in automation_settings
+    assert "Яркость подсветки:" in automation_settings
     assert "Время угасания:" in automation_settings
     assert '"page_target_highlight_opacity"' in automation_settings
     assert '"page_target_highlight_fade_ms"' in automation_settings
-    assert "targetHighlightTransparencyPercent" in source
+    assert "targetHighlightBrightnessPercent" in source
     assert "targetHighlightFadeMs" in source
     assert "duration: window.targetHighlightFadeMs" in source
     assert "Подсветка прокрутки" in source
-    assert "Прозрачность подсветки · %1%" in source
+    assert "Яркость подсветки · %1%" in source
+    assert "value * 0.0044" in source
+    assert "percent * 0.0044" in automation_settings
+    assert "property var colorPreviewOverrides: ({})" in source
+    assert "function previewColor(index, value)" in source
+    assert "function clearColorPreview()" in source
+    assert "onSelectedColorChanged:" in source
+    assert "window.previewColor(window.colorTarget, selectedColor);" in source
+    assert "onRejected:" in source
+    assert "window.clearColorPreview();" in source
+    assert "property string colorOriginalValue" in automation_settings
+    assert "ColorDialog.DontUseNativeDialog" not in source
+    assert "ColorDialog.DontUseNativeDialog" not in automation_settings
+    assert "pane.setColor(pane.colorTarget, pane.colorOriginalValue)" in automation_settings
 
 
 def test_teleprompter_restores_following_after_manual_scroll_and_list_jump():
@@ -255,7 +312,7 @@ def test_teleprompter_routes_float_navigation_through_window_state():
     assert "floatWindow.navigationRequested(1)" in float_source
 
 
-def test_teleprompter_list_click_aligns_page_mode_replica_to_the_top():
+def test_teleprompter_list_click_aligns_replica_to_the_top_transactionally():
     source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
         encoding="utf-8"
     )
@@ -263,8 +320,11 @@ def test_teleprompter_list_click_aligns_page_mode_replica_to_the_top():
         encoding="utf-8"
     )
 
-    assert "replicaView.scrollCurrentReplicaToFocusBoundary();" in source
-    assert "Клик: точное выравнивание реплики к фокусу" in source
+    assert "replicaView.queueLocalNavigation(" in source
+    assert "function queueLocalNavigation(index)" in source
+    assert "function startQueuedLocalNavigation()" in source
+    assert "function finishLocalNavigation()" in source
+    assert '"Локальная навигация завершена"' in source
     assert "signal replicaJumpRequested(int index)" in float_source
     assert "floatWindow.replicaJumpRequested(" in float_source
 
@@ -330,3 +390,18 @@ def test_settings_use_platform_navigation_and_shared_page_headers():
     assert "SettingsPageHeader" in global_settings
     assert "SettingsPageHeader" in project_settings
     assert "предварительной версии интерфейс доступен" not in global_settings
+
+
+def test_montage_exposes_character_only_highlight_setting():
+    preview = (
+        ROOT / "qml" / "components" / "MontagePreviewDialog.qml"
+    ).read_text(encoding="utf-8")
+    defaults = (
+        ROOT / "qml" / "components" / "MontageSettingsPane.qml"
+    ).read_text(encoding="utf-8")
+
+    for source in (preview, defaults):
+        assert 'qsTr("Цвета и подсветка")' in source
+        assert 'qsTr("Выделять только персонажа")' in source
+        assert '"highlight_character_only"' in source
+        assert 'qsTr("Смягчать цвета")' in source

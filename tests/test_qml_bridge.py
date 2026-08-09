@@ -326,6 +326,8 @@ def test_qml_bridge_prepares_and_navigates_teleprompter(tmp_path):
     assert bridge.teleprompter.model.rowCount() == 2
     assert bridge.teleprompter.model.rows()[0]["sourceIds"] == ["line-1"]
     assert bridge.teleprompter.model.rows()[0]["replicaText"] == "First line"
+    assert bridge.teleprompter.model.rows()[0]["time"] == "0:00:01"
+    assert bridge.teleprompter.model.rows()[0]["endTime"] == "0:00:02"
 
     prompter.navigate(1)
     assert bridge.teleprompter.time == 3.0
@@ -432,10 +434,12 @@ def test_qml_teleprompter_navigates_exactly_across_overlapping_rows(tmp_path):
     prompter.jumpToIndex(1)
     assert prompter.time == 15.0
     assert prompter.currentIndex == 1
+    assert prompter.currentIndexNow() == 1
 
     prompter.navigate(1)
     assert prompter.time == 18.0
     assert prompter.currentIndex == 2
+    assert prompter.currentIndexNow() == 2
 
     prompter.navigate(-1)
     assert prompter.time == 15.0
@@ -913,15 +917,18 @@ def test_qml_bridge_teleprompter_settings_and_presets(tmp_path, monkeypatch):
 
     bridge.teleprompter.setConfigValue("show_actor", False)
     bridge.teleprompter.setConfigValue("show_replica", False)
+    bridge.teleprompter.setConfigValue("show_end_timecode", False)
     bridge.teleprompter.setConfigValue("show_block_borders", True)
     bridge.teleprompter.setConfigValue("hide_leading_timecode_zeros", True)
     global_prompter = bridge._global_settings_service.get_default_prompter_config()
     assert global_prompter["show_actor"] is False
     assert global_prompter["show_replica"] is False
+    assert global_prompter["show_end_timecode"] is False
     assert global_prompter["show_block_borders"] is True
     assert global_prompter["hide_leading_timecode_zeros"] is True
     assert bridge.teleprompter.config["show_actor"] is False
     assert bridge.teleprompter.config["show_replica"] is False
+    assert bridge.teleprompter.config["show_end_timecode"] is False
     assert bridge.teleprompter.config["show_block_borders"] is True
     assert bridge.teleprompter.config["hide_leading_timecode_zeros"] is True
 
@@ -2498,16 +2505,20 @@ def test_qml_bridge_previews_montage_and_saves_global_export_settings(tmp_path):
 
     montage.setOption("layout_type", "Сценарий 2")
     montage.setOption("round_time", True)
+    montage.setOption("highlight_character_only", True)
 
     assert montage.config["layout_type"] == "Сценарий 2"
     assert montage.config["round_time"] is True
+    assert montage.config["highlight_character_only"] is True
     assert "script2-container" in montage.html
+    assert "character-highlight" in montage.html
     assert not bridge.project.canUndo
     saved = bridge._global_settings_service.load_settings()[
         "default_export_config"
     ]
     assert saved["layout_type"] == "Сценарий 2"
     assert saved["round_time"] is True
+    assert saved["highlight_character_only"] is True
 
 
 def test_qml_montage_accepts_table_column_width_changes():

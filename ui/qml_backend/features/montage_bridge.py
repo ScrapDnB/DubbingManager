@@ -72,6 +72,8 @@ class MontageBridge(QObject):
             "text": Qt.UserRole + 5,
             "background": Qt.UserRole + 6,
             "textColor": Qt.UserRole + 7,
+            "characterBackground": Qt.UserRole + 8,
+            "characterTextColor": Qt.UserRole + 9,
         }, self)
         self._highlight_model = DictListModel({
             "actorId": Qt.UserRole + 1,
@@ -499,18 +501,22 @@ class MontageBridge(QObject):
             )
             if not config.get("use_color", True) or not highlighted:
                 background = "transparent"
+            character_only = bool(config.get("highlight_character_only", False))
+            negative_text = service._negative_text_color(
+                actor_id,
+                config,
+                highlighted,
+            ) or ""
             rows.append({
                 "number": index,
                 "time": service._format_export_timing(line, config),
                 "character": character or "-",
                 "actor": actor.get("name", "-"),
                 "text": str(line.get("text") or ""),
-                "background": background,
-                "textColor": service._negative_text_color(
-                    actor_id,
-                    config,
-                    highlighted,
-                ) or "",
+                "background": "transparent" if character_only else background,
+                "textColor": "" if character_only else negative_text,
+                "characterBackground": background if character_only else "transparent",
+                "characterTextColor": negative_text if character_only else "",
             })
         self._model.set_rows(rows)
         self.changed.emit()

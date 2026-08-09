@@ -363,7 +363,17 @@ NativeDialogWindow {
                                 )
                             }
                             CheckBox {
-                                text: qsTr("Смягчать фон")
+                                text: qsTr("Выделять только персонажа")
+                                enabled: Boolean(dialog.config.use_color)
+                                checked: Boolean(
+                                    dialog.config.highlight_character_only
+                                )
+                                onToggled: dialog.montageBackend.setOption(
+                                    "highlight_character_only", checked
+                                )
+                            }
+                            CheckBox {
+                                text: qsTr("Смягчать цвета")
                                 enabled: Boolean(dialog.config.use_color)
                                 checked: Boolean(dialog.config.soften_colors)
                                 onToggled: dialog.montageBackend.setOption(

@@ -33,35 +33,52 @@ NativeDialogWindow {
 
     property bool sidePanelVisible: true
     property bool followEnabled: true
+    property real headerHeight: Math.max(
+        48,
+        appBridge.uiState.intValue("teleprompter.headerHeight", 86)
+    )
     property string observedEpisode: ""
     property var editingSourceIds: []
     property int colorTarget: -1
+    property var colorPreviewOverrides: ({})
     property bool debugSimulationRunning: false
     property real debugSimulationSpeed: 1
     property real lastObservedPositionTime: -1
+    property int pendingLocalNavigationIndex: -1
     property string lastViewportConfigSignature: ""
     readonly property var config: teleprompter.config
-    readonly property var colors: config.colors
+    readonly property var colors: Object.assign(
+        {}, config.colors || {}, colorPreviewOverrides
+    )
+    readonly property bool hideLeadingTimecodeZeros: Boolean(
+        config.hide_leading_timecode_zeros
+    )
     readonly property bool pageDebugVisible: Boolean(config.page_debug_overlay)
     readonly property real targetHighlightOpacity: Math.max(0, Math.min(
         0.44,
         config.page_target_highlight_opacity === undefined
             ? 0.22 : Number(config.page_target_highlight_opacity)
     ))
-    readonly property int targetHighlightTransparencyPercent: Math.round(
-        (1 - targetHighlightOpacity / 0.44) * 100
+    readonly property int targetHighlightBrightnessPercent: Math.round(
+        targetHighlightOpacity / 0.44 * 100
     )
     readonly property int targetHighlightFadeMs: Math.max(0, Math.min(
         10000,
         config.page_target_highlight_fade_ms === undefined
             ? 1000 : Number(config.page_target_highlight_fade_ms)
     ))
+    readonly property int scrollSmoothnessLevel: Math.round(
+        Math.max(0, Math.min(
+            100, Number(config.scroll_smoothness_slider || 0)
+        ))
+    )
+    // Internal duration for one useful screen of travel.  The setting is
+    // presented as a level: actual animations also account for distance and
+    // the time left before the next timed scroll target.
     readonly property int scrollDurationMs: Math.round(
         150 * Math.pow(
             5000 / 150,
-            Math.max(0, Math.min(
-                100, Number(config.scroll_smoothness_slider || 0)
-            )) / 100
+            scrollSmoothnessLevel / 100
         )
     )
     readonly property int toolbarControlHeight: Math.max(macOSStyle ? 28 : 40, Math.ceil(interfaceFontMetrics.height + (macOSStyle ? 10 : 18)))
@@ -119,6 +136,7 @@ NativeDialogWindow {
             config.bold_tc, config.bold_char,
             config.bold_actor, config.bold_text,
             config.show_header, config.show_timecode,
+            config.show_end_timecode,
             config.show_character, config.show_actor, config.show_replica,
             config.hide_leading_timecode_zeros,
             config.focus_ratio, config.page_scroll_mode
@@ -161,25 +179,46 @@ NativeDialogWindow {
     function navigate(direction) {
         followEnabled = true;
         replicaView.cancelPageHold();
+        pendingLocalNavigationIndex = -1;
         teleprompter.navigate(direction);
     }
 
     function jumpToReplica(index) {
         followEnabled = true;
         replicaView.cancelPageHold();
+        pendingLocalNavigationIndex = index;
         teleprompter.jumpToIndex(index);
-        Qt.callLater(function() {
-            replicaView.scrollCurrentReplicaToFocusBoundary();
-        });
     }
 
     function displayedTimecode(value) {
         var text = String(value || "")
-        if (window.config.hide_leading_timecode_zeros
-                && text.indexOf("0:") === 0) {
-            return text.slice(2)
+        if (window.hideLeadingTimecodeZeros) {
+            return text.replace(/^0+:/, "")
         }
         return text
+    }
+
+    function colorKeyAt(index) {
+        var keys = [
+            "bg", "active_text", "inactive_text", "tc", "actor",
+            "header_text", "block_border",
+            "page_target_highlight"
+        ];
+        return index >= 0 && index < keys.length ? keys[index] : "";
+    }
+
+    function previewColor(index, value) {
+        var key = colorKeyAt(index);
+        if (!key) {
+            return;
+        }
+        var next = Object.assign({}, colorPreviewOverrides);
+        next[key] = String(value);
+        colorPreviewOverrides = next;
+    }
+
+    function clearColorPreview() {
+        colorPreviewOverrides = ({});
     }
 
     function openReplicaEditor(sourceIds, character, replicaText) {
@@ -219,6 +258,21 @@ NativeDialogWindow {
             if (window.teleprompter.positionOrigin === "local"
                     || discontinuity) {
                 replicaView.prepareForTimeSeek();
+            }
+            if (window.teleprompter.positionOrigin === "local") {
+                var explicitIndex = window.pendingLocalNavigationIndex;
+                window.pendingLocalNavigationIndex = -1;
+                if (explicitIndex >= 0) {
+                    replicaView.queueLocalNavigation(explicitIndex);
+                } else {
+                    // Read through a method rather than a cached QML property:
+                    // Connections can run before the currentIndex binding has
+                    // reevaluated for keyboard/toolbar navigation.
+                    replicaView.queueLocalNavigation(
+                        window.teleprompter.currentIndexNow()
+                    );
+                }
+                return;
             }
             if (window.teleprompter.positionOrigin === "reaper"
                     && !replicaView.pageScrollMode
@@ -284,11 +338,25 @@ NativeDialogWindow {
     ColorDialog {
         id: colorDialog
         title: qsTr("Цвет телесуфлёра")
-        onAccepted: {
-            var keys = ["bg", "active_text", "inactive_text", "tc", "actor", "header_bg", "header_text", "block_border", "page_target_highlight"];
-            if (window.colorTarget >= 0 && window.colorTarget < keys.length) {
-                window.teleprompter.setConfigValue("colors." + keys[window.colorTarget], selectedColor.toString());
+        property bool previewActive: false
+        onSelectedColorChanged: {
+            if (previewActive) {
+                window.previewColor(window.colorTarget, selectedColor);
             }
+        }
+        onAccepted: {
+            var key = window.colorKeyAt(window.colorTarget);
+            previewActive = false;
+            if (key) {
+                window.teleprompter.setConfigValue(
+                    "colors." + key, selectedColor.toString()
+                );
+            }
+            window.clearColorPreview();
+        }
+        onRejected: {
+            previewActive = false;
+            window.clearColorPreview();
         }
     }
 
@@ -628,21 +696,6 @@ NativeDialogWindow {
             }
         }
 
-        Rectangle {
-            visible: window.config.show_header
-            Layout.fillWidth: true
-            Layout.preferredHeight: visible ? 86 : 0
-            color: window.colors.header_bg
-
-            Label {
-                anchors.centerIn: parent
-                text: window.displayedTimecode(window.teleprompter.timecode)
-                color: window.colors.header_text
-                font.pixelSize: Math.min(58, parent.height * 0.65)
-                font.bold: true
-            }
-        }
-
         RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -771,43 +824,6 @@ NativeDialogWindow {
                                 }
                             }
 
-                            CollapsibleSection {
-                                title: qsTr("Элементы")
-                                sidebarStyle: window.macOSStyle
-                                Layout.fillWidth: true
-
-                                CheckBox {
-                                    text: qsTr("Таймкод")
-                                    checked: Boolean(window.config.show_timecode)
-                                    onToggled: window.teleprompter.setConfigValue("show_timecode", checked)
-                                }
-                                CheckBox {
-                                    text: qsTr("Персонаж")
-                                    checked: Boolean(window.config.show_character)
-                                    onToggled: window.teleprompter.setConfigValue("show_character", checked)
-                                }
-                                CheckBox {
-                                    text: qsTr("Актёр")
-                                    checked: Boolean(window.config.show_actor)
-                                    onToggled: window.teleprompter.setConfigValue("show_actor", checked)
-                                }
-                                CheckBox {
-                                    text: qsTr("Реплика")
-                                    checked: Boolean(window.config.show_replica)
-                                    onToggled: window.teleprompter.setConfigValue("show_replica", checked)
-                                }
-                                CheckBox {
-                                    text: qsTr("Границы блоков")
-                                    checked: Boolean(window.config.show_block_borders)
-                                    onToggled: window.teleprompter.setConfigValue("show_block_borders", checked)
-                                }
-                                CheckBox {
-                                    text: qsTr("Скрывать нули")
-                                    checked: Boolean(window.config.hide_leading_timecode_zeros)
-                                    onToggled: window.teleprompter.setConfigValue("hide_leading_timecode_zeros", checked)
-                                }
-                            }
-
                             RowLayout {
                                 Layout.fillWidth: true
                                 CheckBox {
@@ -836,6 +852,51 @@ NativeDialogWindow {
                                 value: window.config.focus_ratio
                                 onPressedChanged: if (!pressed)
                                     window.teleprompter.setConfigValue("focus_ratio", value)
+                            }
+
+                            CollapsibleSection {
+                                title: qsTr("Элементы")
+                                sidebarStyle: window.macOSStyle
+                                Layout.fillWidth: true
+
+                                CheckBox {
+                                    text: qsTr("Таймкод")
+                                    checked: Boolean(window.config.show_timecode)
+                                    onToggled: window.teleprompter.setConfigValue("show_timecode", checked)
+                                }
+                                CheckBox {
+                                    text: qsTr("Окончание реплики")
+                                    checked: Boolean(window.config.show_end_timecode)
+                                    enabled: Boolean(window.config.show_timecode)
+                                    onToggled: window.teleprompter.setConfigValue(
+                                        "show_end_timecode", checked
+                                    )
+                                }
+                                CheckBox {
+                                    text: qsTr("Персонаж")
+                                    checked: Boolean(window.config.show_character)
+                                    onToggled: window.teleprompter.setConfigValue("show_character", checked)
+                                }
+                                CheckBox {
+                                    text: qsTr("Актёр")
+                                    checked: Boolean(window.config.show_actor)
+                                    onToggled: window.teleprompter.setConfigValue("show_actor", checked)
+                                }
+                                CheckBox {
+                                    text: qsTr("Реплика")
+                                    checked: Boolean(window.config.show_replica)
+                                    onToggled: window.teleprompter.setConfigValue("show_replica", checked)
+                                }
+                                CheckBox {
+                                    text: qsTr("Границы блоков")
+                                    checked: Boolean(window.config.show_block_borders)
+                                    onToggled: window.teleprompter.setConfigValue("show_block_borders", checked)
+                                }
+                                CheckBox {
+                                    text: qsTr("Скрывать нули")
+                                    checked: Boolean(window.config.hide_leading_timecode_zeros)
+                                    onToggled: window.teleprompter.setConfigValue("hide_leading_timecode_zeros", checked)
+                                }
                             }
 
                             CollapsibleSection {
@@ -994,12 +1055,12 @@ NativeDialogWindow {
                                 }
 
                                 Repeater {
-                                    model: ["Фон", "Активный текст", "Неактивный текст", "Таймкод", "Актёр", "Фон заголовка", "Текст заголовка", "Границы блоков", "Подсветка прокрутки"]
+                                    model: ["Фон", "Активный текст", "Неактивный текст", "Таймкод", "Актёр", "Текст заголовка", "Границы блоков", "Подсветка прокрутки"]
                                     delegate: RowLayout {
                                         id: colorRow
                                         required property int index
                                         required property string modelData
-                                        readonly property color swatchColor: [window.colors.bg, window.colors.active_text, window.colors.inactive_text, window.colors.tc, window.colors.actor, window.colors.header_bg, window.colors.header_text, window.colors.block_border, window.colors.page_target_highlight][colorRow.index]
+                                        readonly property color swatchColor: [window.colors.bg, window.colors.active_text, window.colors.inactive_text, window.colors.tc, window.colors.actor, window.colors.header_text, window.colors.block_border, window.colors.page_target_highlight][colorRow.index]
 
                                         Layout.fillWidth: true
                                         spacing: 8
@@ -1020,9 +1081,12 @@ NativeDialogWindow {
                                             Accessible.name: qsTr("Изменить цвет: ") + colorRow.modelData
 
                                             onClicked: {
-                                                var values = [window.colors.bg, window.colors.active_text, window.colors.inactive_text, window.colors.tc, window.colors.actor, window.colors.header_bg, window.colors.header_text, window.colors.block_border, window.colors.page_target_highlight];
+                                                var values = [window.colors.bg, window.colors.active_text, window.colors.inactive_text, window.colors.tc, window.colors.actor, window.colors.header_text, window.colors.block_border, window.colors.page_target_highlight];
+                                                colorDialog.previewActive = false;
                                                 window.colorTarget = colorRow.index;
                                                 colorDialog.selectedColor = values[colorRow.index];
+                                                window.clearColorPreview();
+                                                colorDialog.previewActive = true;
                                                 colorDialog.open();
                                             }
                                         }
@@ -1031,28 +1095,28 @@ NativeDialogWindow {
 
                                 Label {
                                     Layout.fillWidth: true
-                                    text: qsTr("Прозрачность подсветки · %1%").arg(
-                                        window.targetHighlightTransparencyPercent
+                                    text: qsTr("Яркость подсветки · %1%").arg(
+                                        window.targetHighlightBrightnessPercent
                                     )
                                 }
                                 Slider {
-                                    id: targetHighlightTransparencySlider
+                                    id: targetHighlightBrightnessSlider
                                     Layout.fillWidth: true
                                     from: 0
                                     to: 100
                                     stepSize: 1
-                                    value: window.targetHighlightTransparencyPercent
+                                    value: window.targetHighlightBrightnessPercent
                                     onPressedChanged: if (!pressed) {
                                         window.teleprompter.setConfigValue(
                                             "page_target_highlight_opacity",
                                             Math.max(0, Math.min(
-                                                0.44, (100 - value) * 0.0044
+                                                0.44, value * 0.0044
                                             ))
                                         )
                                     }
                                     PlatformToolTip {
-                                        target: targetHighlightTransparencySlider
-                                        text: qsTr("0% — наиболее заметная, 100% — полностью прозрачная")
+                                        target: targetHighlightBrightnessSlider
+                                        text: qsTr("0% — полностью прозрачная, 100% — наиболее заметная")
                                     }
                                 }
 
@@ -1263,7 +1327,8 @@ NativeDialogWindow {
                                     }
                                 }
                                 Label {
-                                    text: qsTr("Плавность · %1 мс").arg(window.scrollDurationMs)
+                                    text: qsTr("Уровень плавности · %1%")
+                                        .arg(window.scrollSmoothnessLevel)
                                 }
                                 Slider {
                                     id: smoothSlider
@@ -1369,15 +1434,99 @@ NativeDialogWindow {
             }
 
             Rectangle {
+                id: teleprompterSurface
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 color: window.colors.bg
                 clip: true
 
+                Rectangle {
+                    id: teleprompterHeader
+                    visible: window.config.show_header
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    height: visible ? Math.max(
+                        48,
+                        Math.min(
+                            window.headerHeight,
+                            Math.max(48, parent.height - 160)
+                        )
+                    ) : 0
+                    color: window.colors.bg
+
+                    Label {
+                        anchors.centerIn: parent
+                        text: window.displayedTimecode(
+                            window.teleprompter.timecode
+                        )
+                        color: window.colors.header_text
+                        font.pixelSize: Math.max(24, parent.height * 0.72)
+                        font.bold: true
+                    }
+
+                    Item {
+                        id: teleprompterHeaderDivider
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: -4
+                        height: 9
+                        z: 2
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            height: 1
+                            color: window.colors.block_border || "#4D4D4D"
+                        }
+
+                        HoverHandler {
+                            cursorShape: Qt.SizeVerCursor
+                        }
+
+                        DragHandler {
+                            id: headerResizeHandler
+                            target: null
+                            yAxis.enabled: true
+                            xAxis.enabled: false
+                            property real initialHeight: 86
+
+                            onActiveChanged: {
+                                if (active) {
+                                    initialHeight = teleprompterHeader.height;
+                                } else {
+                                    window.appBridge.uiState.setIntValue(
+                                        "teleprompter.headerHeight",
+                                        Math.round(window.headerHeight)
+                                    );
+                                }
+                            }
+                            onTranslationChanged: if (active) {
+                                window.headerHeight = Math.max(
+                                    48,
+                                    Math.min(
+                                        initialHeight + translation.y,
+                                        Math.max(
+                                            48,
+                                            teleprompterSurface.height - 160
+                                        )
+                                    )
+                                );
+                            }
+                        }
+                    }
+                }
+
                 PersistentListView {
                     id: replicaView
                     objectName: "teleprompterReplicaView"
-                    anchors.fill: parent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: teleprompterHeader.visible
+                        ? teleprompterHeader.bottom : parent.top
+                    anchors.bottom: parent.bottom
                     anchors.leftMargin: Math.max(20, parent.width * 0.025)
                     anchors.rightMargin: anchors.leftMargin
                     clip: true
@@ -1404,6 +1553,11 @@ NativeDialogWindow {
                     property int pageGapPrefetchIndex: -1
                     property int pageScrollTargetIndex: -1
                     property int lastPageFollowIndex: -1
+                    property bool localNavigationActive: false
+                    property int localNavigationTargetIndex: -1
+                    property real localNavigationLastTargetY: Number.NaN
+                    property int localNavigationStablePasses: 0
+                    property bool localNavigationVerifying: false
                     property int pageTargetHighlightIndex: -1
                     property real pageTargetHighlightOpacity: 0
                     property bool pageTargetHighlightLineOnly: false
@@ -1423,9 +1577,24 @@ NativeDialogWindow {
                     property int pageDebugPageCount: 1
                     property string pageDebugTimingSource: "visual"
                     property real pageDebugThresholdTime: -1
+                    property int scrollDebugSmoothnessLevel: window.scrollSmoothnessLevel
+                    property real scrollDebugDistanceScreens: 0
+                    property int scrollDebugDesiredDurationMs: 0
+                    property int scrollDebugAvailableDurationMs: -1
+                    property int scrollDebugActualDurationMs: 0
+                    property real scrollDebugDeadline: -1
+                    property string scrollDebugDurationLimit: "нет"
                     property string pageDebugLastTraceSignature: ""
                     property var pageDebugTrace: []
-                    preferredHighlightBegin: height * focusSlider.value
+                    // Keep the focus at the same absolute Y within the
+                    // teleprompter when the in-viewport header is toggled.
+                    // Only clamp when a very high focus would overlap it.
+                    readonly property real teleprompterFocusY:
+                        parent.height * focusSlider.value
+                    preferredHighlightBegin: Math.max(
+                        0,
+                        Math.min(height, teleprompterFocusY - y)
+                    )
                     preferredHighlightEnd: preferredHighlightBegin
                     // Keep one stable range mode. Switching it while
                     // currentIndex becomes -1 during manual scrolling makes
@@ -1438,11 +1607,25 @@ NativeDialogWindow {
                         target: replicaView
                         property: "contentY"
                         duration: window.scrollDurationMs
-                        easing.type: Easing.OutCubic
+                        easing.type: Easing.InOutCubic
                         onStopped: replicaView.pageFocusAlignmentActive = false
                         onFinished: {
                             replicaView.correctPageScrollTarget();
                             replicaView.fadePageTargetHighlight();
+                            replicaView.finishLocalNavigation();
+                        }
+                    }
+
+                    Timer {
+                        id: localNavigationTimer
+                        interval: 32
+                        repeat: false
+                        onTriggered: {
+                            if (replicaView.localNavigationVerifying) {
+                                replicaView.finishLocalNavigation();
+                            } else {
+                                replicaView.startQueuedLocalNavigation();
+                            }
                         }
                     }
 
@@ -1471,8 +1654,9 @@ NativeDialogWindow {
                         id: longReplicaScrollAnimation
                         target: replicaView
                         property: "contentY"
-                        duration: Math.max(80, Math.min(window.scrollDurationMs, 500))
-                        easing.type: Easing.OutCubic
+                        duration: window.scrollDurationMs
+                        easing.type: Easing.InOutCubic
+                        onFinished: replicaView.finishLocalNavigation()
                     }
 
                     function capturePageDebug(event, sourceY, targetY, itemTop, itemBottom) {
@@ -1597,6 +1781,182 @@ NativeDialogWindow {
                             item = itemAtIndex(index);
                         }
                         return item;
+                    }
+
+                    function cancelLocalNavigation() {
+                        localNavigationTimer.stop();
+                        localNavigationActive = false;
+                        localNavigationTargetIndex = -1;
+                        localNavigationLastTargetY = Number.NaN;
+                        localNavigationStablePasses = 0;
+                        localNavigationVerifying = false;
+                    }
+
+                    function materializeLocalNavigationIndex(index) {
+                        // Clicking a replica inside the teleprompter means its
+                        // delegate is already alive.  Repositioning such an
+                        // item to Center exposes an internal measurement step
+                        // as a visible jump before the real focus animation.
+                        var item = itemAtIndex(index);
+                        if (item) {
+                            return item;
+                        }
+                        // Resolve the requested variable-height delegate
+                        // before calculating a pixel target. Repeatedly
+                        // rebasing at the beginning would make ListView's
+                        // virtual origin drift for very tall replicas.
+                        positionViewAtIndex(index, ListView.Center);
+                        forceLayout();
+                        return itemAtIndex(index);
+                    }
+
+                    function queueLocalNavigation(index) {
+                        index = Number(index);
+                        if (!isFinite(index) || index < 0) {
+                            cancelLocalNavigation();
+                            return;
+                        }
+                        localNavigationTimer.stop();
+                        pageScrollAnimation.stop();
+                        longReplicaScrollAnimation.stop();
+                        pageScrollTargetIndex = -1;
+                        pageGapPrefetchIndex = -1;
+                        localNavigationActive = true;
+                        localNavigationTargetIndex = index;
+                        localNavigationLastTargetY = Number.NaN;
+                        localNavigationStablePasses = 0;
+                        localNavigationVerifying = false;
+
+                        // A distant variable-height delegate has to be
+                        // materialized before its final coordinate is known.
+                        // A visible clicked delegate is reused in place and
+                        // therefore never passes through ListView.Center.
+                        materializeLocalNavigationIndex(index);
+                        localNavigationTimer.restart();
+                    }
+
+                    function startQueuedLocalNavigation() {
+                        if (!localNavigationActive) {
+                            return;
+                        }
+                        var index = localNavigationTargetIndex;
+                        if (index < 0) {
+                            cancelLocalNavigation();
+                            return;
+                        }
+                        var item = materializeLocalNavigationIndex(index);
+                        if (!item) {
+                            localNavigationTimer.restart();
+                            return;
+                        }
+                        var bounds = replicaReadingBounds(index);
+                        if (!bounds) {
+                            localNavigationTimer.restart();
+                            return;
+                        }
+                        // item.y is not stable across ListView origin changes.
+                        // Ask ListView for the selected index's real beginning
+                        // and derive the custom focus offset from that known
+                        // position instead of an estimated delegate Y.
+                        var sourceY = Number(contentY);
+                        var targetY = Number(item.y)
+                            - preferredHighlightBegin;
+                        contentY = sourceY;
+                        capturePageDebug(
+                            "Локальная навигация к началу реплики",
+                            sourceY, targetY, item.y, item.y + item.height
+                        );
+                        if (Math.abs(targetY - sourceY) <= 0.5) {
+                            contentY = targetY;
+                            finishLocalNavigation();
+                            return;
+                        }
+                        if (pageScrollMode) {
+                            startPageScroll(sourceY, targetY, index);
+                            return;
+                        }
+                        longReplicaScrollAnimation.from = sourceY;
+                        longReplicaScrollAnimation.to = targetY;
+                        // A direct click is not racing playback.  Preserve
+                        // the selected smoothness instead of capping it by the
+                        // clicked replica's own timing.
+                        longReplicaScrollAnimation.duration = scrollDurationForMove(
+                            sourceY, targetY, -1
+                        );
+                        longReplicaScrollAnimation.start();
+                    }
+
+                    function indexAtReadingFocus() {
+                        var focusY = contentY + preferredHighlightBegin;
+                        for (var offset = 1; offset <= 24; offset += 3) {
+                            var index = indexAt(width / 2, focusY + offset);
+                            if (index >= 0) {
+                                return index;
+                            }
+                        }
+                        return -1;
+                    }
+
+                    function finishLocalNavigation() {
+                        if (!localNavigationActive) {
+                            return;
+                        }
+                        var index = localNavigationTargetIndex;
+                        forceLayout();
+                        if (index < 0) {
+                            cancelLocalNavigation();
+                            return;
+                        }
+                        var observedIndex = indexAtReadingFocus();
+                        var item = itemAtIndex(index);
+                        if (observedIndex !== index || !item) {
+                            item = materializeLocalNavigationIndex(index);
+                        }
+                        var bounds = item ? replicaReadingBounds(index) : null;
+                        if (!bounds || !itemAtIndex(index)) {
+                            localNavigationVerifying = true;
+                            localNavigationTimer.restart();
+                            return;
+                        }
+                        // Delegate estimates can still refine while an
+                        // animation is running. Resolve the final coordinate
+                        // from the clicked index, never from a stale pixel Y.
+                        var targetY = Number(bounds.item.y)
+                            - preferredHighlightBegin;
+                        var coordinateStable = isFinite(
+                            localNavigationLastTargetY
+                        ) && Math.abs(
+                            localNavigationLastTargetY - targetY
+                        ) <= 0.5;
+                        contentY = targetY;
+                        forceLayout();
+                        var indexStable = indexAtReadingFocus() === index;
+                        localNavigationLastTargetY = targetY;
+                        localNavigationStablePasses = coordinateStable
+                                && indexStable
+                            ? localNavigationStablePasses + 1 : 0;
+                        capturePageDebug(
+                            "Локальная навигация завершена",
+                            contentY, targetY,
+                            bounds.item.y,
+                            bounds.item.y + bounds.item.height
+                        );
+                        if (!indexStable) {
+                            // A full second positioning pass is more reliable
+                            // than repeatedly correcting a delegate coordinate
+                            // derived from the same stale ListView estimate.
+                            localNavigationLastTargetY = Number.NaN;
+                            localNavigationStablePasses = 0;
+                            localNavigationVerifying = false;
+                            localNavigationTimer.restart();
+                            return;
+                        }
+                        if (localNavigationStablePasses < 2) {
+                            localNavigationVerifying = true;
+                            localNavigationTimer.restart();
+                            return;
+                        }
+                        cancelLocalNavigation();
                     }
 
                     function replicaTimeProgress(index) {
@@ -1805,7 +2165,8 @@ NativeDialogWindow {
 
                     function followCurrentLongReplica() {
                         if (pageScrollMode || !window.followEnabled
-                                || manualDragScroll || currentIndex < 0) {
+                                || manualDragScroll || localNavigationActive
+                                || currentIndex < 0) {
                             return;
                         }
                         forceLayout();
@@ -1856,6 +2217,10 @@ NativeDialogWindow {
                         );
                         longReplicaScrollAnimation.from = sourceY;
                         longReplicaScrollAnimation.to = targetY;
+                        longReplicaScrollAnimation.duration = scrollDurationForMove(
+                            sourceY, targetY,
+                            continuousScrollDeadline(currentIndex, bounds)
+                        );
                         longReplicaScrollAnimation.start();
                     }
 
@@ -1909,25 +2274,110 @@ NativeDialogWindow {
                         pageTargetHighlightFade.start();
                     }
 
-                    function pageScrollDurationForTarget(targetIndex) {
-                        var duration = window.scrollDurationMs;
+                    function scrollDurationForMove(
+                            sourceY, targetY, deadline) {
+                        // The slider is a smoothness level, not a literal
+                        // duration.  Short movements retain more of the
+                        // configured smoothness through a sublinear distance
+                        // curve, while a full-screen movement uses the whole
+                        // internal duration represented by the level.
+                        var screenDistance = Math.max(1, pageFragmentStep());
+                        var distanceScreens = Math.abs(
+                            targetY - sourceY
+                        ) / screenDistance;
+                        var distanceFactor = Math.pow(
+                            Math.min(1, distanceScreens), 0.65
+                        );
+                        var desiredDuration = Math.max(
+                            80, Math.round(
+                                window.scrollDurationMs * distanceFactor
+                            )
+                        );
+                        var duration = desiredDuration;
                         var currentTime = Number(window.teleprompter.time);
+                        var availableDuration = -1;
+                        var limit = "плавность";
+                        if (isFinite(deadline) && deadline > currentTime) {
+                            // Finish just before the next timed target.  The
+                            // fixed reserve absorbs OSC and frame scheduling
+                            // jitter without making long intervals feel fast.
+                            availableDuration = Math.max(80, Math.round(
+                                (deadline - currentTime) * 1000 - 100
+                            ));
+                            duration = Math.min(
+                                desiredDuration, availableDuration
+                            );
+                            if (duration < desiredDuration) {
+                                limit = "дедлайн";
+                            }
+                        } else if (isFinite(deadline) && deadline >= 0) {
+                            availableDuration = 0;
+                            duration = 80;
+                            limit = "дедлайн прошёл";
+                        }
+                        scrollDebugSmoothnessLevel = window.scrollSmoothnessLevel;
+                        scrollDebugDistanceScreens = distanceScreens;
+                        scrollDebugDesiredDurationMs = desiredDuration;
+                        scrollDebugAvailableDurationMs = availableDuration;
+                        scrollDebugActualDurationMs = Math.round(duration);
+                        scrollDebugDeadline = isFinite(deadline) ? deadline : -1;
+                        scrollDebugDurationLimit = limit;
+                        return Math.round(duration);
+                    }
+
+                    function nextActiveReplicaStart(index) {
+                        for (var candidateIndex = index + 1;
+                                candidateIndex < count; candidateIndex++) {
+                            var candidate = window.teleprompter.model.get(
+                                candidateIndex
+                            );
+                            if (candidate && candidate.active) {
+                                return Number(candidate.start);
+                            }
+                        }
+                        return -1;
+                    }
+
+                    function continuousScrollDeadline(index, bounds) {
+                        var replica = window.teleprompter.model.get(index);
+                        if (!replica) {
+                            return -1;
+                        }
+                        var currentTime = Number(window.teleprompter.time);
+                        if (bounds && bounds.tall) {
+                            var guides = bounds.item.laidOutTimingGuides();
+                            for (var guideIndex = 0;
+                                    guides && guideIndex < guides.length;
+                                    guideIndex++) {
+                                var guideEnd = Number(guides[guideIndex].end);
+                                if (isFinite(guideEnd)
+                                        && guideEnd > currentTime + 0.0005) {
+                                    return guideEnd;
+                                }
+                            }
+                        }
+                        var nextStart = nextActiveReplicaStart(index);
+                        return isFinite(nextStart) && nextStart >= 0
+                            ? nextStart : Number(replica.end);
+                    }
+
+                    function pageScrollDurationForTarget(
+                            sourceY, targetY, targetIndex) {
                         var replica = window.teleprompter.model.get(targetIndex);
+                        if (localNavigationActive) {
+                            return scrollDurationForMove(sourceY, targetY, -1);
+                        }
                         var deadline = targetIndex === currentIndex
                             ? Number(pageDebugThresholdTime)
                             : replica ? Number(replica.start) : -1;
-                        if (!isFinite(deadline) || deadline <= currentTime) {
-                            deadline = replica ? Number(replica.end) : -1;
+                        if (!isFinite(deadline)
+                                || deadline <= Number(window.teleprompter.time)) {
+                            var nextStart = nextActiveReplicaStart(targetIndex);
+                            deadline = isFinite(nextStart) && nextStart >= 0
+                                ? nextStart
+                                : replica ? Number(replica.end) : -1;
                         }
-                        if (isFinite(deadline) && deadline > currentTime) {
-                            // Leave a small reading pause after movement and
-                            // always finish before the next timed fragment.
-                            duration = Math.min(
-                                duration,
-                                Math.max(80, (deadline - currentTime) * 800)
-                            );
-                        }
-                        return Math.round(duration);
+                        return scrollDurationForMove(sourceY, targetY, deadline);
                     }
 
                     function startPageScroll(sourceY, targetY, targetIndex) {
@@ -1942,14 +2392,16 @@ NativeDialogWindow {
                         pageScrollAnimation.from = sourceY;
                         pageScrollAnimation.to = targetY;
                         pageScrollAnimation.duration = pageScrollDurationForTarget(
-                            targetIndex
+                            sourceY, targetY, targetIndex
                         );
                         pageScrollAnimation.start();
                     }
 
                     function exactPageTargetY(index) {
-                        positionViewAtIndex(index, ListView.Beginning);
-                        forceLayout();
+                        if (!itemAtIndex(index)) {
+                            positionViewAtIndex(index, ListView.Beginning);
+                            forceLayout();
+                        }
                         if (index === currentIndex) {
                             return longReplicaTargetY(index, true);
                         }
@@ -1996,6 +2448,9 @@ NativeDialogWindow {
 
                     function followCurrentReplicaByPage() {
                         if (!pageScrollMode) {
+                            return;
+                        }
+                        if (localNavigationActive) {
                             return;
                         }
                         if (!window.followEnabled) {
@@ -2204,6 +2659,13 @@ NativeDialogWindow {
                             if (manualDragScroll || dragging || moving) {
                                 return;
                             }
+                            if (localNavigationActive) {
+                                pageScrollAnimation.stop();
+                                longReplicaScrollAnimation.stop();
+                                forceLayout();
+                                localNavigationTimer.restart();
+                                return;
+                            }
                             // Delegate heights change after a resize, a font
                             // update, or a mode switch.  Never continue an
                             // animation calculated for the old viewport.
@@ -2227,6 +2689,7 @@ NativeDialogWindow {
 
                     function prepareForTimeSeek() {
                         manualWheelReleaseTimer.stop();
+                        cancelLocalNavigation();
                         pageScrollAnimation.stop();
                         longReplicaScrollAnimation.stop();
                         pageTargetHighlightFade.stop();
@@ -2328,6 +2791,7 @@ NativeDialogWindow {
 
                     function resetPageFollowState() {
                         manualWheelReleaseTimer.stop();
+                        cancelLocalNavigation();
                         pageScrollAnimation.stop();
                         longReplicaScrollAnimation.stop();
                         pageTargetHighlightFade.stop();
@@ -2344,6 +2808,7 @@ NativeDialogWindow {
 
                     function beginManualDragScroll() {
                         manualWheelReleaseTimer.stop();
+                        cancelLocalNavigation();
                         pageScrollTargetIndex = -1;
                         pageScrollAnimation.stop();
                         longReplicaScrollAnimation.stop();
@@ -2432,6 +2897,7 @@ NativeDialogWindow {
                         required property int index
                         required property real start
                         required property string time
+                        required property string endTime
                         required property string character
                         required property string actor
                         required property string replicaText
@@ -2468,6 +2934,20 @@ NativeDialogWindow {
                         width: replicaView.viewportWidth - horizontalMargin * 2
                         height: layoutContent.implicitHeight + (window.config.show_block_borders ? 20 : 18)
                         opacity: active ? 1 : 0.72
+
+                        function timeRangeText(bracketed, multiline) {
+                            var startText = window.displayedTimecode(time);
+                            var endText = window.displayedTimecode(endTime);
+                            if (bracketed) {
+                                startText = "[" + startText + "]";
+                                endText = "[" + endText + "]";
+                            }
+                            if (!Boolean(window.config.show_end_timecode)) {
+                                return startText;
+                            }
+                            return startText + (multiline ? " -\n" : " - ")
+                                + endText;
+                        }
 
                         function activeReplicaTextItem() {
                             if (window.config.layout_type === "Сценарий 1") {
@@ -2702,7 +3182,7 @@ NativeDialogWindow {
                                     }
                                     Text {
                                         visible: window.config.show_timecode
-                                        text: qsTr("[") + window.displayedTimecode(replicaDelegate.time) + "]"
+                                        text: replicaDelegate.timeRangeText(true, false)
                                         color: replicaDelegate.active ? window.colors.tc : window.colors.inactive_text
                                         font.pixelSize: window.config.f_tc
                                         font.bold: window.config.bold_tc
@@ -2744,7 +3224,7 @@ NativeDialogWindow {
                                     spacing: 10
                                     Text {
                                         visible: window.config.show_timecode
-                                        text: window.displayedTimecode(replicaDelegate.time)
+                                        text: replicaDelegate.timeRangeText(false, false)
                                         color: replicaDelegate.active ? window.colors.tc : window.colors.inactive_text
                                         font.pixelSize: window.config.f_tc
                                         font.bold: window.config.bold_tc
@@ -2819,7 +3299,7 @@ NativeDialogWindow {
                                     spacing: 3
                                     Text {
                                         visible: window.config.show_timecode
-                                        text: window.displayedTimecode(replicaDelegate.time)
+                                        text: replicaDelegate.timeRangeText(false, true)
                                         color: replicaDelegate.active ? window.colors.tc : window.colors.inactive_text
                                         font.pixelSize: window.config.f_tc
                                         font.bold: window.config.bold_tc
@@ -2949,6 +3429,35 @@ NativeDialogWindow {
                                 + (replicaView.pageDebugThresholdTime >= 0
                                     ? "  next="
                                         + replicaView.pageDebugThresholdTime.toFixed(3)
+                                    : "")
+                            color: "#B8F4FF"
+                            wrapMode: Text.WordWrap
+                            width: parent.width
+                        }
+                        Text {
+                            text: "smoothness="
+                                + replicaView.scrollDebugSmoothnessLevel + "%"
+                                + "  distance="
+                                + replicaView.scrollDebugDistanceScreens.toFixed(2)
+                                + " screen"
+                                + "  desired="
+                                + replicaView.scrollDebugDesiredDurationMs + "ms"
+                            color: "#B8F4FF"
+                            wrapMode: Text.WordWrap
+                            width: parent.width
+                        }
+                        Text {
+                            text: "budget="
+                                + (replicaView.scrollDebugAvailableDurationMs >= 0
+                                    ? replicaView.scrollDebugAvailableDurationMs + "ms"
+                                    : "∞")
+                                + "  actual="
+                                + replicaView.scrollDebugActualDurationMs + "ms"
+                                + "  limit="
+                                + replicaView.scrollDebugDurationLimit
+                                + (replicaView.scrollDebugDeadline >= 0
+                                    ? "  deadline="
+                                        + replicaView.scrollDebugDeadline.toFixed(3)
                                     : "")
                             color: "#B8F4FF"
                             wrapMode: Text.WordWrap

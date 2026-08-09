@@ -398,6 +398,71 @@ class TestExportService:
         assert "<span class='t'>" in html
         assert "color: inherit;" in html
 
+    @pytest.mark.parametrize(
+        "layout_type",
+        ["Таблица", "Сценарий 1", "Сценарий 2", "Сценарий 3"],
+    )
+    def test_generate_html_can_highlight_only_character_name(
+        self,
+        layout_type: str,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Подсветка персонажа не окрашивает строку или блок целиком."""
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        export_config.update({
+            "highlight_character_only": True,
+            "soften_colors": False,
+            "highlight_negative_ids_export": ["actor1"],
+        })
+
+        html = service.generate_html(
+            ep="1",
+            processed=processed,
+            cfg=export_config,
+            highlight_ids=["actor1"],
+            layout_type=layout_type,
+            is_editable=False,
+        )
+
+        marker = (
+            "<span class='character-highlight' "
+            "style='background-color:#FF0000;color:#ffffff'>Character1</span>"
+        )
+        assert marker in html
+        assert "background-color:#ffffff" in html
+        assert "background-color:#FF0000; color:#ffffff" not in html
+
+    def test_generate_html_softens_character_only_highlight(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Настройка смягчения применяется к хайлайтеру имени."""
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        export_config.update({
+            "highlight_character_only": True,
+            "soften_colors": True,
+        })
+
+        html = service.generate_html(
+            ep="1",
+            processed=processed,
+            cfg=export_config,
+            highlight_ids=["actor1"],
+            layout_type="Таблица",
+            is_editable=False,
+        )
+
+        assert (
+            "style='background-color:rgba(255, 0, 0, 0.22)'"
+            ">Character1</span>"
+        ) in html
+
     def test_generate_html_escapes_user_content(
         self,
         export_config: Dict[str, Any]
@@ -590,6 +655,32 @@ class TestExportService:
         assert "серия (S01E02)" in wb.sheetnames
         assert "серия (pilot)" in wb.sheetnames
 
+    def test_create_excel_book_highlights_only_character_cell(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """В XLSX цвет ограничивается ячейкой имени персонажа."""
+        pytest.importorskip("openpyxl")
+        export_config.update({
+            "highlight_character_only": True,
+            "soften_colors": True,
+            "highlight_ids_export": ["actor1"],
+        })
+
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        workbook = service.create_excel_book({"1": processed}, export_config)
+        sheet = workbook["серия (1)"]
+
+        assert sheet.cell(row=2, column=3).value == "Character1"
+        assert sheet.cell(row=2, column=3).fill.start_color.rgb == "FFFFC7C7"
+        for column in (1, 2, 4, 5):
+            assert sheet.cell(row=2, column=column).fill.start_color.rgb in (
+                "FFFFFFFF", "00FFFFFF"
+            )
+
     def test_create_excel_book_can_show_start_time_only(
         self,
         sample_project_data: Dict[str, Any],
@@ -720,6 +811,79 @@ class TestExportService:
         shading = first_cell._tc.tcPr.find(export_module.qn('w:shd'))
         assert shading.get(export_module.qn('w:fill')) == "FF0000"
         assert str(first_cell.paragraphs[0].runs[-1].font.color.rgb) == "FFFFFF"
+
+    def test_create_docx_document_highlights_only_character_run(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """В DOCX хайлайтер применяется только к текстовому run имени."""
+        pytest.importorskip("docx")
+        export_config.update({
+            "highlight_character_only": True,
+            "soften_colors": True,
+            "highlight_ids_export": ["actor1"],
+            "highlight_negative_ids_export": ["actor1"],
+        })
+
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        document = service.create_docx_document({"1": processed}, export_config)
+        data_cells = document.tables[0].rows[1].cells
+        character_run = data_cells[1].paragraphs[0].runs[-1]
+        run_shading = character_run._element.rPr.find(
+            export_module.qn('w:shd')
+        )
+
+        assert run_shading.get(export_module.qn('w:fill')) == "FFC7C7"
+        assert str(character_run.font.color.rgb) == "FFFFFF"
+        for cell in data_cells:
+            assert cell._tc.tcPr.find(export_module.qn('w:shd')) is None
+        assert data_cells[3].paragraphs[0].runs[-1]._element.rPr.find(
+            export_module.qn('w:shd')
+        ) is None
+
+    @pytest.mark.parametrize(
+        ("layout_type", "character_text"),
+        [
+            ("Сценарий 1", "Character1"),
+            ("Сценарий 2", "CHARACTER1"),
+            ("Сценарий 3", "CHARACTER1"),
+        ],
+    )
+    def test_docx_scenarios_highlight_only_character_run(
+        self,
+        layout_type: str,
+        character_text: str,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Все сценарные DOCX-разметки используют хайлайтер имени."""
+        pytest.importorskip("docx")
+        export_config.update({
+            "layout_type": layout_type,
+            "highlight_character_only": True,
+            "soften_colors": False,
+            "highlight_ids_export": ["actor1"],
+        })
+
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        document = service.create_docx_document({"1": processed}, export_config)
+        character_run = next(
+            run
+            for table in document.tables
+            for row in table.rows
+            for cell in row.cells
+            for paragraph in cell.paragraphs
+            for run in paragraph.runs
+            if run.text == character_text
+        )
+        shading = character_run._element.rPr.find(export_module.qn('w:shd'))
+
+        assert shading.get(export_module.qn('w:fill')) == "FF0000"
 
     def test_create_docx_document_can_use_scenario1_layout(
         self,

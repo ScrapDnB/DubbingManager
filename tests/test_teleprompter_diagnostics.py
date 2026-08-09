@@ -8,6 +8,7 @@ from tools.teleprompter_diagnostics import (
     build_parser,
     parse_time,
     parse_viewport,
+    scroll_plan_properties,
 )
 
 
@@ -68,3 +69,29 @@ def test_parse_viewport_accepts_ascii_and_typographic_separator():
 def test_parse_viewport_rejects_invalid_or_too_small_sizes(value):
     with pytest.raises(argparse.ArgumentTypeError):
         parse_viewport(value)
+
+
+def test_scroll_plan_properties_exposes_scheduler_decision():
+    class FakeView:
+        values = {
+            "scrollDebugSmoothnessLevel": 88,
+            "scrollDebugDistanceScreens": 0.6254,
+            "scrollDebugDesiredDurationMs": 2400,
+            "scrollDebugAvailableDurationMs": 950,
+            "scrollDebugActualDurationMs": 950,
+            "scrollDebugDeadline": 123.4567,
+            "scrollDebugDurationLimit": "дедлайн",
+        }
+
+        def property(self, name):
+            return self.values.get(name)
+
+    assert scroll_plan_properties(FakeView()) == {
+        "smoothness_level": 88,
+        "distance_screens": 0.625,
+        "desired_duration_ms": 2400,
+        "available_duration_ms": 950,
+        "actual_duration_ms": 950,
+        "scroll_deadline": 123.457,
+        "duration_limit": "дедлайн",
+    }

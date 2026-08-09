@@ -343,6 +343,8 @@ class TestExportConfig:
         assert config.col_actor == True
         assert config.col_text == True
         assert config.use_color == True
+        assert config.soften_colors is True
+        assert config.highlight_character_only is False
         assert config.open_auto == True
         assert config.time_display == 'range'
 
@@ -351,6 +353,7 @@ class TestExportConfig:
         data = {
             "layout_type": "Сценарий 3",
             "col_tc": False,
+            "highlight_character_only": True,
             "time_display": "start",
             "f_text": 50
         }
@@ -359,6 +362,7 @@ class TestExportConfig:
         
         assert config.layout_type == "Сценарий 3"
         assert config.col_tc == False
+        assert config.highlight_character_only is True
         assert config.time_display == "start"
         assert config.f_text == 50
 
