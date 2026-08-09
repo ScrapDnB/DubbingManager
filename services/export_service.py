@@ -12,11 +12,6 @@ from services.export_layouts import ExportLayoutMixin
 from services.pdf_export_service import PdfExportService
 from services.replica_merge_service import ReplicaMergeService
 from services.reaper_rpp_service import ReaperRppService
-from utils.helpers import (
-    format_seconds_to_full_tc,
-    format_seconds_to_tc,
-    format_timing_range,
-)
 from utils.i18n import translate_source
 
 logger = logging.getLogger(__name__)
@@ -79,20 +74,12 @@ class ExportService(ExportLayoutMixin):
         cfg: Dict[str, Any]
     ) -> str:
         """Format timing according to export settings."""
-        start = line.get('s', 0)
-        end = line.get('e', 0)
+        start_tc, end_tc = self._format_timing_parts(line, cfg)
         start_only = cfg.get('time_display', 'range') == 'start'
 
-        if cfg.get('round_time', False):
-            start_tc = format_seconds_to_tc(start)
-            if start_only:
-                return start_tc
-            return f"{start_tc}-{format_seconds_to_tc(end)}"
-
         if start_only:
-            return format_seconds_to_full_tc(start)
-
-        return format_timing_range(start, end)
+            return start_tc
+        return f"{start_tc}-{end_tc}"
 
     def _format_table_timing_text(
         self,
@@ -133,9 +120,9 @@ class ExportService(ExportLayoutMixin):
         italic: bool = False,
         color: Optional[str] = None
     ) -> Font:
-        """Return times font."""
+        """Return the configured montage-sheet font."""
         return Font(
-            name='Times New Roman',
+            name=getattr(self, '_active_export_font_family', 'Segoe UI'),
             size=size,
             bold=bold,
             italic=italic,
@@ -156,10 +143,21 @@ class ExportService(ExportLayoutMixin):
         words = re.findall(r'\S+', text.strip())
         return len(words)
 
+    @staticmethod
+    def _estimated_wrapped_lines(value: Any, chars_per_line: int) -> int:
+        """Conservatively estimate wrapped XLSX lines for explicit row heights."""
+        text = str(value or '')
+        width = max(1, int(chars_per_line))
+        return sum(
+            max(1, (len(part) + width - 1) // width)
+            for part in (text.splitlines() or [''])
+        )
+
     def _apply_cell_styling(
         self,
         cell,
         font_size: float = 14.0,
+        bold: bool = False,
         wrap_text: bool = False,
         fill_color: Optional[str] = None,
         text_color: Optional[str] = None,
@@ -171,7 +169,11 @@ class ExportService(ExportLayoutMixin):
             font_color = text_color.replace('#', '')
             if len(font_color) == 6:
                 font_color = 'FF' + font_color
-        cell.font = self._get_times_font(size=font_size, color=font_color)
+        cell.font = self._get_times_font(
+            size=font_size,
+            bold=bold,
+            color=font_color,
+        )
         cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=wrap_text)
         if border:
             cell.border = border
@@ -244,7 +246,18 @@ class ExportService(ExportLayoutMixin):
             cell.alignment = header_alignment
 
         # Column widths
-        ws.column_dimensions['A'].width = 21.5
+        longest_actor_name = max(
+            (
+                len(str(stats.get('name', '')))
+                for stats in actor_stats.values()
+                if stats.get('roles')
+            ),
+            default=len(headers[0]),
+        )
+        ws.column_dimensions['A'].width = min(
+            45.0,
+            max(21.5, longest_actor_name * 1.25 + 3.0),
+        )
         ws.column_dimensions['B'].width = 55.33
         # Dynamic width for episode columns
         for i in range(1, len(sorted_ep_keys) + 2):
@@ -273,7 +286,12 @@ class ExportService(ExportLayoutMixin):
             if is_highlighted:
                 actor_color = stats['color']
                 fill_color = (
-                    self._docx_soft_fill_color(actor_color)
+                    self._docx_soft_fill_color(
+                        actor_color,
+                        self._color_softening_alpha(
+                            cfg.get('color_softening_level', 1)
+                        ),
+                    )
                     if soften_colors
                     else actor_color.replace('#', '')
                 )
@@ -288,12 +306,29 @@ class ExportService(ExportLayoutMixin):
                 font_size=14.0,
                 fill_color=fill_color,
                 text_color=text_color,
+                wrap_text=True,
                 border=thin_border
             )
 
             # Character cell
             roles_cell = ws.cell(row=row_num, column=2, value=roles_str)
-            self._apply_cell_styling(roles_cell, font_size=9.0, border=thin_border)
+            self._apply_cell_styling(
+                roles_cell,
+                font_size=14.0,
+                wrap_text=True,
+                border=thin_border,
+            )
+
+            actor_width = max(1, int(ws.column_dimensions['A'].width))
+            name_lines = max(
+                1,
+                (len(actor_name) + actor_width - 1) // actor_width,
+            )
+            role_lines = self._estimated_wrapped_lines(roles_str, 32)
+            ws.row_dimensions[row_num].height = min(
+                400,
+                10 + max(name_lines, role_lines) * 24,
+            )
 
             # Word-count cells by episode in sorted-key order
             total_words = 0
@@ -394,7 +429,12 @@ class ExportService(ExportLayoutMixin):
             if use_color and actor_id and is_highlighted:
                 actor_color = actor.get('color', '#FFFFFF')
                 color_hex = (
-                    self._docx_soft_fill_color(actor_color)
+                    self._docx_soft_fill_color(
+                        actor_color,
+                        self._color_softening_alpha(
+                            cfg.get('color_softening_level', 1)
+                        ),
+                    )
                     if soften_colors
                     else actor_color.replace('#', '')
                 )
@@ -410,14 +450,19 @@ class ExportService(ExportLayoutMixin):
 
             # Row data only for selected columns
             row_data = [row_idx - 1]  # Always include the row number
+            row_keys = ['number']
             if col_tc:
                 row_data.append(timing)
+                row_keys.append('time')
             if col_char:
                 row_data.append(char_name)
+                row_keys.append('char')
             if col_actor:
                 row_data.append(actor_name)
+                row_keys.append('actor')
             if col_text:
                 row_data.append(line.get('text', ''))
+                row_keys.append('text')
 
             for col, value in enumerate(row_data, 1):
                 cell = ws.cell(row=row_idx, column=col, value=value)
@@ -426,11 +471,16 @@ class ExportService(ExportLayoutMixin):
                 font_size = 14.0
                 # Use wrap_text for timing and replica text
                 timing_col = 2 if col_tc else None  # Timing column, second after the number
-                wrap_text = (timing_col and col == timing_col) or (col_text and col == len(row_data))
+                wrap_text = (
+                    (timing_col and col == timing_col)
+                    or row_keys[col - 1] == 'char'
+                    or (col_text and col == len(row_data))
+                )
 
                 self._apply_cell_styling(
                     cell,
                     font_size=font_size,
+                    bold=self._export_element_bold(cfg, row_keys[col - 1]),
                     wrap_text=wrap_text,
                     fill_color=(
                         color_hex
@@ -445,12 +495,27 @@ class ExportService(ExportLayoutMixin):
                     border=thin_border
                 )
 
-                # Set row height for the replica column
-                if col_text and col == len(row_data):
-                    # Approximate row height based on text length
-                    text = value if isinstance(value, str) else ''
-                    lines_count = max(1, text.count('\n') + 1 + len(text) // 80)
-                    ws.row_dimensions[row_idx].height = min(120, 20 + lines_count * 15)
+            timing_lines = (
+                max(
+                    2 if cfg.get('time_display', 'range') == 'range' else 1,
+                    str(timing).count('\n') + 1,
+                )
+                if col_tc else 1
+            )
+            replica_text = str(line.get('text', '') or '')
+            replica_lines = self._estimated_wrapped_lines(replica_text, 80)
+            character_lines = (
+                self._estimated_wrapped_lines(char_name, 12)
+                if col_char else 1
+            )
+            ws.row_dimensions[row_idx].height = min(
+                240,
+                10 + max(
+                    timing_lines,
+                    replica_lines,
+                    character_lines,
+                ) * 22,
+            )
 
         # Add a filter
         last_col_letter = openpyxl.utils.get_column_letter(len(headers))
@@ -467,6 +532,8 @@ class ExportService(ExportLayoutMixin):
 
         if cfg is None:
             cfg = self.project_data.get("export_config", {})
+
+        self._active_export_font_family = self._export_font_family(cfg)
 
         wb = openpyxl.Workbook()
 

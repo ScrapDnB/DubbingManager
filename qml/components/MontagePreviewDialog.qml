@@ -115,6 +115,7 @@ NativeDialogWindow {
         montageBackend.clearBatchResults()
         montageBackend.prepare(episode)
         layoutCombo.syncValue()
+        fontCombo.syncValue()
         timeModeCombo.syncValue()
         open()
         reloadPreview()
@@ -129,6 +130,22 @@ NativeDialogWindow {
     function selectedFormatCount() {
         return Number(formatHtml.checked) + Number(formatXlsx.checked)
             + Number(formatDocx.checked) + Number(formatPdf.checked)
+    }
+
+    function softeningLevel() {
+        var value = config.color_softening_level
+        return value === undefined ? 1 : Math.max(-2, Math.min(2, Number(value)))
+    }
+
+    function systemFontFamilies() {
+        var result = ["Segoe UI"]
+        var installed = Qt.fontFamilies()
+        for (var index = 0; index < installed.length; ++index) {
+            if (installed[index] !== "Segoe UI") {
+                result.push(installed[index])
+            }
+        }
+        return result
     }
 
     function runExport() {
@@ -273,8 +290,35 @@ NativeDialogWindow {
                             }
                         }
 
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label { text: qsTr("Шрифт") }
+                            PlatformComboBox {
+                                id: fontCombo
+                                Layout.fillWidth: true
+                                model: dialog.systemFontFamilies()
+                                onActivated: dialog.montageBackend.setOption(
+                                    "font_family", currentText
+                                )
+
+                                function syncValue() {
+                                    var fontIndex = find(String(
+                                        dialog.config.font_family || "Segoe UI"
+                                    ))
+                                    currentIndex = fontIndex >= 0 ? fontIndex : 0
+                                }
+
+                                Connections {
+                                    target: dialog.montageBackend
+                                    function onConfigChanged() {
+                                        fontCombo.syncValue()
+                                    }
+                                }
+                            }
+                        }
+
                         CollapsibleSection {
-                            title: qsTr("Колонки")
+                            title: qsTr("Элементы")
                             expanded: true
                             sidebarStyle: dialog.macOSStyle
                             Layout.fillWidth: true
@@ -348,6 +392,16 @@ NativeDialogWindow {
                                     "round_time", checked
                                 )
                             }
+                            CheckBox {
+                                text: qsTr("Скрывать нули")
+                                enabled: Boolean(dialog.config.col_tc)
+                                checked: Boolean(
+                                    dialog.config.hide_leading_timecode_zeros
+                                )
+                                onToggled: dialog.montageBackend.setOption(
+                                    "hide_leading_timecode_zeros", checked
+                                )
+                            }
                         }
 
                         CollapsibleSection {
@@ -372,13 +426,33 @@ NativeDialogWindow {
                                     "highlight_character_only", checked
                                 )
                             }
-                            CheckBox {
-                                text: qsTr("Смягчать цвета")
-                                enabled: Boolean(dialog.config.use_color)
-                                checked: Boolean(dialog.config.soften_colors)
-                                onToggled: dialog.montageBackend.setOption(
-                                    "soften_colors", checked
-                                )
+                            RowLayout {
+                                Layout.fillWidth: true
+                                CheckBox {
+                                    id: softenColorsCheck
+                                    Layout.fillWidth: true
+                                    text: qsTr("Смягчать цвета")
+                                    enabled: Boolean(dialog.config.use_color)
+                                    checked: Boolean(dialog.config.soften_colors)
+                                    onToggled: dialog.montageBackend.setOption(
+                                        "soften_colors", checked
+                                    )
+                                }
+                                Slider {
+                                    id: softeningLevelSlider
+                                    Layout.preferredWidth: 82
+                                    from: -2
+                                    to: 2
+                                    stepSize: 1
+                                    snapMode: Slider.SnapAlways
+                                    enabled: softenColorsCheck.enabled
+                                        && softenColorsCheck.checked
+                                    value: dialog.softeningLevel()
+                                    Accessible.name: qsTr("Уровень смягчения")
+                                    onMoved: dialog.montageBackend.setOption(
+                                        "color_softening_level", Math.round(value)
+                                    )
+                                }
                             }
                             AdaptiveButton {
                                 Layout.fillWidth: true
@@ -397,10 +471,10 @@ NativeDialogWindow {
 
                             Repeater {
                                 model: [
-                                    { label: "Таймкод", key: "f_time", value: Number(dialog.config.f_time || 21) },
-                                    { label: "Персонаж", key: "f_char", value: Number(dialog.config.f_char || 20) },
-                                    { label: "Актёр", key: "f_actor", value: Number(dialog.config.f_actor || 14) },
-                                    { label: "Реплика", key: "f_text", value: Number(dialog.config.f_text || 30) }
+                                    { label: "Таймкод", key: "f_time", value: Number(dialog.config.f_time || 21), boldKey: "bold_time", boldValue: Boolean(dialog.config.bold_time) },
+                                    { label: "Персонаж", key: "f_char", value: Number(dialog.config.f_char || 20), boldKey: "bold_char", boldValue: dialog.config.bold_char === undefined ? true : Boolean(dialog.config.bold_char) },
+                                    { label: "Актёр", key: "f_actor", value: Number(dialog.config.f_actor || 14), boldKey: "bold_actor", boldValue: Boolean(dialog.config.bold_actor) },
+                                    { label: "Реплика", key: "f_text", value: Number(dialog.config.f_text || 30), boldKey: "bold_text", boldValue: Boolean(dialog.config.bold_text) }
                                 ]
 
                                 delegate: RowLayout {
@@ -411,14 +485,26 @@ NativeDialogWindow {
                                     Label {
                                         text: fontRow.modelData.label
                                         Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        elide: Text.ElideRight
                                     }
                                     SpinBox {
+                                        Layout.preferredWidth: dialog.windowsStyle ? 108 : 88
+                                        Layout.minimumWidth: dialog.windowsStyle ? 100 : 80
+                                        Layout.maximumWidth: dialog.windowsStyle ? 112 : 96
                                         from: 8
                                         to: 72
                                         editable: true
                                         value: fontRow.modelData.value
                                         onValueModified: dialog.montageBackend.setOption(
                                             fontRow.modelData.key, value
+                                        )
+                                    }
+                                    CheckBox {
+                                        text: qsTr("Жирный")
+                                        checked: fontRow.modelData.boldValue
+                                        onToggled: dialog.montageBackend.setOption(
+                                            fontRow.modelData.boldKey, checked
                                         )
                                     }
                                 }

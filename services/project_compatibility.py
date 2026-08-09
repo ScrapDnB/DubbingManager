@@ -10,6 +10,10 @@ from config.constants import (
     DEFAULT_PROMPTER_CONFIG,
     PROJECT_VERSION,
 )
+from core.export_config_profiles import (
+    hydrate_layout_profile,
+    sync_active_layout_profile,
+)
 
 
 def ensure_project_compatibility(data: Dict[str, Any]) -> None:
@@ -30,7 +34,11 @@ def ensure_project_compatibility(data: Dict[str, Any]) -> None:
         export_config = deepcopy(DEFAULT_EXPORT_CONFIG)
         if isinstance(data["export_config"], dict):
             export_config.update(data["export_config"])
-        data["export_config"] = export_config
+            if "layout_profiles" not in data["export_config"]:
+                export_config["layout_profiles"] = {}
+        data["export_config"] = hydrate_layout_profile(
+            sync_active_layout_profile(export_config)
+        )
     if "prompter_config" not in data:
         data["prompter_config"] = deepcopy(DEFAULT_PROMPTER_CONFIG)
     if "global_map" not in data:

@@ -205,34 +205,41 @@ PROMPTER_FONT_BOLD_KEYS = (
     "bold_tc", "bold_char", "bold_actor", "bold_text",
 )
 DEFAULT_PROMPTER_FONT_SIZES = {
-    layout_type: {
-        "f_tc": 20,
-        "f_char": 24,
-        "f_actor": 18,
-        "f_text": 36,
-    }
-    for layout_type in PROMPTER_LAYOUT_TYPES
+    "Сценарий 1": {
+        "f_tc": 25, "f_char": 25, "f_actor": 18, "f_text": 30,
+    },
+    "Сценарий 2": {
+        "f_tc": 24, "f_char": 24, "f_actor": 18, "f_text": 36,
+    },
+    "Сценарий 3": {
+        "f_tc": 30, "f_char": 24, "f_actor": 18, "f_text": 29,
+    },
 }
 DEFAULT_PROMPTER_FONT_BOLD = {
-    layout_type: {
-        "bold_tc": False,
-        "bold_char": True,
-        "bold_actor": False,
-        "bold_text": False,
-    }
-    for layout_type in PROMPTER_LAYOUT_TYPES
+    "Сценарий 1": {
+        "bold_tc": False, "bold_char": True,
+        "bold_actor": False, "bold_text": False,
+    },
+    "Сценарий 2": {
+        "bold_tc": True, "bold_char": True,
+        "bold_actor": False, "bold_text": False,
+    },
+    "Сценарий 3": {
+        "bold_tc": True, "bold_char": True,
+        "bold_actor": False, "bold_text": False,
+    },
 }
 
 DEFAULT_PROMPTER_CONFIG = {
-    "f_tc": 20,
+    "f_tc": 30,
     "f_char": 24,
     "f_actor": 18,
-    "f_text": 36,
-    "bold_tc": False,
+    "f_text": 29,
+    "bold_tc": True,
     "bold_char": True,
     "bold_actor": False,
     "bold_text": False,
-    "layout_type": "Сценарий 1",
+    "layout_type": "Сценарий 3",
     "layout_font_sizes": DEFAULT_PROMPTER_FONT_SIZES,
     "layout_font_bold": DEFAULT_PROMPTER_FONT_BOLD,
     "show_timecode": True,
@@ -240,11 +247,11 @@ DEFAULT_PROMPTER_CONFIG = {
     "show_character": True,
     "show_actor": True,
     "show_replica": True,
-    "show_block_borders": False,
-    "hide_leading_timecode_zeros": False,
-    "focus_ratio": 0.5,
+    "show_block_borders": True,
+    "hide_leading_timecode_zeros": True,
+    "focus_ratio": 0.1,
     "is_mirrored": False,
-    "show_header": False,
+    "show_header": True,
     "port_in": 8000,
     "port_out": 9000,
     "osc_enabled": False,
@@ -260,21 +267,36 @@ DEFAULT_PROMPTER_CONFIG = {
     "page_gap_prefetch_seconds": 1.0,
     "page_gap_prefetch_delay_seconds": 1.0,
     "page_target_highlight_enabled": True,
-    "page_target_highlight_opacity": 0.22,
+    "page_target_highlight_opacity": 0.2728,
     "page_target_highlight_fade_ms": 1000,
     "page_debug_overlay": False,
     "colors": {
         "bg": "#000000",
         "active_text": "#FFFFFF",
-        "inactive_text": "#444444",
-        "tc": "#888888",
+        "inactive_text": "#3b3b3b",
+        "tc": "#ffffff",
         "actor": "#AAAAAA",
         "header_bg": "#111111",
-        "header_text": "#00FF00",
+        "header_text": "#8bf500",
         "block_border": "#4D4D4D",
         "page_target_highlight": "#FFD54F"
     }
 }
+
+EXPORT_LAYOUT_TYPES = (
+    'Таблица', 'Сценарий 1', 'Сценарий 2', 'Сценарий 3',
+)
+
+EXPORT_LAYOUT_PROFILE_KEYS = (
+    'font_family',
+    'col_tc', 'col_char', 'col_actor', 'col_text',
+    'table_width_time', 'table_width_char', 'table_width_actor',
+    'time_display', 'round_time', 'hide_leading_timecode_zeros',
+    'use_color', 'soften_colors', 'color_softening_level',
+    'highlight_character_only',
+    'f_time', 'f_char', 'f_actor', 'f_text',
+    'bold_time', 'bold_char', 'bold_actor', 'bold_text',
+)
 
 DEFAULT_EXPORT_CONFIG = {
     'format_html': True,
@@ -282,25 +304,59 @@ DEFAULT_EXPORT_CONFIG = {
     'format_docx': False,
     'format_pdf': False,
     'layout_type': 'Таблица',
+    'font_family': 'Segoe UI',
     'col_tc': True,
     'col_char': True,
-    'col_actor': True,
+    'col_actor': False,
     'col_text': True,
-    'f_time': 21,
-    'f_char': 20,
+    'f_time': 18,
+    'f_char': 15,
     'f_actor': 14,
-    'f_text': 30,
-    'table_width_time': 7.0,
-    'table_width_char': 10.0,
+    'f_text': 20,
+    'bold_time': True,
+    'bold_char': True,
+    'bold_actor': False,
+    'bold_text': False,
+    'table_width_time': 6.0,
+    'table_width_char': 14.5,
     'table_width_actor': 8.5,
     'use_color': True,
     'soften_colors': True,
+    'color_softening_level': -1,
     'highlight_character_only': False,
     'open_auto': True,
-    'round_time': False,
+    'round_time': True,
+    'hide_leading_timecode_zeros': True,
     'time_display': 'range',
     'allow_edit': True,
+    'layout_profiles': {},
 }
+
+DEFAULT_EXPORT_CONFIG['layout_profiles'] = {
+    layout_type: {
+        key: DEFAULT_EXPORT_CONFIG[key]
+        for key in EXPORT_LAYOUT_PROFILE_KEYS
+    }
+    for layout_type in EXPORT_LAYOUT_TYPES
+}
+
+DEFAULT_EXPORT_CONFIG['layout_profiles']['Сценарий 1'].update({
+    'col_actor': True,
+    'color_softening_level': 0,
+    'f_time': 20,
+    'f_char': 20,
+    'bold_time': False,
+})
+DEFAULT_EXPORT_CONFIG['layout_profiles']['Сценарий 2'].update({
+    'f_char': 19,
+})
+DEFAULT_EXPORT_CONFIG['layout_profiles']['Сценарий 3'].update({
+    'soften_colors': False,
+    'highlight_character_only': True,
+    'f_time': 21,
+    'f_char': 17,
+    'bold_time': False,
+})
 
 DEFAULT_REPLICA_MERGE_CONFIG = {
     'merge': True,
@@ -382,7 +438,7 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Application version shown in the UI and build metadata.
-APP_VERSION = "2.0.0-rc5"
+APP_VERSION = "2.0.0-rc6"
 
 # Project file format version used for compatibility migrations.
 PROJECT_VERSION = "2.0"

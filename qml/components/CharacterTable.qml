@@ -80,19 +80,19 @@ Item {
 
     TextMetrics {
         id: linesHeaderMetrics
-        text: qsTr("Строк")
+        text: qsTr("Строк") + " ↓"
         font.pixelSize: table.macOSStyle ? 11 : 13
         font.weight: table.macOSStyle ? Font.Medium : Font.DemiBold
     }
     TextMetrics {
         id: ringsHeaderMetrics
-        text: qsTr("Колец")
+        text: qsTr("Колец") + " ↓"
         font.pixelSize: table.macOSStyle ? 11 : 13
         font.weight: table.macOSStyle ? Font.Medium : Font.DemiBold
     }
     TextMetrics {
         id: wordsHeaderMetrics
-        text: qsTr("Слов")
+        text: qsTr("Слов") + " ↓"
         font.pixelSize: table.macOSStyle ? 11 : 13
         font.weight: table.macOSStyle ? Font.Medium : Font.DemiBold
     }
@@ -161,7 +161,7 @@ Item {
     readonly property int visibleColumnCount: visibleColumns.length
     readonly property int baseLineColumnWidth: Math.max(48, Math.ceil(linesHeaderMetrics.width + cellPadding))
     readonly property int baseRingsColumnWidth: Math.max(50, Math.ceil(ringsHeaderMetrics.width + cellPadding))
-    readonly property int baseWordsColumnWidth: Math.max(46, Math.ceil(wordsHeaderMetrics.width + cellPadding))
+    readonly property int baseWordsColumnWidth: Math.max(58, Math.ceil(wordsHeaderMetrics.width + cellPadding))
     readonly property int baseScopeColumnWidth: Math.max(66, Math.ceil(scopeHeaderMetrics.width + cellPadding + tableFontMetrics.height))
     readonly property int basePreviewColumnWidth: Math.max(26, tableFontMetrics.height + 12)
     readonly property int lineColumnWidth: isColumnVisible("lines")

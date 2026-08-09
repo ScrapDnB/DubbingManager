@@ -8,6 +8,10 @@ from PySide6.QtCore import QObject, Property, QTimer, QUrl, Signal, Slot, Qt
 from PySide6.QtGui import QDesktopServices
 
 from config.constants import DEFAULT_EXPORT_CONFIG
+from core.export_config_profiles import (
+    hydrate_layout_profile,
+    set_layout_profile_option,
+)
 from core.commands import (
     UpdateProjectFileStateCommand,
     UpdateWorkingTextLineCommand,
@@ -94,6 +98,7 @@ class MontageBridge(QObject):
     def config(self) -> Dict[str, Any]:
         config = deepcopy(DEFAULT_EXPORT_CONFIG)
         config.update(self._global_settings_service.get_default_export_config())
+        config = hydrate_layout_profile(config)
         config["highlight_ids_export"] = deepcopy(self._highlight_ids)
         config["highlight_negative_ids_export"] = deepcopy(
             self._negative_highlight_ids
@@ -252,7 +257,7 @@ class MontageBridge(QObject):
         config = self.config
         if config.get(key) == normalized:
             return
-        config[key] = normalized
+        config = set_layout_profile_option(config, key, normalized)
         if not self._save_global_config(config):
             return
         self.configChanged.emit()
@@ -375,7 +380,14 @@ class MontageBridge(QObject):
             )
             for episode in episodes
             for export_format in formats
+            if not (all_episodes and export_format == "xlsx")
         ]
+        if all_episodes and "xlsx" in formats:
+            self._batch_queue.append((
+                "",
+                "xlsx_all",
+                str(folder / f"{project_name} - Все серии.xlsx"),
+            ))
         self._batch_results = []
         self._batch_position = 0
         self._batch_busy = True
@@ -418,7 +430,12 @@ class MontageBridge(QObject):
             self._finish_batch()
             return
         episode, export_format, path = self._batch_queue[self._batch_position]
-        success, message = self._export_to_path(episode, export_format, path)
+        if export_format == "xlsx_all":
+            success, message = self._export_all_episodes_xlsx(path)
+        else:
+            success, message = self._export_to_path(
+                episode, export_format, path
+            )
         self._batch_results.append({
             "fileName": Path(path).name,
             "status": "Готово" if success else "Ошибка",
@@ -498,6 +515,7 @@ class MontageBridge(QObject):
                 highlighted,
                 actor,
                 bool(config.get("soften_colors", True)),
+                config.get("color_softening_level", 1),
             )
             if not config.get("use_color", True) or not highlighted:
                 background = "transparent"
@@ -636,6 +654,29 @@ class MontageBridge(QObject):
         except Exception as exc:
             return False, f"Ошибка экспорта: {exc}"
         return False, "Неизвестный формат экспорта"
+
+    def _export_all_episodes_xlsx(self, path: str) -> tuple[bool, str]:
+        """Export one workbook with a summary and one sheet per episode."""
+        episodes_data = {
+            str(episode): lines
+            for episode in self._session.data.get("episodes", {})
+            if (lines := self._get_lines(str(episode)))
+        }
+        if not episodes_data:
+            return False, "Не найден рабочий текст ни для одной серии"
+
+        config = self.config
+        service = ExportService(self._export_project_data(config))
+        merge_config = self._global_settings_service.get_replica_merge_config()
+        first_episode = next(iter(episodes_data))
+        return service.export_to_excel(
+            first_episode,
+            episodes_data[first_episode],
+            config,
+            path,
+            all_episodes=episodes_data,
+            merge_cfg=merge_config,
+        )
 
     def _save_global_config(self, config: Dict[str, Any]) -> bool:
         config = deepcopy(config)

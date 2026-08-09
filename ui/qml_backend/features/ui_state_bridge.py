@@ -86,6 +86,11 @@ class UiStateBridge(QObject):
     def setStringValue(self, key: str, value: str) -> None:
         self._settings.setValue(self._state_key(key), str(value or ""))
 
+    @Slot(str, result=bool)
+    def hasValue(self, key: str) -> bool:
+        """Return whether a UI preference has already been persisted."""
+        return self._settings.contains(self._state_key(key))
+
     def _remember_folder(self, category: str, folder: Path) -> None:
         if not folder.is_dir():
             return

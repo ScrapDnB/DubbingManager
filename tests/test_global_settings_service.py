@@ -98,7 +98,7 @@ class TestGlobalSettingsService:
         assert settings['default_prompter_config']['f_text'] == 48
         assert settings['default_prompter_config']['osc_enabled'] is True
         assert settings['default_prompter_config']['sync_in'] is False
-        assert settings['default_prompter_config']['f_tc'] == 20
+        assert settings['default_prompter_config']['f_tc'] == 25
         assert settings['prompter_color_presets'] == [None, None, None, None]
         assert settings['recent_projects'] == [
             str(Path('/tmp/a.json').expanduser()),
@@ -195,7 +195,7 @@ class TestGlobalSettingsService:
         assert saved_data['default_prompter_config']['f_text'] == 42
         assert saved_data['default_prompter_config']['osc_enabled'] is True
         assert saved_data['default_prompter_config']['sync_out'] is True
-        assert saved_data['default_prompter_config']['f_tc'] == 20
+        assert saved_data['default_prompter_config']['f_tc'] == 25
         assert saved_data['prompter_color_presets'][0]['bg'] == '#111111'
         assert saved_data['prompter_color_presets'][0]['active_text'] == '#eeeeee'
         assert saved_data['prompter_color_presets'][1] is None
@@ -434,7 +434,7 @@ class TestGlobalSettingsService:
         
         config = service.get_prompter_config()
         
-        assert config['f_tc'] == 20  # Значение по умолчанию
+        assert config['f_tc'] == 30  # Значение по умолчанию
 
     def test_get_replica_merge_config(self, service):
         """Тест получения настроек объединения"""
@@ -488,7 +488,7 @@ class TestGlobalSettingsService:
             'f_text': 57,
         }
         assert config['layout_font_sizes']['Сценарий 2']['f_text'] == 36
-        assert config['layout_font_sizes']['Сценарий 3']['f_text'] == 36
+        assert config['layout_font_sizes']['Сценарий 3']['f_text'] == 29
 
     def test_prompter_highlight_opacity_is_normalized(self, service):
         assert service._normalize_prompter_config({
@@ -499,7 +499,7 @@ class TestGlobalSettingsService:
         })['page_target_highlight_opacity'] == 0.44
         assert service._normalize_prompter_config({
             'page_target_highlight_opacity': 'invalid',
-        })['page_target_highlight_opacity'] == 0.22
+        })['page_target_highlight_opacity'] == 0.2728
 
     def test_prompter_highlight_fade_time_is_normalized(self, service):
         assert service._normalize_prompter_config({
@@ -713,7 +713,7 @@ class TestGlobalSettingsServiceIntegration:
             assert loaded_settings['default_prompter_config']['f_tc'] == 50
             assert loaded_settings['default_prompter_config']['f_text'] == 100
             assert loaded_settings['default_prompter_config']['osc_enabled'] is True
-            assert loaded_settings['default_prompter_config']['f_char'] == 24
+            assert loaded_settings['default_prompter_config']['f_char'] == 25
             assert loaded_settings['language'] == 'en'
             assert loaded_settings['recent_projects'] == [
                 str(Path('/tmp/project.json').expanduser())

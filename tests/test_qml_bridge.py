@@ -884,6 +884,7 @@ def test_qml_bridge_teleprompter_settings_and_presets(tmp_path, monkeypatch):
     refresh_calls = []
     original_refresh = bridge.refresh
     monkeypatch.setattr(bridge, "refresh", lambda: refresh_calls.append(True))
+    bridge.teleprompter.setConfigValue("layout_type", "Сценарий 1")
     bridge.teleprompter.setConfigValue("f_text", 52)
     bridge.teleprompter.setConfigValue("colors.bg", "#102030")
     assert refresh_calls == []
@@ -2499,25 +2500,50 @@ def test_qml_bridge_previews_montage_and_saves_global_export_settings(tmp_path):
     assert preview_row["actor"] == "Actor One"
     assert preview_row["text"] == "Montage preview"
     assert montage.count == 1
-    assert "<table>" in montage.html
+    assert "<table class='montage-table'>" in montage.html
     assert "qrc:///qtwebchannel/qwebchannel.js" in montage.html
     assert "contenteditable='true'" in montage.html
 
     montage.setOption("layout_type", "Сценарий 2")
+    montage.setOption("font_family", "Georgia")
     montage.setOption("round_time", True)
+    montage.setOption("hide_leading_timecode_zeros", True)
+    montage.setOption("color_softening_level", -2)
+    montage.setOption("bold_time", True)
+    montage.setOption("bold_char", False)
+    montage.setOption("bold_actor", True)
+    montage.setOption("bold_text", True)
     montage.setOption("highlight_character_only", True)
 
     assert montage.config["layout_type"] == "Сценарий 2"
+    assert montage.config["font_family"] == "Georgia"
     assert montage.config["round_time"] is True
+    assert montage.config["hide_leading_timecode_zeros"] is True
+    assert montage.config["color_softening_level"] == -2
+    assert montage.config["bold_time"] is True
+    assert montage.config["bold_char"] is False
+    assert montage.config["bold_actor"] is True
+    assert montage.config["bold_text"] is True
     assert montage.config["highlight_character_only"] is True
     assert "script2-container" in montage.html
+    assert "font-family: 'Georgia', sans-serif" in montage.html
     assert "character-highlight" in montage.html
+    assert "rgba(18, 52, 86, 0.72)" in montage.html
+    assert "00:01" in montage.html
+    assert "0:00:01" not in montage.html
     assert not bridge.project.canUndo
     saved = bridge._global_settings_service.load_settings()[
         "default_export_config"
     ]
     assert saved["layout_type"] == "Сценарий 2"
+    assert saved["font_family"] == "Georgia"
     assert saved["round_time"] is True
+    assert saved["hide_leading_timecode_zeros"] is True
+    assert saved["color_softening_level"] == -2
+    assert saved["bold_time"] is True
+    assert saved["bold_char"] is False
+    assert saved["bold_actor"] is True
+    assert saved["bold_text"] is True
     assert saved["highlight_character_only"] is True
 
 
@@ -2535,6 +2561,48 @@ def test_qml_montage_accepts_table_column_width_changes():
     assert saved["table_width_time"] == 6.5
     assert saved["table_width_char"] == 12.0
     assert saved["table_width_actor"] == 9.5
+
+
+def test_qml_montage_keeps_appearance_settings_per_layout():
+    _app()
+    bridge = AppBridge()
+    montage = bridge.montage
+
+    montage.setOption("layout_type", "Таблица")
+    montage.setOption("font_family", "Georgia")
+    montage.setOption("col_actor", False)
+    montage.setOption("time_display", "start")
+    montage.setOption("color_softening_level", -2)
+    montage.setOption("f_text", 44)
+    montage.setOption("bold_text", True)
+
+    montage.setOption("layout_type", "Сценарий 2")
+    assert montage.config["font_family"] == "Segoe UI"
+    assert montage.config["col_actor"] is False
+    assert montage.config["time_display"] == "range"
+    assert montage.config["color_softening_level"] == -1
+    assert montage.config["f_char"] == 19
+    assert montage.config["f_text"] == 20
+    assert montage.config["bold_text"] is False
+
+    montage.setOption("font_family", "Arial")
+    montage.setOption("f_text", 52)
+    montage.setOption("layout_type", "Таблица")
+
+    assert montage.config["font_family"] == "Georgia"
+    assert montage.config["col_actor"] is False
+    assert montage.config["time_display"] == "start"
+    assert montage.config["color_softening_level"] == -2
+    assert montage.config["f_text"] == 44
+    assert montage.config["bold_text"] is True
+
+    saved = bridge._global_settings_service.load_settings()[
+        "default_export_config"
+    ]
+    assert saved["layout_profiles"]["Таблица"]["font_family"] == "Georgia"
+    scenario_profile = saved["layout_profiles"]["Сценарий 2"]
+    assert scenario_profile["font_family"] == "Arial"
+    assert scenario_profile["f_text"] == 52
 
 
 def test_qml_bridge_edits_montage_text_through_undo_stack(tmp_path):
@@ -2676,6 +2744,51 @@ def test_qml_bridge_exports_montage_files_and_current_episode_batch(tmp_path):
     assert (output_folder / "Demo - Ep1.docx").exists()
     assert montage.batchCompleted == 2
     assert montage.batchResultModel.rowCount() == 2
+
+
+def test_qml_montage_exports_all_episodes_to_one_xlsx_workbook(tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["project_name"] = "Demo"
+    bridge._session.data["episodes"] = {
+        "1": str(tmp_path / "one.ass"),
+        "2": str(tmp_path / "two.ass"),
+    }
+    bridge._session.data["replica_merge_config"] = {"merge": False}
+    bridge._session.data["episode_working_texts"] = {
+        episode: {"lines": [{
+            "id": f"line-{episode}",
+            "start": 1.0,
+            "end": 2.0,
+            "character": "Hero",
+            "text": f"Episode {episode}",
+        }]}
+        for episode in ("1", "2")
+    }
+    bridge.refresh()
+    montage = bridge.montage
+    montage.prepare("1")
+
+    output_folder = tmp_path / "xlsx-all"
+    montage.exportBatch(
+        str(output_folder), False, True, False, False, True
+    )
+    for _ in range(100):
+        _app().processEvents()
+        if not montage.batchBusy:
+            break
+    else:
+        pytest.fail("Montage XLSX batch did not finish")
+
+    workbook_path = output_folder / "Demo - Все серии.xlsx"
+    assert workbook_path.exists()
+    assert not list(output_folder.glob("Demo - Ep*.xlsx"))
+    workbook = openpyxl.load_workbook(workbook_path, read_only=True)
+    assert workbook.sheetnames == ["Сводка", "серия (1)", "серия (2)"]
+    assert montage.batchTotal == 1
+    assert montage.batchCompleted == 1
+    assert montage.batchResultModel.rowCount() == 1
 
 
 def test_qml_montage_batch_reports_partial_failures_and_can_cancel(tmp_path):
@@ -3269,6 +3382,7 @@ def test_qml_ui_state_remembers_dialog_folders_and_window_values(tmp_path):
         QSettings.Format.IniFormat,
     )
     state = UiStateBridge(settings)
+    assert state.hasValue("main.width") is False
     state.rememberFile("sourceFiles", str(source_file))
     state.setIntValue("main.width", 1440)
     state.setIntValue("teleprompterFloat.width", 428)
@@ -3288,6 +3402,7 @@ def test_qml_ui_state_remembers_dialog_folders_and_window_values(tmp_path):
 
     assert Path(restored.folderUrl("sourceFiles").toLocalFile()) == source_dir
     assert restored.intValue("main.width", 1000) == 1440
+    assert restored.hasValue("main.width") is True
     assert restored.intValue("teleprompterFloat.width", 300) == 428
     assert restored.intValue("teleprompterFloat.height", 440) == 516
     assert restored.boolValue("main.maximized", False) is True

@@ -54,6 +54,13 @@ class ExportLayoutMixin:
             return str(layout_type)
         return "Таблица"
 
+    @staticmethod
+    def _export_font_family(cfg: Dict[str, Any]) -> str:
+        """Return the selected montage-sheet font family."""
+        family = str(cfg.get('font_family', 'Segoe UI') or '').strip()
+        family = family.replace('\x00', '').replace('\r', ' ').replace('\n', ' ')
+        return family[:100] or 'Segoe UI'
+
     def _table_column_width_rem(self, cfg: Dict[str, Any], key: str) -> float:
         """Return a sane table column width in rem units."""
         defaults = {
@@ -90,6 +97,17 @@ class ExportLayoutMixin:
         except (TypeError, ValueError):
             value = default
         return max(7.0, min(18.0, value * 0.5))
+
+    @staticmethod
+    def _export_element_bold(cfg: Dict[str, Any], key: str) -> bool:
+        """Return the configured bold style for a montage sheet element."""
+        setting = {
+            'time': 'bold_time',
+            'char': 'bold_char',
+            'actor': 'bold_actor',
+            'text': 'bold_text',
+        }.get(key, '')
+        return bool(cfg.get(setting, key == 'char')) if setting else False
 
     def generate_html(
         self,
@@ -138,7 +156,11 @@ class ExportLayoutMixin:
             h_class = "highlighted-block" if is_highlighted else ""
 
             bg_color, border_col = self._get_colors(
-                use_color, is_highlighted, actor, soften_colors
+                use_color,
+                is_highlighted,
+                actor,
+                soften_colors,
+                cfg.get('color_softening_level', 1),
             )
             text_color = self._negative_text_color(
                 aid,
@@ -202,12 +224,18 @@ class ExportLayoutMixin:
 
     def _get_html_header(self, js: str, cfg: Dict[str, Any]) -> str:
         """Return the HTML document header."""
+        font_family = self._export_font_family(cfg)
+        css_font_family = font_family.replace('\\', '\\\\').replace("'", "\\'")
         time_width = self._table_column_width_css(cfg, 'table_width_time')
         char_width = self._table_column_width_css(cfg, 'table_width_char')
         actor_width = self._table_column_width_css(cfg, 'table_width_actor')
+        time_weight = 700 if cfg.get('bold_time', False) else 400
+        char_weight = 700 if cfg.get('bold_char', True) else 400
+        actor_weight = 700 if cfg.get('bold_actor', False) else 400
+        text_weight = 700 if cfg.get('bold_text', False) else 400
         return f"""<html><head><meta charset='utf-8'>{js}<style>
         body {{
-            font-family: 'Segoe UI', sans-serif;
+            font-family: '{css_font_family}', sans-serif;
             padding: 36px clamp(18px, 4vw, 64px);
             background: #f6f7f8;
             color: #202124;
@@ -232,6 +260,13 @@ class ExportLayoutMixin:
             overflow-wrap: break-word;
             word-break: normal;
         }}
+        .montage-table {{
+            border-color: #000000;
+        }}
+        .montage-table td,
+        .montage-table th {{
+            border-color: #000000;
+        }}
         th {{
             background: #eef1f4;
             color: #4f5965;
@@ -253,14 +288,14 @@ class ExportLayoutMixin:
             width: auto;
         }}
         .t {{
-            font-family: monospace;
             font-size: {cfg.get('f_time', 12)}px;
+            font-weight: {time_weight};
             line-height: 1.25;
             color: inherit;
             white-space: normal;
         }}
         .c {{
-            font-weight: bold;
+            font-weight: {char_weight};
             font-size: {cfg.get('f_char', 14)}px;
             line-height: 1.25;
         }}
@@ -273,10 +308,12 @@ class ExportLayoutMixin:
         .a {{
             font-style: italic;
             font-size: {cfg.get('f_actor', 14)}px;
+            font-weight: {actor_weight};
             line-height: 1.25;
         }}
         .txt {{
             font-size: {cfg.get('f_text', 16)}px;
+            font-weight: {text_weight};
             line-height: 1.45;
         }}
         .time-sep {{
@@ -304,20 +341,20 @@ class ExportLayoutMixin:
             color: inherit;
         }}
         .script2-time {{
-            font-family: monospace;
             font-size: {cfg.get('f_time', 12)}px;
-            font-weight: 650;
+            font-weight: {time_weight};
             line-height: 1.25;
             white-space: pre-line;
             opacity: 0.78;
         }}
         .script2-char {{
             font-size: {cfg.get('f_char', 14)}px;
-            font-weight: 750;
+            font-weight: {char_weight};
             text-transform: uppercase;
         }}
         .script2-actor {{
             font-size: {cfg.get('f_actor', 14)}px;
+            font-weight: {actor_weight};
             opacity: 0.78;
         }}
         .script2-sep {{
@@ -326,6 +363,7 @@ class ExportLayoutMixin:
         }}
         .script2-text {{
             font-size: {cfg.get('f_text', 16)}px;
+            font-weight: {text_weight};
             line-height: 1.38;
         }}
         .script3-table {{
@@ -333,7 +371,11 @@ class ExportLayoutMixin:
             border-collapse: collapse;
             table-layout: fixed;
             background: white;
-            border: 1px solid #d8dde3;
+            border: 1px solid #000000;
+        }}
+        .script3-table td,
+        .script3-table th {{
+            border-color: #000000;
         }}
         .script3-meta-col {{
             width: 26%;
@@ -350,9 +392,8 @@ class ExportLayoutMixin:
             padding: 12px 14px;
         }}
         .script3-time {{
-            font-family: monospace;
             font-size: {cfg.get('f_time', 12)}px;
-            font-weight: 650;
+            font-weight: {time_weight};
             line-height: 1.25;
             white-space: pre-line;
             opacity: 0.78;
@@ -360,19 +401,21 @@ class ExportLayoutMixin:
         }}
         .script3-char {{
             font-size: {cfg.get('f_char', 14)}px;
-            font-weight: 750;
+            font-weight: {char_weight};
             line-height: 1.2;
             text-transform: uppercase;
             margin-bottom: 4px;
         }}
         .script3-actor {{
             font-size: {cfg.get('f_actor', 14)}px;
+            font-weight: {actor_weight};
             font-style: italic;
             line-height: 1.25;
             opacity: 0.78;
         }}
         .script3-text {{
             font-size: {cfg.get('f_text', 16)}px;
+            font-weight: {text_weight};
             line-height: 1.38;
         }}
         </style></head><body>
@@ -437,13 +480,17 @@ class ExportLayoutMixin:
         use_color: bool,
         is_highlighted: bool,
         actor: Dict[str, Any],
-        soften_colors: bool = True
+        soften_colors: bool = True,
+        softening_level: int = 1,
     ) -> tuple:
         """Return colors for an export row."""
         if use_color and is_highlighted:
             actor_color = actor.get('color', '#ffffff')
             bg_color = (
-                hex_to_rgba_string(actor_color, 0.22)
+                hex_to_rgba_string(
+                    actor_color,
+                    self._color_softening_alpha(softening_level),
+                )
                 if soften_colors
                 else actor_color
             )
@@ -452,6 +499,21 @@ class ExportLayoutMixin:
             bg_color = "#ffffff"
             border_col = "#eee"
         return bg_color, border_col
+
+    @staticmethod
+    def _color_softening_alpha(level: Any) -> float:
+        """Map five softening levels to actor-color opacity."""
+        try:
+            normalized = max(-2, min(2, int(level)))
+        except (TypeError, ValueError):
+            normalized = 1
+        return {
+            -2: 0.72,
+            -1: 0.55,
+            0: 0.38,
+            1: 0.22,
+            2: 0.12,
+        }[normalized]
 
     def _character_only_highlight(
         self,
@@ -563,9 +625,19 @@ class ExportLayoutMixin:
         end = float(line.get('e', 0.0))
 
         if cfg.get('round_time', False):
-            return format_seconds_to_tc(start), format_seconds_to_tc(end)
+            start_tc = format_seconds_to_tc(start)
+            end_tc = format_seconds_to_tc(end)
+        else:
+            start_tc = format_seconds_to_full_tc(start)
+            end_tc = format_seconds_to_full_tc(end)
 
-        return format_seconds_to_full_tc(start), format_seconds_to_full_tc(end)
+        if cfg.get('hide_leading_timecode_zeros', False):
+            if start_tc.startswith("0:"):
+                start_tc = start_tc[2:]
+            if end_tc.startswith("0:"):
+                end_tc = end_tc[2:]
+
+        return start_tc, end_tc
 
     def _format_timing_text(self, line: Dict[str, Any], cfg: Dict[str, Any]) -> str:
         """Format timing as plain text for scenario HTML."""
@@ -644,7 +716,8 @@ class ExportLayoutMixin:
                 for header, _css_class, _value in columns
             )
             header = (
-                f"<table><colgroup>{colgroup}</colgroup><thead><tr>"
+                f"<table class='montage-table'><colgroup>{colgroup}"
+                "</colgroup><thead><tr>"
                 f"{headers}"
                 "</tr></thead><tbody>"
             )
@@ -975,8 +1048,9 @@ class ExportLayoutMixin:
         paragraph.paragraph_format.space_before = Pt(0)
         run = paragraph.add_run(str(text or ""))
         run.bold = bold
-        run.font.name = "Segoe UI"
-        run._element.rPr.rFonts.set(qn('w:eastAsia'), "Segoe UI")
+        font_family = getattr(self, '_active_export_font_family', 'Segoe UI')
+        run.font.name = font_family
+        run._element.rPr.rFonts.set(qn('w:eastAsia'), font_family)
         run.font.size = Pt(font_size)
         if text_color:
             clean_color = text_color.strip().lstrip("#")
@@ -1003,8 +1077,9 @@ class ExportLayoutMixin:
         run = paragraph.add_run(str(text or ""))
         run.bold = bold
         run.italic = italic
-        run.font.name = "Segoe UI"
-        run._element.rPr.rFonts.set(qn('w:eastAsia'), "Segoe UI")
+        font_family = getattr(self, '_active_export_font_family', 'Segoe UI')
+        run.font.name = font_family
+        run._element.rPr.rFonts.set(qn('w:eastAsia'), font_family)
         run.font.size = Pt(font_size)
         if color:
             clean_color = color.strip().lstrip("#")
@@ -1106,7 +1181,12 @@ class ExportLayoutMixin:
             if use_color and actor_id and is_highlighted:
                 actor_color = actor.get('color', '#FFFFFF')
                 fill_color = (
-                    self._docx_soft_fill_color(actor_color)
+                    self._docx_soft_fill_color(
+                        actor_color,
+                        self._color_softening_alpha(
+                            cfg.get('color_softening_level', 1)
+                        ),
+                    )
                     if soften_colors
                     else actor_color.replace('#', '')
                 )
@@ -1131,6 +1211,7 @@ class ExportLayoutMixin:
                     cell,
                     values.get(key, ''),
                     font_size=font_size,
+                    bold=self._export_element_bold(cfg, key),
                     fill_color=None if character_only else fill_color,
                     text_color=(
                         text_color
@@ -1173,7 +1254,12 @@ class ExportLayoutMixin:
         if cfg.get('use_color', True) and actor_id and is_highlighted:
             actor_color = actor.get('color', '#FFFFFF')
             fill_color = (
-                self._docx_soft_fill_color(actor_color)
+                self._docx_soft_fill_color(
+                    actor_color,
+                    self._color_softening_alpha(
+                        cfg.get('color_softening_level', 1)
+                    ),
+                )
                 if cfg.get('soften_colors', True)
                 else actor_color.replace('#', '')
             )
@@ -1239,7 +1325,7 @@ class ExportLayoutMixin:
                     meta,
                     line.get('char', ''),
                     self._docx_font_size_from_cfg(cfg, 'f_char', 20),
-                    bold=True,
+                    bold=self._export_element_bold(cfg, 'char'),
                     color=(text_color or "#000000") if character_only else run_color,
                     highlight_fill=fill_color if character_only else None,
                 )
@@ -1251,6 +1337,7 @@ class ExportLayoutMixin:
                     meta,
                     f"[{self._format_timing_text(line, cfg)}]",
                     self._docx_font_size_from_cfg(cfg, 'f_time', 21),
+                    bold=self._export_element_bold(cfg, 'time'),
                     color=run_color
                 )
                 meta_parts_added += 1
@@ -1262,6 +1349,7 @@ class ExportLayoutMixin:
                     meta,
                     f"({actor_name})",
                     self._docx_font_size_from_cfg(cfg, 'f_actor', 14),
+                    bold=self._export_element_bold(cfg, 'actor'),
                     italic=True,
                     color=run_color
                 )
@@ -1275,6 +1363,7 @@ class ExportLayoutMixin:
                     body,
                     line.get('text', ''),
                     self._docx_font_size_from_cfg(cfg, 'f_text', 30),
+                    bold=self._export_element_bold(cfg, 'text'),
                     color=run_color
                 )
             spacer = document.add_paragraph()
@@ -1312,7 +1401,7 @@ class ExportLayoutMixin:
                     meta,
                     self._format_scenario2_timing_text(line, cfg),
                     self._docx_font_size_from_cfg(cfg, 'f_time', 21),
-                    bold=True,
+                    bold=self._export_element_bold(cfg, 'time'),
                     color=muted_color
                 )
                 meta_parts_added += 1
@@ -1323,7 +1412,7 @@ class ExportLayoutMixin:
                     meta,
                     str(line.get('char', '')).upper(),
                     self._docx_font_size_from_cfg(cfg, 'f_char', 20),
-                    bold=True,
+                    bold=self._export_element_bold(cfg, 'char'),
                     color=(text_color or "#000000") if character_only else run_color,
                     highlight_fill=fill_color if character_only else None,
                 )
@@ -1336,6 +1425,7 @@ class ExportLayoutMixin:
                     meta,
                     actor_name,
                     self._docx_font_size_from_cfg(cfg, 'f_actor', 14),
+                    bold=self._export_element_bold(cfg, 'actor'),
                     color=muted_color
                 )
 
@@ -1348,6 +1438,7 @@ class ExportLayoutMixin:
                     body,
                     line.get('text', ''),
                     self._docx_font_size_from_cfg(cfg, 'f_text', 30),
+                    bold=self._export_element_bold(cfg, 'text'),
                     color=run_color
                 )
             spacer = document.add_paragraph()
@@ -1376,6 +1467,8 @@ class ExportLayoutMixin:
         ):
             self._set_docx_cell_width(cell, width)
             self._set_docx_cell_margins(cell, top=85, bottom=85)
+            for side in ('top', 'right', 'bottom', 'left'):
+                self._set_docx_cell_border(cell, side, '000000', 4)
             self._set_docx_cell_text(
                 cell,
                 title,
@@ -1398,6 +1491,8 @@ class ExportLayoutMixin:
             for cell, width in zip(row_cells, column_widths):
                 self._set_docx_cell_width(cell, width)
                 self._set_docx_cell_margins(cell)
+                for side in ('top', 'right', 'bottom', 'left'):
+                    self._set_docx_cell_border(cell, side, '000000', 4)
                 cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
                 if fill_color and not character_only:
                     self._set_docx_cell_shading(cell, fill_color)
@@ -1413,7 +1508,7 @@ class ExportLayoutMixin:
                     current_paragraph,
                     self._format_scenario2_timing_text(line, cfg),
                     self._docx_font_size_from_cfg(cfg, 'f_time', 21),
-                    bold=True,
+                    bold=self._export_element_bold(cfg, 'time'),
                     color=muted_color
                 )
                 wrote_meta = True
@@ -1428,7 +1523,7 @@ class ExportLayoutMixin:
                     current_paragraph,
                     str(line.get('char', '')).upper(),
                     self._docx_font_size_from_cfg(cfg, 'f_char', 20),
-                    bold=True,
+                    bold=self._export_element_bold(cfg, 'char'),
                     color=(text_color or "#000000") if character_only else run_color,
                     highlight_fill=fill_color if character_only else None,
                 )
@@ -1444,6 +1539,7 @@ class ExportLayoutMixin:
                     current_paragraph,
                     actor.get('name', '-') if actor else '-',
                     self._docx_font_size_from_cfg(cfg, 'f_actor', 14),
+                    bold=self._export_element_bold(cfg, 'actor'),
                     italic=True,
                     color=muted_color
                 )
@@ -1457,6 +1553,7 @@ class ExportLayoutMixin:
                     body,
                     line.get('text', ''),
                     self._docx_font_size_from_cfg(cfg, 'f_text', 30),
+                    bold=self._export_element_bold(cfg, 'text'),
                     color=run_color
                 )
 
@@ -1472,7 +1569,15 @@ class ExportLayoutMixin:
         if cfg is None:
             cfg = self.project_data.get("export_config", {})
 
+        self._active_export_font_family = self._export_font_family(cfg)
+
         document = Document()
+        for style_name in ('Normal', 'Title', 'Heading 1'):
+            style = document.styles[style_name]
+            style.font.name = self._active_export_font_family
+            style._element.rPr.rFonts.set(
+                qn('w:eastAsia'), self._active_export_font_family
+            )
         section = document.sections[0]
         section.orientation = WD_ORIENT.PORTRAIT
         section.left_margin = Cm(1.2)

@@ -7,7 +7,8 @@ def normalize_export_option(key: str, value: Any) -> Any:
     bool_keys = {
         "col_tc", "col_char", "col_actor", "col_text", "use_color",
         "soften_colors", "highlight_character_only", "open_auto",
-        "round_time", "allow_edit",
+        "round_time", "hide_leading_timecode_zeros", "allow_edit",
+        "bold_time", "bold_char", "bold_actor", "bold_text",
         "format_html", "format_xls", "format_docx", "format_pdf",
     }
     if key in bool_keys:
@@ -20,6 +21,18 @@ def normalize_export_option(key: str, value: Any) -> Any:
     if key == "time_display":
         value = str(value or "")
         return value if value in {"range", "start"} else None
+    if key == "font_family":
+        value = str(value or "").strip()
+        if not value or len(value) > 100 or any(
+            character in value for character in "\r\n\x00"
+        ):
+            return None
+        return value
+    if key == "color_softening_level":
+        try:
+            return max(-2, min(2, int(value)))
+        except (TypeError, ValueError):
+            return None
     if key in {"f_time", "f_char", "f_actor", "f_text"}:
         try:
             return max(8, min(72, int(value)))

@@ -27,6 +27,10 @@ from config.constants import (
     PROMPTER_FONT_KEYS,
     PROMPTER_LAYOUT_TYPES,
 )
+from core.export_config_profiles import (
+    hydrate_layout_profile,
+    sync_active_layout_profile,
+)
 from utils.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, translate_source
 
 logger = logging.getLogger(__name__)
@@ -762,7 +766,9 @@ class GlobalSettingsService:
             for key in DEFAULT_EXPORT_CONFIG:
                 if key in config:
                     result[key] = deepcopy(config[key])
-        return result
+            if config and "layout_profiles" not in config:
+                result["layout_profiles"] = {}
+        return hydrate_layout_profile(sync_active_layout_profile(result))
 
     def _normalize_quick_converter_config(
         self, config: Any
@@ -792,7 +798,21 @@ class GlobalSettingsService:
             if normalized_colors is not None:
                 result["colors"] = normalized_colors
 
-        layout_type = str(result.get("layout_type", "Сценарий 1"))
+        has_legacy_flat_profile = bool(
+            isinstance(config, dict)
+            and "layout_type" not in config
+            and "layout_font_sizes" not in config
+            and "layout_font_bold" not in config
+            and any(
+                key in config
+                for key in PROMPTER_FONT_KEYS + PROMPTER_FONT_BOLD_KEYS
+            )
+        )
+        layout_type = (
+            "Сценарий 1"
+            if has_legacy_flat_profile
+            else str(result.get("layout_type", "Сценарий 3"))
+        )
         if layout_type not in PROMPTER_LAYOUT_TYPES:
             layout_type = "Сценарий 1"
 
@@ -811,11 +831,10 @@ class GlobalSettingsService:
                             key, source_profile[key]
                         )
         elif isinstance(config, dict):
-            # Existing installations stored one flat set of font sizes. It is
-            # the natural starting point for the original layout.
+            # Existing installations stored one flat set of font sizes.
             for key in PROMPTER_FONT_KEYS:
                 if key in config:
-                    profiles["Сценарий 1"][key] = self._prompter_font_size(
+                    profiles[layout_type][key] = self._prompter_font_size(
                         key, config[key]
                     )
 
@@ -841,7 +860,7 @@ class GlobalSettingsService:
         elif isinstance(config, dict):
             for key in PROMPTER_FONT_BOLD_KEYS:
                 if key in config:
-                    bold_profiles["Сценарий 1"][key] = bool(config[key])
+                    bold_profiles[layout_type][key] = bool(config[key])
         result["layout_font_bold"] = bold_profiles
         result.update(bold_profiles[layout_type])
         try:

@@ -392,6 +392,45 @@ def test_settings_use_platform_navigation_and_shared_page_headers():
     assert "предварительной версии интерфейс доступен" not in global_settings
 
 
+def test_interface_onboarding_is_first_run_only_and_reuses_ui_preferences():
+    main = (ROOT / "qml" / "Main.qml").read_text(encoding="utf-8")
+    onboarding = (
+        ROOT / "qml" / "components" / "InterfaceOnboardingDialog.qml"
+    ).read_text(encoding="utf-8")
+
+    assert 'uiState.hasValue("main.width")' in main
+    assert 'uiState.intValue("onboarding.interfaceVersion", 0) < 1' in main
+    assert "interfaceOnboardingDialog.openForFirstRun()" in main
+    assert 'qsTr("Настроить интерфейс...")' in main
+    assert "function openFromSettings()" in onboarding
+    assert '"main.characterCompactRows"' in onboarding
+    assert '"actorColorCellFill"' in onboarding
+    assert '"main.characterColumnsHidden"' in onboarding
+    assert '"main.episodeTimelinePlacement"' in onboarding
+    assert "configurationAccepted(" in onboarding
+    assert "function previewColumnWidth(key)" in onboarding
+    assert 'qsTr("Таймлайн под таблицей")' in onboarding
+    assert 'qsTr("Таймлайн внизу всего окна")' in onboarding
+    assert onboarding.count(
+        'visible: dialog.actorColorDisplayDraft === "cell"'
+    ) >= 3
+    assert onboarding.count(
+        "Layout.preferredHeight: dialog.windowsStyle ? 116 : 88"
+    ) == 3
+    assert "fontSizeMode: Text.HorizontalFit" in onboarding
+
+
+def test_character_numeric_columns_fit_their_sorted_headers():
+    character_table = (
+        ROOT / "qml" / "components" / "CharacterTable.qml"
+    ).read_text(encoding="utf-8")
+
+    assert "baseWordsColumnWidth: Math.max(58" in character_table
+    assert 'text: qsTr("Строк") + " ↓"' in character_table
+    assert 'text: qsTr("Колец") + " ↓"' in character_table
+    assert 'text: qsTr("Слов") + " ↓"' in character_table
+
+
 def test_montage_exposes_character_only_highlight_setting():
     preview = (
         ROOT / "qml" / "components" / "MontagePreviewDialog.qml"
@@ -405,3 +444,22 @@ def test_montage_exposes_character_only_highlight_setting():
         assert 'qsTr("Выделять только персонажа")' in source
         assert '"highlight_character_only"' in source
         assert 'qsTr("Смягчать цвета")' in source
+
+    for source in (preview, defaults):
+        assert 'qsTr("Скрывать нули")' in source
+        assert '"hide_leading_timecode_zeros"' in source
+    for source in (preview, defaults):
+        assert '"color_softening_level"' in source
+        assert 'qsTr("Шрифт")' in source
+        assert '"font_family"' in source
+        assert 'Qt.fontFamilies()' in source
+        assert 'from: -2' in source
+        assert 'to: 2' in source
+        assert 'softeningLabel' not in source
+        for key in ("bold_time", "bold_char", "bold_actor", "bold_text"):
+            assert f'"{key}"' in source
+        assert 'qsTr("Жирный")' in source
+
+    assert 'title: qsTr("Элементы")' in preview
+    assert 'title: qsTr("Колонки")' not in preview
+    assert 'layout_profiles' in defaults

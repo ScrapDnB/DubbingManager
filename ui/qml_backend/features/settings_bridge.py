@@ -17,6 +17,10 @@ from config.constants import (
     PROMPTER_FONT_KEYS,
     PROMPTER_LAYOUT_TYPES,
 )
+from core.export_config_profiles import (
+    hydrate_layout_profile,
+    sync_active_layout_profile,
+)
 from core.commands import UpdateProjectFileStateCommand
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
@@ -597,9 +601,11 @@ class SettingsBridge(QObject):
         config = deepcopy(DEFAULT_EXPORT_CONFIG)
         if isinstance(value, dict):
             config.update(deepcopy(value))
+            if value and "layout_profiles" not in value:
+                config["layout_profiles"] = {}
         if config.get("layout_type") == "Сценарий":
             config["layout_type"] = "Сценарий 1"
-        return config
+        return hydrate_layout_profile(sync_active_layout_profile(config))
 
     @staticmethod
     def _prompter_config(value, base=None) -> dict:

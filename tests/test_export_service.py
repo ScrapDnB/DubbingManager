@@ -268,6 +268,7 @@ class TestExportService:
         assert "script3-table" in html
         assert "script3-meta-cell" in html
         assert "script3-text-cell" in html
+        assert ".script3-table td,\n        .script3-table th {\n            border-color: #000000;" in html
         assert "Character1" in html
         assert "Hello, world!" in html
 
@@ -368,8 +369,40 @@ class TestExportService:
         )
 
         assert "background-color:#FF0000; color:#ffffff" in html
-        assert ".t {\n            font-family: monospace;" in html
+        assert "font-family: monospace" not in html
         assert "color: inherit;" in html
+
+    def test_generate_html_applies_element_bold_settings_to_all_layout_css(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Все HTML-макеты используют общие настройки жирности элементов."""
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        export_config.update({
+            "font_family": "Georgia",
+            "bold_time": True,
+            "bold_char": False,
+            "bold_actor": True,
+            "bold_text": True,
+        })
+
+        html = service.generate_html(
+            ep="1",
+            processed=processed,
+            cfg=export_config,
+            layout_type="Сценарий 3",
+            is_editable=False,
+        )
+
+        assert "font-family: monospace" not in html
+        assert "font-family: 'Georgia', sans-serif" in html
+        assert ".t {\n            font-size: 21px;\n            font-weight: 700;" in html
+        assert ".c {\n            font-weight: 400;" in html
+        assert ".script2-actor {\n            font-size: 14px;\n            font-weight: 700;" in html
+        assert ".script3-text {\n            font-size: 30px;\n            font-weight: 700;" in html
 
     def test_generate_html_scenario_negative_applies_to_timing(
         self,
@@ -462,6 +495,39 @@ class TestExportService:
             "style='background-color:rgba(255, 0, 0, 0.22)'"
             ">Character1</span>"
         ) in html
+
+    @pytest.mark.parametrize(("level", "alpha"), [
+        (-2, "0.72"),
+        (-1, "0.55"),
+        (0, "0.38"),
+        (1, "0.22"),
+        (2, "0.12"),
+    ])
+    def test_generate_html_supports_five_color_softening_levels(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any],
+        level: int,
+        alpha: str,
+    ) -> None:
+        """Старые три ступени сохраняют цвета, две новые смягчают слабее."""
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        export_config.update({
+            "soften_colors": True,
+            "color_softening_level": level,
+        })
+
+        html = service.generate_html(
+            ep="1",
+            processed=processed,
+            cfg=export_config,
+            layout_type="Таблица",
+            is_editable=False,
+        )
+
+        assert f"background-color:rgba(255, 0, 0, {alpha})" in html
 
     def test_generate_html_escapes_user_content(
         self,
@@ -560,7 +626,8 @@ class TestExportService:
             is_editable=False
         )
 
-        assert "<colgroup><col class='col-t'><col class='col-c'><col class='col-a'><col class='col-txt'></colgroup>" in html
+        assert "<table class='montage-table'><colgroup><col class='col-t'><col class='col-c'><col class='col-a'><col class='col-txt'></colgroup>" in html
+        assert ".montage-table td,\n        .montage-table th {\n            border-color: #000000;" in html
         assert ".col-t {\n            width: clamp(5.04rem, 7.35vw, 7.00rem);" in html
         assert ".col-c {\n            width: clamp(7.20rem, 10.50vw, 10.00rem);" in html
         assert ".col-a {\n            width: clamp(6.12rem, 8.93vw, 8.50rem);" in html
@@ -590,6 +657,25 @@ class TestExportService:
 
         assert "0:00:00</td>" in html
         assert "<span class='time-sep'>-</span>" not in html
+
+    def test_montage_timecodes_can_hide_leading_hour_zero(
+        self,
+        sample_project_data: Dict[str, Any],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Монтажный лист скрывает только нулевую часовую часть таймкода."""
+        service = ExportService(sample_project_data)
+        line = {"s": 3.25, "e": 3602.0}
+        export_config["hide_leading_timecode_zeros"] = True
+
+        assert service._format_export_timing(line, export_config) == (
+            "00:03,250-1:00:02,000"
+        )
+
+        export_config["round_time"] = True
+        assert service._format_export_timing(line, export_config) == (
+            "00:03-1:00:02"
+        )
 
     def test_process_merge_logic_keeps_working_text_lines(self) -> None:
         """Тест: рабочие тексты не объединяются повторно"""
@@ -702,6 +788,104 @@ class TestExportService:
         assert ws.cell(row=2, column=2).value == "0:00:00"
         assert ws.cell(row=2, column=2).value != "0:00:00-0:00:02"
 
+    def test_excel_book_applies_element_bold_settings(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """XLSX применяет жирность отдельно к каждому элементу листа."""
+        pytest.importorskip("openpyxl")
+        export_config.update({
+            "font_family": "Georgia",
+            "bold_time": True,
+            "bold_char": False,
+            "bold_actor": True,
+            "bold_text": True,
+        })
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        workbook = service.create_excel_book({"1": processed}, export_config)
+        sheet = workbook["серия (1)"]
+
+        assert [sheet.cell(row=2, column=index).font.bold for index in range(2, 6)] == [
+            True, False, True, True,
+        ]
+        assert {
+            sheet.cell(row=2, column=index).font.name for index in range(2, 6)
+        } == {"Georgia"}
+
+    def test_excel_book_gives_multiline_timecode_enough_row_height(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Двухстрочный таймкод не обрезается высотой строки XLSX."""
+        pytest.importorskip("openpyxl")
+        export_config.update({"round_time": True, "time_display": "range"})
+        workbook = ExportService(sample_project_data).create_excel_book(
+            {"1": sample_lines[:1]}, export_config
+        )
+        sheet = workbook["серия (1)"]
+
+        assert "-" in sheet.cell(row=2, column=2).value
+        assert sheet.row_dimensions[2].height >= 48
+
+    def test_excel_summary_wraps_roles_and_fits_actor_names(
+        self,
+        sample_project_data: Dict[str, Any],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Сводка переносит роли обычным шрифтом и расширяет имена актёров."""
+        pytest.importorskip("openpyxl")
+        actor_name = "Александр Константинович Матвеев"
+        sample_project_data["actors"]["actor1"]["name"] = actor_name
+        roles = [f"Персонаж {index}" for index in range(1, 13)]
+        sample_project_data["global_map"].update({
+            role: "actor1" for role in roles
+        })
+        lines = [{
+            "id": index,
+            "s": float(index),
+            "e": float(index + 1),
+            "char": role,
+            "text": "Реплика",
+        } for index, role in enumerate(roles)]
+
+        workbook = ExportService(sample_project_data).create_excel_book(
+            {"1": lines}, export_config
+        )
+        summary = workbook["Сводка"]
+
+        assert summary.column_dimensions["A"].width > 21.5
+        assert summary.cell(row=2, column=2).font.size == 14
+        assert summary.cell(row=2, column=2).alignment.wrap_text is True
+        assert summary.row_dimensions[2].height >= 106
+
+    def test_excel_episode_wraps_long_character_names(
+        self,
+        sample_project_data: Dict[str, Any],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """Длинное имя персонажа переносится и увеличивает строку серии."""
+        pytest.importorskip("openpyxl")
+        character = "СУПРУГАГРАФАЭМАНУЭЛЬ"
+        sample_project_data["global_map"][character] = "actor1"
+        workbook = ExportService(sample_project_data).create_excel_book({
+            "1": [{
+                "id": 1,
+                "s": 1.0,
+                "e": 2.0,
+                "char": character,
+                "text": "Короткая реплика",
+            }],
+        }, export_config)
+        sheet = workbook["серия (1)"]
+
+        assert sheet.cell(row=2, column=3).alignment.wrap_text is True
+        assert sheet.row_dimensions[2].height >= 54
+
     def test_create_docx_document_respects_table_columns_and_timing(
         self,
         sample_project_data: Dict[str, Any],
@@ -788,6 +972,33 @@ class TestExportService:
         document = service.create_docx_document({"1": processed}, export_config)
 
         assert document.tables[0].rows[1].cells[0].text == "0:00:00"
+
+    def test_docx_table_applies_element_bold_settings(
+        self,
+        sample_project_data: Dict[str, Any],
+        sample_lines: List[Dict[str, Any]],
+        export_config: Dict[str, Any]
+    ) -> None:
+        """DOCX применяет жирность отдельно к каждому элементу листа."""
+        pytest.importorskip("docx")
+        export_config.update({
+            "font_family": "Georgia",
+            "bold_time": True,
+            "bold_char": False,
+            "bold_actor": True,
+            "bold_text": True,
+        })
+        service = ExportService(sample_project_data)
+        processed = service.process_merge_logic(sample_lines, {'merge': False})
+        document = service.create_docx_document({"1": processed}, export_config)
+        cells = document.tables[0].rows[1].cells
+
+        assert [cell.paragraphs[0].runs[-1].bold for cell in cells] == [
+            True, False, True, True,
+        ]
+        assert {
+            cell.paragraphs[0].runs[-1].font.name for cell in cells
+        } == {"Georgia"}
 
     def test_create_docx_document_can_use_solid_negative_highlight(
         self,
@@ -955,6 +1166,9 @@ class TestExportService:
         assert "CHARACTER1" in table.rows[1].cells[0].text
         assert "Actor One" in table.rows[1].cells[0].text
         assert table.rows[1].cells[1].text == "Hello, world!"
+        for row in table.rows:
+            for cell in row.cells:
+                assert cell._tc.xml.count('w:color="000000"') == 4
 
     def test_export_batch_writes_shared_excel_once(
         self,

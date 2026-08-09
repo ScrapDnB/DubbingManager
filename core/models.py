@@ -19,11 +19,11 @@ class PrompterColors:
     """Prompter Colors class."""
     bg: str = "#000000"
     active_text: str = "#FFFFFF"
-    inactive_text: str = "#444444"
-    tc: str = "#888888"
+    inactive_text: str = "#3b3b3b"
+    tc: str = "#ffffff"
     actor: str = "#AAAAAA"
     header_bg: str = "#111111"
-    header_text: str = "#00FF00"
+    header_text: str = "#8bf500"
     block_border: str = "#4D4D4D"
     page_target_highlight: str = "#FFD54F"
 
@@ -53,13 +53,13 @@ class PrompterColors:
 @dataclass
 class PrompterConfig:
     """Prompter Config class."""
-    f_tc: int = 20
+    f_tc: int = 30
     f_char: int = 24
     f_actor: int = 18
-    f_text: int = 36
-    focus_ratio: float = 0.5
+    f_text: int = 29
+    focus_ratio: float = 0.1
     is_mirrored: bool = False
-    show_header: bool = False
+    show_header: bool = True
     port_in: int = 8000
     port_out: int = 9000
     sync_in: bool = True
@@ -74,7 +74,7 @@ class PrompterConfig:
     page_gap_prefetch_seconds: float = 1.0
     page_gap_prefetch_delay_seconds: float = 1.0
     page_target_highlight_enabled: bool = True
-    page_target_highlight_opacity: float = 0.22
+    page_target_highlight_opacity: float = 0.2728
     page_target_highlight_fade_ms: int = 1000
     page_debug_overlay: bool = False
     colors: PrompterColors = field(default_factory=PrompterColors)
@@ -189,19 +189,27 @@ class ReplicaMergeConfig:
 class ExportConfig:
     """Export Config class."""
     layout_type: str = 'Таблица'
+    font_family: str = 'Segoe UI'
+    layout_profiles: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     col_tc: bool = True
     col_char: bool = True
-    col_actor: bool = True
+    col_actor: bool = False
     col_text: bool = True
-    f_time: int = 21
-    f_char: int = 20
+    f_time: int = 18
+    f_char: int = 15
     f_actor: int = 14
-    f_text: int = 30
+    f_text: int = 20
+    bold_time: bool = True
+    bold_char: bool = True
+    bold_actor: bool = False
+    bold_text: bool = False
     use_color: bool = True
     soften_colors: bool = True
+    color_softening_level: int = -1
     highlight_character_only: bool = False
     open_auto: bool = True
-    round_time: bool = False
+    round_time: bool = True
+    hide_leading_timecode_zeros: bool = True
     time_display: str = 'range'
     allow_edit: bool = True
     highlight_ids_export: Optional[List[str]] = None
@@ -216,8 +224,16 @@ class ExportConfig:
                 "layout_type must be 'Таблица', 'Сценарий 1', "
                 f"'Сценарий 2' or 'Сценарий 3', got {self.layout_type}"
             )
+        self.font_family = str(self.font_family or '').strip()
+        if not self.font_family or len(self.font_family) > 100:
+            raise ValueError("font_family must contain 1-100 characters")
         if self.time_display not in ['range', 'start']:
             raise ValueError(f"time_display must be 'range' or 'start', got {self.time_display}")
+        if self.color_softening_level not in [-2, -1, 0, 1, 2]:
+            raise ValueError(
+                "color_softening_level must be -2-2, got "
+                f"{self.color_softening_level}"
+            )
         if not 10 <= self.f_time <= 150:
             raise ValueError(f"f_time must be 10-150, got {self.f_time}")
         if not 10 <= self.f_char <= 150:

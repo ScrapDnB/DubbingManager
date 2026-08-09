@@ -8,6 +8,7 @@ from PySide6.QtCore import QObject, Property, QTimer, QUrl, Signal, Slot, Qt
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 
 from services.episode_service import EpisodeService
+from core.export_config_profiles import set_layout_profile_option
 from services.global_settings_service import GlobalSettingsService
 from services.quick_subtitle_service import QuickSubtitleService
 from ui.qml_backend.export_config import normalize_export_option
@@ -299,7 +300,9 @@ class ConverterBridge(QObject):
         normalized = normalize_export_option(key, value)
         if normalized is None or self._conversion_config.get(key) == normalized:
             return
-        self._conversion_config[key] = normalized
+        self._conversion_config = set_layout_profile_option(
+            self._conversion_config, key, normalized
+        )
         try:
             service = self._service()
             self._preview_html = (

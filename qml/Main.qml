@@ -81,6 +81,9 @@ ApplicationWindow {
     property bool quickConverterVisible: uiState.boolValue(
         "main.quickConverterVisible", true
     )
+    readonly property bool shouldShowInterfaceOnboarding:
+        uiState.intValue("onboarding.interfaceVersion", 0) < 1
+        && !uiState.hasValue("main.width")
 
     function setQuickConverterVisible(visible, syncNative) {
         quickConverterVisible = visible
@@ -146,6 +149,8 @@ ApplicationWindow {
         if (root.windowsStyle)
             windowsMenuResetTimer.restart()
         startupGeometryTimer.restart()
+        if (root.shouldShowInterfaceOnboarding)
+            onboardingStartupTimer.restart()
     }
 
     Component.onCompleted: {
@@ -196,6 +201,13 @@ ApplicationWindow {
             }
             root.uiReady = true
         }
+    }
+
+    Timer {
+        id: onboardingStartupTimer
+        interval: root.macOSStyle ? 450 : 250
+        repeat: false
+        onTriggered: interfaceOnboardingDialog.openForFirstRun()
     }
 
     Timer {
@@ -798,6 +810,57 @@ ApplicationWindow {
         }
     }
 
+    InterfaceOnboardingDialog {
+        id: interfaceOnboardingDialog
+        ownerWindow: root
+        appBridge: root.appBridge
+        softBorder: root.softBorder
+        softHeader: root.softHeader
+        softRow: root.softRow
+        softAltRow: root.softAltRow
+        softMuted: root.softMuted
+        actorColorDisplayMode: root.actorColorDisplayMode
+        actorColorMuteLevel: root.actorColorMuteLevel
+        actorColorCellFillFullHeight: root.actorColorCellFillFullHeight
+        actorMarkerShape: root.actorMarkerShape
+        actorMarkerSize: root.actorMarkerSize
+        uiScalePercent: root.uiScalePercent
+        characterColumnsOrder: root.characterColumnsOrderJson
+        characterColumnsHidden: root.characterColumnsHiddenJson
+        characterColumnWidths: root.characterColumnWidthsJson
+        characterCompactRows: root.characterCompactRows
+        episodeTimelineVisible: root.episodeTimelineVisible
+        episodeTimelineActorColors: root.episodeTimelineActorColors
+        episodeTimelineColorMuteLevel: root.episodeTimelineColorMuteLevel
+        episodeTimelinePlacement: root.episodeTimelinePlacement
+        episodeTimelineHeight: root.episodeTimelineHeight
+        episodeTimelineSortMode: root.episodeTimelineSortMode
+        onConfigurationAccepted: function(
+            mode, muteLevel, fullHeight, markerShape, markerSize, scalePercent,
+            order, hidden, widths, compact, timelineVisible,
+            timelineActorColors, timelineColorMuteLevel,
+            timelinePlacement, timelineHeight, timelineSortMode
+        ) {
+            root.actorColorDisplayMode = mode
+            root.actorColorMuteLevel = muteLevel
+            root.actorColorCellFillFullHeight = fullHeight
+            root.actorMarkerShape = markerShape
+            root.actorMarkerSize = markerSize
+            root.uiScalePercent = scalePercent
+            root.characterColumnsOrderJson = order
+            root.characterColumnsHiddenJson = hidden
+            root.characterColumnWidthsJson = widths
+            root.characterCompactRows = compact
+            root.episodeTimelineVisible = timelineVisible
+            root.episodeTimelineActorColors = timelineActorColors
+            root.episodeTimelineColorMuteLevel = timelineColorMuteLevel
+            root.episodeTimelinePlacement = timelinePlacement
+            root.episodeTimelineHeight = timelineHeight
+            root.episodeTimelineSortMode = timelineSortMode
+            root.appBridge.casting.setTimelineSortMode(timelineSortMode)
+        }
+    }
+
     TeleprompterWindow {
         id: teleprompterWindow
         ownerWindow: root
@@ -945,6 +1008,11 @@ ApplicationWindow {
             id: viewMenu
             title: qsTr("Вид")
             Action { text: qsTr("Обновить"); shortcut: StandardKey.Refresh; onTriggered: root.projectBackend.refresh() }
+            MenuSeparator {}
+            Action {
+                text: qsTr("Настроить интерфейс...")
+                onTriggered: interfaceOnboardingDialog.openFromSettings()
+            }
         }
 
         Menu {

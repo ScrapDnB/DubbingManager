@@ -20,11 +20,11 @@ class TestPrompterColors:
         
         assert colors.bg == "#000000"
         assert colors.active_text == "#FFFFFF"
-        assert colors.inactive_text == "#444444"
-        assert colors.tc == "#888888"
+        assert colors.inactive_text == "#3b3b3b"
+        assert colors.tc == "#ffffff"
         assert colors.actor == "#AAAAAA"
         assert colors.header_bg == "#111111"
-        assert colors.header_text == "#00FF00"
+        assert colors.header_text == "#8bf500"
         assert colors.block_border == "#4D4D4D"
 
     def test_custom_values(self):
@@ -90,17 +90,17 @@ class TestPrompterConfig:
         """Тест значений по умолчанию"""
         config = PrompterConfig()
         
-        assert config.f_tc == 20
+        assert config.f_tc == 30
         assert config.f_char == 24
         assert config.f_actor == 18
-        assert config.f_text == 36
-        assert config.focus_ratio == 0.5
+        assert config.f_text == 29
+        assert config.focus_ratio == 0.1
         assert config.is_mirrored == False
         assert config.page_scroll_mode == False
         assert config.page_gap_prefetch_seconds == 1.0
         assert config.page_gap_prefetch_delay_seconds == 1.0
         assert config.page_target_highlight_enabled is True
-        assert config.page_target_highlight_opacity == 0.22
+        assert config.page_target_highlight_opacity == 0.2728
         assert config.page_target_highlight_fade_ms == 1000
         assert config.port_in == 8000
         assert config.port_out == 9000
@@ -135,13 +135,13 @@ class TestPrompterConfig:
         """Тест создания из пустого словаря"""
         config = PrompterConfig.from_dict({})
         
-        assert config.f_tc == 20  # Значение по умолчанию
+        assert config.f_tc == 30  # Значение по умолчанию
 
     def test_from_dict_none(self):
         """Тест создания из None"""
         config = PrompterConfig.from_dict(None)
         
-        assert config.f_tc == 20
+        assert config.f_tc == 30
 
     def test_to_dict(self):
         """Тест преобразования в словарь"""
@@ -160,7 +160,7 @@ class TestPrompterConfig:
         
         config.ensure_defaults()
         
-        assert config.f_tc == 20
+        assert config.f_tc == 30
 
     def test_post_init_invalid_f_tc(self):
         """Тест валидации f_tc"""
@@ -338,22 +338,34 @@ class TestExportConfig:
         config = ExportConfig()
         
         assert config.layout_type == 'Таблица'
+        assert config.font_family == 'Segoe UI'
         assert config.col_tc == True
         assert config.col_char == True
-        assert config.col_actor == True
+        assert config.col_actor == False
         assert config.col_text == True
         assert config.use_color == True
         assert config.soften_colors is True
+        assert config.color_softening_level == -1
+        assert config.bold_time is True
+        assert config.bold_char is True
+        assert config.bold_actor is False
+        assert config.bold_text is False
         assert config.highlight_character_only is False
         assert config.open_auto == True
+        assert config.hide_leading_timecode_zeros is True
         assert config.time_display == 'range'
 
     def test_from_dict(self):
         """Тест создания из словаря"""
         data = {
             "layout_type": "Сценарий 3",
+            "font_family": "Georgia",
             "col_tc": False,
             "highlight_character_only": True,
+            "color_softening_level": 2,
+            "bold_time": True,
+            "bold_char": False,
+            "hide_leading_timecode_zeros": True,
             "time_display": "start",
             "f_text": 50
         }
@@ -361,8 +373,13 @@ class TestExportConfig:
         config = ExportConfig.from_dict(data)
         
         assert config.layout_type == "Сценарий 3"
+        assert config.font_family == "Georgia"
         assert config.col_tc == False
         assert config.highlight_character_only is True
+        assert config.color_softening_level == 2
+        assert config.bold_time is True
+        assert config.bold_char is False
+        assert config.hide_leading_timecode_zeros is True
         assert config.time_display == "start"
         assert config.f_text == 50
 
