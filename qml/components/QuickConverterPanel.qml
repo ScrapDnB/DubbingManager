@@ -78,6 +78,12 @@ Item {
                 checked: panel.backend ? panel.backend.exportPdf : false
                 onToggled: if (panel.backend) panel.backend.setFormat("pdf", checked)
             }
+            CheckBox {
+                text: qsTr("Построчно")
+                checked: panel.backend ? panel.backend.lineByLine : false
+                onToggled: if (panel.backend) panel.backend.setLineByLine(checked)
+                Accessible.description: qsTr("Не объединять соседние реплики")
+            }
         }
 
         Rectangle {

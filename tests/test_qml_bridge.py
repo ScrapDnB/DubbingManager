@@ -58,6 +58,21 @@ def test_qml_bridge_starts_with_empty_project():
     assert bridge.casting.charactersModel.rowCount() == 0
 
 
+def test_layout_designer_errors_are_not_promoted_to_main_modal():
+    _app()
+    bridge = AppBridge()
+    errors = []
+    bridge.errorOccurred.connect(errors.append)
+
+    bridge.layoutTemplates.errorRequested.emit(
+        "Поле «Реплика» уже добавлено"
+    )
+    assert errors == []
+
+    bridge.video.errorRequested.emit("Обычная ошибка приложения")
+    assert errors == ["Обычная ошибка приложения"]
+
+
 def _configure_audiobook_project(bridge, tmp_path):
     source = str(tmp_path / "book.pdf")
     document = AudiobookDocumentService().create_document(source, [
@@ -1961,6 +1976,61 @@ def test_qml_quick_converter_previews_then_converts(tmp_path):
     assert (tmp_path / "preview.html").exists()
 
 
+def test_qml_quick_converter_line_by_line_mode_updates_preview_and_export(
+    tmp_path,
+):
+    _app()
+    bridge = AppBridge()
+    bridge._global_settings_service.settings[
+        "default_replica_merge_config"
+    ] = {
+        "merge": True,
+        "merge_gap": 120,
+        "p_short": 0.5,
+        "p_long": 2.0,
+        "fps": 25,
+    }
+    bridge._session.data["replica_merge_config"] = {
+        # The converter switch must be authoritative even when the open
+        # project's montage settings disable merging and use a tiny gap.
+        "merge": False,
+        "merge_gap": 1,
+        "p_short": 0.5,
+        "p_long": 2.0,
+        "fps": 25,
+    }
+    source = tmp_path / "line_by_line.ass"
+    source.write_text(
+        "[Script Info]\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,First line\n"
+        "Dialogue: 0,0:00:02.20,0:00:03.00,Default,Hero,0,0,0,,Second line\n",
+        encoding="utf-8",
+    )
+
+    converter = bridge.converter
+    converter.setFormat("html", True)
+    converter.setFormat("docx", False)
+    converter.setFormat("pdf", False)
+    converter.setLineByLine(False)
+    assert converter.convert([str(source)], True)
+    merged_preview = converter.previewHtml
+    assert merged_preview.count("<tr style=") == 1
+
+    converter.setLineByLine(True)
+    assert converter.lineByLine
+    assert converter.previewConfig["line_by_line"] is True
+    assert converter.previewHtml != merged_preview
+    assert converter.previewHtml.count("<tr style=") == 2
+
+    converter.continueAfterPreview()
+    _finish_converter(converter)
+    exported = (tmp_path / "line_by_line.html").read_text(encoding="utf-8")
+    assert exported.count("<tr style=") == 2
+
+
 def test_qml_quick_converter_demo_settings_are_project_independent(
     tmp_path, monkeypatch,
 ):
@@ -1982,6 +2052,7 @@ def test_qml_quick_converter_demo_settings_are_project_independent(
 
     converter.setPreviewOption("layout_type", "Сценарий 2")
     converter.setPreviewOption("f_text", 41)
+    converter.setLineByLine(True)
     assert converter.savePreviewSettings()
     assert not converter.previewSettingsMode
     assert bridge._session.data == project_before
@@ -1989,6 +2060,7 @@ def test_qml_quick_converter_demo_settings_are_project_independent(
     saved = json.loads(settings_path.read_text(encoding="utf-8"))
     assert saved["quick_converter_config"]["layout_type"] == "Сценарий 2"
     assert saved["quick_converter_config"]["f_text"] == 41
+    assert saved["quick_converter_config"]["line_by_line"] is True
     assert saved["default_export_config"] == project_before["export_config"]
 
 

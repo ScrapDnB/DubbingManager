@@ -44,6 +44,7 @@ class TestGlobalSettingsService:
         assert settings['default_export_config']['highlight_character_only'] is False
         assert settings['quick_converter_config']['layout_type'] == 'Таблица'
         assert settings['quick_converter_config']['use_color'] is False
+        assert settings['quick_converter_config']['line_by_line'] is False
         assert settings['default_prompter_config'] == DEFAULT_PROMPTER_CONFIG
         assert settings['default_prompter_config']['show_end_timecode'] is True
         assert settings['language'] == 'ru'
@@ -67,6 +68,7 @@ class TestGlobalSettingsService:
                 'layout_type': 'Сценарий 2',
                 'f_text': 38,
                 'use_color': True,
+                'line_by_line': True,
             },
             'default_prompter_config': {
                 'f_text': 48,
@@ -95,6 +97,7 @@ class TestGlobalSettingsService:
         assert settings['quick_converter_config']['layout_type'] == 'Сценарий 2'
         assert settings['quick_converter_config']['f_text'] == 38
         assert settings['quick_converter_config']['use_color'] is False
+        assert settings['quick_converter_config']['line_by_line'] is True
         assert settings['default_prompter_config']['f_text'] == 48
         assert settings['default_prompter_config']['osc_enabled'] is True
         assert settings['default_prompter_config']['sync_in'] is False

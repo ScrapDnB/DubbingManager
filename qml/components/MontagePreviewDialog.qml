@@ -260,6 +260,17 @@ NativeDialogWindow {
                             color: dialog.macOSStyle ? dialog.softMuted : palette.text
                         }
 
+                        Label {
+                            Layout.fillWidth: true
+                            visible: Boolean(dialog.config.layout_template)
+                            text: qsTr("Активен пользовательский макет: %1").arg(
+                                dialog.config.layout_template
+                                    ? dialog.config.layout_template.name : ""
+                            )
+                            color: dialog.softMuted
+                            wrapMode: Text.WordWrap
+                        }
+
                         RowLayout {
                             Layout.fillWidth: true
                             Label { text: qsTr("Макет") }

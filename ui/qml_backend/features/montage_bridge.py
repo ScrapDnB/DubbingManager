@@ -99,6 +99,11 @@ class MontageBridge(QObject):
         config = deepcopy(DEFAULT_EXPORT_CONFIG)
         config.update(self._global_settings_service.get_default_export_config())
         config = hydrate_layout_profile(config)
+        active_template = self._global_settings_service.get_active_layout_template(
+            "montage"
+        )
+        if active_template and not active_template.get("built_in"):
+            config["layout_template"] = active_template
         config["highlight_ids_export"] = deepcopy(self._highlight_ids)
         config["highlight_negative_ids_export"] = deepcopy(
             self._negative_highlight_ids
@@ -258,7 +263,9 @@ class MontageBridge(QObject):
         if config.get(key) == normalized:
             return
         config = set_layout_profile_option(config, key, normalized)
-        if not self._save_global_config(config):
+        if not self._save_global_config(
+            config, sync_layout_template=key == "layout_type"
+        ):
             return
         self.configChanged.emit()
         self.refresh_preview()
@@ -678,12 +685,28 @@ class MontageBridge(QObject):
             merge_cfg=merge_config,
         )
 
-    def _save_global_config(self, config: Dict[str, Any]) -> bool:
+    def _save_global_config(
+        self,
+        config: Dict[str, Any],
+        *,
+        sync_layout_template: bool = False,
+    ) -> bool:
         config = deepcopy(config)
         config.pop("highlight_ids_export", None)
         config.pop("highlight_negative_ids_export", None)
         previous = deepcopy(self._global_settings_service.settings)
         self._global_settings_service.set_default_export_config(config)
+        if sync_layout_template:
+            template_id = {
+                "Таблица": "builtin.montage.table",
+                "Сценарий 1": "builtin.montage.scenario1",
+                "Сценарий 2": "builtin.montage.scenario2",
+                "Сценарий 3": "builtin.montage.scenario3",
+            }.get(str(config.get("layout_type")))
+            if template_id:
+                self._global_settings_service.set_active_layout_template_id(
+                    "montage", template_id
+                )
         if self._global_settings_service.save_settings(
             self._global_settings_service.settings
         ):

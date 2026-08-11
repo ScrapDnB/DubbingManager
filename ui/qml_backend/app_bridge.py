@@ -20,6 +20,7 @@ from ui.qml_backend.features import (
     CastingBridge,
     ConverterBridge,
     DocxImportBridge,
+    LayoutTemplatesBridge,
     MontageBridge,
     ProjectBridge,
     ProjectFilesBridge,
@@ -122,6 +123,12 @@ class AppBridge(QObject):
             self._global_settings,
             self,
         )
+        self._layout_templates = LayoutTemplatesBridge(
+            self._global_settings_service,
+            self,
+            session=self._session,
+            script_text_service=self._script_text_service,
+        )
         self._docx_import = DocxImportBridge(
             self._session,
             self._episode_service,
@@ -195,6 +202,7 @@ class AppBridge(QObject):
             self._actor_library,
             self._roles,
             self._settings,
+            self._layout_templates,
             self._docx_import,
             self._audiobook,
             self._subtitle_import,
@@ -210,7 +218,7 @@ class AppBridge(QObject):
             if status_signal is not None:
                 status_signal.connect(self._set_status)
             error_signal = getattr(feature, "errorRequested", None)
-            if error_signal is not None:
+            if error_signal is not None and feature is not self._layout_templates:
                 error_signal.connect(self._show_error)
 
         mutating_features = (
@@ -249,6 +257,14 @@ class AppBridge(QObject):
         self._settings.globalMontageConfigChanged.connect(
             self._montage.notify_global_config_changed
         )
+        self._layout_templates.montageTemplateChanged.connect(
+            self._montage.notify_global_config_changed
+        )
+        self._layout_templates.teleprompterTemplateChanged.connect(
+            self._teleprompter.notify_global_config_changed
+        )
+        self._montage.configChanged.connect(self._layout_templates.refresh)
+        self._teleprompter.configChanged.connect(self._layout_templates.refresh)
         self._audiobook.projectNameChanged.connect(
             self._project.nameChanged
         )
@@ -291,6 +307,10 @@ class AppBridge(QObject):
     @Property(QObject, constant=True)
     def settings(self) -> QObject:
         return self._settings
+
+    @Property(QObject, constant=True)
+    def layoutTemplates(self) -> QObject:
+        return self._layout_templates
 
     @Property(QObject, constant=True)
     def docxImport(self) -> QObject:

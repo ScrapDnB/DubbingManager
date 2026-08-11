@@ -44,7 +44,7 @@ NativeDialogWindow {
         Image {
             visible: dialog.macOSStyle
             source: Qt.resolvedUrl(
-                "../../resources/icons/Icon Exports/Icon-macOS-Default-1024x1024@1x.png"
+                "../../resources/icons/DubbingManager-macOS-1024.png"
             )
             sourceSize.width: 96
             sourceSize.height: 96

@@ -8,6 +8,7 @@ from services.assignment_service import (
     get_actor_for_character,
     get_actor_ids_for_character,
 )
+from services.layout_template_service import normalize_layout_template
 from utils.helpers import (
     hex_to_rgba_string,
     format_seconds_to_full_tc,
@@ -140,6 +141,13 @@ class ExportLayoutMixin:
         )
         use_color = cfg.get('use_color', True)
         soften_colors = cfg.get('soften_colors', True)
+        custom_template = cfg.get('layout_template')
+        if isinstance(custom_template, dict):
+            custom_template = normalize_layout_template(
+                custom_template, forced_kind='montage'
+            )
+        else:
+            custom_template = None
 
         for idx, line in enumerate(processed):
             # Validate replica data
@@ -170,7 +178,19 @@ class ExportLayoutMixin:
 
             text_html = self._format_text_html(line, is_editable)
 
-            if layout_type == "Таблица":
+            if custom_template is not None:
+                html += self._build_custom_layout_row(
+                    line,
+                    actor,
+                    text_html,
+                    bg_color,
+                    border_col,
+                    text_color,
+                    h_class,
+                    cfg,
+                    custom_template['root'],
+                )
+            elif layout_type == "Таблица":
                 html += self._build_table_row(
                     line, actor, text_html, bg_color, text_color, h_class, cfg,
                     is_first=idx == 0, is_last=idx == len(processed) - 1
@@ -192,6 +212,96 @@ class ExportLayoutMixin:
                 )
 
         return html + "</body></html>"
+
+    def _build_custom_layout_row(
+        self,
+        line: Dict[str, Any],
+        actor: Dict[str, Any],
+        text_html: str,
+        bg_color: str,
+        border_color: str,
+        text_color: Optional[str],
+        h_class: str,
+        cfg: Dict[str, Any],
+        root: Dict[str, Any],
+    ) -> str:
+        """Render a validated semantic layout tree as portable flex HTML."""
+        visible = {
+            'timecode': bool(cfg.get('col_tc', True)),
+            'character': bool(cfg.get('col_char', True)),
+            'actor': bool(cfg.get('col_actor', True)),
+            'replica': bool(cfg.get('col_text', True)),
+        }
+        values = {
+            'timecode': escape(self._format_timing_text(line, cfg)),
+            'character': self._character_highlight_html(
+                escape(str(line.get('char', ''))),
+                bg_color,
+                text_color,
+                h_class,
+                cfg,
+            ),
+            'actor': escape(str(actor.get('name', '-'))),
+            'replica': text_html,
+        }
+
+        def render(node: Dict[str, Any]) -> str:
+            node_type = str(node.get('type'))
+            weight = max(1, min(10, int(node.get('weight', 1))))
+            if node_type in {'row', 'column'}:
+                children = ''.join(
+                    render(child) for child in node.get('children', [])
+                    if isinstance(child, dict)
+                )
+                if not children:
+                    return ''
+                direction = 'row' if node_type == 'row' else 'column'
+                align = 'flex-start' if node_type == 'row' else 'stretch'
+                return (
+                    "<div class='custom-layout-node' style='display:flex;"
+                    f"flex-direction:{direction};align-items:{align};"
+                    f"gap:{int(node.get('gap', 8))}px;flex:{weight} 1 0;"
+                    "min-width:0'>"
+                    f"{children}</div>"
+                )
+            if node_type == 'separator':
+                return (
+                    "<div style='height:1px;background:#b8b8b8;"
+                    "margin:4px 0;flex:1 1 auto'></div>"
+                )
+            if node_type == 'spacer':
+                return (
+                    f"<div style='min-height:{int(node.get('size', 12))}px'>"
+                    "</div>"
+                )
+            field = str(node.get('field') or 'replica')
+            if not visible.get(field, False):
+                return ''
+            style = node.get('style', {})
+            font_size = max(8, min(72, int(style.get('font_size', 24))))
+            font_weight = '700' if style.get('bold') else '400'
+            font_style = 'italic' if style.get('italic') else 'normal'
+            alignment = str(style.get('alignment', 'left'))
+            if alignment not in {'left', 'center', 'right'}:
+                alignment = 'left'
+            return (
+                f"<div class='custom-field custom-{escape(field)}' "
+                f"style='flex:{weight} 1 0;min-width:0;"
+                f"font-size:{font_size}px;font-weight:{font_weight};"
+                f"font-style:{font_style};text-align:{alignment};"
+                "white-space:pre-wrap;overflow-wrap:anywhere'>"
+                f"{values.get(field, '')}</div>"
+            )
+
+        block_bg, block_border, block_text = self._container_highlight_colors(
+            bg_color, border_color, text_color, h_class, cfg
+        )
+        return (
+            f"<div class='line-container custom-layout-container {h_class}' "
+            f"style='background-color:{block_bg};border-left-color:{block_border};"
+            f"color:{block_text or '#000000'}'>"
+            f"{render(root)}</div>"
+        )
 
     def _actor_display_context(
         self,
@@ -1586,8 +1696,23 @@ class ExportLayoutMixin:
         section.bottom_margin = Cm(1.2)
 
         layout_type = self._normalize_layout_type(cfg.get('layout_type'))
+        custom_template = cfg.get('layout_template')
+        if isinstance(custom_template, dict):
+            custom_template = normalize_layout_template(
+                custom_template, forced_kind='montage'
+            )
+        else:
+            custom_template = None
         for ep_num in sorted(episodes_data.keys(), key=self._episode_sort_key):
-            if layout_type == "Сценарий 1":
+            if custom_template is not None:
+                self._create_docx_episode_custom(
+                    document,
+                    ep_num,
+                    episodes_data[ep_num],
+                    cfg,
+                    custom_template['root'],
+                )
+            elif layout_type == "Сценарий 1":
                 self._create_docx_episode_scenario1(
                     document, ep_num, episodes_data[ep_num], cfg
                 )
@@ -1608,3 +1733,99 @@ class ExportLayoutMixin:
                 )
 
         return document
+
+    def _create_docx_episode_custom(
+        self,
+        document: Any,
+        ep_num: str,
+        lines: List[Dict[str, Any]],
+        cfg: Dict[str, Any],
+        root: Dict[str, Any],
+    ) -> None:
+        """Render the semantic tree with nested Word tables and paragraphs."""
+        document.add_heading(
+            f"{self.project_data.get('project_name', 'Project')} - Серия {ep_num}",
+            level=1,
+        )
+        for line in lines:
+            _actor_id, actor, _highlighted = self._actor_display_context(
+                str(line.get('char', '')), str(ep_num), None
+            )
+            outer = document.add_table(rows=1, cols=1)
+            outer.alignment = WD_TABLE_ALIGNMENT.CENTER
+            outer.autofit = True
+            cell = outer.cell(0, 0)
+            cell.text = ""
+            self._render_docx_custom_node(cell, root, line, actor, cfg)
+            document.add_paragraph().paragraph_format.space_after = Pt(2)
+
+    def _render_docx_custom_node(
+        self,
+        cell: Any,
+        node: Dict[str, Any],
+        line: Dict[str, Any],
+        actor: Dict[str, Any],
+        cfg: Dict[str, Any],
+    ) -> None:
+        node_type = str(node.get('type'))
+        if node_type == 'row':
+            children = [
+                child for child in node.get('children', [])
+                if isinstance(child, dict)
+            ]
+            if not children:
+                return
+            table = cell.add_table(rows=1, cols=len(children))
+            table.autofit = True
+            weights = [max(1, int(child.get('weight', 1))) for child in children]
+            total_weight = max(1, sum(weights))
+            for index, child in enumerate(children):
+                child_cell = table.cell(0, index)
+                child_cell.text = ""
+                child_cell.width = Cm(17.0 * weights[index] / total_weight)
+                self._render_docx_custom_node(
+                    child_cell, child, line, actor, cfg
+                )
+            return
+        if node_type == 'column':
+            for child in node.get('children', []):
+                if isinstance(child, dict):
+                    self._render_docx_custom_node(cell, child, line, actor, cfg)
+            return
+        if node_type == 'separator':
+            paragraph = cell.add_paragraph("────────────────")
+            paragraph.paragraph_format.space_before = Pt(1)
+            paragraph.paragraph_format.space_after = Pt(1)
+            return
+        if node_type == 'spacer':
+            paragraph = cell.add_paragraph()
+            paragraph.paragraph_format.space_after = Pt(
+                max(1, min(50, int(node.get('size', 12)))) * 0.25
+            )
+            return
+
+        field = str(node.get('field') or 'replica')
+        if field == 'timecode':
+            value = self._format_timing_text(line, cfg)
+        elif field == 'character':
+            value = str(line.get('char', ''))
+        elif field == 'actor':
+            value = str(actor.get('name', '-'))
+        else:
+            value = str(line.get('text', ''))
+        style = node.get('style', {})
+        paragraph = cell.add_paragraph()
+        paragraph.paragraph_format.space_after = Pt(2)
+        alignment = str(style.get('alignment', 'left'))
+        paragraph.alignment = {
+            'left': WD_ALIGN_PARAGRAPH.LEFT,
+            'center': WD_ALIGN_PARAGRAPH.CENTER,
+            'right': WD_ALIGN_PARAGRAPH.RIGHT,
+        }.get(alignment, WD_ALIGN_PARAGRAPH.LEFT)
+        self._add_docx_run(
+            paragraph,
+            value,
+            max(7.0, min(36.0, float(style.get('font_size', 24)) * 0.5)),
+            bold=bool(style.get('bold')),
+            italic=bool(style.get('italic')),
+        )

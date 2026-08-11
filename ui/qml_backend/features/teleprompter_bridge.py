@@ -19,6 +19,7 @@ from services.global_settings_service import GlobalSettingsService
 from services.osc_worker import OSC_AVAILABLE, OscWorker
 from services.script_text_service import ScriptTextService
 from services.teleprompter_navigation_service import TeleprompterNavigationService
+from services.layout_template_service import layout_template_rows
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
 
@@ -343,9 +344,21 @@ class TeleprompterBridge(QObject):
         self,
         config: Dict[str, Any],
         error_message: str,
+        *,
+        sync_layout_template: bool = False,
     ) -> bool:
         previous = deepcopy(self._global_settings_service.settings)
         self._global_settings_service.set_default_prompter_config(config)
+        if sync_layout_template:
+            suffix = {
+                "Сценарий 1": "scenario1",
+                "Сценарий 2": "scenario2",
+                "Сценарий 3": "scenario3",
+            }.get(str(config.get("layout_type")))
+            if suffix:
+                self._global_settings_service.set_active_layout_template_id(
+                    "teleprompter", f"builtin.teleprompter.{suffix}"
+                )
         if not self._global_settings_service.save_settings(
             self._global_settings_service.settings
         ):
@@ -399,6 +412,7 @@ class TeleprompterBridge(QObject):
         self._save_global_prompter_config(
             config,
             "Не удалось сохранить настройки разметки телесуфлёра",
+            sync_layout_template=key == "layout_type",
         )
 
     @Slot(float)
@@ -890,6 +904,14 @@ class TeleprompterBridge(QObject):
             layout_type,
             DEFAULT_PROMPTER_CONFIG["layout_font_bold"][layout_type],
         ))
+        active_template = self._global_settings_service.get_active_layout_template(
+            "teleprompter"
+        )
+        if active_template and not active_template.get("built_in"):
+            config["layout_template"] = active_template
+            config["layout_template_rows"] = layout_template_rows(
+                active_template["root"]
+            )
         return config
 
     def _normalize_option(self, key: str, value: Any) -> Any:

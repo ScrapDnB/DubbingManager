@@ -82,9 +82,9 @@ class QuickSubtitleService:
             },
             {
                 "id": 1,
-                "s": 10.0,
-                "e": 13.4,
-                "char": "АЛИСА",
+                "s": 8.3,
+                "e": 11.4,
+                "char": "ДИКТОР",
                 "text": "Здесь можно оценить размер текста и ширину колонок.",
             },
             {
@@ -102,9 +102,7 @@ class QuickSubtitleService:
             "global_map": {},
             "episode_actor_map": {},
             "export_config": cfg,
-            "replica_merge_config": deepcopy(
-                self.data_ref.get("replica_merge_config", {})
-            ),
+            "replica_merge_config": self._merge_config(cfg),
         }
         export_service = ExportService(project_data)
         processed = export_service.process_merge_logic(
@@ -190,9 +188,7 @@ class QuickSubtitleService:
             "global_map": {},
             "episode_actor_map": {},
             "export_config": cfg,
-            "replica_merge_config": deepcopy(
-                self.data_ref.get("replica_merge_config", {})
-            ),
+            "replica_merge_config": self._merge_config(cfg),
         }
         export_service = ExportService(project_data)
         processed = export_service.process_merge_logic(
@@ -200,6 +196,16 @@ class QuickSubtitleService:
             project_data["replica_merge_config"],
         )
         return lines, cfg, export_service, processed
+
+    def _merge_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Return merge rules controlled explicitly by line-by-line mode."""
+        merge_config = deepcopy(
+            self.data_ref.get("replica_merge_config", {})
+        )
+        merge_config["merge"] = not bool(
+            config.get("line_by_line", False)
+        )
+        return merge_config
 
     def normalize_lines(
         self,

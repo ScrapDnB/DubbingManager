@@ -600,6 +600,17 @@ ApplicationWindow {
         softMuted: root.softMuted
     }
 
+    LayoutDesignerWindow {
+        id: layoutDesignerWindow
+        ownerWindow: root
+        appBridge: root.appBridge
+        softBorder: root.softBorder
+        softHeader: root.softHeader
+        softRow: root.softRow
+        softAltRow: root.softAltRow
+        softMuted: root.softMuted
+    }
+
     MontagePreviewDialog {
         id: montagePreviewDialog
         ownerWindow: root
@@ -764,6 +775,7 @@ ApplicationWindow {
         ownerWindow: root
         appBridge: root.appBridge
         softMuted: root.softMuted
+        layoutDesignerWindow: layoutDesignerWindow
         actorColorDisplayMode: root.actorColorDisplayMode
         actorColorMuteLevel: root.actorColorMuteLevel
         actorColorCellFillFullHeight: root.actorColorCellFillFullHeight
@@ -1063,6 +1075,12 @@ ApplicationWindow {
                 checkable: true
                 checked: root.quickConverterVisible
                 onTriggered: root.setQuickConverterVisible(checked, true)
+            }
+            Action {
+                text: qsTr("Конструктор макетов…")
+                onTriggered: layoutDesignerWindow.openFor(
+                    root.appBridge.layoutTemplates.kind, root
+                )
             }
         }
 

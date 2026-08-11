@@ -66,6 +66,15 @@ NativeDialogWindow {
         anchors.fill: parent
         spacing: 8
 
+        CheckBox {
+            text: qsTr("Построчный экспорт")
+            checked: dialog.backend ? dialog.backend.lineByLine : false
+            onToggled: if (dialog.backend) {
+                dialog.backend.setLineByLine(checked)
+            }
+            Accessible.description: qsTr("Не объединять соседние реплики")
+        }
+
         Item { Layout.fillWidth: true }
 
         AdaptiveButton {

@@ -773,6 +773,17 @@ NativeDialogWindow {
                                 }
                             }
 
+                            Label {
+                                Layout.fillWidth: true
+                                visible: Boolean(window.config.layout_template)
+                                text: qsTr("Активен пользовательский макет: %1").arg(
+                                    window.config.layout_template
+                                        ? window.config.layout_template.name : ""
+                                )
+                                color: window.softMuted
+                                wrapMode: Text.WordWrap
+                            }
+
                             RowLayout {
                                 visible: !window.macOSStyle && window.config.osc_enabled
                                 Layout.fillWidth: true
@@ -2950,6 +2961,9 @@ NativeDialogWindow {
                         }
 
                         function activeReplicaTextItem() {
+                            if (window.config.layout_template) {
+                                return customLayoutRenderer.primaryTextItem;
+                            }
                             if (window.config.layout_type === "Сценарий 1") {
                                 return scenario1ReplicaBody;
                             }
@@ -3154,7 +3168,8 @@ NativeDialogWindow {
                             spacing: 4
 
                             ColumnLayout {
-                                visible: window.config.layout_type === "Сценарий 1"
+                                visible: !window.config.layout_template
+                                    && window.config.layout_type === "Сценарий 1"
                                 Layout.fillWidth: true
                                 spacing: 4
 
@@ -3212,7 +3227,8 @@ NativeDialogWindow {
                             }
 
                             ColumnLayout {
-                                visible: window.config.layout_type === "Сценарий 2"
+                                visible: !window.config.layout_template
+                                    && window.config.layout_type === "Сценарий 2"
                                 Layout.fillWidth: true
                                 spacing: 6
 
@@ -3284,7 +3300,8 @@ NativeDialogWindow {
                             }
 
                             RowLayout {
-                                visible: window.config.layout_type === "Сценарий 3"
+                                visible: !window.config.layout_template
+                                    && window.config.layout_type === "Сценарий 3"
                                 Layout.fillWidth: true
                                 spacing: Math.max(16, window.config.f_text * 0.6)
 
@@ -3343,6 +3360,23 @@ NativeDialogWindow {
                                     horizontalAlignment: Text.AlignLeft
                                     Layout.fillWidth: true
                                     Layout.alignment: Qt.AlignTop
+                                }
+                            }
+
+                            LayoutTemplateFlat {
+                                id: customLayoutRenderer
+                                visible: Boolean(window.config.layout_template)
+                                Layout.fillWidth: true
+                                rows: window.config.layout_template_rows || []
+                                replicaDelegate: replicaDelegate
+                                windowConfig: window.config
+                                colors: window.colors
+                                onEditRequested: {
+                                    window.openReplicaEditor(
+                                        replicaDelegate.sourceIds,
+                                        replicaDelegate.character,
+                                        replicaDelegate.replicaText
+                                    );
                                 }
                             }
                         }

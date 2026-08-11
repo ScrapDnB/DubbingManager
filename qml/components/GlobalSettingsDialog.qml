@@ -9,6 +9,7 @@ NativeDialogWindow {
     id: dialog
 
     required property var appBridge
+    property var layoutDesignerWindow
     readonly property var backend: appBridge ? appBridge.settings : null
     required property color softMuted
 
@@ -584,6 +585,11 @@ NativeDialogWindow {
                     title: qsTr("Монтажный лист")
                     subtitle: qsTr("Единые настройки предпросмотра и экспорта для всех проектов.")
                 }
+                AdaptiveButton {
+                    text: qsTr("Открыть конструктор макетов…")
+                    onClicked: if (dialog.layoutDesignerWindow)
+                        dialog.layoutDesignerWindow.openFor("montage", dialog)
+                }
                 MontageSettingsPane {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -597,6 +603,11 @@ NativeDialogWindow {
                 SettingsPageHeader {
                     title: qsTr("Вид телесуфлёра")
                     subtitle: qsTr("Оформление, разметка и размеры текста для всех проектов.")
+                }
+                AdaptiveButton {
+                    text: qsTr("Открыть конструктор макетов…")
+                    onClicked: if (dialog.layoutDesignerWindow)
+                        dialog.layoutDesignerWindow.openFor("teleprompter", dialog)
                 }
                 TeleprompterSettingsPane {
                     Layout.fillWidth: true

@@ -6,6 +6,7 @@ from .casting_bridge import CastingBridge
 from .converter_bridge import ConverterBridge
 from .docx_import_bridge import DocxImportBridge
 from .montage_bridge import MontageBridge
+from .layout_templates_bridge import LayoutTemplatesBridge
 from .project_bridge import ProjectBridge
 from .project_files_bridge import ProjectFilesBridge
 from .reaper_bridge import ReaperBridge
@@ -22,6 +23,7 @@ __all__ = [
     "ActorLibraryBridge",
     "AudiobookBridge",
     "MontageBridge",
+    "LayoutTemplatesBridge",
     "CastingBridge",
     "ConverterBridge",
     "DocxImportBridge",

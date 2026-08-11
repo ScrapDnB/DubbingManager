@@ -1,8 +1,7 @@
-"""Prepare app icons from the Icon Composer export."""
+"""Prepare platform-specific app icons from the canonical PNG masters."""
 
 from __future__ import annotations
 
-import shutil
 import struct
 from pathlib import Path
 
@@ -12,9 +11,8 @@ from PySide6.QtGui import QImage
 
 ROOT = Path(__file__).resolve().parents[1]
 ICON_ROOT = ROOT / "resources" / "icons"
-ICON_EXPORTS = ICON_ROOT / "Icon Exports"
-SOURCE_PNG = ICON_EXPORTS / "Icon-macOS-Default-1024x1024@1x.png"
-SOURCE_COPY = ICON_ROOT / "dubbing-manager-icon-source.png"
+MAC_SOURCE_PNG = ICON_ROOT / "DubbingManager-macOS-1024.png"
+WIN_SOURCE_PNG = ICON_ROOT / "DubbingManager-Windows-1024.png"
 ICONSET = ICON_ROOT / "DubbingManager.iconset"
 ICNS_PATH = ICON_ROOT / "DubbingManager.icns"
 ICO_PATH = ICON_ROOT / "DubbingManager.ico"
@@ -32,7 +30,7 @@ ICONSET_SIZES = {
     "icon_512x512@2x.png": 1024,
 }
 
-ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
+ICO_SIZES = (16, 20, 24, 30, 32, 40, 48, 60, 64, 72, 96, 128, 256)
 ICNS_TYPES = {
     16: b"ic04",
     32: b"ic05",
@@ -44,13 +42,13 @@ ICNS_TYPES = {
 }
 
 
-def load_source() -> QImage:
-    if not SOURCE_PNG.exists():
-        raise FileNotFoundError(f"Icon source not found: {SOURCE_PNG}")
+def load_source(path: Path) -> QImage:
+    if not path.exists():
+        raise FileNotFoundError(f"Icon source not found: {path}")
 
-    image = QImage(str(SOURCE_PNG))
+    image = QImage(str(path))
     if image.isNull():
-        raise RuntimeError(f"Could not read icon source: {SOURCE_PNG}")
+        raise RuntimeError(f"Could not read icon source: {path}")
     return image
 
 
@@ -118,12 +116,13 @@ def write_icns(image: QImage) -> None:
 
 
 def main() -> None:
-    image = load_source()
-    shutil.copyfile(SOURCE_PNG, SOURCE_COPY)
-    write_iconset(image)
-    write_ico(image)
-    write_icns(image)
-    print(f"Prepared app icons from {SOURCE_PNG}")
+    mac_image = load_source(MAC_SOURCE_PNG)
+    win_image = load_source(WIN_SOURCE_PNG)
+    write_iconset(mac_image)
+    write_ico(win_image)
+    write_icns(mac_image)
+    print(f"Prepared macOS app icon from {MAC_SOURCE_PNG}")
+    print(f"Prepared Windows app icon from {WIN_SOURCE_PNG}")
 
 
 if __name__ == "__main__":

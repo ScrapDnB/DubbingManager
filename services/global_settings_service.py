@@ -31,6 +31,11 @@ from core.export_config_profiles import (
     hydrate_layout_profile,
     sync_active_layout_profile,
 )
+from services.layout_template_service import (
+    LAYOUT_KINDS,
+    builtin_layout_templates,
+    normalize_layout_library,
+)
 from utils.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, translate_source
 
 logger = logging.getLogger(__name__)
@@ -118,6 +123,38 @@ class GlobalSettingsService:
                     )
                 )
 
+            settings['layout_templates'] = normalize_layout_library(
+                loaded.get('layout_templates', {})
+            )
+            settings['active_layout_templates'] = (
+                self._normalize_active_layout_templates(
+                    loaded.get('active_layout_templates', {})
+                )
+            )
+            if 'active_layout_templates' not in loaded:
+                export_layout = settings['default_export_config'].get(
+                    'layout_type', 'Таблица'
+                )
+                prompter_layout = settings['default_prompter_config'].get(
+                    'layout_type', 'Сценарий 3'
+                )
+                settings['active_layout_templates'] = {
+                    'montage': {
+                        'Таблица': 'builtin.montage.table',
+                        'Сценарий 1': 'builtin.montage.scenario1',
+                        'Сценарий 2': 'builtin.montage.scenario2',
+                        'Сценарий 3': 'builtin.montage.scenario3',
+                    }.get(export_layout, 'builtin.montage.table'),
+                    'teleprompter': {
+                        'Сценарий 1': 'builtin.teleprompter.scenario1',
+                        'Сценарий 2': 'builtin.teleprompter.scenario2',
+                        'Сценарий 3': 'builtin.teleprompter.scenario3',
+                    }.get(
+                        prompter_layout,
+                        'builtin.teleprompter.scenario3',
+                    ),
+                }
+
             settings['audiobook_config'] = self._normalize_audiobook_config(
                 loaded.get('audiobook_config', DEFAULT_AUDIOBOOK_CONFIG)
             )
@@ -192,6 +229,14 @@ class GlobalSettingsService:
                 'prompter_color_presets': (
                     self._normalize_prompter_color_presets(
                         settings.get('prompter_color_presets', [])
+                    )
+                ),
+                'layout_templates': normalize_layout_library(
+                    settings.get('layout_templates', {})
+                ),
+                'active_layout_templates': (
+                    self._normalize_active_layout_templates(
+                        settings.get('active_layout_templates', {})
                     )
                 ),
                 'audiobook_config': self._normalize_audiobook_config(
@@ -304,6 +349,11 @@ class GlobalSettingsService:
             'quick_converter_config': self._normalize_quick_converter_config({}),
             'default_prompter_config': deepcopy(DEFAULT_PROMPTER_CONFIG),
             'prompter_color_presets': [None, None, None, None],
+            'layout_templates': normalize_layout_library({}),
+            'active_layout_templates': {
+                'montage': 'builtin.montage.table',
+                'teleprompter': 'builtin.teleprompter.scenario3',
+            },
             'audiobook_config': deepcopy(DEFAULT_AUDIOBOOK_CONFIG),
             'backup_config': deepcopy(DEFAULT_BACKUP_CONFIG),
             'docx_import_config': deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
@@ -366,6 +416,66 @@ class GlobalSettingsService:
         self.settings['default_prompter_config'] = (
             self._normalize_prompter_config(config)
         )
+
+    def get_layout_templates(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Return normalized custom templates in separate target libraries."""
+        return normalize_layout_library(
+            self.get_settings().get('layout_templates', {})
+        )
+
+    def set_layout_templates(self, value: Any) -> None:
+        """Update the in-memory custom template libraries."""
+        self.settings['layout_templates'] = normalize_layout_library(value)
+
+    def get_active_layout_template_id(self, kind: str) -> str:
+        """Return the selected built-in or custom template id."""
+        normalized = self._normalize_active_layout_templates(
+            self.get_settings().get('active_layout_templates', {})
+        )
+        return normalized['teleprompter' if kind == 'teleprompter' else 'montage']
+
+    def set_active_layout_template_id(self, kind: str, template_id: str) -> None:
+        """Select one template without allowing cross-target activation."""
+        target = 'teleprompter' if kind == 'teleprompter' else 'montage'
+        active = self._normalize_active_layout_templates(
+            self.get_settings().get('active_layout_templates', {})
+        )
+        available = {
+            item['id'] for item in self.get_layout_templates()[target]
+        } | {
+            item['id'] for item in builtin_layout_templates(target)
+        }
+        if str(template_id) in available:
+            active[target] = str(template_id)
+        self.settings['active_layout_templates'] = active
+
+    def get_active_layout_template(self, kind: str) -> Optional[Dict[str, Any]]:
+        """Resolve the selected template from its own target library."""
+        target = 'teleprompter' if kind == 'teleprompter' else 'montage'
+        template_id = self.get_active_layout_template_id(target)
+        templates = (
+            builtin_layout_templates(target)
+            + self.get_layout_templates()[target]
+        )
+        return next(
+            (deepcopy(item) for item in templates if item['id'] == template_id),
+            None,
+        )
+
+    @staticmethod
+    def _normalize_active_layout_templates(value: Any) -> Dict[str, str]:
+        defaults = {
+            'montage': 'builtin.montage.table',
+            'teleprompter': 'builtin.teleprompter.scenario3',
+        }
+        if not isinstance(value, dict):
+            return defaults
+        result = deepcopy(defaults)
+        for kind in LAYOUT_KINDS:
+            candidate = str(value.get(kind) or '').strip()
+            if candidate and len(candidate) <= 120:
+                result[kind] = candidate
+        return result
 
     def get_project_summary_export_metric(self) -> str:
         """Return the metric used by project summary spreadsheet export."""
@@ -775,6 +885,10 @@ class GlobalSettingsService:
     ) -> Dict[str, Any]:
         """Return export settings isolated from project montage settings."""
         result = self._normalize_export_config(config)
+        result['line_by_line'] = bool(
+            config.get('line_by_line', False)
+            if isinstance(config, dict) else False
+        )
         result['format_xls'] = False
         result['use_color'] = False
         result['allow_edit'] = False

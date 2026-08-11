@@ -50,6 +50,56 @@ def test_packaging_uses_only_the_qml_entry_point():
     assert "'ui.dialogs'" not in spec
 
 
+def test_layout_designer_opens_only_from_settings_and_tools():
+    main = (ROOT / "qml" / "Main.qml").read_text(encoding="utf-8")
+    settings = (
+        ROOT / "qml" / "components" / "GlobalSettingsDialog.qml"
+    ).read_text(encoding="utf-8")
+    montage = (
+        ROOT / "qml" / "components" / "MontagePreviewDialog.qml"
+    ).read_text(encoding="utf-8")
+    teleprompter = (
+        ROOT / "qml" / "components" / "TeleprompterWindow.qml"
+    ).read_text(encoding="utf-8")
+
+    assert 'text: qsTr("Конструктор макетов…")' in main
+    assert main.index('text: qsTr("Быстрый конвертер")') < main.index(
+        'text: qsTr("Конструктор макетов…")'
+    )
+    assert settings.count("Открыть конструктор макетов…") == 2
+    assert "Открыть конструктор макетов…" not in montage
+    assert "Открыть конструктор макетов…" not in teleprompter
+
+
+def test_layout_designer_toolbar_cannot_consume_canvas_height():
+    designer = (
+        ROOT / "qml" / "components" / "LayoutDesignerWindow.qml"
+    ).read_text(encoding="utf-8")
+    canvas = (
+        ROOT / "qml" / "components" / "LayoutDesignerCanvas.qml"
+    ).read_text(encoding="utf-8")
+
+    assert "Layout.preferredHeight: 22" in designer
+    assert "Layout.minimumHeight: 260" in designer
+    assert "implicitHeight: 520" in canvas
+
+
+def test_layout_designer_uses_an_adaptive_canvas_without_format_presets():
+    designer = (
+        ROOT / "qml" / "components" / "LayoutDesignerWindow.qml"
+    ).read_text(encoding="utf-8")
+    canvas = (
+        ROOT / "qml" / "components" / "LayoutDesignerCanvas.qml"
+    ).read_text(encoding="utf-8")
+
+    source = designer + canvas
+    assert "montageLandscape" not in source
+    assert "wideTeleprompter" not in source
+    assert "targetAspect" not in source
+    assert "A4 книжный" not in source
+    assert 'qsTr("16:9")' not in source
+
+
 def test_teleprompter_transfers_the_current_text_selection():
     source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
         encoding="utf-8"
@@ -418,6 +468,9 @@ def test_interface_onboarding_is_first_run_only_and_reuses_ui_preferences():
         "Layout.preferredHeight: dialog.windowsStyle ? 116 : 88"
     ) == 3
     assert "fontSizeMode: Text.HorizontalFit" in onboarding
+    assert "height: dialog.tablePreviewRowHeight" in onboarding
+    assert onboarding.count("height: dialog.tablePreviewRowHeight") == 2
+    assert "onboardingTableFontMetrics.height" in onboarding
 
 
 def test_character_numeric_columns_fit_their_sorted_headers():

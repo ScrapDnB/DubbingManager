@@ -68,6 +68,22 @@ NativeDialogWindow {
         { key: "preview", title: qsTr("Просмотр") }
     ]
     readonly property int lastStep: steps.length - 1
+    readonly property int tablePreviewRowHeight: Math.max(
+        characterCompactRowsDraft
+            ? (macOSStyle ? 20 : 23)
+            : (macOSStyle ? 30 : 34),
+        onboardingTableFontMetrics.height + (characterCompactRowsDraft
+            ? 4
+            : (macOSStyle ? 14 : 18))
+    )
+    readonly property int tablePreviewActorEntryHeight: Math.max(
+        characterCompactRowsDraft
+            ? (macOSStyle ? 18 : 20)
+            : (macOSStyle ? 20 : 22),
+        onboardingTableFontMetrics.height + (characterCompactRowsDraft
+            ? 3
+            : (macOSStyle ? 6 : 8))
+    )
 
     signal configurationAccepted(
         string mode, int muteLevel, bool fullHeight, int markerShape,
@@ -88,6 +104,11 @@ NativeDialogWindow {
     SystemPalette {
         id: systemPalette
         colorGroup: SystemPalette.Active
+    }
+
+    FontMetrics {
+        id: onboardingTableFontMetrics
+        font: Application.font
     }
 
     component SelectionCard: Item {
@@ -634,7 +655,8 @@ NativeDialogWindow {
                         Label { text: qsTr("Предварительный просмотр"); font.bold: true }
                         Rectangle {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 178
+                            Layout.preferredHeight: 24 + 30
+                                + 3 * dialog.tablePreviewRowHeight
                             radius: dialog.macOSStyle ? 10 : 6
                             color: systemPalette.base
                             border.width: 1
@@ -666,7 +688,7 @@ NativeDialogWindow {
                                         required property var modelData
                                         required property int index
                                         width: parent.width
-                                        height: dialog.characterCompactRowsDraft ? 34 : 44
+                                        height: dialog.tablePreviewRowHeight
                                         color: index % 2 ? dialog.softAltRow : dialog.softRow
                                         RowLayout {
                                             anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8
@@ -734,7 +756,8 @@ NativeDialogWindow {
                         }
                         Rectangle {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 142
+                            Layout.preferredHeight: 24
+                                + 3 * dialog.tablePreviewRowHeight
                             radius: dialog.macOSStyle ? 10 : 6
                             color: systemPalette.base
                             border.width: 1
@@ -754,7 +777,7 @@ NativeDialogWindow {
                                         required property int index
                                         readonly property color actorColor: modelData[2]
                                         width: parent.width
-                                        height: dialog.characterCompactRowsDraft ? 36 : 42
+                                        height: dialog.tablePreviewRowHeight
                                         color: index % 2 ? dialog.softAltRow : dialog.softRow
                                         RowLayout {
                                             anchors.fill: parent
@@ -766,8 +789,10 @@ NativeDialogWindow {
                                                 Layout.fillHeight: dialog.actorColorCellFillFullHeightDraft
                                                     && dialog.actorColorDisplayDraft === "cell"
                                                 Layout.preferredHeight: dialog.actorColorDisplayDraft === "cell"
-                                                    ? (dialog.actorColorCellFillFullHeightDraft ? actorRow.height : 28)
-                                                    : 28
+                                                    ? (dialog.actorColorCellFillFullHeightDraft
+                                                        ? actorRow.height
+                                                        : dialog.tablePreviewActorEntryHeight)
+                                                    : dialog.tablePreviewActorEntryHeight
                                                 radius: 5
                                                 color: dialog.actorColorDisplayDraft === "cell"
                                                     ? Qt.rgba(

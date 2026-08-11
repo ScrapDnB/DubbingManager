@@ -50,6 +50,7 @@ class ConverterBridge(QObject):
             global_settings_service.get_quick_converter_config()
         )
         config = self._quick_converter_config
+        self._line_by_line = bool(config.get("line_by_line", False))
         self._formats = {
             "html": bool(config.get("format_html", True)),
             "docx": bool(config.get("format_docx", False)),
@@ -109,6 +110,10 @@ class ConverterBridge(QObject):
     def exportPdf(self) -> bool:
         return self._formats["pdf"]
 
+    @Property(bool, notify=changed)
+    def lineByLine(self) -> bool:
+        return self._line_by_line
+
     @Property(str, notify=previewChanged)
     def previewHtml(self) -> str:
         return self._preview_html
@@ -131,6 +136,32 @@ class ConverterBridge(QObject):
             return
         self._formats[name] = bool(enabled)
         self._quick_converter_config[f"format_{name}"] = bool(enabled)
+        self.changed.emit()
+
+    @Slot(bool)
+    def setLineByLine(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if self._line_by_line == enabled:
+            return
+        self._line_by_line = enabled
+        self._quick_converter_config["line_by_line"] = enabled
+        if self._awaiting_preview:
+            self._conversion_config["line_by_line"] = enabled
+            try:
+                service = self._service()
+                self._preview_html = (
+                    service.demo_preview_html(self._conversion_config)
+                    if self._settings_preview
+                    else service.preview_html(
+                        self._preview_path, self._conversion_config
+                    )
+                )
+            except Exception as exc:
+                self.errorRequested.emit(
+                    f"Не удалось обновить предпросмотр: {exc}"
+                )
+            else:
+                self.previewChanged.emit()
         self.changed.emit()
 
     @Slot("QVariantList", bool, result=bool)
@@ -270,6 +301,7 @@ class ConverterBridge(QObject):
             "format_html": self._formats["html"],
             "format_docx": self._formats["docx"],
             "format_pdf": self._formats["pdf"],
+            "line_by_line": self._line_by_line,
         })
         updated["quick_converter_config"] = config
         if not self._global_settings_service.save_settings(updated):
@@ -283,6 +315,9 @@ class ConverterBridge(QObject):
         )
         self._quick_converter_config = (
             self._global_settings_service.get_quick_converter_config()
+        )
+        self._line_by_line = bool(
+            self._quick_converter_config.get("line_by_line", False)
         )
         self._awaiting_preview = False
         self._settings_preview = False
@@ -400,14 +435,19 @@ class ConverterBridge(QObject):
 
     def _service(self) -> QuickSubtitleService:
         episode_service = EpisodeService()
-        episode_service.set_merge_gap_from_config(
+        merge_config = (
             self._global_settings_service.get_replica_merge_config()
         )
+        episode_service.set_merge_gap_from_config(merge_config)
         episode_service.set_import_configs(
             self._global_settings_service.get_ass_import_config(),
             self._global_settings_service.get_srt_import_config(),
         )
-        return QuickSubtitleService(episode_service, self._session.data)
+        converter_data = deepcopy(self._session.data)
+        # The standalone converter must not inherit stale per-project merge
+        # thresholds. Use the same current global rules as subtitle parsing.
+        converter_data["replica_merge_config"] = merge_config
+        return QuickSubtitleService(episode_service, converter_data)
 
     def _current_export_config(
         self, service: QuickSubtitleService
@@ -417,6 +457,7 @@ class ConverterBridge(QObject):
             "format_html": self._formats["html"],
             "format_docx": self._formats["docx"],
             "format_pdf": self._formats["pdf"],
+            "line_by_line": self._line_by_line,
         })
         return service.export_config(config)
 
