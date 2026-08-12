@@ -156,6 +156,9 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "function currentReplicaFocusTargetY()" in source
     assert "function replicaReadingBounds(index)" in source
     assert "function ensureReplicaItem(index)" in source
+    assert "function replicaInsideCurrentPage(index)" in source
+    assert "if (!replicaInsideCurrentPage(currentIndex))" in source
+    assert '"Seek REAPER внутри текущей страницы"' in source
     assert "var sourceY = clampedContentY(contentY);" in source
     assert "function longReplicaTargetY(index, pageMode)" in source
     assert "function pageFragmentStep()" in source

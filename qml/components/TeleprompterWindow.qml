@@ -1737,6 +1737,23 @@ NativeDialogWindow {
                         );
                     }
 
+                    function replicaInsideCurrentPage(index) {
+                        if (!pageScrollMode || index < 0) {
+                            return false;
+                        }
+                        // Do not materialize a distant delegate here: doing
+                        // so can itself rebase a variable-height ListView and
+                        // move the page we are trying to preserve.
+                        var item = itemAtIndex(index);
+                        if (!item) {
+                            return false;
+                        }
+                        var viewportTop = Number(contentY);
+                        var viewportBottom = viewportTop + height;
+                        return item.y >= viewportTop - 0.5
+                            && item.y + item.height <= viewportBottom + 0.5;
+                    }
+
                     function restoreValidContentBounds() {
                         var minimumY = minimumContentY();
                         var maximumY = maximumContentY();
@@ -2497,11 +2514,17 @@ NativeDialogWindow {
                         if (previousIndex < 0
                                 || window.teleprompter.positionOrigin === "local"
                                 || Math.abs(currentIndex - previousIndex) > 1) {
-                            positionReplicaExactly(
-                                currentIndex,
-                                "Точное позиционирование по индексу"
-                            );
-                            return;
+                            // A REAPER click or a repeated one-second step can
+                            // skip several short replicas.  It is still not a
+                            // page turn while the destination remains fully
+                            // visible on the current page.
+                            if (!replicaInsideCurrentPage(currentIndex)) {
+                                positionReplicaExactly(
+                                    currentIndex,
+                                    "Точное позиционирование по индексу"
+                                );
+                                return;
+                            }
                         }
                         forceLayout();
                         if (!ensureReplicaItem(currentIndex)) {
@@ -2782,6 +2805,15 @@ NativeDialogWindow {
                         pageHoldLastReaperTime = currentTime;
                         pageHoldLastReaperReceivedAt = receivedAt;
                         if (seekedBack || jumped || changedAfterPause) {
+                            // OSC does not distinguish a mouse seek from a
+                            // held REAPER step command.  Both should preserve
+                            // the current page while their destination is
+                            // already visible; following resumes only once
+                            // the playhead leaves that page.
+                            if (replicaInsideCurrentPage(currentIndex)) {
+                                capturePageDebug("Seek REAPER внутри текущей страницы", contentY, contentY, -1, -1);
+                                return;
+                            }
                             cancelPageHold();
                             capturePageDebug("Ручная пауза отменена: seek REAPER", contentY, contentY, -1, -1);
                             queuePageFollow();
