@@ -1,7 +1,9 @@
 """Platform-boundary tests for the optional AppKit integration."""
 
+import sys
 from unittest.mock import Mock
 
+import pytest
 from PySide6.QtCore import QCoreApplication
 
 from ui import macos_integration
@@ -72,6 +74,7 @@ def test_native_toolbar_defines_every_project_action_once():
     assert all(label and symbol for label, symbol, _callback in integration.ACTIONS.values())
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="requires AppKit")
 def test_native_reaper_toolbar_image_has_compact_intrinsic_size():
     integration = macos_integration.MacOSIntegration()
 
