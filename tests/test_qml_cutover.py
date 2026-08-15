@@ -100,6 +100,17 @@ def test_layout_designer_uses_an_adaptive_canvas_without_format_presets():
     assert 'qsTr("16:9")' not in source
 
 
+def test_layout_designer_left_panel_keeps_controls_inside_its_width():
+    designer = (
+        ROOT / "qml" / "components" / "LayoutDesignerWindow.qml"
+    ).read_text(encoding="utf-8")
+
+    assert "SplitView.preferredWidth: window.structureVisible ? 320 : 300" in designer
+    assert "SplitView.minimumWidth: 270" in designer
+    assert designer.count("Layout.minimumWidth: 0") >= 8
+    assert designer.count("Layout.preferredWidth: 1") >= 8
+
+
 def test_teleprompter_transfers_the_current_text_selection():
     source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
         encoding="utf-8"
@@ -246,6 +257,7 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "function correctPageScrollTarget()" in source
     assert "replicaView.correctPageScrollTarget();" in source
     assert "replicaView.fadePageTargetHighlight();" in source
+    assert "showPageTargetHighlight(currentIndex, targetY);" in source
     assert "function updatePageTargetHighlightGeometry(index, targetY)" in source
     assert "function targetLineHighlightGeometry(targetContentY)" in source
     assert "pageTargetHighlightLineOnly" in source

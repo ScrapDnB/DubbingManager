@@ -221,8 +221,8 @@ NativeDialogWindow {
             orientation: Qt.Horizontal
 
             Rectangle {
-                SplitView.preferredWidth: window.structureVisible ? 300 : 250
-                SplitView.minimumWidth: 230
+                SplitView.preferredWidth: window.structureVisible ? 320 : 300
+                SplitView.minimumWidth: 270
                 color: palette.base
                 border.width: 1
                 border.color: window.softBorder
@@ -272,6 +272,7 @@ NativeDialogWindow {
                                         ? palette.highlightedText : palette.text
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
                                 }
                                 Label {
                                     text: libraryRow.active ? "✓"
@@ -280,6 +281,8 @@ NativeDialogWindow {
                                         ? palette.highlightedText : window.softMuted
                                     font.pixelSize: libraryRow.active
                                         ? 16 : Math.max(9, Application.font.pixelSize - 2)
+                                    Layout.maximumWidth: libraryRow.active ? 24 : 76
+                                    elide: Text.ElideRight
                                 }
                             }
                             MouseArea {
@@ -291,13 +294,21 @@ NativeDialogWindow {
                         }
                     }
 
-                    RowLayout {
+                    GridLayout {
                         Layout.fillWidth: true
+                        columns: 3
+                        columnSpacing: 6
                         AdaptiveButton {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 1
                             text: qsTr("Создать")
                             onClicked: window.requestCreate()
                         }
                         AdaptiveButton {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 1
                             text: qsTr("Копия")
                             enabled: Boolean(window.backend.draftId)
                                 && !window.backend.draftDirty
@@ -306,6 +317,9 @@ NativeDialogWindow {
                             )
                         }
                         AdaptiveButton {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 1
                             text: qsTr("Удалить")
                             enabled: !window.backend.draftBuiltIn
                                 && !window.backend.draftDirty
@@ -322,9 +336,11 @@ NativeDialogWindow {
                     }
 
                     Label { text: qsTr("Элементы макета"); font.bold: true }
-                    Flow {
+                    GridLayout {
                         Layout.fillWidth: true
-                        spacing: 6
+                        columns: 2
+                        columnSpacing: 6
+                        rowSpacing: 6
                         Repeater {
                             model: window.backend.fieldKeys
                             AdaptiveButton {
@@ -332,6 +348,9 @@ NativeDialogWindow {
                                 required property string modelData
                                 readonly property bool alreadyUsed:
                                     window.backend.usedFields.indexOf(modelData) >= 0
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
                                 text: alreadyUsed
                                     ? "✓ " + window.fieldLabel(modelData)
                                     : "+ " + window.fieldLabel(modelData)
@@ -353,23 +372,37 @@ NativeDialogWindow {
                         text: qsTr("Группировка")
                         color: window.softMuted
                     }
-                    Flow {
+                    GridLayout {
                         Layout.fillWidth: true
-                        spacing: 6
+                        columns: 2
+                        columnSpacing: 6
+                        rowSpacing: 6
                         enabled: !window.backend.draftBuiltIn
                         AdaptiveButton {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 1
                             text: qsTr("+ Горизонтальная")
                             onClicked: window.backend.addNode("row", "")
                         }
                         AdaptiveButton {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 1
                             text: qsTr("+ Вертикальная")
                             onClicked: window.backend.addNode("column", "")
                         }
                         AdaptiveButton {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 1
                             text: qsTr("+ Линия")
                             onClicked: window.backend.addNode("separator", "")
                         }
                         AdaptiveButton {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 1
                             text: qsTr("+ Отступ")
                             onClicked: window.backend.addNode("spacer", "")
                         }
@@ -477,7 +510,7 @@ NativeDialogWindow {
 
             Rectangle {
                 SplitView.fillWidth: true
-                SplitView.minimumWidth: 440
+                SplitView.minimumWidth: 400
                 color: palette.base
                 border.width: 1
                 border.color: window.softBorder
@@ -566,7 +599,7 @@ NativeDialogWindow {
 
             Rectangle {
                 SplitView.preferredWidth: 280
-                SplitView.minimumWidth: 240
+                SplitView.minimumWidth: 230
                 color: palette.base
                 border.width: 1
                 border.color: window.softBorder

@@ -72,6 +72,20 @@ def test_native_toolbar_defines_every_project_action_once():
     assert all(label and symbol for label, symbol, _callback in integration.ACTIONS.values())
 
 
+def test_native_reaper_toolbar_image_has_compact_intrinsic_size():
+    integration = macos_integration.MacOSIntegration()
+
+    image = integration.toolbar_image(
+        integration.REAPER,
+        "waveform",
+        "Экспорт в Reaper",
+    )
+
+    assert image is not None
+    assert image.size().width == 26
+    assert image.size().height == 26
+
+
 def test_auxiliary_window_keeps_standard_macos_title_bar(monkeypatch):
     monkeypatch.setattr(macos_integration, "NSWindowTitleHidden", 1, raising=False)
     monkeypatch.setattr(

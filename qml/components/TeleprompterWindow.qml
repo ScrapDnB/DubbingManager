@@ -1667,7 +1667,10 @@ NativeDialogWindow {
                         property: "contentY"
                         duration: window.scrollDurationMs
                         easing.type: Easing.InOutCubic
-                        onFinished: replicaView.finishLocalNavigation()
+                        onFinished: {
+                            replicaView.fadePageTargetHighlight();
+                            replicaView.finishLocalNavigation();
+                        }
                     }
 
                     function capturePageDebug(event, sourceY, targetY, itemTop, itemBottom) {
@@ -2243,6 +2246,7 @@ NativeDialogWindow {
                                 : "Обычный режим: переход к реплике",
                             sourceY, targetY, itemTop, itemBottom
                         );
+                        showPageTargetHighlight(currentIndex, targetY);
                         longReplicaScrollAnimation.from = sourceY;
                         longReplicaScrollAnimation.to = targetY;
                         longReplicaScrollAnimation.duration = scrollDurationForMove(

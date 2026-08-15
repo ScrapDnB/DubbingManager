@@ -32,6 +32,7 @@ if sys.platform == "darwin":
         NSFloatingWindowLevel,
         NSImage,
         NSMakeRect,
+        NSMakeSize,
         NSMenu,
         NSMenuItem,
         NSPanel,
@@ -339,6 +340,14 @@ class MacOSIntegration(QObject):
             if svg_path.exists():
                 image = NSImage.alloc().initWithContentsOfFile_(str(svg_path))
                 if image is not None:
+                    # An SVG without explicit width/height is loaded at its
+                    # 256x256 viewBox size. NSToolbarItem then reserves that
+                    # intrinsic width even though AppKit draws the mark at
+                    # toolbar scale, producing a huge empty button field.
+                    # The actual Reaper path occupies only about 62% of that
+                    # viewBox, so a 26pt canvas gives it the same optical size
+                    # as the neighbouring 16pt SF Symbols.
+                    image.setSize_(NSMakeSize(26, 26))
                     image.setTemplate_(True)
                     return image
         return NSImage.imageWithSystemSymbolName_accessibilityDescription_(
