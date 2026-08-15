@@ -651,6 +651,9 @@ class ProjectBridge(QObject):
             script_text_service=self._script_text_service,
             undo_stack=self._session.undo_stack,
             get_current_project_path=lambda: self.path or None,
+            merge_config=(
+                self._global_settings_service.get_replica_merge_config()
+            ),
         )
 
     def _refresh_recent_projects(self) -> None:

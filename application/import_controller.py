@@ -19,12 +19,16 @@ class ImportController:
         script_text_service: Any,
         undo_stack: Any,
         get_current_project_path: Any,
+        merge_config: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.data_ref = data_ref
         self.episode_service = episode_service
         self.script_text_service = script_text_service
         self.undo_stack = undo_stack
         self.get_current_project_path = get_current_project_path
+        self.merge_config = (
+            dict(merge_config) if isinstance(merge_config, dict) else None
+        )
 
     @staticmethod
     def suggested_episode_name(path: str) -> str:
@@ -107,7 +111,11 @@ class ImportController:
         if not lines:
             return
 
-        merge_config = self.data_ref.get("replica_merge_config", {})
+        merge_config = (
+            dict(self.merge_config)
+            if self.merge_config is not None
+            else self.data_ref.get("replica_merge_config", {})
+        )
         if os.path.splitext(path or "")[1].lower() == '.docx':
             merge_config = {**merge_config, "merge": False}
 

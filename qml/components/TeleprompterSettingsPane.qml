@@ -130,12 +130,6 @@ PersistentScrollView {
             GridLayout {
                 anchors.fill: parent
                 columns: 3
-                CheckBox {
-                    text: qsTr("Постраничный режим")
-                    checked: Boolean(pane.configuration.page_scroll_mode)
-                    onToggled: pane.setValue("page_scroll_mode", checked)
-                    Layout.columnSpan: 3
-                }
                 Label { text: qsTr("Уровень плавности: %1%").arg(pane.scrollSmoothnessLevel()); Layout.columnSpan: 2 }
                 Slider { from: 0; to: 100; value: pane.configuration.scroll_smoothness_slider === undefined ? 18 : Number(pane.configuration.scroll_smoothness_slider); onMoved: pane.setValue("scroll_smoothness_slider", Math.round(value)); Layout.fillWidth: true }
                 CheckBox {
@@ -149,7 +143,6 @@ PersistentScrollView {
 
         FormSection {
             visible: pane.automationScope
-                && Boolean(pane.configuration.page_scroll_mode)
             title: qsTr("Паузы в постраничном режиме")
             Layout.fillWidth: true
             GridLayout {

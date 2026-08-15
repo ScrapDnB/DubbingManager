@@ -444,7 +444,9 @@ class ProjectFilesBridge(QObject):
             if not lines:
                 failed += 1
                 continue
-            merge_config = candidate.get("replica_merge_config", {})
+            merge_config = (
+                self._global_settings_service.get_replica_merge_config()
+            )
             if Path(source).suffix.lower() == ".docx":
                 merge_config = {**merge_config, "merge": False}
             self._script_text_service.create_episode_text(

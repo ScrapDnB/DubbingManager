@@ -345,6 +345,18 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "pane.setColor(pane.colorTarget, pane.colorOriginalValue)" in automation_settings
 
 
+def test_teleprompter_settings_show_page_options_without_mode_toggle():
+    source = (
+        ROOT / "qml" / "components" / "TeleprompterSettingsPane.qml"
+    ).read_text(encoding="utf-8")
+
+    assert 'text: qsTr("Постраничный режим")' not in source
+    assert "page_scroll_mode" not in source
+    assert 'title: qsTr("Паузы в постраничном режиме")' in source
+    assert "page_gap_prefetch_seconds" in source
+    assert "page_gap_prefetch_delay_seconds" in source
+
+
 def test_teleprompter_restores_following_after_manual_scroll_and_list_jump():
     source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
         encoding="utf-8"

@@ -1451,6 +1451,30 @@ def test_qml_global_settings_bundle_and_project_transfer(tmp_path):
     assert bridge._global_settings_service.get_default_export_config()["layout_type"] == "Сценарий 2"
 
 
+def test_qml_settings_save_prefetch_without_overwriting_scroll_mode():
+    _app()
+    bridge = AppBridge()
+    draft = dict(bridge.settings.globalPrompterConfig)
+    draft["page_scroll_mode"] = True
+    draft["page_gap_prefetch_seconds"] = 2.5
+    draft["page_gap_prefetch_delay_seconds"] = 1.5
+
+    assert bridge.settings.globalPrompterConfig["page_scroll_mode"] is False
+    assert bridge.settings.applyGlobalSettingsBundle(
+        "ru",
+        bridge.settings.audiobookKeywords,
+        bridge.settings.globalMontageConfig,
+        draft,
+    )
+
+    saved = bridge._global_settings_service.load_settings()[
+        "default_prompter_config"
+    ]
+    assert saved["page_scroll_mode"] is False
+    assert saved["page_gap_prefetch_seconds"] == 2.5
+    assert saved["page_gap_prefetch_delay_seconds"] == 1.5
+
+
 def test_qml_global_settings_full_persists_unified_import_defaults():
     _app()
     bridge = AppBridge()
@@ -1831,6 +1855,35 @@ def test_qml_bridge_imports_subtitle_file_with_undo(tmp_path):
     assert bridge.casting.linesModel.rowCount() == 1
 
 
+def test_qml_bridge_ass_import_uses_global_merge_config(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._global_settings_service.update_replica_merge_config({
+        "merge": True,
+        "merge_gap": 120,
+        "p_short": 0.5,
+        "p_long": 2.0,
+        "fps": 25,
+    })
+    source = tmp_path / "Episode_03.ass"
+    source.write_text(
+        "[Script Info]\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,First\n"
+        "Dialogue: 0,0:00:02.50,0:00:03.00,Default,Hero,0,0,0,,Second\n",
+        encoding="utf-8",
+    )
+
+    bridge.project.importSubtitle(str(source))
+
+    payload = bridge._session.data["episode_working_texts"]["03"]
+    assert len(payload["lines"]) == 1
+    assert payload["lines"][0]["source_texts"] == ["First", "Second"]
+    assert payload["merge_config"]["merge_gap"] == 120.0
+
+
 def test_qml_subtitle_import_prepares_unique_editable_episode_names(tmp_path):
     _app()
     bridge = AppBridge()
@@ -1863,7 +1916,8 @@ def test_qml_subtitle_import_is_atomic_and_undoable(tmp_path):
     first = tmp_path / "Episode_01.srt"
     second = tmp_path / "Episode_02.srt"
     first.write_text(
-        "1\n00:00:01,000 --> 00:00:02,000\nHero: First\n",
+        "1\n00:00:01,000 --> 00:00:02,000\nHero: First\n\n"
+        "2\n00:00:02,500 --> 00:00:03,000\nHero: Continued\n",
         encoding="utf-8",
     )
     second.write_text(
@@ -1881,6 +1935,9 @@ def test_qml_subtitle_import_is_atomic_and_undoable(tmp_path):
         "02": str(second),
     }
     assert set(bridge._session.data["episode_working_texts"]) == {"01", "02"}
+    assert len(
+        bridge._session.data["episode_working_texts"]["01"]["lines"]
+    ) == 1
     assert bridge.project.canUndo
 
     bridge.project.undo()
@@ -3775,7 +3832,8 @@ def test_qml_bridge_creates_missing_srt_and_docx_texts_with_one_undo(tmp_path):
     bridge = AppBridge()
     srt_source = tmp_path / "Episode 1.srt"
     srt_source.write_text(
-        "1\n00:00:01,000 --> 00:00:02,000\nHero: Subtitle\n",
+        "1\n00:00:01,000 --> 00:00:02,000\nHero: Subtitle\n\n"
+        "2\n00:00:02,500 --> 00:00:03,000\nHero: Continued\n",
         encoding="utf-8",
     )
     docx_source = tmp_path / "Episode 2.docx"
@@ -3796,6 +3854,9 @@ def test_qml_bridge_creates_missing_srt_and_docx_texts_with_one_undo(tmp_path):
     bridge.projectFiles.createMissingWorkingTexts()
 
     assert set(bridge._session.data["episode_working_texts"]) == {"1", "2"}
+    assert len(
+        bridge._session.data["episode_working_texts"]["1"]["lines"]
+    ) == 1
     assert bridge._session.data["episode_working_texts"]["2"]["lines"][0][
         "text"
     ] == "Document line"

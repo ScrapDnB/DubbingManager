@@ -339,8 +339,8 @@ class SettingsBridge(QObject):
         updated["language"] = language
         updated["audiobook_config"] = {"chapter_keywords": keywords}
         updated["default_export_config"] = self._export_config(montage_config)
-        updated["default_prompter_config"] = self._prompter_config(
-            prompter_config
+        updated["default_prompter_config"] = (
+            self._prompter_config_preserving_scroll_mode(prompter_config)
         )
         updated["default_replica_merge_config"] = self._merge_config(
             merge_config if merge_config is not None else self.globalMergeConfig
@@ -396,7 +396,7 @@ class SettingsBridge(QObject):
             )
         elif kind == "prompter":
             self._global_settings_service.set_default_prompter_config(
-                self._prompter_config(config)
+                self._prompter_config_preserving_scroll_mode(config)
             )
         else:
             return False
@@ -634,6 +634,15 @@ class SettingsBridge(QObject):
         profiles[layout_type] = profile
         config["layout_type"] = layout_type
         config["layout_font_sizes"] = profiles
+        return config
+
+    def _prompter_config_preserving_scroll_mode(self, value) -> dict:
+        """Keep the live teleprompter's mode out of staged settings drafts."""
+        config = self._prompter_config(value)
+        current = self._global_settings_service.get_default_prompter_config()
+        config["page_scroll_mode"] = bool(
+            current.get("page_scroll_mode", False)
+        )
         return config
 
     def _save_global_service_state(self) -> bool:

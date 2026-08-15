@@ -222,6 +222,45 @@ def test_import_controller_adds_srt_episode_and_working_text(tmp_path):
     assert lines[0]["text"] == "Hello"
 
 
+def test_import_controller_uses_explicit_global_merge_config(tmp_path):
+    source = tmp_path / "Episode_01.ass"
+    source.write_text("[Script Info]\n", encoding="utf-8")
+    lines = [
+        {"id": 0, "s": 1.0, "e": 2.0, "char": "Hero", "text": "First"},
+        {"id": 1, "s": 2.5, "e": 3.0, "char": "Hero", "text": "Second"},
+    ]
+
+    for merge_enabled, expected_count in ((True, 1), (False, 2)):
+        data = {
+            "episodes": {},
+            "episode_texts": {},
+            "episode_working_texts": {},
+            "loaded_episodes": {},
+            "actors": {},
+            "global_map": {},
+        }
+        controller = ImportController(
+            data_ref=data,
+            episode_service=EpisodeService(),
+            script_text_service=ScriptTextService(),
+            undo_stack=UndoStack(),
+            get_current_project_path=lambda: str(tmp_path / "project.dub"),
+            merge_config={
+                "merge": merge_enabled,
+                "merge_gap": 120,
+                "p_short": 0.5,
+                "p_long": 2.0,
+                "fps": 25,
+            },
+        )
+
+        controller.create_working_text_for_episode("1", str(source), lines)
+
+        payload = data["episode_working_texts"]["1"]
+        assert len(payload["lines"]) == expected_count
+        assert payload["merge_config"]["merge"] is merge_enabled
+
+
 def test_import_controller_sets_default_project_name_from_first_ass(tmp_path):
     ass_path = tmp_path / "Pilot Episode.ass"
     ass_path.write_text(

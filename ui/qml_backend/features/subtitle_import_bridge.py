@@ -128,6 +128,9 @@ class SubtitleImportBridge(QObject):
             self._script_text_service,
             UndoStack(),
             lambda: self._session.project_service.current_project_path,
+            merge_config=(
+                self._global_settings_service.get_replica_merge_config()
+            ),
         )
 
         imported_lines = 0
