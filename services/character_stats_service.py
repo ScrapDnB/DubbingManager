@@ -13,8 +13,13 @@ PROJECT_CASTING_METRICS = {"rings", "lines", "words"}
 class CharacterStatsService:
     """Calculate episode and project character statistics."""
 
-    def __init__(self, data_ref: Dict[str, Any]) -> None:
+    def __init__(
+        self,
+        data_ref: Dict[str, Any],
+        merge_config: Dict[str, Any] | None = None,
+    ) -> None:
         self.data_ref = data_ref
+        self._active_merge_config = dict(merge_config or {})
 
     def episode_stats(
         self,
@@ -82,7 +87,7 @@ class CharacterStatsService:
 
             processed = export_service.process_merge_logic(
                 lines,
-                self.data_ref.get("replica_merge_config", {})
+                self._merge_config()
             )
             ep_rings = 0
             ep_words = 0
@@ -94,7 +99,7 @@ class CharacterStatsService:
                 if line.get("char") != char_name:
                     continue
                 ep_rings += 1
-                ep_words += len(line.get("text", "").split())
+                ep_words += self._word_count(line)
 
             if ep_rings:
                 result["episodes"].append({
@@ -141,7 +146,7 @@ class CharacterStatsService:
                 continue
             for line in export_service.process_merge_logic(
                 lines,
-                self.data_ref.get("replica_merge_config", {}),
+                self._merge_config(),
             ):
                 character = str(line.get("char") or "")
                 if not character:
@@ -156,7 +161,7 @@ class CharacterStatsService:
                     targets = [unassigned]
                 for target in targets:
                     target["rings"] += 1
-                    target["words"] += len(str(line.get("text") or "").split())
+                    target["words"] += self._word_count(line)
                     target["roles"].add(character)
 
         rows: List[Dict[str, Any]] = []
@@ -213,7 +218,7 @@ class CharacterStatsService:
             if metric == "rings":
                 processed = export_service.process_merge_logic(
                     lines,
-                    self.data_ref.get("replica_merge_config", {})
+                    self._merge_config()
                 )
 
             for line in processed:
@@ -271,6 +276,15 @@ class CharacterStatsService:
 
         return rows
 
+    def _merge_config(self) -> Dict[str, Any]:
+        if self._active_merge_config:
+            return dict(self._active_merge_config)
+        storage = self.data_ref.get("script_storage")
+        if isinstance(storage, dict) and storage.get("model") == "dynamic_source":
+            config = storage.get("merge_config")
+            return config if isinstance(config, dict) else {}
+        return self.data_ref.get("replica_merge_config", {})
+
     def _project_casting_metric_value(
         self,
         line: Dict[str, Any],
@@ -278,8 +292,13 @@ class CharacterStatsService:
     ) -> int:
         """Return one exported cell contribution for the selected metric."""
         if metric == "words":
-            return len(line.get("text", "").split())
+            return self._word_count(line)
         return 1
+
+    @staticmethod
+    def _word_count(line: Dict[str, Any]) -> int:
+        text = line.get("content_text", line.get("text", ""))
+        return len(str(text or "").split())
 
     def create_project_casting_xlsx(
         self,

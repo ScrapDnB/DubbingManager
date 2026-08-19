@@ -264,10 +264,12 @@ DEFAULT_PROMPTER_CONFIG = {
     "key_next": "Right",
     "scroll_smoothness_slider": 18,
     "page_scroll_mode": False,
+    "page_timecode_highlight_enabled": False,
     "page_gap_prefetch_seconds": 1.0,
     "page_gap_prefetch_delay_seconds": 1.0,
     "page_target_highlight_enabled": True,
     "page_target_highlight_opacity": 0.2728,
+    "page_target_highlight_fade_in_ms": 500,
     "page_target_highlight_fade_ms": 1000,
     "page_debug_overlay": False,
     "colors": {
@@ -360,11 +362,32 @@ DEFAULT_EXPORT_CONFIG['layout_profiles']['Сценарий 3'].update({
 
 DEFAULT_REPLICA_MERGE_CONFIG = {
     'merge': True,
+    'merge_parallel_replicas': False,
+    'respect_existing_separators': False,
     'merge_gap': 120,  # Maximum frame gap for merging adjacent replicas.
     'p_short': 0.5,
     'p_long': 2.0,
     'fps': 25,  # Frame rate used for time conversion.
 }
+
+DEFAULT_INLINE_TIMECODE_CONFIG = {
+    'inline_timecodes_enabled': False,
+    'inline_timecode_min_duration': 30.0,
+    'inline_timecode_every': 3,
+    'inline_timecode_brackets': 'square',
+}
+
+DEFAULT_GLOBAL_MERGE_CONFIG = {
+    'merge': True,
+    'merge_parallel_replicas': False,
+    'respect_existing_separators': False,
+    'merge_gap_seconds': 4.8,
+    'p_short': 0.5,
+    'p_long': 2.0,
+    **DEFAULT_INLINE_TIMECODE_CONFIG,
+}
+
+DEFAULT_PROJECT_FPS = 25.0
 
 DEFAULT_ASS_IMPORT_CONFIG = {
     'split_character_names': True,
@@ -428,7 +451,7 @@ DEFAULT_BACKUP_CONFIG = {
 DEFAULT_GLOBAL_SETTINGS = {
     'export_config': None,  # Initialized from DEFAULT_EXPORT_CONFIG.
     'prompter_config': None,  # Initialized from DEFAULT_PROMPTER_CONFIG.
-    'replica_merge_config': None,  # Initialized from DEFAULT_REPLICA_MERGE_CONFIG.
+    'replica_merge_config': None,  # Initialized from DEFAULT_GLOBAL_MERGE_CONFIG.
     'ass_import_config': DEFAULT_ASS_IMPORT_CONFIG,
     'srt_import_config': DEFAULT_SRT_IMPORT_CONFIG,
     'docx_import_config': None,  # DOCX-specific handling
@@ -438,7 +461,7 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Application version shown in the UI and build metadata.
-APP_VERSION = "2.0.0-rc8"
+APP_VERSION = "2.0.0-rc9"
 
 # Project file format version used for compatibility migrations.
 PROJECT_VERSION = "2.0"

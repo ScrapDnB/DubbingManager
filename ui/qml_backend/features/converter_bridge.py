@@ -18,6 +18,7 @@ from ui.qml_backend.project_session import ProjectSession
 
 class ConverterBridge(QObject):
     changed = Signal()
+    lineByLineChanged = Signal()
     previewChanged = Signal()
     previewRequested = Signal()
     finished = Signal()
@@ -110,7 +111,7 @@ class ConverterBridge(QObject):
     def exportPdf(self) -> bool:
         return self._formats["pdf"]
 
-    @Property(bool, notify=changed)
+    @Property(bool, notify=lineByLineChanged)
     def lineByLine(self) -> bool:
         return self._line_by_line
 
@@ -143,8 +144,18 @@ class ConverterBridge(QObject):
         enabled = bool(enabled)
         if self._line_by_line == enabled:
             return
+        previous = self._line_by_line
         self._line_by_line = enabled
         self._quick_converter_config["line_by_line"] = enabled
+        if not self._persist_line_by_line_mode():
+            self._line_by_line = previous
+            self._quick_converter_config["line_by_line"] = previous
+            self.errorRequested.emit(
+                "Не удалось сохранить построчный режим быстрого конвертера"
+            )
+            self.lineByLineChanged.emit()
+            self.changed.emit()
+            return
         if self._awaiting_preview:
             self._conversion_config["line_by_line"] = enabled
             try:
@@ -162,7 +173,27 @@ class ConverterBridge(QObject):
                 )
             else:
                 self.previewChanged.emit()
+        self.lineByLineChanged.emit()
         self.changed.emit()
+
+    def _persist_line_by_line_mode(self) -> bool:
+        """Persist the shared line-by-line switch immediately."""
+        previous_settings = deepcopy(self._global_settings_service.settings)
+        updated = deepcopy(self._global_settings_service.get_settings())
+        config = deepcopy(self._quick_converter_config)
+        config["line_by_line"] = self._line_by_line
+        updated["quick_converter_config"] = config
+        if not self._global_settings_service.save_settings(updated):
+            self._global_settings_service.settings = previous_settings
+            return False
+        self._global_settings.clear()
+        self._global_settings.update(
+            self._global_settings_service.get_settings()
+        )
+        self._quick_converter_config = (
+            self._global_settings_service.get_quick_converter_config()
+        )
+        return True
 
     @Slot("QVariantList", bool, result=bool)
     def convert(self, values: list[Any], preview_first: bool = False) -> bool:
@@ -319,6 +350,7 @@ class ConverterBridge(QObject):
         self._line_by_line = bool(
             self._quick_converter_config.get("line_by_line", False)
         )
+        self.lineByLineChanged.emit()
         self._awaiting_preview = False
         self._settings_preview = False
         self._preview_path = ""

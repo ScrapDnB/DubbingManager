@@ -71,10 +71,12 @@ class PrompterConfig:
     key_next: str = "Right"
     scroll_smoothness_slider: int = 18
     page_scroll_mode: bool = False
+    page_timecode_highlight_enabled: bool = False
     page_gap_prefetch_seconds: float = 1.0
     page_gap_prefetch_delay_seconds: float = 1.0
     page_target_highlight_enabled: bool = True
     page_target_highlight_opacity: float = 0.2728
+    page_target_highlight_fade_in_ms: int = 500
     page_target_highlight_fade_ms: int = 1000
     page_debug_overlay: bool = False
     colors: PrompterColors = field(default_factory=PrompterColors)
@@ -105,6 +107,11 @@ class PrompterConfig:
             raise ValueError(
                 "page_target_highlight_opacity must be 0.0-0.44, "
                 f"got {self.page_target_highlight_opacity}"
+            )
+        if not 0 <= self.page_target_highlight_fade_in_ms <= 10000:
+            raise ValueError(
+                "page_target_highlight_fade_in_ms must be 0-10000, "
+                f"got {self.page_target_highlight_fade_in_ms}"
             )
         if not 0 <= self.page_target_highlight_fade_ms <= 10000:
             raise ValueError(

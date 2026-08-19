@@ -11,6 +11,12 @@ from services.audiobook_document_service import (
     AUDIOBOOK_DOCUMENT_VERSION,
     BLOCK_TAGS,
 )
+from services.dynamic_script_storage import (
+    DYNAMIC_SCRIPT_MODEL,
+    DYNAMIC_SCRIPT_SCHEMA_REVISION,
+    SOURCE_LINE_MODES,
+    is_dynamic_script_project,
+)
 
 
 class ProjectSchemaError(ValueError):
@@ -59,11 +65,23 @@ class ProjectSchemaService:
         self._require_type(data, "episode_actor_map", dict)
         self._require_type(data, "episodes", dict)
         self._require_type(data, "video_paths", dict)
-        self._require_type(data, "episode_texts", dict)
-        self._require_type(data, "episode_working_texts", dict)
+        self._require_type(data, "project_settings", dict)
+        kind = data["project_kind"]
+        dynamic_scripts = is_dynamic_script_project(data)
+        if dynamic_scripts:
+            self._require_type(data, "script_storage", dict)
+            self._validate_dynamic_scripts(data["script_storage"])
+            if kind == "subtitle" and set(
+                data["script_storage"].get("episodes", {})
+            ) - set(data["episodes"]):
+                raise ProjectSchemaError(
+                    "script_storage содержит текст неизвестной серии."
+                )
+        else:
+            self._require_type(data, "episode_texts", dict)
+            self._require_type(data, "episode_working_texts", dict)
         self._require_type(data, "audiobook_document", dict)
 
-        kind = data["project_kind"]
         if kind not in {"subtitle", "audiobook"}:
             raise ProjectSchemaError(
                 "project_kind должен быть subtitle или audiobook."
@@ -81,6 +99,7 @@ class ProjectSchemaService:
                 raise ProjectSchemaError(f"metadata.{key} должно быть строкой.")
 
         self._validate_string_mapping(data["episodes"], "episodes")
+        self._validate_project_settings(data["project_settings"])
         self._validate_actors(data["actors"])
         if kind == "audiobook":
             self._validate_audiobook(data)
@@ -122,9 +141,121 @@ class ProjectSchemaService:
             raise ProjectSchemaError(
                 "Список глав в episodes не совпадает с audiobook_document."
             )
-        if data["episode_working_texts"] or data["episode_texts"]:
+        if data.get("episode_working_texts") or data.get("episode_texts"):
             raise ProjectSchemaError(
                 "Аудиокнига не должна содержать дублирующие рабочие тексты."
+            )
+
+    def _validate_dynamic_scripts(self, storage: Dict[str, Any]) -> None:
+        if storage.get("model") != DYNAMIC_SCRIPT_MODEL:
+            raise ProjectSchemaError("Неизвестная модель script_storage.")
+        if storage.get("schema_revision") != DYNAMIC_SCRIPT_SCHEMA_REVISION:
+            raise ProjectSchemaError(
+                "Неподдерживаемая ревизия script_storage: "
+                f"{storage.get('schema_revision')!r}."
+            )
+        self._require_type(storage, "episodes", dict, "script_storage")
+        for episode, payload in storage["episodes"].items():
+            path = f"script_storage.episodes[{episode!r}]"
+            if not isinstance(payload, dict):
+                raise ProjectSchemaError(f"{path} должно быть объектом.")
+            source_lines = payload.get("source_lines")
+            edit_blocks = payload.get("edit_blocks")
+            if not isinstance(payload.get("source"), dict):
+                raise ProjectSchemaError(f"{path}.source должно быть объектом.")
+            line_mode = payload["source"].get("line_mode")
+            if line_mode is not None and line_mode not in SOURCE_LINE_MODES:
+                raise ProjectSchemaError(
+                    f"{path}.source.line_mode содержит неизвестное значение."
+                )
+            if not isinstance(source_lines, list):
+                raise ProjectSchemaError(f"{path}.source_lines должно быть списком.")
+            if not isinstance(edit_blocks, list):
+                raise ProjectSchemaError(f"{path}.edit_blocks должно быть списком.")
+            source_ids: set[str] = set()
+            source_order: list[str] = []
+            for index, line in enumerate(source_lines):
+                line_path = f"{path}.source_lines[{index}]"
+                if not isinstance(line, dict):
+                    raise ProjectSchemaError(f"{line_path} должно быть объектом.")
+                source_id = line.get("id")
+                if not isinstance(source_id, str) or not source_id:
+                    raise ProjectSchemaError(f"{line_path}.id должно быть строкой.")
+                if source_id in source_ids:
+                    raise ProjectSchemaError(f"Повторяющийся source id: {source_id}.")
+                source_ids.add(source_id)
+                source_order.append(source_id)
+                for key in ("text", "character"):
+                    if not isinstance(line.get(key), str):
+                        raise ProjectSchemaError(
+                            f"{line_path}.{key} должно быть строкой."
+                        )
+            covered_ids: set[str] = set()
+            fragment_ids: set[str] = set()
+            source_positions = {
+                source_id: position
+                for position, source_id in enumerate(source_order)
+            }
+            for index, block in enumerate(edit_blocks):
+                block_path = f"{path}.edit_blocks[{index}]"
+                if not isinstance(block, dict):
+                    raise ProjectSchemaError(f"{block_path} должно быть объектом.")
+                block_sources = block.get("source_ids")
+                fragments = block.get("fragments")
+                if not isinstance(block_sources, list) or not block_sources:
+                    raise ProjectSchemaError(
+                        f"{block_path}.source_ids должен быть непустым списком."
+                    )
+                if not isinstance(fragments, list) or not fragments:
+                    raise ProjectSchemaError(
+                        f"{block_path}.fragments должен быть непустым списком."
+                    )
+                for source_id in block_sources:
+                    if source_id not in source_ids:
+                        raise ProjectSchemaError(
+                            f"{block_path} ссылается на неизвестный source id."
+                        )
+                    if source_id in covered_ids:
+                        raise ProjectSchemaError(
+                            f"Source id {source_id} изменён несколькими блоками."
+                        )
+                    covered_ids.add(source_id)
+                positions = [source_positions[source_id] for source_id in block_sources]
+                if positions != list(range(positions[0], positions[0] + len(positions))):
+                    raise ProjectSchemaError(
+                        f"{block_path}.source_ids должны быть соседними строками."
+                    )
+                for fragment in fragments:
+                    if not isinstance(fragment, dict):
+                        raise ProjectSchemaError(
+                            f"{block_path}.fragments содержит не объект."
+                        )
+                    fragment_id = fragment.get("id")
+                    if not isinstance(fragment_id, str) or not fragment_id:
+                        raise ProjectSchemaError(
+                            f"{block_path} содержит fragment без id."
+                        )
+                    if fragment_id in fragment_ids:
+                        raise ProjectSchemaError(
+                            f"Повторяющийся fragment id: {fragment_id}."
+                        )
+                    fragment_ids.add(fragment_id)
+
+    @staticmethod
+    def _validate_project_settings(settings: Dict[str, Any]) -> None:
+        try:
+            fps = float(settings.get("fps"))
+        except (TypeError, ValueError) as exc:
+            raise ProjectSchemaError(
+                "project_settings.fps должно быть числом."
+            ) from exc
+        if not 1.0 <= fps <= 120.0:
+            raise ProjectSchemaError(
+                "project_settings.fps должно быть в диапазоне 1–120."
+            )
+        if not isinstance(settings.get("fps_source"), str):
+            raise ProjectSchemaError(
+                "project_settings.fps_source должно быть строкой."
             )
 
     def _validate_block(

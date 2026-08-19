@@ -2,9 +2,19 @@
 
 import os
 import re
+from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.commands import AddEpisodeCommand
+from services.dynamic_script_storage import (
+    SOURCE_LINE_MODE_ATOMIC,
+    SOURCE_LINE_MODE_PREMERGED,
+)
+from services.project_fps_service import (
+    consider_ass_fps,
+    effective_merge_config,
+    ensure_project_settings,
+)
 from services.project_metadata_service import maybe_set_project_name_from_first_import
 from utils.helpers import set_project_kind
 
@@ -48,13 +58,31 @@ class ImportController:
             {".ass"}
         )
         set_project_kind(self.data_ref, "subtitle")
+        new_project_settings = None
+        if os.path.splitext(path)[1].lower() == ".ass":
+            old_project_settings = deepcopy(
+                ensure_project_settings(self.data_ref)
+            )
+            consider_ass_fps(self.data_ref, path)
+            new_project_settings = deepcopy(
+                self.data_ref["project_settings"]
+            )
+            self.data_ref["project_settings"] = old_project_settings
         command = AddEpisodeCommand(
             self.data_ref["episodes"],
             name,
-            path
+            path,
+            project_data=self.data_ref,
+            new_project_settings=new_project_settings,
         )
         self.undo_stack.push(command)
 
+        self.episode_service.set_merge_gap_from_config(
+            effective_merge_config(
+                self.data_ref,
+                self.merge_config or {},
+            )
+        )
         stats, lines = self.parse_source_file(name, path)
         self.create_working_text_for_episode(name, path, lines)
         return stats, lines
@@ -80,7 +108,13 @@ class ImportController:
         self.data_ref.setdefault("loaded_episodes", {})[name] = episode_lines
         self.episode_service._loaded_episodes[name] = episode_lines
 
-        self.create_working_text_for_episode(name, docx_path, episode_lines)
+        self.create_working_text_for_episode(
+            name,
+            docx_path,
+            episode_lines,
+            import_config=result.get("import_config"),
+            line_mode=SOURCE_LINE_MODE_PREMERGED,
+        )
         working_lines = self.script_text_service.load_episode_lines(
             self.data_ref,
             name
@@ -105,18 +139,27 @@ class ImportController:
         self,
         ep: str,
         path: str,
-        lines: List[Dict[str, Any]]
+        lines: List[Dict[str, Any]],
+        import_config: Optional[Dict[str, Any]] = None,
+        line_mode: Optional[str] = None,
     ) -> None:
         """Create working text for an imported episode."""
         if not lines:
             return
 
-        merge_config = (
-            dict(self.merge_config)
+        merge_config = effective_merge_config(
+            self.data_ref,
+            self.merge_config
             if self.merge_config is not None
-            else self.data_ref.get("replica_merge_config", {})
+            else self.script_text_service.global_merge_config(),
         )
-        if os.path.splitext(path or "")[1].lower() == '.docx':
+        suffix = os.path.splitext(path or "")[1].lower()
+        source_line_mode = line_mode or (
+            SOURCE_LINE_MODE_PREMERGED
+            if suffix == ".docx"
+            else SOURCE_LINE_MODE_ATOMIC
+        )
+        if source_line_mode == SOURCE_LINE_MODE_PREMERGED:
             merge_config = {**merge_config, "merge": False}
 
         self.script_text_service.create_episode_text(
@@ -125,7 +168,17 @@ class ImportController:
             path,
             lines,
             merge_config,
-            self.get_current_project_path()
+            self.get_current_project_path(),
+            import_config=(
+                import_config
+                if isinstance(import_config, dict)
+                else self.episode_service.ass_import_config
+                if suffix == ".ass"
+                else self.episode_service.srt_import_config
+                if suffix == ".srt"
+                else {}
+            ),
+            line_mode=source_line_mode,
         )
 
     def convert_imported_lines_for_cache(

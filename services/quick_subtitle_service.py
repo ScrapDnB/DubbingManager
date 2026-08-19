@@ -205,6 +205,9 @@ class QuickSubtitleService:
         merge_config["merge"] = not bool(
             config.get("line_by_line", False)
         )
+        merge_config["hide_leading_timecode_zeros"] = bool(
+            config.get("hide_leading_timecode_zeros", False)
+        )
         return merge_config
 
     def normalize_lines(

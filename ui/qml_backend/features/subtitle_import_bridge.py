@@ -146,7 +146,8 @@ class SubtitleImportBridge(QObject):
 
         fields = (
             "project_name", "project_kind", "episodes", "loaded_episodes",
-            "episode_texts", "episode_working_texts",
+            "episode_texts", "episode_working_texts", "script_storage",
+            "project_settings",
         )
         updates = {
             field: candidate.get(field)

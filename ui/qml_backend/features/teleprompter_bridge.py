@@ -105,6 +105,10 @@ class TeleprompterBridge(QObject):
             "colorActive": Qt.UserRole + 11,
             "timingGuides": Qt.UserRole + 12,
             "endTime": Qt.UserRole + 13,
+            "editText": Qt.UserRole + 14,
+            "parallelExpandable": Qt.UserRole + 15,
+            "subReplicas": Qt.UserRole + 16,
+            "replicaKey": Qt.UserRole + 17,
         }, self)
         self._actor_model = DictListModel({
             "actorId": Qt.UserRole + 1,
@@ -190,9 +194,12 @@ class TeleprompterBridge(QObject):
                 name = line.get("display_character") or line.get("character")
                 if name:
                     names.add(str(name))
-        if project_data.get("project_kind") == "audiobook":
+        if (
+            project_data.get("project_kind") == "audiobook"
+            or self._script_text_service.uses_dynamic_storage(project_data)
+        ):
             for episode in project_data.get("episodes", {}):
-                for line in self._script_text_service.load_episode_lines(
+                for line in self._script_text_service.load_atomic_episode_lines(
                     project_data, str(episode)
                 ):
                     name = line.get("char")
@@ -366,6 +373,8 @@ class TeleprompterBridge(QObject):
             self.errorRequested.emit(error_message)
             return False
         self.configChanged.emit()
+        if self._episode:
+            self.refresh()
         return True
 
     def _set_global_layout_value(self, key: str, value: Any) -> None:
@@ -538,7 +547,10 @@ class TeleprompterBridge(QObject):
         text: str,
     ) -> bool:
         is_audiobook = self._session.data.get("project_kind") == "audiobook"
-        temp_data = deepcopy(self._session.data) if is_audiobook else {
+        is_dynamic = self._script_text_service.uses_dynamic_storage(
+            self._session.data
+        )
+        temp_data = deepcopy(self._session.data) if (is_audiobook or is_dynamic) else {
             "episode_working_texts": deepcopy(
                 self._session.data.get("episode_working_texts", {})
             )
@@ -567,7 +579,7 @@ class TeleprompterBridge(QObject):
                     "или « // »"
                 )
                 return False
-        if not is_audiobook:
+        if not is_audiobook and not is_dynamic:
             temp_data = {"episode_working_texts": {self._episode: payload}}
         changed = False
         for line_id in ids:
@@ -601,7 +613,10 @@ class TeleprompterBridge(QObject):
         split_character: str,
     ) -> bool:
         is_audiobook = self._session.data.get("project_kind") == "audiobook"
-        temp_data = deepcopy(self._session.data) if is_audiobook else {
+        is_dynamic = self._script_text_service.uses_dynamic_storage(
+            self._session.data
+        )
+        temp_data = deepcopy(self._session.data) if (is_audiobook or is_dynamic) else {
             "episode_working_texts": deepcopy(
                 self._session.data.get("episode_working_texts", {})
             )
@@ -613,7 +628,7 @@ class TeleprompterBridge(QObject):
         if not isinstance(payload, dict) or len(ids) != 1:
             self.errorRequested.emit("Разделить можно только одну исходную реплику")
             return False
-        if not is_audiobook:
+        if not is_audiobook and not is_dynamic:
             temp_data = {"episode_working_texts": {self._episode: payload}}
         if not self._script_text_service.split_line_to_character(
             temp_data,
@@ -694,6 +709,7 @@ class TeleprompterBridge(QObject):
         self.configChanged.emit()
         if not self._episode:
             return
+        self.refresh()
         signature = self._osc_config_signature()
         if signature is None:
             if self._osc_worker is not None or self._osc_client is not None:
@@ -714,7 +730,15 @@ class TeleprompterBridge(QObject):
             return
         lines = sorted(
             self._script_text_service.load_episode_lines(
-                project_data, self._episode
+                project_data,
+                self._episode,
+                {
+                    "hide_leading_timecode_zeros": bool(
+                        self.config.get(
+                            "hide_leading_timecode_zeros", False
+                        )
+                    )
+                },
             ),
             key=lambda line: float(line.get("s", 0.0)),
         )
@@ -763,12 +787,21 @@ class TeleprompterBridge(QObject):
                 if actor_id in actor_role_counts:
                     actor_role_counts[actor_id] += 1
             source_ids = (
-                [replica.get("working_id", replica.get("id", index))]
+                list(replica.get("edit_ids", []))
+                if replica.get("_dynamic_text")
+                else [replica.get("working_id", replica.get("id", index))]
                 if replica.get("_working_text")
                 else replica.get("source_ids", [replica.get("id", index)])
             )
             start = float(replica.get("s", 0.0) or 0.0)
             end = float(replica.get("e", start) or start)
+            sub_replicas = self._parallel_sub_replicas(replica)
+            replica_key = "\x1f".join((
+                str(self._episode),
+                character,
+                f"{start:.6f}",
+                "\x1e".join(str(value) for value in source_ids),
+            ))
             rows.append({
                 "rowIndex": index,
                 "start": start,
@@ -781,6 +814,15 @@ class TeleprompterBridge(QObject):
                     for actor_id in actor_ids
                 ) or "-",
                 "replicaText": str(replica.get("text") or ""),
+                "editText": (
+                    "\n".join(
+                        str(value)
+                        for value in replica.get("source_texts", [])
+                    )
+                    if replica.get("_dynamic_text")
+                    and len(replica.get("edit_ids", [])) > 1
+                    else str(replica.get("text") or "")
+                ),
                 "actorColor": str(color_actor.get("color") or "#FFFFFF"),
                 "active": show_all_as_active or bool(selected_for_replica),
                 "colorActive": bool(color_actor_id),
@@ -788,6 +830,9 @@ class TeleprompterBridge(QObject):
                 "timingGuides": self._replica_timing_guides(
                     replica, source_timing_by_id
                 ),
+                "parallelExpandable": bool(sub_replicas),
+                "subReplicas": sub_replicas,
+                "replicaKey": replica_key,
             })
         self._model.set_rows(rows)
         self._actor_model.set_rows([
@@ -809,6 +854,37 @@ class TeleprompterBridge(QObject):
         self.positionChanged.emit()
 
     @staticmethod
+    def _parallel_sub_replicas(
+        replica: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """Return display-only source parts for a parallel merged replica."""
+        if not replica.get("parallel_merged"):
+            return []
+        parts = replica.get("parts")
+        if not isinstance(parts, list) or len(parts) < 2:
+            return []
+        result = []
+        for index, part in enumerate(parts):
+            if not isinstance(part, dict):
+                return []
+            try:
+                start = float(part.get("start", 0.0) or 0.0)
+                end = float(part.get("end", start) or start)
+            except (TypeError, ValueError):
+                return []
+            end = max(start, end)
+            result.append({
+                "partIndex": index,
+                "sourceId": part.get("id"),
+                "start": start,
+                "end": end,
+                "time": _format_time(start),
+                "endTime": _format_time(end),
+                "text": str(part.get("text", "") or ""),
+            })
+        return result
+
+    @staticmethod
     def _replica_timing_guides(
         replica: Dict[str, Any],
         source_timing_by_id: Dict[str, Dict[str, Any]],
@@ -822,7 +898,11 @@ class TeleprompterBridge(QObject):
         if not source_timing_by_id:
             return []
         text = str(replica.get("text") or "")
-        source_ids = list(replica.get("source_ids") or [])
+        source_ids = list(
+            replica.get("source_line_ids")
+            or replica.get("source_ids")
+            or []
+        )
         source_texts = list(replica.get("source_texts") or [])
         if not text or not source_ids:
             return []
@@ -922,6 +1002,7 @@ class TeleprompterBridge(QObject):
             "show_block_borders", "hide_leading_timecode_zeros", "osc_enabled",
             "sync_in", "sync_out", "sync_play_only", "reaper_offset_enabled", "page_scroll_mode",
             "page_debug_overlay", "page_target_highlight_enabled",
+            "page_timecode_highlight_enabled",
             *PROMPTER_FONT_BOLD_KEYS,
         }:
             return bool(value)
@@ -933,6 +1014,7 @@ class TeleprompterBridge(QObject):
             "port_in": (1, 65535),
             "port_out": (1, 65535),
             "scroll_smoothness_slider": (0, 100),
+            "page_target_highlight_fade_in_ms": (0, 10000),
             "page_target_highlight_fade_ms": (0, 10000),
         }
         if key in limits:
@@ -1024,8 +1106,17 @@ class TeleprompterBridge(QObject):
                 description,
             ), "working_text")
         else:
+            target_mapping = (
+                self._session.data.get("script_storage", {}).setdefault(
+                    "episodes", {}
+                )
+                if self._script_text_service.uses_dynamic_storage(
+                    self._session.data
+                )
+                else self._session.data.setdefault("episode_working_texts", {})
+            )
             self._session.execute(ReplaceMappingValueCommand(
-                self._session.data.setdefault("episode_working_texts", {}),
+                target_mapping,
                 self._episode,
                 payload,
                 description,

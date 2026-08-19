@@ -97,10 +97,12 @@ class TestPrompterConfig:
         assert config.focus_ratio == 0.1
         assert config.is_mirrored == False
         assert config.page_scroll_mode == False
+        assert config.page_timecode_highlight_enabled is False
         assert config.page_gap_prefetch_seconds == 1.0
         assert config.page_gap_prefetch_delay_seconds == 1.0
         assert config.page_target_highlight_enabled is True
         assert config.page_target_highlight_opacity == 0.2728
+        assert config.page_target_highlight_fade_in_ms == 500
         assert config.page_target_highlight_fade_ms == 1000
         assert config.port_in == 8000
         assert config.port_out == 9000
@@ -254,6 +256,13 @@ class TestPrompterConfig:
 
         with pytest.raises(ValueError):
             PrompterConfig(page_target_highlight_fade_ms=10001)
+
+    def test_post_init_invalid_page_target_highlight_fade_in_ms(self):
+        with pytest.raises(ValueError):
+            PrompterConfig(page_target_highlight_fade_in_ms=-1)
+
+        with pytest.raises(ValueError):
+            PrompterConfig(page_target_highlight_fade_in_ms=10001)
 
 
 class TestReplicaMergeConfig:

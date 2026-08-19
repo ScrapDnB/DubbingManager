@@ -290,6 +290,45 @@ def test_import_controller_sets_default_project_name_from_first_ass(tmp_path):
     assert data["project_name"] == "Pilot Episode"
 
 
+def test_import_controller_undo_restores_project_fps_detection(tmp_path):
+    ass_path = tmp_path / "Pilot.ass"
+    ass_path.write_text(
+        "[Script Info]\nVideo FPS: 24\n[Events]\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,Hello\n",
+        encoding="utf-8",
+    )
+    data = {
+        "project_name": "Новый проект",
+        "episodes": {},
+        "episode_texts": {},
+        "episode_working_texts": {},
+        "loaded_episodes": {},
+        "actors": {},
+        "global_map": {},
+    }
+    undo_stack = UndoStack()
+    controller = ImportController(
+        data_ref=data,
+        episode_service=EpisodeService(),
+        script_text_service=ScriptTextService(),
+        undo_stack=undo_stack,
+        get_current_project_path=lambda: str(tmp_path / "project.dub"),
+    )
+
+    controller.add_subtitle_episode("1", str(ass_path))
+    assert data["project_settings"]["fps"] == 24.0
+    assert data["project_settings"]["fps_source"] == "ass"
+
+    assert undo_stack.undo()
+    assert data["project_settings"]["fps"] == 25.0
+    assert data["project_settings"]["fps_source"] == "default"
+    assert data["project_settings"]["fps_ass_checked"] is False
+
+    assert undo_stack.redo()
+    assert data["project_settings"]["fps"] == 24.0
+    assert data["project_settings"]["fps_source"] == "ass"
+
+
 def test_import_controller_does_not_replace_manual_project_name(tmp_path):
     ass_path = tmp_path / "Pilot Episode.ass"
     ass_path.write_text(

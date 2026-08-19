@@ -204,6 +204,18 @@ class DocxImportBridge(QObject):
             self.errorRequested.emit("Не удалось извлечь реплики из DOCX")
             return False
 
+        docx_config = self._global_settings_service.get_docx_import_config()
+        docx_config.update({
+            "mapping": deepcopy(self._mapping),
+            "time_separators": list(self._service.time_separators),
+        })
+        source_import_config = deepcopy(docx_config)
+        source_import_config["table_selection"] = {
+            "mode": "all" if all_tables else "single",
+            "index": None if all_tables else self._table_index,
+            "table_count": len(selected_tables),
+        }
+
         candidate = deepcopy(self._session.data)
         import_service = EpisodeService()
         controller = ImportController(
@@ -219,20 +231,18 @@ class DocxImportBridge(QObject):
         controller.add_docx_episode(
             episode,
             self._path,
-            {"lines": all_lines},
+            {
+                "lines": all_lines,
+                "import_config": source_import_config,
+            },
         )
-        docx_config = self._global_settings_service.get_docx_import_config()
-        docx_config.update({
-            "mapping": deepcopy(self._mapping),
-            "time_separators": list(self._service.time_separators),
-        })
         self._global_settings_service.update_docx_import_config(docx_config)
         self._global_settings_service.save_settings(
             self._global_settings_service.get_settings()
         )
         fields = (
             "project_kind", "episodes", "loaded_episodes",
-            "episode_working_texts",
+            "episode_working_texts", "script_storage",
         )
         updates = {
             field: candidate.get(field)

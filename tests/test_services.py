@@ -479,7 +479,7 @@ class TestProjectService:
         assert "prompter_config" in data
         assert "global_map" in data
 
-    def test_save_old_project_adds_metadata(self, tmp_path):
+    def test_save_old_project_adds_metadata_without_changing_format(self, tmp_path):
         """Сохранение старого проекта добавляет metadata"""
         service = ProjectService()
         
@@ -507,7 +507,7 @@ class TestProjectService:
             saved_data = json.load(f)
         
         assert "metadata" in saved_data
-        assert saved_data["metadata"]["format_version"] == PROJECT_VERSION
+        assert saved_data["metadata"]["format_version"] == "0.9"
         assert "modified_at" in saved_data["metadata"]
 
 

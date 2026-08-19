@@ -17,6 +17,21 @@ from .quick_subtitle_service import QuickSubtitleService
 from .reaper_rpp_service import ReaperRppService
 from .reaper_export_service import ReaperExportService
 from .replica_merge_service import ReplicaMergeService
+from .dynamic_script_storage import (
+    DynamicScriptStorage,
+    SOURCE_LINE_MODE_ATOMIC,
+    SOURCE_LINE_MODE_PREMERGED,
+    is_dynamic_script_project,
+    new_script_storage,
+)
+from .project_fps_service import (
+    consider_ass_fps,
+    consider_video_fps,
+    effective_merge_config,
+    ensure_project_settings,
+    project_fps,
+    set_project_fps,
+)
 from .teleprompter_navigation_service import TeleprompterNavigationService
 from .assignment_transfer_service import AssignmentTransferService
 from .update_service import UpdateInfo, UpdateService
@@ -60,6 +75,17 @@ __all__ = [
     'ReaperRppService',
     'ReaperExportService',
     'ReplicaMergeService',
+    'DynamicScriptStorage',
+    'SOURCE_LINE_MODE_ATOMIC',
+    'SOURCE_LINE_MODE_PREMERGED',
+    'is_dynamic_script_project',
+    'new_script_storage',
+    'consider_ass_fps',
+    'consider_video_fps',
+    'effective_merge_config',
+    'ensure_project_settings',
+    'project_fps',
+    'set_project_fps',
     'TeleprompterNavigationService',
     'AssignmentTransferService',
     'UpdateInfo',

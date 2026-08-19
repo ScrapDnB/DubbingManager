@@ -60,6 +60,9 @@ class AppBridge(QObject):
         )
         self._episode_service = EpisodeService()
         self._script_text_service = ScriptTextService()
+        self._script_text_service.set_global_merge_config(
+            self._global_settings_service.get_replica_merge_config()
+        )
         self._project_folder_service = ProjectFolderService()
         self._project_health_service = ProjectHealthService()
         initial_project = self._project_service.create_new_project("Новый проект")
@@ -119,6 +122,7 @@ class AppBridge(QObject):
         self._settings = SettingsBridge(
             self._session,
             self._episode_service,
+            self._script_text_service,
             self._global_settings_service,
             self._global_settings,
             self,
@@ -393,6 +397,7 @@ class AppBridge(QObject):
         self._project.refresh_models()
         self._casting.refresh(domain)
         self._roles.refresh()
+        self._settings.refresh()
         self._montage.refresh()
         self._video.refresh_if_active()
         self._project_files.refresh()

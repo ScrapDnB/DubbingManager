@@ -27,6 +27,7 @@ NativeDialogWindow {
         projectNameField.text = backend.projectName
         authorField.text = backend.projectAuthor
         studioField.text = backend.projectStudio
+        projectFpsField.text = backend.projectFpsDisplay
         open()
     }
 
@@ -93,6 +94,24 @@ NativeDialogWindow {
                                 id: studioField
                                 Layout.fillWidth: true
                                 selectByMouse: true
+                            }
+                            Label { text: qsTr("FPS проекта:") }
+                            TextField {
+                                id: projectFpsField
+                                Layout.preferredWidth: 140
+                                validator: DoubleValidator {
+                                    bottom: 1
+                                    top: 120
+                                    decimals: 6
+                                }
+                                selectByMouse: true
+                            }
+                            Label { text: qsTr("Источник FPS:") }
+                            Label {
+                                text: dialog.backend.projectFpsSource
+                                color: dialog.softMuted
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
                             }
                         }
                     }
@@ -205,10 +224,12 @@ NativeDialogWindow {
             highlighted: dialog.macOSStyle
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
             onClicked: {
-                var saved = dialog.backend.applyProjectSettingsFull(
+                var fps = Number(projectFpsField.text.replace(",", "."))
+                var saved = dialog.backend.applyProjectSettingsWithFps(
                     projectNameField.text,
                     authorField.text,
-                    studioField.text
+                    studioField.text,
+                    fps
                 )
                 if (saved) dialog.close()
             }

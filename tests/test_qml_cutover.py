@@ -135,6 +135,15 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "id: scrollModeSelector" in source
     assert "systemPalette.button" in source
     assert 'Accessible.name: qsTr("Постраничный режим прокрутки")' in source
+    assert 'text: qsTr("Подсвечивать каждую реплику")' in source
+    assert 'visible: scrollModeSelector.pageSelected' in source
+    assert 'enabled: Boolean(\n                                        window.config.page_target_highlight_enabled' in source
+    assert '"page_timecode_highlight_enabled", checked' in source
+    assert "function highlightCurrentReplicaAtTimecode(" in source
+    assert "window.teleprompter.currentIndexNow()" in source
+    assert "lastTimecodeHighlightIndex === index" in source
+    assert "longReplicaTargetY(targetIndex, pageScrollMode)" in source
+    assert "replicaView.highlightCurrentReplicaAtTimecode(" in source
     assert 'qsTr("Смещение REAPER (%1 с)")' in source
     assert '"reaper_offset_enabled", checked' in source
     assert "followCurrentReplicaByPage" in source
@@ -177,7 +186,7 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "function followCurrentLongReplica()" in source
     assert "longReplicaScrollAnimation" in source
     assert "replicaView.followCurrentLongReplica();" in source
-    assert "var renderedHeight = bounds.item.height;" in source
+    assert "var renderedHeight = bounds.item.playbackHeight;" in source
     assert "Math.floor((renderedHeight - 1) / step)" in source
     assert "function sourceTimedContinuousTarget(index, bounds)" in source
     assert "function pageTransitionForFragment(" in source
@@ -205,6 +214,17 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "function queueModelRefresh()" in source
     assert "retargetThreshold" in source
     assert "function startPageScroll(sourceY, targetY, targetIndex)" in source
+    assert "function deferReaperFollowDuringPageTurn()" in source
+    assert "function finishDeferredReaperPageFollow()" in source
+    assert '"Seek REAPER отложен до конца перелистывания"' in source
+    assert '"Перелистывание завершено перед seek REAPER"' in source
+    assert "smoothDeferredReaperPageFollow = true" in source
+    assert "if (!resumeDeferredSeekSmoothly)" in source
+    assert "timeDelta >= Math.max(0.5, elapsed * 4)" in source
+    assert "function episodeFinishedAtReplica(index)" in source
+    assert "function finalReplicaBottomTargetY(index)" in source
+    assert '"Конец серии ожидает конца перелистывания"' in source
+    assert '"Конец серии: последняя реплика остаётся внизу"' in source
     assert "function scrollDurationForMove(" in source
     assert "function continuousScrollDeadline(index, bounds)" in source
     assert "function pageScrollDurationForTarget(" in source
@@ -267,7 +287,7 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "Math.abs(currentIndex - previousIndex) > 1" in source
     assert "item.y - preferredHighlightBegin" in source
     assert '"Пауза: точное позиционирование следующей реплики"' in source
-    assert "function showPageTargetHighlight(index, targetY)" in source
+    assert "function showPageTargetHighlight(" in source
     assert "function fadePageTargetHighlight()" in source
     assert "pageTargetHighlightFade" in source
     assert "page_target_highlight_enabled" in source
@@ -322,11 +342,18 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert 'key: "header_bg"' not in automation_settings
     assert "Фон заголовка" not in automation_settings
     assert "Яркость подсветки:" in automation_settings
-    assert "Время угасания:" in automation_settings
+    assert "Fade-out (затухание):" in automation_settings
+    assert "Fade-in (появление):" in automation_settings
     assert '"page_target_highlight_opacity"' in automation_settings
     assert '"page_target_highlight_fade_ms"' in automation_settings
+    assert '"page_target_highlight_fade_in_ms"' in automation_settings
     assert "targetHighlightBrightnessPercent" in source
+    assert "targetHighlightFadeInMs" in source
     assert "targetHighlightFadeMs" in source
+    assert "id: pageTargetHighlightFadeIn" in source
+    assert "duration: window.targetHighlightFadeInMs" in source
+    assert "var leadSeconds = window.targetHighlightFadeInMs / 1000" in source
+    assert "timecodeHighlightDeadline = targetStart" in source
     assert "duration: window.targetHighlightFadeMs" in source
     assert "Подсветка прокрутки" in source
     assert "Яркость подсветки · %1%" in source
@@ -343,6 +370,26 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "ColorDialog.DontUseNativeDialog" not in source
     assert "ColorDialog.DontUseNativeDialog" not in automation_settings
     assert "pane.setColor(pane.colorTarget, pane.colorOriginalValue)" in automation_settings
+
+
+def test_teleprompter_parallel_replica_expansion_is_layout_independent():
+    source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "required property bool parallelExpandable" in source
+    assert "required property var subReplicas" in source
+    assert "required property string replicaKey" in source
+    assert "id: parallelExpansionPanel" in source
+    assert "function setReplicaExpanded(index, expanded)" in source
+    assert "function beginReplicaExpansion(index)" in source
+    assert "function finishReplicaExpansion(index)" in source
+    assert "readonly property real playbackHeight" in source
+    assert "item.playbackHeight" in source
+    assert "Развернуть реплику" in source
+    assert source.index("LayoutTemplateFlat {") < source.index(
+        "id: parallelExpansionPanel"
+    )
 
 
 def test_teleprompter_settings_show_page_options_without_mode_toggle():
@@ -466,6 +513,7 @@ def test_settings_use_platform_navigation_and_shared_page_headers():
     assert 'text: qsTr("Разделы")' not in navigation
     assert "SettingsPageHeader" in global_settings
     assert "SettingsPageHeader" in project_settings
+    assert "backend.projectFpsDisplay" in project_settings
     assert "предварительной версии интерфейс доступен" not in global_settings
 
 
@@ -543,3 +591,29 @@ def test_montage_exposes_character_only_highlight_setting():
     assert 'title: qsTr("Элементы")' in preview
     assert 'title: qsTr("Колонки")' not in preview
     assert 'layout_profiles' in defaults
+
+
+def test_quick_converter_line_mode_uses_one_shared_backend_property():
+    panel = (
+        ROOT / "qml" / "components" / "QuickConverterPanel.qml"
+    ).read_text(encoding="utf-8")
+    preview = (
+        ROOT / "qml" / "components" / "QuickConverterPreviewDialog.qml"
+    ).read_text(encoding="utf-8")
+
+    for source in (panel, preview):
+        assert "backend.lineByLine" in source
+        assert "backend.setLineByLine(checked)" in source
+
+
+def test_import_settings_expose_parallel_replica_merge_option():
+    source = (
+        ROOT / "qml" / "components" / "ImportSettingsPane.qml"
+    ).read_text(encoding="utf-8")
+
+    assert 'id: mergeParallelCheck' in source
+    assert '"merge_parallel_replicas"' in source
+    assert "Не разрывать реплики параллельными репликами" in source
+    assert 'id: respectExistingSeparatorsCheck' in source
+    assert '"respect_existing_separators"' in source
+    assert "Учитывать уже имеющиеся разделители" in source

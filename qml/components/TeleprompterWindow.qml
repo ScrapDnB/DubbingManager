@@ -44,8 +44,10 @@ NativeDialogWindow {
     property bool debugSimulationRunning: false
     property real debugSimulationSpeed: 1
     property real lastObservedPositionTime: -1
+    property real lastObservedPositionReceivedAt: -1
     property int pendingLocalNavigationIndex: -1
     property string lastViewportConfigSignature: ""
+    property var expandedReplicaKeys: ({})
     readonly property var config: teleprompter.config
     readonly property var colors: Object.assign(
         {}, config.colors || {}, colorPreviewOverrides
@@ -62,6 +64,11 @@ NativeDialogWindow {
     readonly property int targetHighlightBrightnessPercent: Math.round(
         targetHighlightOpacity / 0.44 * 100
     )
+    readonly property int targetHighlightFadeInMs: Math.max(0, Math.min(
+        10000,
+        config.page_target_highlight_fade_in_ms === undefined
+            ? 500 : Number(config.page_target_highlight_fade_in_ms)
+    ))
     readonly property int targetHighlightFadeMs: Math.max(0, Math.min(
         10000,
         config.page_target_highlight_fade_ms === undefined
@@ -190,6 +197,42 @@ NativeDialogWindow {
         teleprompter.jumpToIndex(index);
     }
 
+    function replicaExpanded(key) {
+        return Boolean(expandedReplicaKeys[String(key)]);
+    }
+
+    function setReplicaExpanded(index, expanded) {
+        var row = teleprompter.model.get(index);
+        if (!row || !Boolean(row.parallelExpandable)) {
+            return false;
+        }
+        var key = String(row.replicaKey || "");
+        if (!key || replicaExpanded(key) === Boolean(expanded)) {
+            return false;
+        }
+        replicaView.beginReplicaExpansion(index);
+        var next = Object.assign({}, expandedReplicaKeys);
+        if (expanded) {
+            next[key] = true;
+        } else {
+            delete next[key];
+        }
+        expandedReplicaKeys = next;
+        replicaView.finishReplicaExpansion(index);
+        return true;
+    }
+
+    function toggleReplicaExpansion(index) {
+        var row = teleprompter.model.get(index);
+        if (!row) {
+            return false;
+        }
+        return setReplicaExpanded(
+            index,
+            !replicaExpanded(String(row.replicaKey || ""))
+        );
+    }
+
     function displayedTimecode(value) {
         var text = String(value || "")
         if (window.hideLeadingTimecodeZeros) {
@@ -242,7 +285,9 @@ NativeDialogWindow {
             episodeBox.currentIndex = episodeBox.indexOfValue(currentEpisode);
             if (window.observedEpisode !== currentEpisode) {
                 window.observedEpisode = currentEpisode;
+                window.expandedReplicaKeys = ({});
                 window.lastObservedPositionTime = -1;
+                window.lastObservedPositionReceivedAt = -1;
                 window.resetFollowingState();
             } else {
                 replicaView.queueModelRefresh();
@@ -251,13 +296,43 @@ NativeDialogWindow {
         function onPositionChanged() {
             var currentTime = Number(window.teleprompter.time);
             var previousTime = window.lastObservedPositionTime;
+            var receivedAt = Date.now();
+            var elapsed = window.lastObservedPositionReceivedAt >= 0
+                ? Math.max(
+                    0,
+                    (receivedAt - window.lastObservedPositionReceivedAt) / 1000
+                ) : 0;
+            var timeDelta = previousTime >= 0
+                ? Math.abs(currentTime - previousTime) : 0;
             var discontinuity = previousTime >= 0
                 && (currentTime < previousTime - 0.02
                     || Math.abs(currentTime - previousTime) > 3);
+            var reaperSeek = (
+                window.teleprompter.positionOrigin === "reaper"
+                && previousTime >= 0
+                && (
+                    currentTime < previousTime - 0.02
+                    || timeDelta >= Math.max(0.5, elapsed * 4)
+                    || (elapsed >= 0.75 && timeDelta >= 0.02
+                        && (timeDelta < elapsed * 0.5
+                            || timeDelta > elapsed * 3))
+                )
+            );
             window.lastObservedPositionTime = currentTime;
-            if (window.teleprompter.positionOrigin === "local"
-                    || discontinuity) {
+            window.lastObservedPositionReceivedAt = receivedAt;
+            var deferredReaperPageFollow = (
+                reaperSeek
+                && replicaView.deferReaperFollowDuringPageTurn()
+            );
+            if (!deferredReaperPageFollow
+                    && (window.teleprompter.positionOrigin === "local"
+                        || discontinuity)) {
                 replicaView.prepareForTimeSeek();
+            }
+            if (window.teleprompter.positionOrigin !== "local") {
+                replicaView.highlightCurrentReplicaAtTimecode(
+                    previousTime, currentTime
+                );
             }
             if (window.teleprompter.positionOrigin === "local") {
                 var explicitIndex = window.pendingLocalNavigationIndex;
@@ -272,6 +347,13 @@ NativeDialogWindow {
                         window.teleprompter.currentIndexNow()
                     );
                 }
+                return;
+            }
+            // A REAPER click received during a page turn must not stop or
+            // retarget that animation halfway through. The latest backend
+            // position is already stored; it will be followed when the
+            // current page turn finishes.
+            if (deferredReaperPageFollow) {
                 return;
             }
             if (window.teleprompter.positionOrigin === "reaper"
@@ -1302,6 +1384,20 @@ NativeDialogWindow {
                                     }
                                 }
 
+                                CheckBox {
+                                    visible: scrollModeSelector.pageSelected
+                                    enabled: Boolean(
+                                        window.config.page_target_highlight_enabled
+                                    )
+                                    text: qsTr("Подсвечивать каждую реплику")
+                                    checked: Boolean(
+                                        window.config.page_timecode_highlight_enabled
+                                    )
+                                    onToggled: window.teleprompter.setConfigValue(
+                                        "page_timecode_highlight_enabled", checked
+                                    )
+                                }
+
                                 Label {
                                     text: qsTr("Синхронизация REAPER")
                                     color: window.softMuted
@@ -1563,20 +1659,29 @@ NativeDialogWindow {
                     property bool pageFocusAlignmentActive: false
                     property int pageGapPrefetchIndex: -1
                     property int pageScrollTargetIndex: -1
+                    property bool deferredReaperPageFollow: false
+                    property bool smoothDeferredReaperPageFollow: false
                     property int lastPageFollowIndex: -1
                     property bool localNavigationActive: false
                     property int localNavigationTargetIndex: -1
                     property real localNavigationLastTargetY: Number.NaN
                     property int localNavigationStablePasses: 0
                     property bool localNavigationVerifying: false
+                    property int lastTimecodeHighlightIndex: -1
+                    property real timecodeHighlightDeadline: -1
                     property int pageTargetHighlightIndex: -1
                     property real pageTargetHighlightOpacity: 0
+                    property bool pageTargetHighlightFadePending: false
+                    property bool pageTargetHighlightFromTimecode: false
                     property bool pageTargetHighlightLineOnly: false
                     property real pageTargetHighlightX: 0
                     property real pageTargetHighlightY: 0
                     property real pageTargetHighlightWidth: 0
                     property real pageTargetHighlightHeight: 0
                     property bool manualDragScroll: false
+                    property int expansionAnchorIndex: -1
+                    property real expansionAnchorOffset: Number.NaN
+                    property int expansionReflowCount: 0
                     property string pageDebugEvent: "Ожидание"
                     property real pageDebugSourceY: 0
                     property real pageDebugTargetY: 0
@@ -1624,6 +1729,7 @@ NativeDialogWindow {
                             replicaView.correctPageScrollTarget();
                             replicaView.fadePageTargetHighlight();
                             replicaView.finishLocalNavigation();
+                            replicaView.finishDeferredReaperPageFollow();
                         }
                     }
 
@@ -1654,6 +1760,19 @@ NativeDialogWindow {
                     }
 
                     NumberAnimation {
+                        id: pageTargetHighlightFadeIn
+                        target: replicaView
+                        property: "pageTargetHighlightOpacity"
+                        duration: window.targetHighlightFadeInMs
+                        easing.type: Easing.InOutCubic
+                        onFinished: {
+                            if (replicaView.pageTargetHighlightFadePending) {
+                                replicaView.fadePageTargetHighlight();
+                            }
+                        }
+                    }
+
+                    NumberAnimation {
                         id: pageTargetHighlightFade
                         target: replicaView
                         property: "pageTargetHighlightOpacity"
@@ -1671,6 +1790,61 @@ NativeDialogWindow {
                             replicaView.fadePageTargetHighlight();
                             replicaView.finishLocalNavigation();
                         }
+                    }
+
+                    function beginReplicaExpansion(index) {
+                        pageScrollAnimation.stop();
+                        longReplicaScrollAnimation.stop();
+                        pageScrollTargetIndex = -1;
+                        pageGapPrefetchIndex = -1;
+                        pageFocusAlignmentActive = false;
+                        expansionAnchorIndex = index;
+                        var item = itemAtIndex(index);
+                        expansionAnchorOffset = item
+                            ? Number(item.y) - Number(contentY)
+                            : Number.NaN;
+                    }
+
+                    function replicaVisualHeight(index) {
+                        var item = itemAtIndex(index);
+                        return item ? Number(item.height) : -1;
+                    }
+
+                    function replicaPlaybackHeight(index) {
+                        var item = itemAtIndex(index);
+                        return item ? Number(item.playbackHeight) : -1;
+                    }
+
+                    function finishReplicaExpansion(index) {
+                        Qt.callLater(function() {
+                            forceLayout();
+                            var anchorIndex = expansionAnchorIndex;
+                            var anchorOffset = expansionAnchorOffset;
+                            expansionAnchorIndex = -1;
+                            expansionAnchorOffset = Number.NaN;
+                            var item = itemAtIndex(anchorIndex);
+                            if (item && isFinite(anchorOffset)) {
+                                contentY = clampedContentY(
+                                    Number(item.y) - anchorOffset
+                                );
+                            } else {
+                                restoreValidContentBounds();
+                            }
+                            if (pageTargetHighlightIndex >= 0) {
+                                updatePageTargetHighlightGeometry(
+                                    pageTargetHighlightIndex,
+                                    contentY
+                                );
+                            }
+                            expansionReflowCount += 1;
+                            capturePageDebug(
+                                "Раскрытие параллельной реплики",
+                                contentY,
+                                contentY,
+                                item ? item.y : -1,
+                                item ? item.y + item.playbackHeight : -1
+                            );
+                        });
                     }
 
                     function capturePageDebug(event, sourceY, targetY, itemTop, itemBottom) {
@@ -1740,6 +1914,26 @@ NativeDialogWindow {
                         );
                     }
 
+                    function episodeFinishedAtReplica(index) {
+                        if (index < 0 || index !== count - 1) {
+                            return false;
+                        }
+                        var replica = window.teleprompter.model.get(index);
+                        return replica
+                            && Number(window.teleprompter.time)
+                                >= Number(replica.end) - 0.0005;
+                    }
+
+                    function finalReplicaBottomTargetY(index) {
+                        var item = ensureReplicaItem(index);
+                        if (!item) {
+                            return clampedContentY(contentY);
+                        }
+                        return clampedContentY(
+                            item.y + item.playbackHeight - height
+                        );
+                    }
+
                     function replicaInsideCurrentPage(index) {
                         if (!pageScrollMode || index < 0) {
                             return false;
@@ -1754,7 +1948,8 @@ NativeDialogWindow {
                         var viewportTop = Number(contentY);
                         var viewportBottom = viewportTop + height;
                         return item.y >= viewportTop - 0.5
-                            && item.y + item.height <= viewportBottom + 0.5;
+                            && item.y + item.playbackHeight
+                                <= viewportBottom + 0.5;
                     }
 
                     function restoreValidContentBounds() {
@@ -1795,12 +1990,14 @@ NativeDialogWindow {
                             return null;
                         }
                         var topY = clampedContentY(item.y - preferredHighlightBegin);
-                        var bottomY = clampedContentY(item.y + item.height - height);
+                        var bottomY = clampedContentY(
+                            item.y + item.playbackHeight - height
+                        );
                         return {
                             item: item,
                             topY: topY,
                             bottomY: Math.max(topY, bottomY),
-                            tall: item.height > height
+                            tall: item.playbackHeight > height
                         };
                     }
 
@@ -1895,7 +2092,8 @@ NativeDialogWindow {
                         contentY = sourceY;
                         capturePageDebug(
                             "Локальная навигация к началу реплики",
-                            sourceY, targetY, item.y, item.y + item.height
+                            sourceY, targetY,
+                            item.y, item.y + item.playbackHeight
                         );
                         if (Math.abs(targetY - sourceY) <= 0.5) {
                             contentY = targetY;
@@ -1970,7 +2168,7 @@ NativeDialogWindow {
                             "Локальная навигация завершена",
                             contentY, targetY,
                             bounds.item.y,
-                            bounds.item.y + bounds.item.height
+                            bounds.item.y + bounds.item.playbackHeight
                         );
                         if (!indexStable) {
                             // A full second positioning pass is more reliable
@@ -2104,7 +2302,7 @@ NativeDialogWindow {
                         // line-level timing.
                         var start = Number(replica.start);
                         var end = Number(replica.end);
-                        var renderedHeight = bounds.item.height;
+                        var renderedHeight = bounds.item.playbackHeight;
                         var threshold = start + Math.min(
                             1, (page + 1) * step / renderedHeight
                         ) * (end - start);
@@ -2124,7 +2322,8 @@ NativeDialogWindow {
                     function longReplicaTargetY(index, pageMode) {
                         var bounds = replicaReadingBounds(index);
                         if (!bounds || !bounds.tall) {
-                            pageDebugRenderedHeight = bounds ? bounds.item.height : 0;
+                            pageDebugRenderedHeight = bounds
+                                ? bounds.item.playbackHeight : 0;
                             pageDebugProgress = replicaTimeProgress(index);
                             pageDebugPage = 0;
                             pageDebugPageCount = 1;
@@ -2140,7 +2339,7 @@ NativeDialogWindow {
                         // short final remainder would then make every earlier
                         // transition premature and add a useless last jump.
                         var step = pageFragmentStep();
-                        var renderedHeight = bounds.item.height;
+                        var renderedHeight = bounds.item.playbackHeight;
                         var lastPage = Math.max(
                             0, Math.floor((renderedHeight - 1) / step)
                         );
@@ -2217,7 +2416,7 @@ NativeDialogWindow {
                         var targetY = longReplicaTargetY(currentIndex, false);
                         var itemTop = bounds ? bounds.item.y : -1;
                         var itemBottom = bounds
-                            ? bounds.item.y + bounds.item.height : -1;
+                            ? bounds.item.y + bounds.item.playbackHeight : -1;
                         if (!bounds || Math.abs(targetY - sourceY) <= 0.5) {
                             capturePageDebug(
                                 bounds ? "Обычный режим: цель достигнута"
@@ -2283,20 +2482,137 @@ NativeDialogWindow {
                         pageTargetHighlightHeight = Number(geometry.height);
                     }
 
-                    function showPageTargetHighlight(index, targetY) {
-                        pageTargetHighlightFade.stop();
-                        if (!Boolean(window.config.page_target_highlight_enabled)) {
+                    function showPageTargetHighlight(
+                            index, targetY, fromTimecode, fadeInDurationMs) {
+                        var timecodeTrigger = Boolean(fromTimecode);
+                        var enabled = Boolean(
+                            window.config.page_target_highlight_enabled
+                        ) && (
+                            !timecodeTrigger
+                            || !pageScrollMode
+                            || Boolean(
+                                window.config.page_timecode_highlight_enabled
+                            )
+                        );
+                        if (!enabled) {
+                            pageTargetHighlightFadeIn.stop();
+                            pageTargetHighlightFade.stop();
+                            pageTargetHighlightFadePending = false;
                             pageTargetHighlightIndex = -1;
                             pageTargetHighlightOpacity = 0;
+                            pageTargetHighlightFromTimecode = false;
                             pageTargetHighlightLineOnly = false;
                             return;
                         }
+                        if (!timecodeTrigger
+                                && pageTargetHighlightFromTimecode
+                                && pageTargetHighlightIndex === index
+                                && (pageTargetHighlightFadeIn.running
+                                    || pageTargetHighlightFade.running
+                                    || pageTargetHighlightOpacity > 0)) {
+                            return;
+                        }
+                        pageTargetHighlightFadeIn.stop();
+                        pageTargetHighlightFade.stop();
+                        pageTargetHighlightFadePending = false;
                         pageTargetHighlightIndex = index;
+                        pageTargetHighlightFromTimecode = timecodeTrigger;
                         updatePageTargetHighlightGeometry(index, targetY);
-                        pageTargetHighlightOpacity = window.targetHighlightOpacity;
+                        var requestedDuration = Number(fadeInDurationMs);
+                        var duration = isFinite(requestedDuration)
+                            ? Math.max(0, Math.min(10000, requestedDuration))
+                            : window.targetHighlightFadeInMs;
+                        if (duration <= 0) {
+                            pageTargetHighlightOpacity =
+                                window.targetHighlightOpacity;
+                            return;
+                        }
+                        pageTargetHighlightOpacity = 0;
+                        pageTargetHighlightFadeIn.from = 0;
+                        pageTargetHighlightFadeIn.to =
+                            window.targetHighlightOpacity;
+                        pageTargetHighlightFadeIn.duration = duration;
+                        pageTargetHighlightFadeIn.start();
+                    }
+
+                    function highlightCurrentReplicaAtTimecode(
+                            previousTime, currentTime) {
+                        if (!Boolean(
+                                    window.config.page_target_highlight_enabled
+                                )
+                                || (pageScrollMode
+                                    && !Boolean(
+                                        window.config.page_timecode_highlight_enabled
+                                    ))) {
+                            lastTimecodeHighlightIndex = -1;
+                            timecodeHighlightDeadline = -1;
+                            return;
+                        }
+                        if (Number(previousTime) >= 0
+                                && Number(currentTime)
+                                    < Number(previousTime) - 0.02) {
+                            lastTimecodeHighlightIndex = -1;
+                            timecodeHighlightDeadline = -1;
+                        }
+                        var now = Number(currentTime);
+                        if (timecodeHighlightDeadline >= 0) {
+                            if (now + 0.0005 < timecodeHighlightDeadline) {
+                                return;
+                            }
+                            timecodeHighlightDeadline = -1;
+                            fadePageTargetHighlight();
+                            return;
+                        }
+                        var leadSeconds = window.targetHighlightFadeInMs / 1000;
+                        var currentIndex = window.teleprompter.currentIndexNow();
+                        var firstIndex = Math.max(0, currentIndex);
+                        var targetIndex = -1;
+                        var targetStart = -1;
+                        for (var index = firstIndex; index < count; index++) {
+                            var replica = window.teleprompter.model.get(index);
+                            if (!replica || !replica.active
+                                    || lastTimecodeHighlightIndex === index) {
+                                continue;
+                            }
+                            var start = Number(replica.start);
+                            if (start <= now + 0.0005
+                                    || start - now <= leadSeconds + 0.0005) {
+                                targetIndex = index;
+                                targetStart = start;
+                            }
+                            break;
+                        }
+                        if (targetIndex < 0 || !itemAtIndex(targetIndex)) {
+                            return;
+                        }
+                        lastTimecodeHighlightIndex = targetIndex;
+                        var remainingMs = Math.max(
+                            0, Math.round((targetStart - now) * 1000)
+                        );
+                        showPageTargetHighlight(
+                            targetIndex,
+                            longReplicaTargetY(targetIndex, pageScrollMode),
+                            true,
+                            remainingMs
+                        );
+                        if (targetStart <= now + 0.0005) {
+                            fadePageTargetHighlight();
+                        } else {
+                            timecodeHighlightDeadline = targetStart;
+                        }
                     }
 
                     function fadePageTargetHighlight() {
+                        if (pageTargetHighlightFromTimecode
+                                && timecodeHighlightDeadline
+                                    > Number(window.teleprompter.time) + 0.0005) {
+                            return;
+                        }
+                        if (pageTargetHighlightFadeIn.running) {
+                            pageTargetHighlightFadePending = true;
+                            return;
+                        }
+                        pageTargetHighlightFadePending = false;
                         if (pageTargetHighlightOpacity <= 0) {
                             return;
                         }
@@ -2429,10 +2745,42 @@ NativeDialogWindow {
                         pageScrollAnimation.start();
                     }
 
+                    function deferReaperFollowDuringPageTurn() {
+                        if (!pageScrollMode || !pageScrollAnimation.running
+                                || localNavigationActive || manualDragScroll) {
+                            return false;
+                        }
+                        deferredReaperPageFollow = true;
+                        capturePageDebug(
+                            "Seek REAPER отложен до конца перелистывания",
+                            contentY, pageScrollAnimation.to, -1, -1
+                        );
+                        return true;
+                    }
+
+                    function finishDeferredReaperPageFollow() {
+                        if (!deferredReaperPageFollow) {
+                            return;
+                        }
+                        deferredReaperPageFollow = false;
+                        smoothDeferredReaperPageFollow = true;
+                        pageGapPrefetchIndex = -1;
+                        capturePageDebug(
+                            "Отложенный seek REAPER принят",
+                            contentY, contentY, -1, -1
+                        );
+                        queuePageFollow();
+                    }
+
                     function exactPageTargetY(index) {
                         if (!itemAtIndex(index)) {
                             positionViewAtIndex(index, ListView.Beginning);
                             forceLayout();
+                        }
+                        if (index === currentIndex
+                                && !deferredReaperPageFollow
+                                && episodeFinishedAtReplica(index)) {
+                            return finalReplicaBottomTargetY(index);
                         }
                         if (index === currentIndex) {
                             return longReplicaTargetY(index, true);
@@ -2450,7 +2798,8 @@ NativeDialogWindow {
                         contentY = targetY;
                         var item = itemAtIndex(index);
                         var itemTop = item ? item.y : targetY;
-                        var itemBottom = item ? itemTop + item.height : itemTop;
+                        var itemBottom = item
+                            ? itemTop + item.playbackHeight : itemTop;
                         capturePageDebug(event, targetY, targetY, itemTop, itemBottom);
                         showPageTargetHighlight(index, targetY);
                         fadePageTargetHighlight();
@@ -2462,6 +2811,17 @@ NativeDialogWindow {
                         if (!pageScrollMode || manualDragScroll || index < 0) {
                             return;
                         }
+                        if (deferredReaperPageFollow) {
+                            // The animation has reached the exact target that
+                            // was chosen before the REAPER seek. Recomputing it
+                            // with the new time/index here would expose the
+                            // deferred seek as a one-frame jump.
+                            capturePageDebug(
+                                "Перелистывание завершено перед seek REAPER",
+                                contentY, contentY, -1, -1
+                            );
+                            return;
+                        }
                         // contentY is only an estimate while variable-height
                         // delegates between source and target are being made.
                         // Resolve the final position from the target index.
@@ -2471,7 +2831,8 @@ NativeDialogWindow {
                         updatePageTargetHighlightGeometry(index, targetY);
                         var item = itemAtIndex(index);
                         var itemTop = item ? item.y : targetY;
-                        var itemBottom = item ? item.y + item.height : targetY;
+                        var itemBottom = item
+                            ? item.y + item.playbackHeight : targetY;
                         capturePageDebug(
                             "Коррекция конечной позиции",
                             sourceY, targetY, itemTop, itemBottom
@@ -2483,6 +2844,14 @@ NativeDialogWindow {
                             return;
                         }
                         if (localNavigationActive) {
+                            return;
+                        }
+                        if (deferredReaperPageFollow
+                                && pageScrollAnimation.running) {
+                            capturePageDebug(
+                                "Ожидание конца перелистывания после seek REAPER",
+                                contentY, pageScrollAnimation.to, -1, -1
+                            );
                             return;
                         }
                         if (!window.followEnabled) {
@@ -2505,6 +2874,9 @@ NativeDialogWindow {
                             capturePageDebug("Пропуск: ручное перетаскивание", contentY, contentY, -1, -1);
                             return;
                         }
+                        var resumeDeferredSeekSmoothly =
+                            smoothDeferredReaperPageFollow;
+                        smoothDeferredReaperPageFollow = false;
                         // During a gap the next replica owns the scroll
                         // position, including after its animation has already
                         // finished.  Do not let the queued follow for the
@@ -2523,11 +2895,13 @@ NativeDialogWindow {
                             // page turn while the destination remains fully
                             // visible on the current page.
                             if (!replicaInsideCurrentPage(currentIndex)) {
-                                positionReplicaExactly(
-                                    currentIndex,
-                                    "Точное позиционирование по индексу"
-                                );
-                                return;
+                                if (!resumeDeferredSeekSmoothly) {
+                                    positionReplicaExactly(
+                                        currentIndex,
+                                        "Точное позиционирование по индексу"
+                                    );
+                                    return;
+                                }
                             }
                         }
                         forceLayout();
@@ -2540,12 +2914,28 @@ NativeDialogWindow {
                         }
                         var sourceY = clampedContentY(contentY);
                         contentY = sourceY;
-                        var targetY = longReplicaTargetY(currentIndex, true);
+                        var pinFinalReplicaToBottom = episodeFinishedAtReplica(
+                            currentIndex
+                        );
+                        var targetY = pinFinalReplicaToBottom
+                            ? finalReplicaBottomTargetY(currentIndex)
+                            : longReplicaTargetY(currentIndex, true);
                         var targetItem = itemAtIndex(currentIndex);
                         var itemTop = targetItem ? targetItem.y : targetY;
-                        var itemBottom = targetItem ? itemTop + targetItem.height : itemTop;
+                        var itemBottom = targetItem
+                            ? itemTop + targetItem.playbackHeight : itemTop;
                         var viewportBottom = sourceY + height;
                         contentY = sourceY;
+                        if (pinFinalReplicaToBottom
+                                && pageScrollAnimation.running) {
+                            deferredReaperPageFollow = true;
+                            capturePageDebug(
+                                "Конец серии ожидает конца перелистывания",
+                                sourceY, pageScrollAnimation.to,
+                                itemTop, itemBottom
+                            );
+                            return;
+                        }
                         // OSC position updates arrive much faster than the
                         // configured animation duration. Keep an unchanged
                         // target running, but allow the next screen fragment
@@ -2577,7 +2967,16 @@ NativeDialogWindow {
                                 return;
                             }
                         }
-                        if (animationNeedsRetarget
+                        if (pinFinalReplicaToBottom
+                                && Math.abs(targetY - sourceY) > 0.5) {
+                            capturePageDebug(
+                                "Конец серии: последняя реплика остаётся внизу",
+                                sourceY, targetY, itemTop, itemBottom
+                            );
+                            startPageScroll(
+                                sourceY, targetY, currentIndex
+                            );
+                        } else if (animationNeedsRetarget
                                 || itemTop < sourceY
                                 || itemBottom > viewportBottom) {
                             capturePageDebug("Переход к реплике", sourceY, targetY, itemTop, itemBottom);
@@ -2651,7 +3050,8 @@ NativeDialogWindow {
                             targetItem.y - preferredHighlightBegin
                         );
                         var itemTop = targetItem ? targetItem.y : targetY;
-                        var itemBottom = targetItem ? itemTop + targetItem.height : itemTop;
+                        var itemBottom = targetItem
+                            ? itemTop + targetItem.playbackHeight : itemTop;
                         var viewportBottom = sourceY + height;
                         pageGapPrefetchIndex = nextIndex;
                         if (itemTop < sourceY || itemBottom > viewportBottom) {
@@ -2730,13 +3130,20 @@ NativeDialogWindow {
                         cancelLocalNavigation();
                         pageScrollAnimation.stop();
                         longReplicaScrollAnimation.stop();
+                        pageTargetHighlightFadeIn.stop();
                         pageTargetHighlightFade.stop();
                         pageScrollTargetIndex = -1;
+                        deferredReaperPageFollow = false;
+                        smoothDeferredReaperPageFollow = false;
                         pageGapPrefetchIndex = -1;
                         lastPageFollowIndex = -1;
                         pageFocusAlignmentActive = false;
+                        lastTimecodeHighlightIndex = -1;
+                        timecodeHighlightDeadline = -1;
                         pageTargetHighlightIndex = -1;
                         pageTargetHighlightOpacity = 0;
+                        pageTargetHighlightFadePending = false;
+                        pageTargetHighlightFromTimecode = false;
                         pageTargetHighlightLineOnly = false;
                         manualDragScroll = false;
                         cancelPageHold();
@@ -2773,11 +3180,12 @@ NativeDialogWindow {
                             return;
                         }
                         var item = itemAtIndex(index);
-                        if (item && item.y + item.height > viewportBottom) {
+                        if (item && item.y + item.playbackHeight > viewportBottom) {
                             index -= 1;
                             item = itemAtIndex(index);
                         }
-                        if (!item || item.y < contentY || item.y + item.height > viewportBottom) {
+                        if (!item || item.y < contentY
+                                || item.y + item.playbackHeight > viewportBottom) {
                             cancelPageHold();
                             capturePageDebug("Пауза отменена: строка вне экрана", contentY, contentY, -1, -1);
                             return;
@@ -2785,7 +3193,11 @@ NativeDialogWindow {
                         pageScrollHoldUntil = Number(window.teleprompter.model.get(index).end);
                         pageHoldLastReaperTime = Number(window.teleprompter.time);
                         pageHoldLastReaperReceivedAt = Date.now();
-                        capturePageDebug("Ручная пауза до конца строки " + index, contentY, contentY, item.y, item.y + item.height);
+                        capturePageDebug(
+                            "Ручная пауза до конца строки " + index,
+                            contentY, contentY,
+                            item.y, item.y + item.playbackHeight
+                        );
                     }
 
                     function resumePageFollowForReaperPosition() {
@@ -2841,13 +3253,20 @@ NativeDialogWindow {
                         cancelLocalNavigation();
                         pageScrollAnimation.stop();
                         longReplicaScrollAnimation.stop();
+                        pageTargetHighlightFadeIn.stop();
                         pageTargetHighlightFade.stop();
                         pageFocusAlignmentActive = false;
                         pageGapPrefetchIndex = -1;
                         pageScrollTargetIndex = -1;
+                        deferredReaperPageFollow = false;
+                        smoothDeferredReaperPageFollow = false;
                         lastPageFollowIndex = -1;
+                        lastTimecodeHighlightIndex = -1;
+                        timecodeHighlightDeadline = -1;
                         pageTargetHighlightIndex = -1;
                         pageTargetHighlightOpacity = 0;
+                        pageTargetHighlightFadePending = false;
+                        pageTargetHighlightFromTimecode = false;
                         pageTargetHighlightLineOnly = false;
                         manualDragScroll = false;
                         cancelPageHold();
@@ -2857,6 +3276,8 @@ NativeDialogWindow {
                         manualWheelReleaseTimer.stop();
                         cancelLocalNavigation();
                         pageScrollTargetIndex = -1;
+                        deferredReaperPageFollow = false;
+                        smoothDeferredReaperPageFollow = false;
                         pageScrollAnimation.stop();
                         longReplicaScrollAnimation.stop();
                         pageGapPrefetchIndex = -1;
@@ -2907,6 +3328,8 @@ NativeDialogWindow {
                         pageGapPrefetchIndex = -1;
                         pageScrollTargetIndex = -1;
                         lastPageFollowIndex = -1;
+                        lastTimecodeHighlightIndex = -1;
+                        timecodeHighlightDeadline = -1;
                         cancelPageHold();
                         queueViewportFollow();
                     }
@@ -2948,13 +3371,36 @@ NativeDialogWindow {
                         required property string character
                         required property string actor
                         required property string replicaText
+                        required property string editText
                         required property string actorColor
                         required property bool active
                         required property bool colorActive
                         required property var sourceIds
                         required property var timingGuides
+                        required property bool parallelExpandable
+                        required property var subReplicas
+                        required property string replicaKey
 
                         readonly property real horizontalMargin: Math.max(8, replicaView.viewportWidth * 0.015)
+                        readonly property real baseVerticalPadding:
+                            window.config.show_block_borders ? 20 : 18
+                        readonly property bool subReplicasExpanded:
+                            parallelExpandable
+                            && window.replicaExpanded(replicaKey)
+                        // Playback geometry includes the always-visible
+                        // disclosure control, but deliberately excludes its
+                        // expanded details. Expanding a replica therefore
+                        // changes the visual ListView height without changing
+                        // page thresholds, REAPER targets, or long-line timing.
+                        readonly property real playbackHeight:
+                            layoutContent.implicitHeight + baseVerticalPadding
+                            + (parallelExpansionPanel.visible
+                                ? parallelToggleRow.implicitHeight + 6 : 0)
+                        readonly property real expansionHeight:
+                            parallelExpansionDetails.visible
+                            ? parallelExpansionDetails.implicitHeight
+                                + parallelExpansionPanel.spacing
+                            : 0
                         readonly property real scenario3MetadataWidth: Math.min(
                             300,
                             Math.max(150, replicaView.viewportWidth * 0.24)
@@ -2962,7 +3408,16 @@ NativeDialogWindow {
                         readonly property color blockBorderColor: window.colors.block_border || "#4D4D4D"
                         readonly property real pageTargetHighlightOpacity: (
                             replicaView.pageTargetHighlightIndex === index
-                            && Boolean(window.config.page_target_highlight_enabled)
+                            && Boolean(
+                                window.config.page_target_highlight_enabled
+                            )
+                            && (
+                                !replicaView.pageTargetHighlightFromTimecode
+                                || !replicaView.pageScrollMode
+                                || Boolean(
+                                    window.config.page_timecode_highlight_enabled
+                                )
+                            )
                         ) ? replicaView.pageTargetHighlightOpacity : 0
                         // Diagnostic-only guides show the boundaries used by
                         // the page target calculation for any oversized block,
@@ -2979,7 +3434,7 @@ NativeDialogWindow {
 
                         x: horizontalMargin
                         width: replicaView.viewportWidth - horizontalMargin * 2
-                        height: layoutContent.implicitHeight + (window.config.show_block_borders ? 20 : 18)
+                        height: playbackHeight + expansionHeight
                         opacity: active ? 1 : 0.72
 
                         function timeRangeText(bracketed, multiline) {
@@ -3191,14 +3646,16 @@ NativeDialogWindow {
                             onClicked: {
                                 window.jumpToReplica(replicaDelegate.index);
                             }
-                            onDoubleClicked: window.openReplicaEditor(replicaDelegate.sourceIds, replicaDelegate.character, replicaDelegate.replicaText)
+                            onDoubleClicked: window.openReplicaEditor(replicaDelegate.sourceIds, replicaDelegate.character, replicaDelegate.editText)
                         }
 
                         ColumnLayout {
                             id: layoutContent
                             anchors.left: parent.left
                             anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.top: parent.top
+                            anchors.topMargin:
+                                replicaDelegate.baseVerticalPadding / 2
                             anchors.leftMargin: window.config.show_block_borders ? 10 : 0
                             anchors.rightMargin: window.config.show_block_borders ? 10 : 0
                             spacing: 4
@@ -3228,7 +3685,7 @@ NativeDialogWindow {
                                             anchors.fill: parent
                                             hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
-                                            onClicked: window.openReplicaEditor(replicaDelegate.sourceIds, replicaDelegate.character, replicaDelegate.replicaText)
+                                            onClicked: window.openReplicaEditor(replicaDelegate.sourceIds, replicaDelegate.character, replicaDelegate.editText)
                                         }
                                     }
                                     Text {
@@ -3301,7 +3758,7 @@ NativeDialogWindow {
                                             anchors.fill: parent
                                             hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
-                                            onClicked: window.openReplicaEditor(replicaDelegate.sourceIds, replicaDelegate.character, replicaDelegate.replicaText)
+                                            onClicked: window.openReplicaEditor(replicaDelegate.sourceIds, replicaDelegate.character, replicaDelegate.editText)
                                         }
                                     }
                                     Text {
@@ -3371,7 +3828,7 @@ NativeDialogWindow {
                                             anchors.fill: parent
                                             hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
-                                            onClicked: window.openReplicaEditor(replicaDelegate.sourceIds, replicaDelegate.character, replicaDelegate.replicaText)
+                                            onClicked: window.openReplicaEditor(replicaDelegate.sourceIds, replicaDelegate.character, replicaDelegate.editText)
                                         }
                                     }
                                     Text {
@@ -3411,8 +3868,138 @@ NativeDialogWindow {
                                     window.openReplicaEditor(
                                         replicaDelegate.sourceIds,
                                         replicaDelegate.character,
-                                        replicaDelegate.replicaText
+                                        replicaDelegate.editText
                                     );
+                                }
+                            }
+                        }
+
+                        ColumnLayout {
+                            id: parallelExpansionPanel
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: layoutContent.bottom
+                            anchors.topMargin: 6
+                            anchors.leftMargin:
+                                window.config.show_block_borders ? 10 : 0
+                            anchors.rightMargin:
+                                window.config.show_block_borders ? 10 : 0
+                            visible: replicaDelegate.parallelExpandable
+                            spacing: 4
+                            z: 4
+
+                            RowLayout {
+                                id: parallelToggleRow
+                                Layout.fillWidth: true
+                                spacing: 6
+
+                                Item {
+                                    Layout.preferredWidth: Math.max(
+                                        24, window.config.f_text * 0.55
+                                    )
+                                    Layout.preferredHeight: Math.max(
+                                        22, window.config.f_text * 0.5
+                                    )
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: replicaDelegate.subReplicasExpanded
+                                            ? "▾" : "▸"
+                                        color: replicaDelegate.active
+                                            ? window.colors.tc
+                                            : window.colors.inactive_text
+                                        font.pixelSize: Math.max(
+                                            14, window.config.f_text * 0.45
+                                        )
+                                        font.bold: true
+                                    }
+
+                                    MouseArea {
+                                        objectName: "parallelReplicaToggle_"
+                                            + replicaDelegate.index
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: window.toggleReplicaExpansion(
+                                            replicaDelegate.index
+                                        )
+                                        Accessible.role: Accessible.Button
+                                        Accessible.name:
+                                            replicaDelegate.subReplicasExpanded
+                                            ? qsTr("Свернуть параллельную реплику")
+                                            : qsTr("Развернуть параллельную реплику")
+                                    }
+                                }
+
+                                Text {
+                                    text: replicaDelegate.subReplicasExpanded
+                                        ? qsTr("Свернуть реплику")
+                                        : qsTr("Развернуть реплику")
+                                    color: replicaDelegate.active
+                                        ? window.colors.tc
+                                        : window.colors.inactive_text
+                                    font.pixelSize: Math.max(
+                                        11, window.config.f_text * 0.34
+                                    )
+                                    Layout.fillWidth: true
+                                }
+                            }
+
+                            ColumnLayout {
+                                id: parallelExpansionDetails
+                                visible: replicaDelegate.subReplicasExpanded
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 1
+                                    color: replicaDelegate.blockBorderColor
+                                    opacity: 0.7
+                                }
+
+                                Repeater {
+                                    model: parallelExpansionDetails.visible
+                                        ? replicaDelegate.subReplicas : []
+
+                                    delegate: RowLayout {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        Layout.alignment: Qt.AlignTop
+                                        spacing: Math.max(
+                                            8, window.config.f_text * 0.35
+                                        )
+
+                                        Text {
+                                            Layout.preferredWidth: Math.max(
+                                                66, window.config.f_text * 2.25
+                                            )
+                                            text: window.displayedTimecode(
+                                                modelData.time
+                                            )
+                                            color: replicaDelegate.active
+                                                ? window.colors.tc
+                                                : window.colors.inactive_text
+                                            font.pixelSize: Math.max(
+                                                12, window.config.f_text * 0.5
+                                            )
+                                            font.bold: window.config.bold_tc
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: String(modelData.text || "")
+                                            color: replicaDelegate.active
+                                                ? window.colors.active_text
+                                                : window.colors.inactive_text
+                                            font.pixelSize: Math.max(
+                                                12, window.config.f_text * 0.58
+                                            )
+                                            font.bold: window.config.bold_text
+                                            wrapMode: Text.WordWrap
+                                            horizontalAlignment: Text.AlignLeft
+                                        }
+                                    }
                                 }
                             }
                         }

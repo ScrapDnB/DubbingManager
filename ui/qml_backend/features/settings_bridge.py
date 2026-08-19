@@ -11,8 +11,8 @@ from config.constants import (
     DEFAULT_BACKUP_CONFIG,
     DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
+    DEFAULT_GLOBAL_MERGE_CONFIG,
     DEFAULT_PROMPTER_CONFIG,
-    DEFAULT_REPLICA_MERGE_CONFIG,
     DEFAULT_SRT_IMPORT_CONFIG,
     PROMPTER_FONT_KEYS,
     PROMPTER_LAYOUT_TYPES,
@@ -22,6 +22,11 @@ from core.export_config_profiles import (
     sync_active_layout_profile,
 )
 from core.commands import UpdateProjectFileStateCommand
+from services.project_fps_service import (
+    fps_source_label,
+    project_fps,
+    set_project_fps,
+)
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
 from utils.i18n import SUPPORTED_LANGUAGES
@@ -42,6 +47,7 @@ class SettingsBridge(QObject):
         self,
         session: ProjectSession,
         episode_service,
+        script_text_service,
         global_settings_service,
         global_settings: dict,
         parent: Optional[QObject] = None,
@@ -49,6 +55,7 @@ class SettingsBridge(QObject):
         super().__init__(parent)
         self._session = session
         self._episode_service = episode_service
+        self._script_text_service = script_text_service
         self._global_settings_service = global_settings_service
         self._global_settings = global_settings
         self._languages_model = DictListModel({
@@ -95,6 +102,10 @@ class SettingsBridge(QObject):
     def episodeCount(self) -> int:
         return len(self._session.data.get("episodes", {}))
 
+    @Property(bool, notify=changed)
+    def dynamicTextStorage(self) -> bool:
+        return self._script_text_service.uses_dynamic_storage(self._session.data)
+
     @Property(int, notify=changed)
     def workingTextCount(self) -> int:
         if self._session.data.get("project_kind") == "audiobook":
@@ -103,29 +114,45 @@ class SettingsBridge(QObject):
                     "chapters", []
                 )
             )
+        if self._script_text_service.uses_dynamic_storage(self._session.data):
+            return len(
+                self._session.data.get("script_storage", {}).get("episodes", {})
+            )
         return len(self._session.data.get("episode_working_texts", {}))
 
     @Property(bool, notify=changed)
     def mergeEnabled(self) -> bool:
-        return bool(self._merge_config().get("merge", True))
+        return bool(self._active_merge_config().get("merge", True))
 
     @Property(float, notify=changed)
     def mergeFps(self) -> float:
-        return float(self._merge_config().get("fps", 25.0) or 25.0)
+        return project_fps(self._session.data)
 
     @Property(float, notify=changed)
     def mergeGapSeconds(self) -> float:
-        config = self._merge_config()
-        fps = float(config.get("fps", 25.0) or 25.0)
-        return float(config.get("merge_gap", 120)) / fps
+        return float(
+            self._active_merge_config().get("merge_gap_seconds", 4.8)
+        )
+
+    @Property(float, notify=changed)
+    def projectFps(self) -> float:
+        return project_fps(self._session.data)
+
+    @Property(str, notify=changed)
+    def projectFpsDisplay(self) -> str:
+        return f"{project_fps(self._session.data):.3f}".rstrip("0").rstrip(".")
+
+    @Property(str, notify=changed)
+    def projectFpsSource(self) -> str:
+        return fps_source_label(self._session.data)
 
     @Property(float, notify=changed)
     def shortPause(self) -> float:
-        return float(self._merge_config().get("p_short", 0.5))
+        return float(self._active_merge_config().get("p_short", 0.5))
 
     @Property(float, notify=changed)
     def longPause(self) -> float:
-        return float(self._merge_config().get("p_long", 2.0))
+        return float(self._active_merge_config().get("p_long", 2.0))
 
     @Property(str, notify=changed)
     def globalLanguage(self) -> str:
@@ -161,6 +188,10 @@ class SettingsBridge(QObject):
         return self._merge_config(
             self._global_settings_service.get_replica_merge_config()
         )
+
+    @Property("QVariantMap", notify=changed)
+    def activeMergeConfig(self) -> dict:
+        return self._active_merge_config()
 
     @Property("QVariantMap", notify=changed)
     def globalAssImportConfig(self) -> dict:
@@ -199,12 +230,46 @@ class SettingsBridge(QObject):
         author: str,
         studio: str,
     ) -> bool:
+        return self._apply_project_settings(name, author, studio, None)
+
+    @Slot(str, str, str, float, result=bool)
+    def applyProjectSettingsWithFps(
+        self,
+        name: str,
+        author: str,
+        studio: str,
+        fps: float,
+    ) -> bool:
+        return self._apply_project_settings(name, author, studio, fps)
+
+    def _apply_project_settings(
+        self,
+        name: str,
+        author: str,
+        studio: str,
+        fps,
+    ) -> bool:
         metadata = deepcopy(self._session.data.get("metadata", {}))
         metadata.update({
             "created_by": (author or "").strip(),
             "studio": (studio or "").strip(),
         })
         updates = {"project_name": (name or "").strip(), "metadata": metadata}
+        if fps is not None:
+            try:
+                normalized_fps = float(fps)
+            except (TypeError, ValueError):
+                normalized_fps = 0.0
+            if not 1.0 <= normalized_fps <= 120.0:
+                self.errorRequested.emit("FPS должен быть в диапазоне от 1 до 120")
+                return False
+            if abs(normalized_fps - project_fps(self._session.data)) > 0.000001:
+                candidate_settings = deepcopy(
+                    self._session.data.get("project_settings", {})
+                )
+                temp_data = {"project_settings": candidate_settings}
+                set_project_fps(temp_data, normalized_fps)
+                updates["project_settings"] = temp_data["project_settings"]
         if not updates["project_name"]:
             self.errorRequested.emit("Введите название проекта")
             return False
@@ -214,7 +279,9 @@ class SettingsBridge(QObject):
             self._session.data, updates, "Изменены настройки проекта",
         ), "settings")
         self.changed.emit()
-        self.projectDataChanged.emit("settings")
+        self.projectDataChanged.emit(
+            "working_text" if "project_settings" in updates else "settings"
+        )
         return True
 
     @Slot(str, str, result=bool)
@@ -364,9 +431,14 @@ class SettingsBridge(QObject):
         self._global_settings.update(self._global_settings_service.get_settings())
         self.backupConfigChanged.emit(self.globalBackupConfig)
         self.globalMontageConfigChanged.emit()
-        self._episode_service.set_merge_gap_from_config(
+        self._script_text_service.set_global_merge_config(
             self._global_settings_service.get_replica_merge_config()
         )
+        self._episode_service.set_merge_gap_from_config(
+            self._script_text_service.get_merge_config(self._session.data)
+        )
+        if self._script_text_service.uses_dynamic_storage(self._session.data):
+            self.projectDataChanged.emit("working_text")
         self._episode_service.set_import_configs(
             self._global_settings_service.get_ass_import_config(),
             self._global_settings_service.get_srt_import_config(),
@@ -433,8 +505,22 @@ class SettingsBridge(QObject):
             return False
         self._global_settings.clear()
         self._global_settings.update(self._global_settings_service.get_settings())
+        self._script_text_service.set_global_merge_config(
+            self._global_settings_service.get_replica_merge_config()
+        )
+        self._episode_service.set_merge_gap_from_config(
+            self._script_text_service.get_merge_config(self._session.data)
+        )
+        self._episode_service.set_import_configs(
+            self._global_settings_service.get_ass_import_config(),
+            self._global_settings_service.get_srt_import_config(),
+        )
+        if self._script_text_service.uses_dynamic_storage(self._session.data):
+            self.projectDataChanged.emit("working_text")
         self.changed.emit()
-        self.statusRequested.emit("Настройки импорта сохранены по умолчанию")
+        self.statusRequested.emit(
+            "Настройки объединения и разбора исходников сохранены по умолчанию"
+        )
         return True
 
     @Slot(str, bool, result=bool)
@@ -517,23 +603,61 @@ class SettingsBridge(QObject):
         self.changed.emit()
 
     def _merge_config(self, value=None) -> dict:
-        config = deepcopy(DEFAULT_REPLICA_MERGE_CONFIG)
+        config = deepcopy(DEFAULT_GLOBAL_MERGE_CONFIG)
         stored = (self._global_settings_service.get_replica_merge_config()
                   if value is None else value)
         if isinstance(stored, dict):
             config.update(stored)
+            if "merge_gap_seconds" not in stored and "merge_gap" in stored:
+                try:
+                    config["merge_gap_seconds"] = float(
+                        stored["merge_gap"]
+                    ) / max(0.001, float(stored.get("fps", 25.0)))
+                except (TypeError, ValueError):
+                    pass
+        config.pop("fps", None)
+        config.pop("merge_gap", None)
         config["merge"] = bool(config.get("merge", True))
+        config["merge_parallel_replicas"] = bool(
+            config.get("merge_parallel_replicas", False)
+        )
+        config["respect_existing_separators"] = bool(
+            config.get("respect_existing_separators", False)
+        )
+        config["inline_timecodes_enabled"] = bool(
+            config.get("inline_timecodes_enabled", False)
+        )
+        bracket_style = str(config.get(
+            "inline_timecode_brackets", "square"
+        ))
+        config["inline_timecode_brackets"] = (
+            bracket_style
+            if bracket_style in {"square", "round", "curly"}
+            else "square"
+        )
         for key, low, high in (
-            ("fps", 1.0, 120.0),
-            ("merge_gap", 0.0, 12000.0),
+            ("merge_gap_seconds", 0.0, 480.0),
             ("p_short", 0.0, 5.0),
             ("p_long", 0.0, 10.0),
+            ("inline_timecode_min_duration", 0.0, 86400.0),
         ):
             try:
                 config[key] = max(low, min(high, float(config[key])))
             except (KeyError, TypeError, ValueError):
-                config[key] = float(DEFAULT_REPLICA_MERGE_CONFIG[key])
+                config[key] = float(DEFAULT_GLOBAL_MERGE_CONFIG[key])
+        try:
+            config["inline_timecode_every"] = max(1, min(
+                1000,
+                int(config.get("inline_timecode_every", 3)),
+            ))
+        except (TypeError, ValueError):
+            config["inline_timecode_every"] = int(
+                DEFAULT_GLOBAL_MERGE_CONFIG["inline_timecode_every"]
+            )
         return config
+
+    def _active_merge_config(self) -> dict:
+        return self._merge_config()
 
     @staticmethod
     def _ass_import_config(value) -> dict:

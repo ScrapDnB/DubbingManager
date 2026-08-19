@@ -213,11 +213,21 @@ class MontageBridge(QObject):
                 "Для редактирования нужен рабочий текст серии"
             )
             return
+        is_dynamic = self._script_text_service.uses_dynamic_storage(
+            self._session.data
+        )
+        candidate_lines = (
+            self._script_text_service.load_atomic_episode_lines(
+                self._session.data, self._episode
+            )
+            if is_dynamic
+            else payload.get("lines", [])
+        )
         target = next((
             line
-            for index, line in enumerate(payload.get("lines", []))
+            for index, line in enumerate(candidate_lines)
             if str(line.get("id")) == str(line_id)
-            or str(index) == str(line_id)
+            or (not is_dynamic and str(index) == str(line_id))
         ), None)
         if target is None or str(target.get("text", "")) == new_text:
             return
@@ -239,6 +249,18 @@ class MontageBridge(QObject):
             self._session.execute(UpdateProjectFileStateCommand(
                 self._session.data,
                 {"audiobook_document": candidate},
+                "Изменена реплика монтажного листа",
+            ), "working_text")
+        elif is_dynamic:
+            candidate = deepcopy(self._session.data.get("script_storage", {}))
+            temp_data = {"script_storage": candidate}
+            if not self._script_text_service.update_line_text(
+                temp_data, self._episode, line_id, new_text
+            ):
+                return
+            self._session.execute(UpdateProjectFileStateCommand(
+                self._session.data,
+                {"script_storage": candidate},
                 "Изменена реплика монтажного листа",
             ), "working_text")
         else:
@@ -728,6 +750,11 @@ class MontageBridge(QObject):
         return self._script_text_service.load_episode_lines(
             self._session.data,
             str(episode),
+            {
+                "hide_leading_timecode_zeros": bool(
+                    self.config.get("hide_leading_timecode_zeros", False)
+                )
+            },
         )
 
     @staticmethod

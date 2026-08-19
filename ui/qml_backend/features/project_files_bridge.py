@@ -8,6 +8,11 @@ from PySide6.QtCore import QObject, Property, QUrl, Signal, Slot, Qt
 
 from core.commands import UpdateProjectFileStateCommand
 from services.docx_import_service import DocxImportService
+from services.dynamic_script_storage import (
+    SOURCE_LINE_MODE_ATOMIC,
+    SOURCE_LINE_MODE_PREMERGED,
+)
+from services.project_fps_service import consider_ass_fps, consider_video_fps
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
 
@@ -211,11 +216,18 @@ class ProjectFilesBridge(QObject):
             return
 
         candidate = deepcopy(self._session.data)
+        previous_episodes = dict(candidate.get("episodes", {}))
+        previous_videos = dict(candidate.get("video_paths", {}))
         candidate["project_folder"] = str(folder.resolve())
         self._project_folder_service.invalidate_cache()
         counts = self._project_folder_service.scan_and_link_files(
             candidate,
             candidate["project_folder"],
+        )
+        self._consider_fps_for_link_changes(
+            candidate,
+            previous_episodes,
+            previous_videos,
         )
         self._push_file_state(
             candidate,
@@ -250,6 +262,8 @@ class ProjectFilesBridge(QObject):
             )
             return
         candidate = deepcopy(self._session.data)
+        previous_episodes = dict(candidate.get("episodes", {}))
+        previous_videos = dict(candidate.get("video_paths", {}))
         self._project_folder_service.invalidate_cache(folder)
         counts = self._project_folder_service.scan_and_link_files(
             candidate,
@@ -261,6 +275,11 @@ class ProjectFilesBridge(QObject):
                 "Новых совпадений в папке проекта не найдено"
             )
             return
+        self._consider_fps_for_link_changes(
+            candidate,
+            previous_episodes,
+            previous_videos,
+        )
         self._push_file_state(
             candidate,
             "Перепривязаны файлы из папки проекта",
@@ -281,6 +300,7 @@ class ProjectFilesBridge(QObject):
 
         candidate = deepcopy(self._session.data)
         existing_episodes = set(candidate.get("episodes", {}))
+        existing_videos = set(candidate.get("video_paths", {}))
         self._project_folder_service.invalidate_cache(folder)
         source_count, video_count = (
             self._project_folder_service.batch_import_from_folder(
@@ -292,6 +312,29 @@ class ProjectFilesBridge(QObject):
             for episode in candidate.get("episodes", {})
             if episode not in existing_episodes
         ]
+        for episode in sorted(added_episodes, key=_episode_sort_key):
+            source = self._resolved_episode_source(episode, candidate)
+            if source and Path(source).suffix.lower() == ".ass":
+                consider_ass_fps(candidate, source)
+                break
+        for episode in sorted(
+            (
+                str(value)
+                for value in candidate.get("video_paths", {})
+                if value not in existing_videos
+            ),
+            key=_episode_sort_key,
+        ):
+            video = self._project_folder_service.resolve_project_path(
+                candidate,
+                candidate.get("video_paths", {}).get(episode),
+            )
+            if video and Path(video).is_file():
+                consider_video_fps(candidate, str(video))
+                break
+        self._episode_service.set_merge_gap_from_config(
+            self._script_text_service.get_merge_config(candidate)
+        )
         created = 0
         failed = 0
         for episode in sorted(added_episodes, key=_episode_sort_key):
@@ -307,8 +350,11 @@ class ProjectFilesBridge(QObject):
             if not lines:
                 failed += 1
                 continue
-            merge_config = self._global_settings_service.get_replica_merge_config()
-            if Path(source).suffix.lower() == ".docx":
+            merge_config = self._script_text_service.get_merge_config(candidate)
+            if (
+                Path(source).suffix.lower() == ".docx"
+                and not self._script_text_service.uses_dynamic_storage(candidate)
+            ):
                 merge_config = {**merge_config, "merge": False}
             self._script_text_service.create_episode_text(
                 candidate,
@@ -317,6 +363,10 @@ class ProjectFilesBridge(QObject):
                 lines,
                 merge_config,
                 self._session.project_service.current_project_path or None,
+                import_config=self._source_import_config(
+                    source, candidate, episode
+                ),
+                line_mode=self._source_line_mode(source),
             )
             created += 1
 
@@ -364,6 +414,10 @@ class ProjectFilesBridge(QObject):
         }[kind]
         candidate = deepcopy(self._session.data)
         candidate.setdefault(field, {})[episode] = str(path.resolve())
+        if kind == "source" and path.suffix.lower() == ".ass":
+            consider_ass_fps(candidate, str(path.resolve()))
+        elif kind == "video":
+            consider_video_fps(candidate, str(path.resolve()))
         self._push_file_state(candidate, f"Перепривязан файл серии {episode}")
         if kind == "source":
             self._episode_service.invalidate_episode(episode)
@@ -401,8 +455,11 @@ class ProjectFilesBridge(QObject):
             return
 
         candidate = deepcopy(self._session.data)
-        merge_config = self._global_settings_service.get_replica_merge_config()
-        if Path(source).suffix.lower() == ".docx":
+        merge_config = self._script_text_service.get_merge_config(candidate)
+        if (
+            Path(source).suffix.lower() == ".docx"
+            and not self._script_text_service.uses_dynamic_storage(candidate)
+        ):
             merge_config = {**merge_config, "merge": False}
         self._script_text_service.create_episode_text(
             candidate,
@@ -411,6 +468,10 @@ class ProjectFilesBridge(QObject):
             lines,
             merge_config,
             self._session.project_service.current_project_path or None,
+            import_config=self._source_import_config(
+                source, self._session.data, episode
+            ),
+            line_mode=self._source_line_mode(source),
         )
         candidate.setdefault("loaded_episodes", {}).pop(episode, None)
         self._push_file_state(
@@ -431,7 +492,7 @@ class ProjectFilesBridge(QObject):
             candidate.get("episodes", {}),
             key=_episode_sort_key,
         ):
-            if candidate.get("episode_working_texts", {}).get(episode):
+            if self._script_text_service.get_episode_payload(candidate, episode):
                 continue
             source = self._resolved_episode_source(episode, candidate)
             if not source:
@@ -444,10 +505,11 @@ class ProjectFilesBridge(QObject):
             if not lines:
                 failed += 1
                 continue
-            merge_config = (
-                self._global_settings_service.get_replica_merge_config()
-            )
-            if Path(source).suffix.lower() == ".docx":
+            merge_config = self._script_text_service.get_merge_config(candidate)
+            if (
+                Path(source).suffix.lower() == ".docx"
+                and not self._script_text_service.uses_dynamic_storage(candidate)
+            ):
                 merge_config = {**merge_config, "merge": False}
             self._script_text_service.create_episode_text(
                 candidate,
@@ -456,6 +518,10 @@ class ProjectFilesBridge(QObject):
                 lines,
                 merge_config,
                 self._session.project_service.current_project_path or None,
+                import_config=self._source_import_config(
+                    source, candidate, episode
+                ),
+                line_mode=self._source_line_mode(source),
             )
             created += 1
 
@@ -514,6 +580,11 @@ class ProjectFilesBridge(QObject):
         project_data = self._session.data
         episodes = project_data.get("episodes", {})
         working_texts = project_data.get("episode_working_texts", {})
+        dynamic_texts = (
+            project_data.get("script_storage", {}).get("episodes", {})
+            if self._script_text_service.uses_dynamic_storage(project_data)
+            else {}
+        )
         legacy_texts = project_data.get("episode_texts", {})
         video_paths = project_data.get("video_paths", {})
         episode_names = sorted(
@@ -522,6 +593,7 @@ class ProjectFilesBridge(QObject):
                 for mapping in (
                     episodes,
                     working_texts,
+                    dynamic_texts,
                     legacy_texts,
                     video_paths,
                 )
@@ -572,7 +644,11 @@ class ProjectFilesBridge(QObject):
                 "canRelink": True,
             })
 
-            payload = working_texts.get(episode)
+            payload = (
+                dynamic_texts.get(episode)
+                if dynamic_texts
+                else working_texts.get(episode)
+            )
             legacy_path = str(legacy_texts.get(episode) or "")
             has_embedded = isinstance(payload, dict)
             has_source_lines = self._script_text_service.has_imported_source_lines(
@@ -714,6 +790,8 @@ class ProjectFilesBridge(QObject):
             "video_paths",
             "episode_texts",
             "episode_working_texts",
+            "script_storage",
+            "project_settings",
             "loaded_episodes",
         ]
         if include_folder:
@@ -739,6 +817,38 @@ class ProjectFilesBridge(QObject):
         )
         self.projectDataChanged.emit("project_files")
         return True
+
+    def _consider_fps_for_link_changes(
+        self,
+        candidate: Dict[str, Any],
+        previous_episodes: Dict[str, Any],
+        previous_videos: Dict[str, Any],
+    ) -> None:
+        """Detect FPS when folder scanning resolves the first source/video."""
+        changed_sources = [
+            str(episode)
+            for episode, value in candidate.get("episodes", {}).items()
+            if value != previous_episodes.get(episode)
+        ]
+        for episode in sorted(changed_sources, key=_episode_sort_key):
+            source = self._resolved_episode_source(episode, candidate)
+            if source and Path(source).suffix.lower() == ".ass":
+                consider_ass_fps(candidate, source)
+                break
+
+        changed_videos = [
+            str(episode)
+            for episode, value in candidate.get("video_paths", {}).items()
+            if value != previous_videos.get(episode)
+        ]
+        for episode in sorted(changed_videos, key=_episode_sort_key):
+            video = self._project_folder_service.resolve_project_path(
+                candidate,
+                candidate.get("video_paths", {}).get(episode),
+            )
+            if video and Path(video).is_file():
+                consider_video_fps(candidate, str(video))
+                break
 
     def _resolved_episode_source(
         self,
@@ -772,3 +882,35 @@ class ProjectFilesBridge(QObject):
             _stats, lines = service.parse_document(path, mapping)
             return lines
         return []
+
+    @staticmethod
+    def _source_line_mode(path: str) -> str:
+        return (
+            SOURCE_LINE_MODE_PREMERGED
+            if Path(path).suffix.lower() == ".docx"
+            else SOURCE_LINE_MODE_ATOMIC
+        )
+
+    def _source_import_config(
+        self,
+        path: str,
+        project_data: Dict[str, Any],
+        episode: str,
+    ) -> Dict[str, Any]:
+        payload = self._script_text_service.get_episode_payload(
+            project_data, episode
+        )
+        source = payload.get("source") if isinstance(payload, dict) else None
+        saved = source.get("import_config") if isinstance(source, dict) else None
+        if isinstance(saved, dict) and saved:
+            return deepcopy(saved)
+        suffix = Path(path).suffix.lower()
+        if suffix == ".ass":
+            return deepcopy(self._episode_service.ass_import_config)
+        if suffix == ".srt":
+            return deepcopy(self._episode_service.srt_import_config)
+        if suffix == ".docx":
+            return deepcopy(
+                self._global_settings_service.get_docx_import_config()
+            )
+        return {}

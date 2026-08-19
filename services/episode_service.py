@@ -38,9 +38,17 @@ class EpisodeService:
 
     def set_merge_gap_from_config(self, replica_merge_config: Dict[str, Any]) -> None:
         """Set merge gap from config."""
-        self.merge_gap = replica_merge_config.get('merge_gap', 5)
         # Guard against None and zero values
         self.fps = replica_merge_config.get('fps', 25.0) or 25.0
+        if 'merge_gap_seconds' in replica_merge_config:
+            try:
+                self.merge_gap = (
+                    float(replica_merge_config['merge_gap_seconds']) * self.fps
+                )
+                return
+            except (TypeError, ValueError):
+                pass
+        self.merge_gap = replica_merge_config.get('merge_gap', 5)
 
     def set_fps(self, fps: float) -> None:
         """Set the frame rate."""

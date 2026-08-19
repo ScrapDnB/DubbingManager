@@ -180,7 +180,8 @@ class ReportsBridge(QObject):
             self.errorRequested.emit("Выбранная серия больше не существует")
             return
         rows = CharacterStatsService(
-            self._session.data
+            self._session.data,
+            self._script_text_service.get_merge_config(self._session.data),
         ).actor_summary_rows(
             self._get_episode_lines,
             target_episode,
@@ -269,7 +270,10 @@ class ReportsBridge(QObject):
         metric = metric if metric in {"rings", "lines", "words"} else "rings"
         try:
             workbook = CharacterStatsService(
-                self._session.data
+                self._session.data,
+                self._script_text_service.get_merge_config(
+                    self._session.data
+                ),
             ).create_project_casting_xlsx(
                 self._get_episode_lines,
                 metric=metric,

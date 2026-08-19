@@ -34,17 +34,48 @@ Item {
 
     function setGapSeconds(value) {
         var next = Object.assign({}, mergeConfiguration)
-        var fps = Number(next.fps || 25)
-        next.merge_gap = Math.round(Math.max(0, value) * fps)
+        next.merge_gap_seconds = Math.max(0, value)
         mergeEdited(next)
     }
 
-    function setFps(value) {
+    function commitPendingMergeEdits() {
+        // A button click does not reliably emit editingFinished for the field
+        // that still owns focus. Read every visible value synchronously before
+        // the settings dialog sends its draft to Python.
         var next = Object.assign({}, mergeConfiguration)
-        var oldFps = Number(next.fps || 25)
-        var gapSeconds = Number(next.merge_gap || 0) / oldFps
-        next.fps = value
-        next.merge_gap = Math.round(gapSeconds * value)
+        var gapFallback = Number(next.merge_gap_seconds ?? 4.8)
+        var gapSeconds = Math.max(
+            0, numberFrom(mergeGapField.text, gapFallback)
+        )
+        next.merge = mergeEnabledCheck.checked
+        next.merge_parallel_replicas = mergeParallelCheck.checked
+        next.respect_existing_separators =
+            respectExistingSeparatorsCheck.checked
+        next.merge_gap_seconds = gapSeconds
+        next.p_short = Math.max(
+            0, numberFrom(shortPauseField.text, Number(next.p_short ?? 0.5))
+        )
+        next.p_long = Math.max(
+            0, numberFrom(longPauseField.text, Number(next.p_long ?? 2))
+        )
+        next.inline_timecodes_enabled = inlineTimecodesCheck.checked
+        next.inline_timecode_brackets = String(
+            inlineTimecodeBracketsCombo.currentValue || "square"
+        )
+        next.inline_timecode_min_duration = Math.max(
+            0,
+            numberFrom(
+                inlineTimecodeDurationField.text,
+                Number(next.inline_timecode_min_duration ?? 30)
+            )
+        )
+        next.inline_timecode_every = Math.max(
+            1,
+            Math.round(numberFrom(
+                inlineTimecodeEveryField.text,
+                Number(next.inline_timecode_every ?? 3)
+            ))
+        )
         mergeEdited(next)
     }
 
@@ -132,7 +163,7 @@ Item {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Эти параметры управляют разбором исходников до создания рабочего текста.")
+                text: qsTr("Глобальные правила объединения управляют отображением реплик во всех динамических проектах и применяются на лету. FPS хранится отдельно в настройках проекта. Параметры ASS, SRT и DOCX используются только при разборе исходников.")
                 wrapMode: Text.WordWrap
                 color: pane.softMuted
             }
@@ -147,25 +178,43 @@ Item {
                     rowSpacing: 6
 
                     CheckBox {
+                        id: mergeEnabledCheck
                         text: qsTr("Объединять близкие реплики одного персонажа")
                         checked: Boolean(pane.mergeConfiguration.merge)
                         Layout.columnSpan: 2
                         onToggled: pane.setMergeValue("merge", checked)
                     }
-                    Label { text: qsTr("FPS:") }
-                    TextField {
-                        Layout.preferredWidth: 120
-                        text: String(pane.mergeConfiguration.fps || 25)
-                        validator: DoubleValidator { bottom: 1; top: 120; decimals: 3 }
-                        onEditingFinished: pane.setFps(pane.numberFrom(text, 25))
+                    CheckBox {
+                        id: mergeParallelCheck
+                        text: qsTr("Не разрывать реплики параллельными репликами других персонажей")
+                        checked: Boolean(
+                            pane.mergeConfiguration.merge_parallel_replicas
+                        )
+                        enabled: mergeEnabledCheck.checked
+                        Layout.columnSpan: 2
+                        onToggled: pane.setMergeValue(
+                            "merge_parallel_replicas", checked
+                        )
+                    }
+                    CheckBox {
+                        id: respectExistingSeparatorsCheck
+                        text: qsTr("Учитывать уже имеющиеся разделители")
+                        checked: Boolean(
+                            pane.mergeConfiguration.respect_existing_separators
+                        )
+                        enabled: mergeEnabledCheck.checked
+                        Layout.columnSpan: 2
+                        onToggled: pane.setMergeValue(
+                            "respect_existing_separators", checked
+                        )
                     }
                     Label { text: qsTr("Порог объединения, сек:") }
                     TextField {
+                        id: mergeGapField
                         Layout.preferredWidth: 120
-                        text: {
-                            var fps = Number(pane.mergeConfiguration.fps || 25)
-                            return String(Number(pane.mergeConfiguration.merge_gap || 0) / fps)
-                        }
+                        text: String(
+                            pane.mergeConfiguration.merge_gap_seconds ?? 4.8
+                        )
                         validator: DoubleValidator { bottom: 0; top: 10; decimals: 3 }
                         onEditingFinished: pane.setGapSeconds(
                             pane.numberFrom(text, 4.8)
@@ -173,6 +222,7 @@ Item {
                     }
                     Label { text: qsTr("Пауза для '/', сек:") }
                     TextField {
+                        id: shortPauseField
                         Layout.preferredWidth: 120
                         text: String(pane.mergeConfiguration.p_short ?? 0.5)
                         validator: DoubleValidator { bottom: 0; top: 5; decimals: 3 }
@@ -182,12 +232,105 @@ Item {
                     }
                     Label { text: qsTr("Пауза для '//', сек:") }
                     TextField {
+                        id: longPauseField
                         Layout.preferredWidth: 120
                         text: String(pane.mergeConfiguration.p_long ?? 2)
                         validator: DoubleValidator { bottom: 0; top: 10; decimals: 3 }
                         onEditingFinished: pane.setMergeValue(
                             "p_long", pane.numberFrom(text, 2)
                         )
+                    }
+                    RowLayout {
+                        Layout.columnSpan: 2
+                        Layout.fillWidth: true
+                        CheckBox {
+                            id: inlineTimecodesCheck
+                            text: qsTr("Тайм-коды внутри длинных объединённых реплик")
+                            checked: Boolean(
+                                pane.mergeConfiguration.inline_timecodes_enabled
+                            )
+                            enabled: mergeEnabledCheck.checked
+                            onToggled: pane.setMergeValue(
+                                "inline_timecodes_enabled", checked
+                            )
+                        }
+                        Item { Layout.fillWidth: true }
+                        Label {
+                            text: qsTr("Скобки:")
+                            enabled: inlineTimecodesCheck.checked
+                                || mergeParallelCheck.checked
+                        }
+                        PlatformComboBox {
+                            id: inlineTimecodeBracketsCombo
+                            Layout.preferredWidth: 92
+                            enabled: inlineTimecodesCheck.checked
+                                || mergeParallelCheck.checked
+                            model: [
+                                { label: "[ ]", value: "square" },
+                                { label: "( )", value: "round" },
+                                { label: "{ }", value: "curly" }
+                            ]
+                            textRole: "label"
+                            valueRole: "value"
+                            currentIndex: {
+                                var style = String(
+                                    pane.mergeConfiguration.inline_timecode_brackets
+                                    || "square"
+                                )
+                                return style === "round" ? 1
+                                    : (style === "curly" ? 2 : 0)
+                            }
+                            onActivated: pane.setMergeValue(
+                                "inline_timecode_brackets", currentValue
+                            )
+                        }
+                    }
+                    Label {
+                        text: qsTr("Если реплика длиннее, сек:")
+                        enabled: inlineTimecodesCheck.checked
+                    }
+                    TextField {
+                        id: inlineTimecodeDurationField
+                        Layout.preferredWidth: 120
+                        enabled: inlineTimecodesCheck.checked
+                        text: String(
+                            pane.mergeConfiguration.inline_timecode_min_duration
+                            ?? 30
+                        )
+                        validator: DoubleValidator {
+                            bottom: 0
+                            top: 86400
+                            decimals: 3
+                        }
+                        onEditingFinished: pane.setMergeValue(
+                            "inline_timecode_min_duration",
+                            pane.numberFrom(text, 30)
+                        )
+                    }
+                    Label {
+                        text: qsTr("Интервал, исходных реплик:")
+                        enabled: inlineTimecodesCheck.checked
+                    }
+                    TextField {
+                        id: inlineTimecodeEveryField
+                        Layout.preferredWidth: 120
+                        enabled: inlineTimecodesCheck.checked
+                        text: String(
+                            pane.mergeConfiguration.inline_timecode_every ?? 3
+                        )
+                        validator: IntValidator { bottom: 1; top: 1000 }
+                        onEditingFinished: pane.setMergeValue(
+                            "inline_timecode_every",
+                            Math.max(1, Math.round(pane.numberFrom(text, 3)))
+                        )
+                    }
+                    Label {
+                        Layout.columnSpan: 2
+                        Layout.fillWidth: true
+                        text: qsTr("Настройки внутренних тайм-кодов глобальны и не записываются в файл проекта.")
+                        wrapMode: Text.WordWrap
+                        color: pane.softMuted
+                        visible: inlineTimecodesCheck.checked
                     }
                 }
             }

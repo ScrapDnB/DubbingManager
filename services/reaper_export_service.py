@@ -72,6 +72,11 @@ class ReaperExportService:
         payload = self.data_ref.get("episode_working_texts", {}).get(
             str(ep_num), {}
         )
+        storage = self.data_ref.get("script_storage")
+        if isinstance(storage, dict) and storage.get("model") == "dynamic_source":
+            dynamic_payload = storage.get("episodes", {}).get(str(ep_num))
+            if isinstance(dynamic_payload, dict):
+                payload = dynamic_payload
         if isinstance(payload, dict):
             source_ass = payload.get("source_ass")
             if isinstance(source_ass, dict):
@@ -81,6 +86,9 @@ class ReaperExportService:
 
             source = payload.get("source")
             if isinstance(source, dict):
+                filename = str(source.get("filename") or "")
+                if Path(filename).suffix.lower() == ".ass":
+                    return Path(filename).name
                 source_type = str(source.get("type") or "").lower()
                 if source_type and source_type != "ass":
                     return ""

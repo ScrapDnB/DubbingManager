@@ -27,6 +27,11 @@ from config.constants import (
     PROJECT_BACKUP_FILE_EXTENSION,
 )
 from services.project_compatibility import ensure_project_compatibility
+from services.dynamic_script_storage import (
+    is_dynamic_script_project,
+    new_script_storage,
+)
+from services.project_fps_service import new_project_settings
 from services.project_schema_service import ProjectSchemaError, ProjectSchemaService
 from utils.i18n import translate_source
 
@@ -84,6 +89,8 @@ class ProjectService:
             "video_paths": {},
             "episode_texts": {},
             "episode_working_texts": {},
+            "script_storage": new_script_storage(),
+            "project_settings": new_project_settings(),
             "audiobook_document": {},
             "audiobook_settings": {
                 "font_family": "Georgia",
@@ -102,9 +109,32 @@ class ProjectService:
                 data = json.load(f)
 
             self._validate_supported_schema(data)
+            original_version = str(
+                (data.get("metadata") or {}).get("format_version") or "0.9"
+            )
+            original_model = (
+                "dynamic_source"
+                if is_dynamic_script_project(data)
+                else "legacy_merged"
+            )
+            preserved_legacy_fields = {
+                key: deepcopy(data[key])
+                for key in (
+                    "replica_merge_config",
+                    "ass_import_config",
+                    "srt_import_config",
+                    "docx_import_config",
+                )
+                if key in data
+            }
             self._validate_project_structure(data)
             self._ensure_compatibility(data)
             self._validate_current_schema(data)
+            data["_project_format"] = {
+                "storage_model": original_model,
+                "original_version": original_version,
+                "preserved_fields": preserved_legacy_fields,
+            }
             self._update_metadata_on_load(data, path)
 
             self.current_project_path = path
@@ -153,14 +183,23 @@ class ProjectService:
     def _do_save(self, data: Dict[str, Any], path: str) -> bool:
         """Do save."""
         try:
+            legacy = self._uses_legacy_storage(data)
             self._validate_supported_schema(data)
             self._validate_project_structure(data)
             save_data = self._project_data_for_disk(data)
-            self._ensure_compatibility(save_data)
+            if not legacy:
+                self._ensure_compatibility(save_data)
             self._strip_global_ui_config(save_data)
             self._update_metadata_on_save(save_data)
+            if legacy:
+                save_data["metadata"]["format_version"] = (
+                    self._legacy_format_version(data)
+                )
             self._validate_supported_schema(save_data)
-            self._validate_current_schema(save_data)
+            if legacy:
+                self._validate_project_structure(save_data)
+            else:
+                self._validate_current_schema(save_data)
         except ProjectValidationError as exc:
             logger.error(f"Save validation failed: {exc}")
             return False
@@ -228,14 +267,21 @@ class ProjectService:
         if not self.backups_enabled():
             return True
         try:
+            legacy = self._uses_legacy_storage(data)
             self._validate_supported_schema(data)
             self._validate_project_structure(data)
             save_data = self._project_data_for_disk(data)
-            self._ensure_compatibility(save_data)
+            if not legacy:
+                self._ensure_compatibility(save_data)
             self._strip_global_ui_config(save_data)
             self._update_metadata_on_save(save_data)
+            if legacy:
+                save_data["metadata"]["format_version"] = (
+                    self._legacy_format_version(data)
+                )
             self._validate_supported_schema(save_data)
-            self._validate_current_schema(save_data)
+            if not legacy:
+                self._validate_current_schema(save_data)
         except ProjectValidationError as exc:
             logger.error(f"Backup validation failed: {exc}")
             return False
@@ -322,9 +368,39 @@ class ProjectService:
 
     def _project_data_for_disk(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Return a save payload without runtime-only cache fields."""
+        runtime = data.get("_project_format")
         save_data = deepcopy(data)
         save_data.pop("loaded_episodes", None)
+        save_data.pop("_project_format", None)
+        if (
+            isinstance(runtime, dict)
+            and runtime.get("storage_model") == "legacy_merged"
+            and isinstance(runtime.get("preserved_fields"), dict)
+        ):
+            save_data.update(deepcopy(runtime["preserved_fields"]))
+        if (
+            is_dynamic_script_project(save_data)
+            and save_data.get("project_kind") != "audiobook"
+            and not save_data.get("episode_working_texts")
+            and not save_data.get("episode_texts")
+        ):
+            save_data.pop("episode_texts", None)
+            save_data.pop("episode_working_texts", None)
         return save_data
+
+    @staticmethod
+    def _uses_legacy_storage(data: Dict[str, Any]) -> bool:
+        runtime = data.get("_project_format")
+        if isinstance(runtime, dict):
+            return runtime.get("storage_model") == "legacy_merged"
+        return not is_dynamic_script_project(data)
+
+    @staticmethod
+    def _legacy_format_version(data: Dict[str, Any]) -> str:
+        runtime = data.get("_project_format")
+        if isinstance(runtime, dict) and runtime.get("original_version"):
+            return str(runtime["original_version"])
+        return str((data.get("metadata") or {}).get("format_version") or "0.9")
 
     @staticmethod
     def _strip_global_ui_config(data: Dict[str, Any]) -> None:
@@ -535,9 +611,32 @@ class ProjectService:
                 data = json.load(f)
 
             self._validate_supported_schema(data)
+            original_version = str(
+                (data.get("metadata") or {}).get("format_version") or "0.9"
+            )
+            original_model = (
+                "dynamic_source"
+                if is_dynamic_script_project(data)
+                else "legacy_merged"
+            )
+            preserved_legacy_fields = {
+                key: deepcopy(data[key])
+                for key in (
+                    "replica_merge_config",
+                    "ass_import_config",
+                    "srt_import_config",
+                    "docx_import_config",
+                )
+                if key in data
+            }
             self._validate_project_structure(data)
             self._ensure_compatibility(data)
             self._validate_current_schema(data)
+            data["_project_format"] = {
+                "storage_model": original_model,
+                "original_version": original_version,
+                "preserved_fields": preserved_legacy_fields,
+            }
 
             target = Path(target_path)
             if target.is_file():

@@ -441,11 +441,15 @@ class TestGlobalSettingsService:
 
     def test_get_replica_merge_config(self, service):
         """Тест получения настроек объединения"""
-        service.settings = {'replica_merge_config': {'merge_gap': 100}}
+        service.settings = {
+            'replica_merge_config': {'merge_gap': 100, 'fps': 25}
+        }
         
         config = service.get_replica_merge_config()
         
-        assert config['merge_gap'] == 100
+        assert config['merge_gap_seconds'] == 4.0
+        assert 'merge_gap' not in config
+        assert 'fps' not in config
 
     def test_get_replica_merge_config_default(self, service):
         """Тест получения настроек объединения по умолчанию"""
@@ -453,7 +457,11 @@ class TestGlobalSettingsService:
         
         config = service.get_replica_merge_config()
         
-        assert config['merge_gap'] == 120  # Значение по умолчанию из constants.py
+        assert config['merge_gap_seconds'] == 4.8
+        assert config['merge_parallel_replicas'] is False
+        assert config['respect_existing_separators'] is False
+        assert config['inline_timecode_brackets'] == 'square'
+        assert 'fps' not in config
 
     def test_update_export_config(self, service):
         """Тест обновления настроек экспорта"""
@@ -514,6 +522,17 @@ class TestGlobalSettingsService:
         assert service._normalize_prompter_config({
             'page_target_highlight_fade_ms': 'invalid',
         })['page_target_highlight_fade_ms'] == 1000
+
+    def test_prompter_highlight_fade_in_time_is_normalized(self, service):
+        assert service._normalize_prompter_config({
+            'page_target_highlight_fade_in_ms': 750,
+        })['page_target_highlight_fade_in_ms'] == 750
+        assert service._normalize_prompter_config({
+            'page_target_highlight_fade_in_ms': 20000,
+        })['page_target_highlight_fade_in_ms'] == 10000
+        assert service._normalize_prompter_config({
+            'page_target_highlight_fade_in_ms': 'invalid',
+        })['page_target_highlight_fade_in_ms'] == 500
 
     def test_prompter_layout_font_profiles_are_independent(self, service):
         """Каждая разметка хранит и отдаёт собственные размеры шрифтов."""
@@ -590,9 +609,23 @@ class TestGlobalSettingsService:
         """Тест обновления настроек объединения"""
         service.settings = {}
         
-        service.update_replica_merge_config({'merge': False})
-        
+        service.update_replica_merge_config({
+            'merge': False,
+            'merge_parallel_replicas': True,
+            'respect_existing_separators': True,
+            'inline_timecode_brackets': 'curly',
+        })
+
         assert service.settings['replica_merge_config']['merge'] == False
+        assert service.settings['replica_merge_config'][
+            'merge_parallel_replicas'
+        ] is True
+        assert service.settings['replica_merge_config'][
+            'respect_existing_separators'
+        ] is True
+        assert service.settings['replica_merge_config'][
+            'inline_timecode_brackets'
+        ] == 'curly'
 
     def test_update_docx_import_config(self, service):
         """Тест обновления настроек импорта DOCX"""

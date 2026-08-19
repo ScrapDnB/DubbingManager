@@ -228,7 +228,11 @@ class ExportService(ExportLayoutMixin):
                         actor_stats[actor_id]['roles'].append(char_name)
                     if ep_key not in actor_stats[actor_id]['episode_words']:
                         actor_stats[actor_id]['episode_words'][ep_key] = 0
-                    actor_stats[actor_id]['episode_words'][ep_key] += self._count_words(line.get('text', ''))
+                    actor_stats[actor_id]['episode_words'][ep_key] += (
+                        self._count_words(
+                            line.get('content_text', line.get('text', ''))
+                        )
+                    )
 
         # Dynamic headers with real episode numbers
         headers = ['Актёр', 'Персонаж']
@@ -723,8 +727,11 @@ class ExportService(ExportLayoutMixin):
         source_ass = payload.get("source_ass")
         if source_type == "ass":
             return bool(
-                isinstance(source_ass, dict) and
-                source_ass.get("raw_content")
+                source.get("raw_content")
+                or (
+                    isinstance(source_ass, dict)
+                    and source_ass.get("raw_content")
+                )
             )
 
         return True
@@ -758,6 +765,11 @@ class ExportService(ExportLayoutMixin):
             document = self.project_data.get("audiobook_document")
             if isinstance(document, dict):
                 return AudiobookDocumentService().episode_payload(document, ep)
+        storage = self.project_data.get("script_storage")
+        if isinstance(storage, dict) and storage.get("model") == "dynamic_source":
+            payload = storage.get("episodes", {}).get(ep)
+            if isinstance(payload, dict):
+                return payload
         payload = self.project_data.get("episode_working_texts", {}).get(ep)
         return payload if isinstance(payload, dict) else None
 

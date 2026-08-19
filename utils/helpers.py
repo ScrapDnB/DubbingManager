@@ -172,19 +172,19 @@ def split_merged_text(text: str, ids: list) -> list:
     return []
 
 
-def get_video_fps(video_path: str) -> float:
-    """Return video fps."""
+def probe_video_fps(video_path: str) -> Optional[float]:
+    """Return detected video FPS, or ``None`` when probing fails."""
     # Reject obvious path traversal before resolving the path.
     if '..' in video_path:
         logger.warning(f"Invalid video path (path traversal detected): {video_path}")
-        return FPS
+        return None
 
     try:
         path = Path(video_path).resolve()
         
         if not path.exists() or not path.is_file():
             logger.warning(f"Video file not found: {video_path}")
-            return FPS
+            return None
 
         cmd = [
             'ffprobe',
@@ -197,7 +197,7 @@ def get_video_fps(video_path: str) -> float:
 
         if result.returncode != 0:
             logger.warning(f"ffprobe failed for {video_path}")
-            return FPS
+            return None
 
         data = json.loads(result.stdout)
 
@@ -221,17 +221,22 @@ def get_video_fps(video_path: str) -> float:
                     return float(avg_fps)
 
         logger.warning(f"Could not find video stream in {video_path}")
-        return FPS
+        return None
 
     except FileNotFoundError:
         logger.warning(f"ffprobe not found in PATH for {video_path}")
-        return FPS
+        return None
     except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
         logger.warning(f"Error getting FPS from {video_path}: {e}")
-        return FPS
+        return None
     except (json.JSONDecodeError, KeyError, ValueError, ZeroDivisionError) as e:
         logger.warning(f"Error parsing ffprobe output for {video_path}: {e}")
-        return FPS
+        return None
     except Exception as e:
         logger.warning(f"Unexpected error getting FPS from {video_path}: {e}")
-        return FPS
+        return None
+
+
+def get_video_fps(video_path: str) -> float:
+    """Return detected video FPS with the historical default fallback."""
+    return probe_video_fps(video_path) or float(FPS)

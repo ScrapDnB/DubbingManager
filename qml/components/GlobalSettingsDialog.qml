@@ -89,7 +89,7 @@ NativeDialogWindow {
         keywordsArea.text = backend.audiobookKeywords
         montageDraft = Object.assign({}, backend.globalMontageConfig)
         prompterDraft = Object.assign({}, backend.globalPrompterConfig)
-        mergeDraft = Object.assign({}, backend.globalMergeConfig)
+        mergeDraft = Object.assign({}, backend.activeMergeConfig)
         assDraft = Object.assign({}, backend.globalAssImportConfig)
         srtDraft = Object.assign({}, backend.globalSrtImportConfig)
         docxDraft = Object.assign({}, backend.globalDocxImportConfig)
@@ -132,7 +132,7 @@ NativeDialogWindow {
                 "Резервные копии",
                 "Аудиокниги",
                 "Актёры",
-                "Импорт",
+                "Объединение и импорт",
                 "Монтажный лист",
                 "Вид телесуфлёра",
                 "Автоматика телесуфлёра",
@@ -554,10 +554,13 @@ NativeDialogWindow {
             ColumnLayout {
                 spacing: 8
                 SettingsPageHeader {
-                    title: qsTr("Импорт")
-                    subtitle: qsTr("Общие правила для ASS, SRT, DOCX и объединения реплик.")
+                    title: qsTr("Объединение и импорт")
+                    subtitle: dialog.backend.dynamicTextStorage
+                        ? qsTr("Глобальные правила объединения применяются к открытому проекту на лету; ниже также задаются правила разбора ASS, SRT и DOCX.")
+                        : qsTr("Открыт legacy-проект с сохранёнными объединёнными репликами. Глобальные правила применяются к динамическим проектам; правила ASS, SRT и DOCX используются при импорте.")
                 }
                 ImportSettingsPane {
+                    id: importSettingsPane
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     mergeConfiguration: dialog.mergeDraft
@@ -663,6 +666,7 @@ NativeDialogWindow {
             highlighted: dialog.macOSStyle
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
             onClicked: {
+                importSettingsPane.commitPendingMergeEdits()
                 dialog.appBridge.uiState.setBoolValue(
                     "actorColorCellFill",
                     cellColorRadio.checked

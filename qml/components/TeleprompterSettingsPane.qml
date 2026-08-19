@@ -378,7 +378,7 @@ PersistentScrollView {
                 }
                 Label {
                     Layout.columnSpan: 2
-                    text: qsTr("Время угасания:")
+                    text: qsTr("Fade-out (затухание):")
                     enabled: pageTargetHighlightEnabled.checked
                 }
                 RowLayout {
@@ -401,6 +401,36 @@ PersistentScrollView {
                         )
                     }
                     Label { text: qsTr("мс") }
+                }
+                Label {
+                    Layout.columnSpan: 2
+                    text: qsTr("Fade-in (появление):")
+                    enabled: pageTargetHighlightEnabled.checked
+                }
+                RowLayout {
+                    Layout.columnSpan: 2
+                    enabled: pageTargetHighlightEnabled.checked
+
+                    SpinBox {
+                        from: 0
+                        to: 10000
+                        stepSize: 100
+                        editable: true
+                        value: Number(
+                            pane.configuration.page_target_highlight_fade_in_ms
+                                === undefined
+                                ? 500
+                                : pane.configuration.page_target_highlight_fade_in_ms
+                        )
+                        onValueModified: pane.setValue(
+                            "page_target_highlight_fade_in_ms", value
+                        )
+                    }
+                    Label { text: qsTr("мс") }
+                    PlatformToolTip {
+                        target: parent
+                        text: qsTr("За сколько миллисекунд до реплики начинать подсветку")
+                    }
                 }
             }
         }

@@ -41,12 +41,18 @@ class ProjectHealthService:
 
         episodes = project_data.get("episodes", {})
         episode_texts = project_data.get("episode_working_texts", {})
+        dynamic_episode_texts = (
+            project_data.get("script_storage", {}).get("episodes", {})
+            if ScriptTextService().uses_dynamic_storage(project_data)
+            else {}
+        )
         legacy_episode_texts = project_data.get("episode_texts", {})
         video_paths = project_data.get("video_paths", {})
 
         all_episode_nums = sorted(
             set(episodes) |
             set(episode_texts) |
+            set(dynamic_episode_texts) |
             set(legacy_episode_texts) |
             set(video_paths),
             key=self._episode_sort_key
@@ -62,7 +68,11 @@ class ProjectHealthService:
 
         for ep_num in all_episode_nums:
             source_path = episodes.get(ep_num)
-            text_payload = episode_texts.get(ep_num)
+            text_payload = (
+                dynamic_episode_texts.get(ep_num)
+                if dynamic_episode_texts
+                else episode_texts.get(ep_num)
+            )
             if project_data.get("project_kind") == "audiobook":
                 text_payload = ScriptTextService().get_episode_payload(
                     project_data, ep_num
@@ -170,6 +180,19 @@ class ProjectHealthService:
                     source_path
                 ))
             return []
+
+        if ScriptTextService().uses_dynamic_storage(project_data):
+            lines = ScriptTextService().load_atomic_episode_lines(
+                project_data, ep_num
+            )
+            if not lines:
+                issues.append(ProjectHealthIssue(
+                    self.SEVERITY_WARNING,
+                    "Рабочий текст",
+                    "В рабочем тексте нет реплик.",
+                    ep_num,
+                ))
+            return lines
 
         lines = text_payload.get("lines")
         if not isinstance(lines, list):

@@ -399,6 +399,15 @@ class ProjectBridge(QObject):
                 f"Переименована глава {old_name}",
             ), "episodes")
         else:
+            script_episodes = (
+                self._session.data.get("script_storage", {}).setdefault(
+                    "episodes", {}
+                )
+                if self._script_text_service.uses_dynamic_storage(
+                    self._session.data
+                )
+                else self._session.data.setdefault("episode_working_texts", {})
+            )
             self._session.execute(RenameEpisodeCommand(
                 self._session.data.setdefault("episodes", {}),
                 old_name,
@@ -407,7 +416,7 @@ class ProjectBridge(QObject):
                 self._session.data.setdefault("video_paths", {}),
                 self._session.data.setdefault("loaded_episodes", {}),
                 self._session.data.setdefault("episode_texts", {}),
-                self._session.data.setdefault("episode_working_texts", {}),
+                script_episodes,
             ), "episodes")
         self._session.current_episode = new_name
         self.refresh_models()
@@ -463,6 +472,15 @@ class ProjectBridge(QObject):
                 f"Удалены главы: {len(episode_names)}",
             ), "episodes")
         else:
+            script_episodes = (
+                self._session.data.get("script_storage", {}).setdefault(
+                    "episodes", {}
+                )
+                if self._script_text_service.uses_dynamic_storage(
+                    self._session.data
+                )
+                else self._session.data.setdefault("episode_working_texts", {})
+            )
             self._session.execute(DeleteEpisodesCommand(
                 self._session.data.setdefault("episodes", {}),
                 self._session.data.setdefault("video_paths", {}),
@@ -470,7 +488,7 @@ class ProjectBridge(QObject):
                 episode_names,
                 self._session.data.setdefault("episode_actor_map", {}),
                 self._session.data.setdefault("episode_texts", {}),
-                self._session.data.setdefault("episode_working_texts", {}),
+                script_episodes,
             ), "episodes")
         for episode in episode_names:
             self._episode_service.invalidate_episode(episode)

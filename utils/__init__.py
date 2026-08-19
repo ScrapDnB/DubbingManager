@@ -4,7 +4,8 @@ from .helpers import (
     format_seconds_to_tc,
     hex_to_rgba_string,
     split_merged_text,
-    get_video_fps
+    get_video_fps,
+    probe_video_fps,
 )
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     'format_seconds_to_tc',
     'hex_to_rgba_string',
     'split_merged_text',
-    'get_video_fps'
+    'get_video_fps',
+    'probe_video_fps',
 ]

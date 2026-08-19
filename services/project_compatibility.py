@@ -14,19 +14,22 @@ from core.export_config_profiles import (
     hydrate_layout_profile,
     sync_active_layout_profile,
 )
+from services.dynamic_script_storage import is_dynamic_script_project
+from services.project_fps_service import ensure_project_settings
 
 
 def ensure_project_compatibility(data: Dict[str, Any]) -> None:
     """Mutate project data so older files have the current required fields."""
+    dynamic_scripts = is_dynamic_script_project(data)
     if "audiobook_document" not in data:
         data["audiobook_document"] = {}
     if data.get("project_kind") not in ("subtitle", "audiobook"):
         data["project_kind"] = "subtitle"
     if "video_paths" not in data:
         data["video_paths"] = {}
-    if "episode_texts" not in data:
+    if not dynamic_scripts and "episode_texts" not in data:
         data["episode_texts"] = {}
-    if "episode_working_texts" not in data:
+    if not dynamic_scripts and "episode_working_texts" not in data:
         data["episode_working_texts"] = {}
     if "export_config" not in data:
         data["export_config"] = deepcopy(DEFAULT_EXPORT_CONFIG)
@@ -45,6 +48,7 @@ def ensure_project_compatibility(data: Dict[str, Any]) -> None:
         data["global_map"] = {}
     if "episode_actor_map" not in data:
         data["episode_actor_map"] = {}
+    ensure_project_settings(data)
     # Import rules belong to the application, not to a project.  Drop legacy
     # copies while loading so the next save transparently migrates old files.
     for key in (
@@ -72,7 +76,8 @@ def ensure_project_compatibility(data: Dict[str, Any]) -> None:
     data["metadata"].setdefault("app_version", APP_VERSION)
     data["metadata"]["format_version"] = PROJECT_VERSION
 
-    _ensure_working_text_source_layers(data)
+    if not dynamic_scripts:
+        _ensure_working_text_source_layers(data)
 
 
 def _ensure_working_text_source_layers(data: Dict[str, Any]) -> None:

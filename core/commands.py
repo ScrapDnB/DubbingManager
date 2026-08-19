@@ -519,16 +519,33 @@ class AddEpisodeCommand(Command):
         self,
         episodes: Dict[str, str],
         episode_num: str,
-        path: str
+        path: str,
+        project_data: Optional[Dict[str, Any]] = None,
+        new_project_settings: Optional[Dict[str, Any]] = None,
     ):
         self.episodes = episodes
         self.episode_num = episode_num
         self.path = path
         self._old_path: Optional[str] = None
+        self.project_data = project_data
+        self.new_project_settings = (
+            deepcopy(new_project_settings)
+            if isinstance(new_project_settings, dict)
+            else None
+        )
+        self._old_project_settings = (
+            deepcopy(project_data.get("project_settings"))
+            if project_data is not None
+            else None
+        )
 
     def execute(self) -> None:
         self._old_path = self.episodes.get(self.episode_num)
         self.episodes[self.episode_num] = self.path
+        if self.project_data is not None and self.new_project_settings is not None:
+            self.project_data["project_settings"] = deepcopy(
+                self.new_project_settings
+            )
         logger.debug(f"AddEpisodeCommand executed: {self.episode_num} -> {self.path}")
 
     def undo(self) -> None:
@@ -536,6 +553,13 @@ class AddEpisodeCommand(Command):
             self.episodes[self.episode_num] = self._old_path
         else:
             self.episodes.pop(self.episode_num, None)
+        if self.project_data is not None and self.new_project_settings is not None:
+            if self._old_project_settings is None:
+                self.project_data.pop("project_settings", None)
+            else:
+                self.project_data["project_settings"] = deepcopy(
+                    self._old_project_settings
+                )
         logger.debug(f"AddEpisodeCommand undone: {self.episode_num}")
 
     def get_description(self) -> str:

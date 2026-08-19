@@ -880,7 +880,7 @@ class CastingBridge(QObject):
         episode = str(episode or "")
         if episode not in self._episode_lines_cache:
             self._episode_lines_cache[episode] = (
-                self._script_text_service.load_episode_lines(
+                self._script_text_service.load_atomic_episode_lines(
                     self._session.data, episode
                 )
             )
@@ -889,7 +889,10 @@ class CastingBridge(QObject):
     def _project_stats(self, character: str) -> Dict[str, Any]:
         if character not in self._project_stats_cache:
             self._project_stats_cache[character] = CharacterStatsService(
-                self._session.data
+                self._session.data,
+                self._script_text_service.get_merge_config(
+                    self._session.data
+                ),
             ).project_stats(character, self._get_episode_lines)
         return self._project_stats_cache[character]
 

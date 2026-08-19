@@ -1045,6 +1045,12 @@ def test_qml_teleprompter_saves_page_gap_prefetch_threshold(tmp_path):
     prompter.setConfigValue("page_target_highlight_enabled", False)
     assert prompter.config["page_target_highlight_enabled"] is False
 
+    prompter.setConfigValue("page_timecode_highlight_enabled", True)
+    assert prompter.config["page_timecode_highlight_enabled"] is True
+    assert bridge._global_settings_service.load_settings()[
+        "default_prompter_config"
+    ]["page_timecode_highlight_enabled"] is True
+
     prompter.setConfigValue("page_target_highlight_opacity", 0.31)
     assert prompter.config["page_target_highlight_opacity"] == 0.31
 
@@ -1056,6 +1062,12 @@ def test_qml_teleprompter_saves_page_gap_prefetch_threshold(tmp_path):
 
     prompter.setConfigValue("page_target_highlight_fade_ms", 20000)
     assert prompter.config["page_target_highlight_fade_ms"] == 10000
+
+    prompter.setConfigValue("page_target_highlight_fade_in_ms", 750)
+    assert prompter.config["page_target_highlight_fade_in_ms"] == 750
+
+    prompter.setConfigValue("page_target_highlight_fade_in_ms", 20000)
+    assert prompter.config["page_target_highlight_fade_in_ms"] == 10000
 
     prompter.setConfigValue("colors.page_target_highlight", "#336699")
     assert prompter.config["colors"]["page_target_highlight"] == "#336699"
@@ -1369,6 +1381,45 @@ def test_qml_project_settings_are_atomic_and_undoable():
     assert bridge.project.name == "Settings Project"
 
 
+def test_qml_project_settings_store_fps_only_in_project():
+    _app()
+    bridge = AppBridge()
+
+    assert bridge.settings.applyProjectSettingsWithFps(
+        "FPS Project", "Author", "Studio", 23.976
+    )
+
+    assert bridge.settings.projectFps == 23.976
+    assert bridge.settings.projectFpsDisplay == "23.976"
+    assert bridge._session.data["project_settings"]["fps_source"] == "manual"
+    assert "fps" not in bridge.settings.globalMergeConfig
+    assert "merge_config" not in bridge._session.data["script_storage"]
+
+    bridge.project.undo()
+    assert bridge.settings.projectFps == 25.0
+    bridge.project.redo()
+    assert bridge.settings.projectFps == 23.976
+
+
+def test_qml_project_fps_display_is_compact_without_changing_stored_value():
+    _app()
+    bridge = AppBridge()
+    exact_fps = 24000 / 1001
+    bridge._session.data["project_settings"].update({
+        "fps": exact_fps,
+        "fps_source": "video",
+    })
+
+    assert bridge.settings.projectFps == exact_fps
+    assert bridge.settings.projectFpsDisplay == "23.976"
+
+    bridge._session.data["project_settings"]["fps"] = 25.0
+    assert bridge.settings.projectFpsDisplay == "25"
+
+    bridge._session.data["project_settings"]["fps"] = 29.97
+    assert bridge.settings.projectFpsDisplay == "29.97"
+
+
 def test_audiobook_temporary_documents_use_platform_temp_directory():
     _app()
     bridge = AppBridge()
@@ -1479,7 +1530,7 @@ def test_qml_global_settings_full_persists_unified_import_defaults():
     _app()
     bridge = AppBridge()
     merge = dict(bridge.settings.globalMergeConfig)
-    merge.update({"fps": 30.0, "merge_gap": 60})
+    merge.update({"fps": 30.0, "merge_gap": 60, "merge_gap_seconds": 2.0})
     ass = dict(bridge.settings.globalAssImportConfig)
     ass["character_separator"] = "/"
     srt = dict(bridge.settings.globalSrtImportConfig)
@@ -1499,8 +1550,9 @@ def test_qml_global_settings_full_persists_unified_import_defaults():
     )
 
     saved = bridge._global_settings_service.load_settings()
-    assert saved["default_replica_merge_config"]["fps"] == 30.0
-    assert saved["default_replica_merge_config"]["merge_gap"] == 60.0
+    assert saved["default_replica_merge_config"]["merge_gap_seconds"] == 2.0
+    assert "fps" not in saved["default_replica_merge_config"]
+    assert "merge_gap" not in saved["default_replica_merge_config"]
     assert saved["ass_import_config"]["character_separator"] == "/"
     assert saved["srt_import_config"]["default_character"] == "Voice"
     assert saved["docx_import_config"]["minimum_header_matches"] == 3
@@ -1837,7 +1889,9 @@ def test_qml_bridge_imports_subtitle_file_with_undo(tmp_path):
     assert bridge.casting.linesModel.rowCount() == 1
     assert bridge.casting.charactersModel.rows()[0]["character"] == "Hero"
     assert bridge._session.data["episodes"]["02"] == str(srt_path)
-    assert bridge._session.data["episode_working_texts"]["02"]["lines"][0]["text"] == "Hello from import"
+    assert bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "02"
+    )[0]["text"] == "Hello from import"
     assert project.dirty
     assert project.canUndo
 
@@ -1860,7 +1914,7 @@ def test_qml_bridge_ass_import_uses_global_merge_config(tmp_path):
     bridge = AppBridge()
     bridge._global_settings_service.update_replica_merge_config({
         "merge": True,
-        "merge_gap": 120,
+        "merge_gap_seconds": 4.8,
         "p_short": 0.5,
         "p_long": 2.0,
         "fps": 25,
@@ -1868,6 +1922,7 @@ def test_qml_bridge_ass_import_uses_global_merge_config(tmp_path):
     source = tmp_path / "Episode_03.ass"
     source.write_text(
         "[Script Info]\n"
+        "Video FPS: 24000/1001\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
         "MarginV, Effect, Text\n"
@@ -1878,10 +1933,314 @@ def test_qml_bridge_ass_import_uses_global_merge_config(tmp_path):
 
     bridge.project.importSubtitle(str(source))
 
-    payload = bridge._session.data["episode_working_texts"]["03"]
-    assert len(payload["lines"]) == 1
-    assert payload["lines"][0]["source_texts"] == ["First", "Second"]
-    assert payload["merge_config"]["merge_gap"] == 120.0
+    payload = bridge._session.data["script_storage"]["episodes"]["03"]
+    assert len(payload["source_lines"]) == 2
+    lines = bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "03"
+    )
+    assert len(lines) == 1
+    assert lines[0]["source_texts"] == ["First", "Second"]
+    assert "merge_config" not in bridge._session.data["script_storage"]
+    assert abs(bridge.settings.projectFps - 23.976) < 0.001
+    assert bridge._session.data["project_settings"]["fps_source"] == "ass"
+
+
+def test_qml_first_linked_video_sets_project_fps_when_ass_has_none(
+    tmp_path, monkeypatch
+):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode_07.ass"
+    source.write_text(
+        "[Script Info]\n"
+        "Title: No FPS metadata\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,Line\n",
+        encoding="utf-8",
+    )
+    bridge.project.importSubtitle(str(source))
+    assert bridge._session.data["project_settings"]["fps_source"] == "default"
+
+    video = tmp_path / "Episode_07.mp4"
+    video.write_bytes(b"video-placeholder")
+    monkeypatch.setattr(
+        "services.project_fps_service.probe_video_fps",
+        lambda _path: 29.97,
+    )
+    bridge.projectFiles.relink("07", "video", str(video))
+
+    assert abs(bridge.settings.projectFps - 29.97) < 0.000001
+    assert bridge._session.data["project_settings"]["fps_source"] == "video"
+    assert bridge._session.data["project_settings"]["fps_source_path"] == str(
+        video.resolve()
+    )
+
+
+def test_qml_dynamic_merged_edit_survives_live_unmerge(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.project_service.current_project_path = str(
+        tmp_path / "dynamic-edit.dub"
+    )
+    source = tmp_path / "Episode_04.srt"
+    source.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nHero: First\n\n"
+        "2\n00:00:02,100 --> 00:00:03,000\nHero: Second\n",
+        encoding="utf-8",
+    )
+    bridge.project.importSubtitle(str(source))
+    assert bridge.teleprompter.prepare("04")
+    row = bridge.teleprompter.model.rows()[0]
+    assert len(row["sourceIds"]) == 2
+    assert row["editText"] == "First\nSecond"
+
+    assert bridge.teleprompter.editReplica(
+        row["sourceIds"], "Hero", "Edited first\nEdited second"
+    )
+    bridge._script_text_service.set_merge_config(
+        bridge._session.data,
+        {
+            **bridge._script_text_service.get_merge_config(
+                bridge._session.data
+            ),
+            "merge": False,
+        },
+    )
+    bridge.teleprompter.refresh()
+
+    assert [
+        item["replicaText"] for item in bridge.teleprompter.model.rows()
+    ] == ["Edited first", "Edited second"]
+
+
+def test_qml_dynamic_merge_settings_are_global_not_project_data(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode_05.ass"
+    source.write_text(
+        "[Script Info]\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,First\n"
+        "Dialogue: 0,0:00:02.10,0:00:03.00,Default,Hero,0,0,0,,Second\n",
+        encoding="utf-8",
+    )
+    bridge.project.importSubtitle(str(source))
+    merge = dict(bridge.settings.activeMergeConfig)
+    merge.update({
+        "merge": False,
+        "merge_gap_seconds": 2.5,
+        "p_short": 0.75,
+        "p_long": 2.5,
+    })
+
+    assert bridge.settings.applyGlobalSettingsComplete(
+        "ru",
+        bridge.settings.audiobookKeywords,
+        bridge.settings.globalMontageConfig,
+        bridge.settings.globalPrompterConfig,
+        merge,
+        bridge.settings.globalAssImportConfig,
+        bridge.settings.globalSrtImportConfig,
+        bridge.settings.globalDocxImportConfig,
+        bridge.settings.globalBackupConfig,
+    )
+    assert "merge_config" not in bridge._session.data["script_storage"]
+    assert [
+        line["text"]
+        for line in bridge._script_text_service.load_episode_lines(
+            bridge._session.data, "05"
+        )
+    ] == ["First", "Second"]
+
+    project_path = tmp_path / "merge-settings.dub"
+    assert bridge._session.project_service.save_project_as(
+        bridge._session.data, str(project_path)
+    )
+    loaded = bridge._session.project_service.load_project(str(project_path))
+    assert "merge_config" not in loaded["script_storage"]
+    saved_global = bridge._global_settings_service.load_settings()[
+        "default_replica_merge_config"
+    ]
+    assert saved_global["merge"] is False
+    assert saved_global["merge_gap_seconds"] == 2.5
+
+    reopened = AppBridge()
+    loaded = reopened._session.project_service.load_project(str(project_path))
+    reopened._session.replace_project(loaded, "05")
+    assert [
+        line["text"]
+        for line in reopened._script_text_service.load_episode_lines(
+            reopened._session.data, "05"
+        )
+    ] == ["First", "Second"]
+
+
+def test_qml_parallel_merge_setting_updates_dynamic_project_live(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "parallel.ass"
+    source.write_text(
+        "[Script Info]\n[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+        "Dialogue: 0,0:00:00.00,0:00:04.00,Default,A,0,0,0,,A one\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,B,0,0,0,,B one\n"
+        "Dialogue: 0,0:00:03.00,0:00:04.50,Default,B,0,0,0,,B two\n"
+        "Dialogue: 0,0:00:10.00,0:00:14.00,Default,A,0,0,0,,A two\n",
+        encoding="utf-8",
+    )
+    bridge.project.importSubtitle(str(source))
+    assert [
+        line["char"]
+        for line in bridge._script_text_service.load_episode_lines(
+            bridge._session.data, "1"
+        )
+    ] == ["A", "B", "A"]
+    bridge._session.project_service.is_dirty = False
+    merge = dict(bridge.settings.activeMergeConfig)
+    merge.update({
+        "merge_parallel_replicas": True,
+        "merge_gap_seconds": 10.0,
+        "inline_timecode_brackets": "round",
+    })
+
+    assert bridge.settings.applyGlobalSettingsComplete(
+        "ru",
+        bridge.settings.audiobookKeywords,
+        bridge.settings.globalMontageConfig,
+        bridge.settings.globalPrompterConfig,
+        merge,
+        bridge.settings.globalAssImportConfig,
+        bridge.settings.globalSrtImportConfig,
+        bridge.settings.globalDocxImportConfig,
+        bridge.settings.globalBackupConfig,
+    )
+
+    rendered = bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "1"
+    )
+    assert [line["char"] for line in rendered] == ["A", "B"]
+    assert rendered[0]["text"] == "A one //  (0:00:10) A two"
+    assert rendered[1]["text"] == "B one /  B two"
+    bridge.montage.prepare("1")
+    assert "(00:10)" in bridge.montage.html
+    assert "(00:03)" not in bridge.montage.html
+    assert "B one" in bridge.montage.html
+    assert bridge.teleprompter.prepare("1")
+    prompter_rows = bridge.teleprompter.model.rows()
+    assert prompter_rows[0]["replicaText"].startswith("A one")
+    assert "(00:10) A two" in (
+        prompter_rows[0]["replicaText"]
+    )
+    assert prompter_rows[1]["replicaText"].startswith("B one")
+    assert "(00:03)" not in prompter_rows[1]["replicaText"]
+    assert prompter_rows[0]["parallelExpandable"] is True
+    assert prompter_rows[1]["parallelExpandable"] is True
+    assert [part["time"] for part in prompter_rows[0]["subReplicas"]] == [
+        "0:00:00", "0:00:10",
+    ]
+    assert [part["text"] for part in prompter_rows[0]["subReplicas"]] == [
+        "A one", "A two",
+    ]
+    assert prompter_rows[0]["replicaKey"]
+    assert bridge.settings.activeMergeConfig[
+        "merge_parallel_replicas"
+    ] is True
+    assert "merge_config" not in bridge._session.data["script_storage"]
+    assert not bridge._session.project_service.is_dirty
+
+
+def test_qml_inline_timecodes_are_global_and_not_stored_in_project(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode_06.ass"
+    dialogues = "".join(
+        "Dialogue: 0,0:00:{start:02d}.00,0:00:{end:02d}.90,Default,Hero,"
+        "0,0,0,,Line {number}\n".format(
+            start=index * 2,
+            end=index * 2 + 1,
+            number=index + 1,
+        )
+        for index in range(5)
+    )
+    source.write_text(
+        "[Script Info]\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+        + dialogues,
+        encoding="utf-8",
+    )
+    bridge.project.importSubtitle(str(source))
+    bridge._session.project_service.is_dirty = False
+    merge = dict(bridge.settings.activeMergeConfig)
+    merge.update({
+        "inline_timecodes_enabled": True,
+        "inline_timecode_min_duration": 5.0,
+        "inline_timecode_every": 2,
+        "inline_timecode_brackets": "round",
+    })
+
+    assert bridge.settings.applyGlobalSettingsComplete(
+        "ru",
+        bridge.settings.audiobookKeywords,
+        bridge.settings.globalMontageConfig,
+        bridge.settings.globalPrompterConfig,
+        merge,
+        bridge.settings.globalAssImportConfig,
+        bridge.settings.globalSrtImportConfig,
+        bridge.settings.globalDocxImportConfig,
+        bridge.settings.globalBackupConfig,
+    )
+
+    assert "merge_config" not in bridge._session.data["script_storage"]
+    episode_payload = bridge._session.data["script_storage"]["episodes"]["06"]
+    assert all(
+        "[0:00:" not in line["text"]
+        for line in episode_payload["source_lines"]
+    )
+    assert episode_payload["edit_blocks"] == []
+    assert not bridge._session.project_service.is_dirty
+    rendered = bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "06"
+    )
+    assert "(0:00:04)" in rendered[0]["text"]
+    assert "(0:00:08)" in rendered[0]["text"]
+    bridge.montage.prepare("06")
+    assert "(00:04)" in bridge.montage.html
+    assert "(00:08)" in bridge.montage.html
+    assert bridge.teleprompter.prepare("06")
+    assert "(00:04)" in bridge.teleprompter.model.rows()[0]["replicaText"]
+
+    bridge.montage.setOption("hide_leading_timecode_zeros", False)
+    assert "(0:00:04)" in bridge.montage.html
+    bridge.teleprompter.setConfigValue("hide_leading_timecode_zeros", False)
+    assert "(0:00:04)" in bridge.teleprompter.model.rows()[0]["replicaText"]
+    saved_global = bridge._global_settings_service.load_settings()[
+        "default_replica_merge_config"
+    ]
+    assert saved_global["inline_timecodes_enabled"] is True
+    assert saved_global["inline_timecode_min_duration"] == 5.0
+    assert saved_global["inline_timecode_every"] == 2
+    assert saved_global["inline_timecode_brackets"] == "round"
+
+    project_path = tmp_path / "global-inline-timecodes.dub"
+    assert bridge._session.project_service.save_project_as(
+        bridge._session.data, str(project_path)
+    )
+    disk = json.loads(project_path.read_text(encoding="utf-8"))
+    assert "merge_config" not in disk["script_storage"]
+
+    reopened = AppBridge()
+    loaded = reopened._session.project_service.load_project(str(project_path))
+    reopened._session.replace_project(loaded, "06")
+    assert "(0:00:04)" in reopened._script_text_service.load_episode_lines(
+        reopened._session.data, "06"
+    )[0]["text"]
 
 
 def test_qml_subtitle_import_prepares_unique_editable_episode_names(tmp_path):
@@ -1934,16 +2293,20 @@ def test_qml_subtitle_import_is_atomic_and_undoable(tmp_path):
         "01": str(first),
         "02": str(second),
     }
-    assert set(bridge._session.data["episode_working_texts"]) == {"01", "02"}
+    assert set(
+        bridge._session.data["script_storage"]["episodes"]
+    ) == {"01", "02"}
     assert len(
-        bridge._session.data["episode_working_texts"]["01"]["lines"]
+        bridge._script_text_service.load_episode_lines(
+            bridge._session.data, "01"
+        )
     ) == 1
     assert bridge.project.canUndo
 
     bridge.project.undo()
 
     assert bridge._session.data["episodes"] == {}
-    assert bridge._session.data.get("episode_working_texts", {}) == {}
+    assert bridge._session.data["script_storage"]["episodes"] == {}
     assert bridge.project.episodesModel.rowCount() == 0
 
 
@@ -2034,10 +2397,22 @@ def test_qml_quick_converter_previews_then_converts(tmp_path):
 
 
 def test_qml_quick_converter_line_by_line_mode_updates_preview_and_export(
-    tmp_path,
+    tmp_path, monkeypatch,
 ):
+    from docx import Document
+
     _app()
     bridge = AppBridge()
+    rendered_pdf_html = []
+
+    def render_pdf(_service, html, save_path):
+        rendered_pdf_html.append(html)
+        Path(save_path).write_bytes(b"%PDF-test")
+
+    monkeypatch.setattr(
+        "services.pdf_export_service.PdfExportService.render_html_to_pdf",
+        render_pdf,
+    )
     bridge._global_settings_service.settings[
         "default_replica_merge_config"
     ] = {
@@ -2069,8 +2444,8 @@ def test_qml_quick_converter_line_by_line_mode_updates_preview_and_export(
 
     converter = bridge.converter
     converter.setFormat("html", True)
-    converter.setFormat("docx", False)
-    converter.setFormat("pdf", False)
+    converter.setFormat("docx", True)
+    converter.setFormat("pdf", True)
     converter.setLineByLine(False)
     assert converter.convert([str(source)], True)
     merged_preview = converter.previewHtml
@@ -2086,6 +2461,85 @@ def test_qml_quick_converter_line_by_line_mode_updates_preview_and_export(
     _finish_converter(converter)
     exported = (tmp_path / "line_by_line.html").read_text(encoding="utf-8")
     assert exported.count("<tr style=") == 2
+    document = Document(tmp_path / "line_by_line.docx")
+    cells = [
+        cell.text
+        for table in document.tables
+        for row in table.rows
+        for cell in row.cells
+    ]
+    assert any("First line" in cell for cell in cells)
+    assert any("Second line" in cell for cell in cells)
+    assert not any(
+        "First line" in cell and "Second line" in cell
+        for cell in cells
+    )
+    assert (tmp_path / "line_by_line.pdf").exists()
+    assert rendered_pdf_html[0].count("<tr style=") == 2
+
+
+def test_qml_quick_converter_line_mode_persists_and_notifies_all_views(
+    tmp_path,
+):
+    _app()
+    bridge = AppBridge()
+    mode_changes = []
+    bridge.converter.lineByLineChanged.connect(
+        lambda: mode_changes.append(bridge.converter.lineByLine)
+    )
+
+    bridge.converter.setLineByLine(True)
+
+    assert mode_changes == [True]
+    saved = bridge._global_settings_service.load_settings()
+    assert saved["quick_converter_config"]["line_by_line"] is True
+
+    reopened = AppBridge()
+    assert reopened.converter.lineByLine is True
+    reopened.converter.setLineByLine(False)
+    assert reopened._global_settings_service.load_settings()[
+        "quick_converter_config"
+    ]["line_by_line"] is False
+
+
+def test_qml_quick_converter_inline_timecodes_follow_hide_zeros(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._global_settings_service.update_replica_merge_config({
+        "merge": True,
+        "merge_gap_seconds": 1.0,
+        "inline_timecodes_enabled": True,
+        "inline_timecode_min_duration": 5.0,
+        "inline_timecode_every": 2,
+        "inline_timecode_brackets": "round",
+    })
+    source = tmp_path / "quick-inline.ass"
+    dialogues = "".join(
+        "Dialogue: 0,0:00:{start:02d}.00,0:00:{end:02d}.90,Default,Hero,"
+        "0,0,0,,Line {number}\n".format(
+            start=index * 2,
+            end=index * 2 + 1,
+            number=index + 1,
+        )
+        for index in range(5)
+    )
+    source.write_text(
+        "[Script Info]\n[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n" + dialogues,
+        encoding="utf-8",
+    )
+    converter = bridge.converter
+    converter.setFormat("html", True)
+    converter.setFormat("docx", False)
+    converter.setFormat("pdf", False)
+    converter.setLineByLine(False)
+
+    assert converter.convert([str(source)], True)
+    assert "(00:04)" in converter.previewHtml
+
+    converter.setPreviewOption("hide_leading_timecode_zeros", False)
+    assert "(0:00:04)" in converter.previewHtml
 
 
 def test_qml_quick_converter_demo_settings_are_project_independent(
@@ -2232,15 +2686,29 @@ def test_qml_bridge_imports_docx_with_preview_and_atomic_undo(tmp_path):
 
     assert bridge.project.currentEpisode == "03"
     assert bridge._session.data["episodes"]["03"] == str(path)
-    assert bridge._session.data["episode_working_texts"]["03"]["lines"][0][
-        "text"
-    ] == "First line"
+    assert bridge._script_text_service.load_atomic_episode_lines(
+        bridge._session.data, "03"
+    )[0]["text"] == "First line"
+    payload = bridge._session.data["script_storage"]["episodes"]["03"]
+    assert payload["source"]["line_mode"] == "premerged"
+    assert payload["source"]["import_config"]["mapping"]["text"] == 2
+    assert payload["source"]["import_config"]["table_selection"] == {
+        "mode": "single",
+        "index": 0,
+        "table_count": 1,
+    }
+    assert [
+        line["text"]
+        for line in bridge._script_text_service.load_episode_lines(
+            bridge._session.data, "03"
+        )
+    ] == ["First line", "Second line"]
     assert bridge._global_settings_service.get_docx_import_config()["mapping"]["text"] == 2
 
     bridge.project.undo()
 
     assert "03" not in bridge._session.data["episodes"]
-    assert "03" not in bridge._session.data["episode_working_texts"]
+    assert "03" not in bridge._session.data["script_storage"]["episodes"]
 
 
 def test_qml_bridge_exposes_actor_palette():
@@ -3664,14 +4132,14 @@ def test_qml_bridge_batch_imports_folder_sources_videos_and_texts(tmp_path):
 
     assert set(bridge._session.data["episodes"]) == {"1", "2"}
     assert set(bridge._session.data["video_paths"]) == {"1", "2"}
-    assert set(bridge._session.data["episode_working_texts"]) == {"1", "2"}
+    assert set(bridge._session.data["script_storage"]["episodes"]) == {"1", "2"}
     assert bridge._session.data["project_kind"] == "subtitle"
 
     bridge.project.undo()
 
     assert bridge._session.data["episodes"] == {}
     assert bridge._session.data["video_paths"] == {}
-    assert bridge._session.data["episode_working_texts"] == {}
+    assert bridge._session.data["script_storage"]["episodes"] == {}
     assert project_files.folder == str(tmp_path)
 
 
@@ -3759,6 +4227,54 @@ def test_qml_bridge_links_current_episode_video_and_undoes(tmp_path):
     assert "1" not in bridge._session.data["video_paths"]
 
 
+def test_qml_video_link_refreshes_fps_source_in_project_settings(
+    tmp_path, monkeypatch
+):
+    _app()
+    bridge = AppBridge()
+    video = tmp_path / "Episode_01.mp4"
+    video.write_bytes(b"video")
+    bridge._session.data["episodes"] = {
+        "1": str(tmp_path / "Episode_01.ass")
+    }
+    assert bridge.settings.projectFpsSource == "Значение по умолчанию"
+    settings_refreshes = []
+    bridge.settings.changed.connect(lambda: settings_refreshes.append(True))
+    monkeypatch.setattr(
+        "services.project_fps_service.probe_video_fps",
+        lambda _path: 24000 / 1001,
+    )
+
+    bridge.projectFiles.relink("1", "video", str(video))
+
+    assert bridge.settings.projectFpsDisplay == "23.976"
+    assert bridge.settings.projectFpsSource.endswith("Episode_01.mp4")
+    assert bridge._session.data["project_settings"]["fps_source"] == "video"
+    assert settings_refreshes
+
+
+def test_qml_folder_scan_detects_fps_from_resolved_video(tmp_path, monkeypatch):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode_01.ass"
+    source.write_text("[Script Info]\n[Events]\n", encoding="utf-8")
+    video = tmp_path / "Episode_01.mp4"
+    video.write_bytes(b"video")
+    bridge._session.data["episodes"] = {"1": str(source)}
+    bridge._session.data["video_paths"] = {"1": "missing/Episode_01.mp4"}
+    bridge._session.data["project_settings"]["fps_ass_checked"] = True
+    monkeypatch.setattr(
+        "services.project_fps_service.probe_video_fps",
+        lambda _path: 24000 / 1001,
+    )
+
+    bridge.projectFiles.setFolder(str(tmp_path))
+
+    assert bridge.settings.projectFpsDisplay == "23.976"
+    assert bridge._session.data["project_settings"]["fps_source"] == "video"
+    assert bridge.settings.projectFpsSource.endswith("Episode_01.mp4")
+
+
 def test_qml_bridge_regenerates_working_text_with_undo(tmp_path):
     _app()
     bridge = AppBridge()
@@ -3772,12 +4288,14 @@ def test_qml_bridge_regenerates_working_text_with_undo(tmp_path):
 
     bridge.projectFiles.regenerateWorkingText("1")
 
-    assert bridge._session.data["episode_working_texts"]["1"]["lines"][0]["text"] == "Hello again"
+    assert bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "1"
+    )[0]["text"] == "Hello again"
     assert bridge.casting.charactersModel.rows()[0]["character"] == "Hero"
 
     bridge.project.undo()
 
-    assert "1" not in bridge._session.data["episode_working_texts"]
+    assert "1" not in bridge._session.data["script_storage"]["episodes"]
     assert bridge.casting.charactersModel.rowCount() == 0
 
 
@@ -3812,9 +4330,16 @@ def test_qml_bridge_regenerates_docx_using_saved_mapping_without_merging(tmp_pat
 
     bridge.projectFiles.regenerateWorkingText("2")
 
-    payload = bridge._session.data["episode_working_texts"]["2"]
-    assert [line["text"] for line in payload["lines"]] == ["First", "Second"]
-    assert [line["character"] for line in payload["lines"]] == ["Hero", "Hero"]
+    payload = bridge._session.data["script_storage"]["episodes"]["2"]
+    assert [line["text"] for line in payload["source_lines"]] == ["First", "Second"]
+    assert [line["character"] for line in payload["source_lines"]] == ["Hero", "Hero"]
+    assert payload["source"]["line_mode"] == "premerged"
+    assert [
+        line["text"]
+        for line in bridge._script_text_service.load_episode_lines(
+            bridge._session.data, "2"
+        )
+    ] == ["First", "Second"]
     assert any(
         row["kind"] == "working" and row["canRegenerate"]
         for row in bridge.projectFiles.filesModel.rows()
@@ -3822,7 +4347,7 @@ def test_qml_bridge_regenerates_docx_using_saved_mapping_without_merging(tmp_pat
 
     bridge.project.undo()
 
-    assert "2" not in bridge._session.data["episode_working_texts"]
+    assert "2" not in bridge._session.data["script_storage"]["episodes"]
 
 
 def test_qml_bridge_creates_missing_srt_and_docx_texts_with_one_undo(tmp_path):
@@ -3853,16 +4378,18 @@ def test_qml_bridge_creates_missing_srt_and_docx_texts_with_one_undo(tmp_path):
 
     bridge.projectFiles.createMissingWorkingTexts()
 
-    assert set(bridge._session.data["episode_working_texts"]) == {"1", "2"}
+    assert set(bridge._session.data["script_storage"]["episodes"]) == {"1", "2"}
     assert len(
-        bridge._session.data["episode_working_texts"]["1"]["lines"]
+        bridge._script_text_service.load_episode_lines(
+            bridge._session.data, "1"
+        )
     ) == 1
-    assert bridge._session.data["episode_working_texts"]["2"]["lines"][0][
-        "text"
-    ] == "Document line"
+    assert bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "2"
+    )[0]["text"] == "Document line"
     assert bridge.project.canUndo
 
     bridge.project.undo()
 
-    assert bridge._session.data["episode_working_texts"] == {}
+    assert bridge._session.data["script_storage"]["episodes"] == {}
     assert not bridge.project.canUndo

@@ -16,12 +16,12 @@ from config.constants import (
     DEFAULT_AUDIOBOOK_CONFIG,
     DEFAULT_BACKUP_CONFIG,
     DEFAULT_GLOBAL_SETTINGS,
+    DEFAULT_GLOBAL_MERGE_CONFIG,
     DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
     DEFAULT_PROMPTER_FONT_BOLD,
     DEFAULT_PROMPTER_FONT_SIZES,
     DEFAULT_PROMPTER_CONFIG,
-    DEFAULT_REPLICA_MERGE_CONFIG,
     DEFAULT_SRT_IMPORT_CONFIG,
     PROMPTER_FONT_BOLD_KEYS,
     PROMPTER_FONT_KEYS,
@@ -180,7 +180,7 @@ class GlobalSettingsService:
                 self._normalize_replica_merge_config(
                     loaded.get(
                         'default_replica_merge_config',
-                        DEFAULT_REPLICA_MERGE_CONFIG,
+                        DEFAULT_GLOBAL_MERGE_CONFIG,
                     )
                 )
             )
@@ -261,7 +261,7 @@ class GlobalSettingsService:
                     self._normalize_replica_merge_config(
                         settings.get(
                             'default_replica_merge_config',
-                            DEFAULT_REPLICA_MERGE_CONFIG,
+                            DEFAULT_GLOBAL_MERGE_CONFIG,
                         )
                     )
                 ),
@@ -361,7 +361,7 @@ class GlobalSettingsService:
             'ass_import_config': deepcopy(DEFAULT_ASS_IMPORT_CONFIG),
             'srt_import_config': deepcopy(DEFAULT_SRT_IMPORT_CONFIG),
             'default_replica_merge_config': deepcopy(
-                DEFAULT_REPLICA_MERGE_CONFIG
+                DEFAULT_GLOBAL_MERGE_CONFIG
             ),
             'project_summary_export_metric': DEFAULT_PROJECT_SUMMARY_EXPORT_METRIC,
             'language': DEFAULT_GLOBAL_SETTINGS.get('language', DEFAULT_LANGUAGE),
@@ -516,7 +516,7 @@ class GlobalSettingsService:
             self.settings.get(
                 'default_replica_merge_config',
                 self.settings.get(
-                    'replica_merge_config', DEFAULT_REPLICA_MERGE_CONFIG
+                    'replica_merge_config', DEFAULT_GLOBAL_MERGE_CONFIG
                 ),
             )
         )
@@ -987,6 +987,15 @@ class GlobalSettingsService:
                 DEFAULT_PROMPTER_CONFIG["page_target_highlight_opacity"]
             )
         try:
+            result["page_target_highlight_fade_in_ms"] = max(
+                0,
+                min(10000, int(result["page_target_highlight_fade_in_ms"])),
+            )
+        except (KeyError, TypeError, ValueError):
+            result["page_target_highlight_fade_in_ms"] = (
+                DEFAULT_PROMPTER_CONFIG["page_target_highlight_fade_in_ms"]
+            )
+        try:
             result["page_target_highlight_fade_ms"] = max(
                 0,
                 min(10000, int(result["page_target_highlight_fade_ms"])),
@@ -1167,20 +1176,61 @@ class GlobalSettingsService:
 
     @staticmethod
     def _normalize_replica_merge_config(config: Any) -> Dict[str, Any]:
-        result = deepcopy(DEFAULT_REPLICA_MERGE_CONFIG)
+        result = deepcopy(DEFAULT_GLOBAL_MERGE_CONFIG)
         if not isinstance(config, dict):
             return result
         result['merge'] = bool(config.get('merge', result['merge']))
+        result['merge_parallel_replicas'] = bool(config.get(
+            'merge_parallel_replicas',
+            result['merge_parallel_replicas'],
+        ))
+        result['respect_existing_separators'] = bool(config.get(
+            'respect_existing_separators',
+            result['respect_existing_separators'],
+        ))
+        result['inline_timecodes_enabled'] = bool(config.get(
+            'inline_timecodes_enabled',
+            result['inline_timecodes_enabled'],
+        ))
+        bracket_style = str(config.get(
+            'inline_timecode_brackets',
+            result['inline_timecode_brackets'],
+        ))
+        if bracket_style in {'square', 'round', 'curly'}:
+            result['inline_timecode_brackets'] = bracket_style
+        raw_gap_seconds = config.get('merge_gap_seconds')
+        if raw_gap_seconds is None and 'merge_gap' in config:
+            try:
+                legacy_fps = max(0.001, float(config.get('fps', 25.0)))
+                raw_gap_seconds = float(config['merge_gap']) / legacy_fps
+            except (TypeError, ValueError):
+                raw_gap_seconds = None
+        if raw_gap_seconds is not None:
+            try:
+                result['merge_gap_seconds'] = max(
+                    0.0, min(480.0, float(raw_gap_seconds))
+                )
+            except (TypeError, ValueError):
+                pass
         for key, low, high in (
-            ('fps', 1.0, 120.0),
-            ('merge_gap', 0.0, 12000.0),
             ('p_short', 0.0, 5.0),
             ('p_long', 0.0, 10.0),
+            ('inline_timecode_min_duration', 0.0, 86400.0),
         ):
             try:
                 result[key] = max(low, min(high, float(config.get(key, result[key]))))
             except (TypeError, ValueError):
                 pass
+        try:
+            result['inline_timecode_every'] = max(1, min(
+                1000,
+                int(config.get(
+                    'inline_timecode_every',
+                    result['inline_timecode_every'],
+                )),
+            ))
+        except (TypeError, ValueError):
+            pass
         return result
 
     def _normalize_project_summary_export_metric(self, metric: Any) -> str:
