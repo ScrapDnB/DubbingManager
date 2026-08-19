@@ -50,7 +50,7 @@ def test_packaging_uses_only_the_qml_entry_point():
     assert "'ui.dialogs'" not in spec
 
 
-def test_layout_designer_opens_only_from_settings_and_tools():
+def test_layout_designer_opens_only_from_tools():
     main = (ROOT / "qml" / "Main.qml").read_text(encoding="utf-8")
     settings = (
         ROOT / "qml" / "components" / "GlobalSettingsDialog.qml"
@@ -66,7 +66,7 @@ def test_layout_designer_opens_only_from_settings_and_tools():
     assert main.index('text: qsTr("Быстрый конвертер")') < main.index(
         'text: qsTr("Конструктор макетов…")'
     )
-    assert settings.count("Открыть конструктор макетов…") == 2
+    assert "Открыть конструктор макетов…" not in settings
     assert "Открыть конструктор макетов…" not in montage
     assert "Открыть конструктор макетов…" not in teleprompter
 
@@ -144,8 +144,9 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "lastTimecodeHighlightIndex === index" in source
     assert "longReplicaTargetY(targetIndex, pageScrollMode)" in source
     assert "replicaView.highlightCurrentReplicaAtTimecode(" in source
-    assert 'qsTr("Смещение REAPER (%1 с)")' in source
+    assert 'text: qsTr("Смещение REAPER")' in source
     assert '"reaper_offset_enabled", checked' in source
+    assert '"reaper_offset_seconds", value / 10' in source
     assert "followCurrentReplicaByPage" in source
     assert "ListView.NoHighlightRange" in source
     assert "pageScrollAnimation" in source
@@ -318,22 +319,24 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "visible: window.pageDebugVisible" in source
     assert "Следовать только во время Play" in source
     assert '"sync_play_only", checked' in source
-    assert 'qsTr("Смещение REAPER (%1 с)")' in source
+    assert 'text: qsTr("Смещение REAPER")' in source
+    assert '"reaper_offset_seconds", value / 10' in source
 
     osc_settings = (ROOT / "qml" / "components" / "ReaperOscSettingsPane.qml").read_text(
         encoding="utf-8"
     )
-    assert "Следовать только во время Play" in osc_settings
-    assert '"sync_play_only", checked' in osc_settings
-    assert 'title: qsTr("Синхронизация")' in osc_settings
+    assert "Следовать только во время Play" not in osc_settings
+    assert '"sync_play_only", checked' not in osc_settings
+    assert 'title: qsTr("Запуск")' in osc_settings
     assert 'title: qsTr("OSC-подключение")' in osc_settings
-    assert 'title: qsTr("Исходящие переходы")' in osc_settings
+    assert 'title: qsTr("Исходящие переходы")' not in osc_settings
     assert "Показывать диагностику постраничного режима" not in osc_settings
 
     automation_settings = (ROOT / "qml" / "components" / "TeleprompterSettingsPane.qml").read_text(
         encoding="utf-8"
     )
-    assert 'title: qsTr("Автопрокрутка")' in automation_settings
+    assert 'title: qsTr("Диагностика")' in automation_settings
+    assert 'title: qsTr("Анимация подсветки")' in automation_settings
     assert "Показывать диагностику постраничного режима" in automation_settings
     assert "Считать паузой интервал от:" in automation_settings
     assert "Подтягивать следующую реплику через:" in automation_settings
@@ -474,6 +477,7 @@ def test_macos_main_window_waits_for_native_chrome_before_showing():
 
 
 def test_main_tables_can_clear_their_selection():
+    main = (ROOT / "qml" / "Main.qml").read_text(encoding="utf-8")
     actor_panel = (ROOT / "qml" / "components" / "ActorPanel.qml").read_text(
         encoding="utf-8"
     )
@@ -493,6 +497,10 @@ def test_main_tables_can_clear_their_selection():
     assert "Qt.MetaModifier" in actor_panel
     assert "id: deleteProjectActorsDialog" in actor_panel
     assert "Назначения этих актёров будут сняты:" in actor_panel
+    assert "Импортировать базу…" in actor_panel
+    assert "Экспортировать базу…" in actor_panel
+    assert "onGlobalActorBaseImportRequested" in main
+    assert "onGlobalActorBaseExportRequested" in main
     assert "function clearCharacterSelection()" in character_table
     assert "Keys.onEscapePressed: table.clearCharacterSelection()" in character_table
     assert "characterView.indexAt(" in character_table
@@ -515,6 +523,14 @@ def test_settings_use_platform_navigation_and_shared_page_headers():
     assert "SettingsPageHeader" in project_settings
     assert "backend.projectFpsDisplay" in project_settings
     assert "предварительной версии интерфейс доступен" not in global_settings
+    assert 'title: qsTr("Настройки программы")' in global_settings
+    assert "heading: true" in global_settings
+    assert "searchEnabled: true" in global_settings
+    assert "MontageSettingsPane" not in global_settings
+    assert 'title: qsTr("Вид телесуфлёра")' not in global_settings
+    assert 'title: qsTr("Импорт ASS")' in global_settings
+    assert 'title: qsTr("Импорт SRT")' in global_settings
+    assert 'title: qsTr("Импорт DOCX")' in global_settings
 
 
 def test_interface_onboarding_is_first_run_only_and_reuses_ui_preferences():

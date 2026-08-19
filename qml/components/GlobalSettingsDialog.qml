@@ -9,12 +9,9 @@ NativeDialogWindow {
     id: dialog
 
     required property var appBridge
-    property var layoutDesignerWindow
     readonly property var backend: appBridge ? appBridge.settings : null
     required property color softMuted
 
-    signal actorBaseExportRequested()
-    signal actorBaseImportRequested()
     signal actorColorDisplayModeAccepted(
         string mode, int muteLevel, bool fullHeight, int markerShape, int markerSize
     )
@@ -65,10 +62,10 @@ NativeDialogWindow {
     property string episodeTimelineSortModeDraft: "appearance"
 
     modal: true
-    title: qsTr("Глобальные настройки")
+    title: qsTr("Настройки программы")
     standardButtons: Dialog.NoButton
-    width: boundedWidth(820, 36)
-    height: boundedHeight(590, 36)
+    width: boundedWidth(940, 36)
+    height: boundedHeight(650, 36)
 
     function arrayPreference(value, fallback) {
         try {
@@ -115,7 +112,9 @@ NativeDialogWindow {
         backupModeCombo.currentIndex = backupModeCombo.indexOfValue(
             backupDraft.path_mode || "relative"
         )
-        globalNavigation.currentIndex = 0
+        globalNavigation.currentIndex = Math.max(0, Math.min(
+            9, dialog.appBridge.uiState.intValue("settings.lastPage", 0)
+        ))
         open()
     }
 
@@ -127,18 +126,29 @@ NativeDialogWindow {
             id: globalNavigation
             Layout.preferredWidth: implicitWidth
             Layout.fillHeight: true
+            searchEnabled: true
             sections: [
-                "Интерфейс",
-                "Резервные копии",
-                "Аудиокниги",
-                "Актёры",
-                "Объединение и импорт",
-                "Монтажный лист",
-                "Вид телесуфлёра",
-                "Автоматика телесуфлёра",
-                "REAPER / OSC"
+                { title: "Внешний вид", heading: true },
+                { title: "Интерфейс", page: 0, keywords: "масштаб цвет актёр маркер компактность" },
+                { title: "Главный экран", page: 1, keywords: "таблица колонки таймлайн" },
+                { title: "Проекты и данные", heading: true },
+                { title: "Резервные копии", page: 2, keywords: "автосохранение папка интервал" },
+                { title: "Обработка текста", heading: true },
+                { title: "Объединение реплик", page: 4, keywords: "пауза разделитель таймкод" },
+                { title: "Аудиокниги", page: 3, keywords: "главы ключевые слова" },
+                { title: "Импорт", heading: true },
+                { title: "ASS", page: 5, keywords: "субтитры теги персонаж" },
+                { title: "SRT", page: 6, keywords: "субтитры переносы персонаж" },
+                { title: "DOCX", page: 7, keywords: "пресеты столбцы распознавание" },
+                { title: "Интеграции", heading: true },
+                { title: "REAPER / OSC", page: 8, keywords: "udp порт подключение" },
+                { title: "Дополнительно", heading: true },
+                { title: "Телесуфлёр", page: 9, keywords: "постраничный пауза подсветка клавиши диагностика" }
             ]
             softMuted: dialog.softMuted
+            onCurrentIndexChanged: dialog.appBridge.uiState.setIntValue(
+                "settings.lastPage", currentIndex
+            )
         }
 
         StackLayout {
@@ -193,12 +203,6 @@ NativeDialogWindow {
                             color: dialog.softMuted
                         }
                     }
-                }
-
-                CheckBox {
-                    text: qsTr("Компактные строки в таблицах")
-                    checked: dialog.characterCompactRowsDraft
-                    onToggled: dialog.characterCompactRowsDraft = checked
                 }
 
                 Label {
@@ -335,36 +339,59 @@ NativeDialogWindow {
                     wrapMode: Text.WordWrap
                     color: dialog.softMuted
                 }
-
-                CharacterTableSettingsPane {
-                    Layout.fillWidth: true
-                    columnOrder: dialog.characterColumnsOrderDraft
-                    hiddenColumns: dialog.characterColumnsHiddenDraft
-                    widthModes: dialog.characterColumnWidthsDraft
-                    compactRows: dialog.characterCompactRowsDraft
-                    timelineVisible: dialog.episodeTimelineVisibleDraft
-                    timelineActorColors: dialog.episodeTimelineActorColorsDraft
-                    timelineColorMuteLevel: dialog.episodeTimelineColorMuteLevelDraft
-                    timelinePlacement: dialog.episodeTimelinePlacementDraft
-                    timelineHeight: dialog.episodeTimelineHeightDraft
-                    timelineSortMode: dialog.episodeTimelineSortModeDraft
-                    onConfigurationChanged: function(
-                        order, hidden, widths, compact, timelineVisible,
-                        timelineActorColors, timelineColorMuteLevel,
-                        timelinePlacement, timelineHeight, timelineSortMode
-                    ) {
-                        dialog.characterColumnsOrderDraft = order
-                        dialog.characterColumnsHiddenDraft = hidden
-                        dialog.characterColumnWidthsDraft = widths
-                        dialog.characterCompactRowsDraft = compact
-                        dialog.episodeTimelineVisibleDraft = timelineVisible
-                        dialog.episodeTimelineActorColorsDraft = timelineActorColors
-                        dialog.episodeTimelineColorMuteLevelDraft = timelineColorMuteLevel
-                        dialog.episodeTimelinePlacementDraft = timelinePlacement
-                        dialog.episodeTimelineHeightDraft = timelineHeight
-                        dialog.episodeTimelineSortModeDraft = timelineSortMode
-                    }
                 }
+            }
+
+            ColumnLayout {
+                spacing: 8
+
+                SettingsPageHeader {
+                    title: qsTr("Главный экран")
+                    subtitle: qsTr("Колонки таблицы персонажей и таймлайн серии.")
+                }
+
+                CheckBox {
+                    text: qsTr("Компактные строки в таблицах")
+                    checked: dialog.characterCompactRowsDraft
+                    onToggled: dialog.characterCompactRowsDraft = checked
+                }
+
+                PersistentScrollView {
+                    id: mainScreenSettingsScroll
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    contentWidth: availableWidth
+
+                    CharacterTableSettingsPane {
+                        width: mainScreenSettingsScroll.availableWidth
+                        columnOrder: dialog.characterColumnsOrderDraft
+                        hiddenColumns: dialog.characterColumnsHiddenDraft
+                        widthModes: dialog.characterColumnWidthsDraft
+                        compactRows: dialog.characterCompactRowsDraft
+                        timelineVisible: dialog.episodeTimelineVisibleDraft
+                        timelineActorColors: dialog.episodeTimelineActorColorsDraft
+                        timelineColorMuteLevel: dialog.episodeTimelineColorMuteLevelDraft
+                        timelinePlacement: dialog.episodeTimelinePlacementDraft
+                        timelineHeight: dialog.episodeTimelineHeightDraft
+                        timelineSortMode: dialog.episodeTimelineSortModeDraft
+                        onConfigurationChanged: function(
+                            order, hidden, widths, compact, timelineVisible,
+                            timelineActorColors, timelineColorMuteLevel,
+                            timelinePlacement, timelineHeight, timelineSortMode
+                        ) {
+                            dialog.characterColumnsOrderDraft = order
+                            dialog.characterColumnsHiddenDraft = hidden
+                            dialog.characterColumnWidthsDraft = widths
+                            dialog.characterCompactRowsDraft = compact
+                            dialog.episodeTimelineVisibleDraft = timelineVisible
+                            dialog.episodeTimelineActorColorsDraft = timelineActorColors
+                            dialog.episodeTimelineColorMuteLevelDraft = timelineColorMuteLevel
+                            dialog.episodeTimelinePlacementDraft = timelinePlacement
+                            dialog.episodeTimelineHeightDraft = timelineHeight
+                            dialog.episodeTimelineSortModeDraft = timelineSortMode
+                        }
+                    }
                 }
             }
 
@@ -513,65 +540,79 @@ NativeDialogWindow {
             ColumnLayout {
                 spacing: 8
                 SettingsPageHeader {
-                    title: qsTr("Актёры")
-                    subtitle: qsTr("Глобальная база хранит имена и пол отдельно от проектов. Цвета остаются настройкой проекта.")
+                    title: qsTr("Объединение реплик")
+                    subtitle: dialog.backend.dynamicTextStorage
+                        ? qsTr("Глобальные правила применяются к открытому динамическому проекту на лету.")
+                        : qsTr("Открыт legacy-проект с сохранёнными объединёнными репликами; новые правила применятся к динамическим проектам.")
                 }
-                PersistentListView {
-                    id: globalActorsView
+                ImportSettingsPane {
+                    id: mergeSettingsPane
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    clip: true
-                    model: dialog.appBridge.actorLibrary.globalActorsModel
-                    delegate: ItemDelegate {
-                        id: actorRow
-                        required property string name
-                        required property string gender
-                        width: globalActorsView.viewportWidth
-                        text: name + (gender ? " · " + gender : "")
-                    }
-                    Label {
-                        anchors.centerIn: parent
-                        visible: globalActorsView.count === 0
-                        text: qsTr("Глобальная база пуста")
-                        color: dialog.softMuted
-                    }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    AdaptiveButton {
-                        text: qsTr("Экспорт...")
-                        enabled: globalActorsView.count > 0
-                        onClicked: dialog.actorBaseExportRequested()
-                    }
-                    AdaptiveButton {
-                        text: qsTr("Импорт...")
-                        onClicked: dialog.actorBaseImportRequested()
-                    }
-                    Item { Layout.fillWidth: true }
+                    mergeConfiguration: dialog.mergeDraft
+                    mergeScope: true
+                    assScope: false
+                    srtScope: false
+                    docxScope: false
+                    softMuted: dialog.softMuted
+                    onMergeEdited: function(config) { dialog.mergeDraft = config }
                 }
             }
 
             ColumnLayout {
                 spacing: 8
                 SettingsPageHeader {
-                    title: qsTr("Объединение и импорт")
-                    subtitle: dialog.backend.dynamicTextStorage
-                        ? qsTr("Глобальные правила объединения применяются к открытому проекту на лету; ниже также задаются правила разбора ASS, SRT и DOCX.")
-                        : qsTr("Открыт legacy-проект с сохранёнными объединёнными репликами. Глобальные правила применяются к динамическим проектам; правила ASS, SRT и DOCX используются при импорте.")
+                    title: qsTr("Импорт ASS")
+                    subtitle: qsTr("Правила разбора новых файлов субтитров ASS.")
                 }
                 ImportSettingsPane {
-                    id: importSettingsPane
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    mergeConfiguration: dialog.mergeDraft
                     assConfiguration: dialog.assDraft
+                    mergeScope: false
+                    assScope: true
+                    srtScope: false
+                    docxScope: false
+                    softMuted: dialog.softMuted
+                    onAssEdited: function(config) { dialog.assDraft = config }
+                }
+            }
+
+            ColumnLayout {
+                spacing: 8
+                SettingsPageHeader {
+                    title: qsTr("Импорт SRT")
+                    subtitle: qsTr("Правила разбора новых файлов субтитров SRT.")
+                }
+                ImportSettingsPane {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
                     srtConfiguration: dialog.srtDraft
+                    mergeScope: false
+                    assScope: false
+                    srtScope: true
+                    docxScope: false
+                    softMuted: dialog.softMuted
+                    onSrtEdited: function(config) { dialog.srtDraft = config }
+                }
+            }
+
+            ColumnLayout {
+                spacing: 8
+                SettingsPageHeader {
+                    title: qsTr("Импорт DOCX")
+                    subtitle: qsTr("Пресеты, автоматическое распознавание и сопоставление столбцов.")
+                }
+                ImportSettingsPane {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
                     docxConfiguration: dialog.docxDraft
                     docxPresets: dialog.backend.globalDocxImportPresets
+                    mergeScope: false
+                    assScope: false
+                    srtScope: false
+                    docxScope: true
                     softMuted: dialog.softMuted
-                    onMergeEdited: function(config) { dialog.mergeDraft = config }
-                    onAssEdited: function(config) { dialog.assDraft = config }
-                    onSrtEdited: function(config) { dialog.srtDraft = config }
                     onDocxEdited: function(config) { dialog.docxDraft = config }
                     onSaveDocxPresetRequested: function(name, config) {
                         dialog.backend.saveDocxImportPreset(name, config)
@@ -585,66 +626,8 @@ NativeDialogWindow {
             ColumnLayout {
                 spacing: 8
                 SettingsPageHeader {
-                    title: qsTr("Монтажный лист")
-                    subtitle: qsTr("Единые настройки предпросмотра и экспорта для всех проектов.")
-                }
-                AdaptiveButton {
-                    text: qsTr("Открыть конструктор макетов…")
-                    onClicked: if (dialog.layoutDesignerWindow)
-                        dialog.layoutDesignerWindow.openFor("montage", dialog)
-                }
-                MontageSettingsPane {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    configuration: dialog.montageDraft
-                    onConfigEdited: function(config) { dialog.montageDraft = config }
-                }
-            }
-
-            ColumnLayout {
-                spacing: 8
-                SettingsPageHeader {
-                    title: qsTr("Вид телесуфлёра")
-                    subtitle: qsTr("Оформление, разметка и размеры текста для всех проектов.")
-                }
-                AdaptiveButton {
-                    text: qsTr("Открыть конструктор макетов…")
-                    onClicked: if (dialog.layoutDesignerWindow)
-                        dialog.layoutDesignerWindow.openFor("teleprompter", dialog)
-                }
-                TeleprompterSettingsPane {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    globalScope: true
-                    appearanceScope: true
-                    automationScope: false
-                    configuration: dialog.prompterDraft
-                    onConfigEdited: function(config) { dialog.prompterDraft = config }
-                }
-            }
-
-            ColumnLayout {
-                spacing: 8
-                SettingsPageHeader {
-                    title: qsTr("Автоматика телесуфлёра")
-                    subtitle: qsTr("Прокрутка, постраничные паузы, диагностика и клавиши навигации.")
-                }
-                TeleprompterSettingsPane {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    globalScope: false
-                    appearanceScope: false
-                    automationScope: true
-                    configuration: dialog.prompterDraft
-                    onConfigEdited: function(config) { dialog.prompterDraft = config }
-                }
-            }
-
-            ColumnLayout {
-                spacing: 8
-                SettingsPageHeader {
                     title: qsTr("REAPER / OSC")
-                    subtitle: qsTr("Подключение REAPER и синхронизация телесуфлёра на этом компьютере.")
+                    subtitle: qsTr("Техническое подключение REAPER на этом компьютере.")
                 }
                 ReaperOscSettingsPane {
                     Layout.fillWidth: true
@@ -654,6 +637,23 @@ NativeDialogWindow {
                     onConfigEdited: function(config) {
                         dialog.prompterDraft = config
                     }
+                }
+            }
+
+            ColumnLayout {
+                spacing: 8
+                SettingsPageHeader {
+                    title: qsTr("Телесуфлёр: дополнительно")
+                    subtitle: qsTr("Постраничные паузы, анимация подсветки, навигация и диагностика.")
+                }
+                TeleprompterSettingsPane {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    globalScope: false
+                    appearanceScope: false
+                    automationScope: true
+                    configuration: dialog.prompterDraft
+                    onConfigEdited: function(config) { dialog.prompterDraft = config }
                 }
             }
         }
@@ -666,7 +666,7 @@ NativeDialogWindow {
             highlighted: dialog.macOSStyle
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
             onClicked: {
-                importSettingsPane.commitPendingMergeEdits()
+                mergeSettingsPane.commitPendingMergeEdits()
                 dialog.appBridge.uiState.setBoolValue(
                     "actorColorCellFill",
                     cellColorRadio.checked

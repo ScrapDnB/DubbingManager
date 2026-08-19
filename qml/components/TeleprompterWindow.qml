@@ -1420,17 +1420,45 @@ NativeDialogWindow {
                                     checked: window.config.sync_out
                                     onToggled: window.appBridge.settings.setPrompterSyncEnabled("sync_out", checked)
                                 }
-                                CheckBox {
-                                    text: qsTr("Смещение REAPER (%1 с)").arg(
-                                        Number(window.config.reaper_offset_seconds || 0)
-                                    )
-                                    checked: Boolean(window.config.reaper_offset_enabled)
-                                    onToggled: window.teleprompter.setConfigValue(
-                                        "reaper_offset_enabled", checked
-                                    )
-                                    PlatformToolTip {
-                                        target: parent
-                                        text: qsTr("Число секунд задаётся в глобальных настройках REAPER / OSC.")
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    CheckBox {
+                                        id: reaperOffsetEnabledCheck
+                                        Layout.fillWidth: true
+                                        text: qsTr("Смещение REAPER")
+                                        checked: Boolean(
+                                            window.config.reaper_offset_enabled
+                                        )
+                                        onToggled: window.teleprompter.setConfigValue(
+                                            "reaper_offset_enabled", checked
+                                        )
+                                    }
+                                    SpinBox {
+                                        Layout.preferredWidth: 102
+                                        enabled: reaperOffsetEnabledCheck.checked
+                                        from: -600
+                                        to: 600
+                                        stepSize: 1
+                                        editable: true
+                                        value: Math.round(Number(
+                                            window.config.reaper_offset_seconds
+                                                === undefined
+                                                ? -2
+                                                : window.config.reaper_offset_seconds
+                                        ) * 10)
+                                        textFromValue: function(value) {
+                                            return (value / 10).toFixed(1) + " с"
+                                        }
+                                        valueFromText: function(text) {
+                                            return Math.round(Number(
+                                                text.replace(",", ".")
+                                                    .replace(/[^0-9.\-]/g, "")
+                                            ) * 10)
+                                        }
+                                        onValueModified: window.teleprompter.setConfigValue(
+                                            "reaper_offset_seconds", value / 10
+                                        )
+                                        Accessible.name: qsTr("Смещение REAPER, секунд")
                                     }
                                 }
                                 Label {

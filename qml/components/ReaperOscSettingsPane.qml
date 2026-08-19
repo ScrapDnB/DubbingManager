@@ -25,7 +25,7 @@ PersistentScrollView {
         spacing: 14
 
         FormSection {
-            title: qsTr("Синхронизация")
+            title: qsTr("Запуск")
             Layout.fillWidth: true
 
             GridLayout {
@@ -38,29 +38,6 @@ PersistentScrollView {
                     text: qsTr("Включать OSC при открытии телесуфлёра")
                     checked: Boolean(pane.configuration.osc_enabled)
                     onToggled: pane.setValue("osc_enabled", checked)
-                    Layout.columnSpan: 2
-                }
-                CheckBox {
-                    text: qsTr("Телесуфлёр следует за позицией REAPER")
-                    checked: Boolean(pane.configuration.sync_in)
-                    onToggled: pane.setValue("sync_in", checked)
-                    Layout.columnSpan: 2
-                }
-                CheckBox {
-                    text: qsTr("Следовать только во время Play")
-                    checked: Boolean(pane.configuration.sync_play_only)
-                    enabled: Boolean(pane.configuration.sync_in)
-                    onToggled: pane.setValue("sync_play_only", checked)
-                    Layout.columnSpan: 2
-                    PlatformToolTip {
-                        target: parent
-                        text: qsTr("Игнорирует изменения курсора, пока транспорт REAPER остановлен или на паузе.")
-                    }
-                }
-                CheckBox {
-                    text: qsTr("Навигация телесуфлёра управляет REAPER")
-                    checked: Boolean(pane.configuration.sync_out)
-                    onToggled: pane.setValue("sync_out", checked)
                     Layout.columnSpan: 2
                 }
             }
@@ -98,57 +75,6 @@ PersistentScrollView {
                         onValueModified: pane.setValue("port_out", value)
                     }
                     Label { text: qsTr("UDP"); color: pane.softMuted }
-                }
-            }
-        }
-
-        FormSection {
-            title: qsTr("Исходящие переходы")
-            Layout.fillWidth: true
-
-            GridLayout {
-                anchors.fill: parent
-                columns: 2
-                columnSpacing: 14
-                rowSpacing: 8
-
-                CheckBox {
-                    id: offsetEnabled
-                    text: qsTr("Смещать позицию REAPER относительно телесуфлёра")
-                    checked: Boolean(pane.configuration.reaper_offset_enabled)
-                    onToggled: pane.setValue("reaper_offset_enabled", checked)
-                    Layout.columnSpan: 2
-                    PlatformToolTip {
-                        target: parent
-                        text: qsTr("Применяется только к переходам, которые телесуфлёр отправляет в REAPER. Автоматическая прокрутка использует фактический Time REAPER.")
-                    }
-                }
-                Label {
-                    text: qsTr("Смещение:")
-                    enabled: offsetEnabled.checked
-                }
-                RowLayout {
-                    enabled: offsetEnabled.checked
-                    SpinBox {
-                        from: -600
-                        to: 600
-                        stepSize: 1
-                        editable: true
-                        value: Math.round(Number(
-                            pane.configuration.reaper_offset_seconds === undefined
-                                ? -2 : pane.configuration.reaper_offset_seconds
-                        ) * 10)
-                        textFromValue: function(value) {
-                            return (value / 10).toFixed(1)
-                        }
-                        valueFromText: function(text) {
-                            return Math.round(Number(text.replace(",", ".")) * 10)
-                        }
-                        onValueModified: pane.setValue(
-                            "reaper_offset_seconds", value / 10
-                        )
-                    }
-                    Label { text: qsTr("сек"); color: pane.softMuted }
                 }
             }
         }

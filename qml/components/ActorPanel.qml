@@ -23,6 +23,8 @@ Item {
     signal actorRolesRequested(string actorId)
     signal bulkTransferRequested()
     signal globalBulkTransferRequested()
+    signal globalActorBaseExportRequested()
+    signal globalActorBaseImportRequested()
 
     SplitView.preferredWidth: 330
     SplitView.minimumWidth: 180
@@ -951,6 +953,26 @@ Item {
                 Layout.fillWidth: !panel.macOSStyle
             }
             Item { Layout.fillWidth: true }
+            AdaptiveButton {
+                id: globalActorDataButton
+                visible: panel.globalMode
+                text: qsTr("Ещё…")
+                onClicked: globalActorDataMenu.popup()
+
+                Menu {
+                    id: globalActorDataMenu
+                    y: -implicitHeight
+                    MenuItem {
+                        text: qsTr("Импортировать базу…")
+                        onTriggered: panel.globalActorBaseImportRequested()
+                    }
+                    MenuItem {
+                        text: qsTr("Экспортировать базу…")
+                        enabled: actorsView.count > 0
+                        onTriggered: panel.globalActorBaseExportRequested()
+                    }
+                }
+            }
             AdaptiveButton {
                 id: reportButton
                 text: qsTr("Отчёт")

@@ -125,18 +125,15 @@ PersistentScrollView {
 
         FormSection {
             visible: pane.automationScope
-            title: qsTr("Автопрокрутка")
+            title: qsTr("Диагностика")
             Layout.fillWidth: true
             GridLayout {
                 anchors.fill: parent
-                columns: 3
-                Label { text: qsTr("Уровень плавности: %1%").arg(pane.scrollSmoothnessLevel()); Layout.columnSpan: 2 }
-                Slider { from: 0; to: 100; value: pane.configuration.scroll_smoothness_slider === undefined ? 18 : Number(pane.configuration.scroll_smoothness_slider); onMoved: pane.setValue("scroll_smoothness_slider", Math.round(value)); Layout.fillWidth: true }
+                columns: 1
                 CheckBox {
                     text: qsTr("Показывать диагностику постраничного режима")
                     checked: Boolean(pane.configuration.page_debug_overlay)
                     onToggled: pane.setValue("page_debug_overlay", checked)
-                    Layout.columnSpan: 3
                 }
             }
         }
@@ -196,6 +193,57 @@ PersistentScrollView {
                         )
                     }
                     Label { text: qsTr("с") }
+                }
+            }
+        }
+
+        FormSection {
+            visible: pane.automationScope
+            title: qsTr("Анимация подсветки")
+            Layout.fillWidth: true
+            GridLayout {
+                anchors.fill: parent
+                columns: 2
+                columnSpacing: 14
+                rowSpacing: 8
+
+                Label { text: qsTr("Появление до реплики:") }
+                RowLayout {
+                    SpinBox {
+                        from: 0
+                        to: 10000
+                        stepSize: 100
+                        editable: true
+                        value: Number(
+                            pane.configuration.page_target_highlight_fade_in_ms
+                                === undefined
+                                ? 500
+                                : pane.configuration.page_target_highlight_fade_in_ms
+                        )
+                        onValueModified: pane.setValue(
+                            "page_target_highlight_fade_in_ms", value
+                        )
+                    }
+                    Label { text: qsTr("мс") }
+                }
+                Label { text: qsTr("Затухание после реплики:") }
+                RowLayout {
+                    SpinBox {
+                        from: 0
+                        to: 10000
+                        stepSize: 100
+                        editable: true
+                        value: Number(
+                            pane.configuration.page_target_highlight_fade_ms
+                                === undefined
+                                ? 1000
+                                : pane.configuration.page_target_highlight_fade_ms
+                        )
+                        onValueModified: pane.setValue(
+                            "page_target_highlight_fade_ms", value
+                        )
+                    }
+                    Label { text: qsTr("мс") }
                 }
             }
         }

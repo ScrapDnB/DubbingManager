@@ -775,7 +775,6 @@ ApplicationWindow {
         ownerWindow: root
         appBridge: root.appBridge
         softMuted: root.softMuted
-        layoutDesignerWindow: layoutDesignerWindow
         actorColorDisplayMode: root.actorColorDisplayMode
         actorColorMuteLevel: root.actorColorMuteLevel
         actorColorCellFillFullHeight: root.actorColorCellFillFullHeight
@@ -792,8 +791,6 @@ ApplicationWindow {
         episodeTimelinePlacement: root.episodeTimelinePlacement
         episodeTimelineHeight: root.episodeTimelineHeight
         episodeTimelineSortMode: root.episodeTimelineSortMode
-        onActorBaseExportRequested: exportGlobalActorsDialog.open()
-        onActorBaseImportRequested: importGlobalActorsDialog.open()
         onActorColorDisplayModeAccepted: function(
             mode, muteLevel, fullHeight, markerShape, markerSize
         ) {
@@ -1193,6 +1190,8 @@ ApplicationWindow {
                 }
                 onBulkTransferRequested: actorTransferDialog.openForProject()
                 onGlobalBulkTransferRequested: globalActorTransferDialog.openForProject()
+                onGlobalActorBaseExportRequested: exportGlobalActorsDialog.open()
+                onGlobalActorBaseImportRequested: importGlobalActorsDialog.open()
             }
 
             SplitView {

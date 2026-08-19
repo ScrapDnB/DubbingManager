@@ -13,6 +13,10 @@ Item {
     property var docxConfiguration: ({})
     property var docxPresets: []
     property color softMuted: palette.placeholderText
+    property bool mergeScope: true
+    property bool assScope: true
+    property bool srtScope: true
+    property bool docxScope: true
 
     signal mergeEdited(var config)
     signal assEdited(var config)
@@ -163,12 +167,15 @@ Item {
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Глобальные правила объединения управляют отображением реплик во всех динамических проектах и применяются на лету. FPS хранится отдельно в настройках проекта. Параметры ASS, SRT и DOCX используются только при разборе исходников.")
+                text: pane.mergeScope
+                    ? qsTr("Глобальные правила объединения применяются ко всем динамическим проектам на лету. FPS хранится отдельно в настройках проекта.")
+                    : qsTr("Параметры формата используются при разборе новых исходников и не изменяют уже импортированный текст.")
                 wrapMode: Text.WordWrap
                 color: pane.softMuted
             }
 
             FormSection {
+                visible: pane.mergeScope
                 title: qsTr("Объединение реплик")
                 Layout.fillWidth: true
                 GridLayout {
@@ -336,6 +343,7 @@ Item {
             }
 
             FormSection {
+                visible: pane.assScope
                 title: qsTr("ASS")
                 Layout.fillWidth: true
                 GridLayout {
@@ -369,6 +377,7 @@ Item {
             }
 
             FormSection {
+                visible: pane.srtScope
                 title: qsTr("SRT")
                 Layout.fillWidth: true
                 GridLayout {
@@ -411,6 +420,7 @@ Item {
             }
 
             FormSection {
+                visible: pane.docxScope
                 title: qsTr("DOCX: пресеты")
                 Layout.fillWidth: true
 
@@ -463,6 +473,7 @@ Item {
             }
 
             FormSection {
+                visible: pane.docxScope
                 title: qsTr("DOCX: автоматическое распознавание")
                 Layout.fillWidth: true
                 GridLayout {
@@ -534,6 +545,7 @@ Item {
             }
 
             FormSection {
+                visible: pane.docxScope
                 title: qsTr("DOCX: порядок распознавания")
                 Layout.fillWidth: true
 
@@ -591,6 +603,7 @@ Item {
             }
 
             FormSection {
+                visible: pane.docxScope
                 title: qsTr("DOCX: столбцы без заголовков")
                 Layout.fillWidth: true
 
@@ -648,6 +661,7 @@ Item {
             }
 
             FormSection {
+                visible: pane.docxScope
                 title: qsTr("DOCX: названия столбцов")
                 Layout.fillWidth: true
                 GridLayout {
