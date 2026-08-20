@@ -176,7 +176,7 @@ Item {
 
             FormSection {
                 visible: pane.mergeScope
-                title: qsTr("Объединение реплик")
+                title: qsTr("Формирование реплик")
                 Layout.fillWidth: true
                 GridLayout {
                     anchors.fill: parent
@@ -186,14 +186,14 @@ Item {
 
                     CheckBox {
                         id: mergeEnabledCheck
-                        text: qsTr("Объединять близкие реплики одного персонажа")
+                        text: qsTr("Объединять близкие строки одного персонажа")
                         checked: Boolean(pane.mergeConfiguration.merge)
                         Layout.columnSpan: 2
                         onToggled: pane.setMergeValue("merge", checked)
                     }
                     CheckBox {
                         id: mergeParallelCheck
-                        text: qsTr("Не разрывать реплики параллельными репликами других персонажей")
+                        text: qsTr("Не разрывать объединение параллельными строками других персонажей")
                         checked: Boolean(
                             pane.mergeConfiguration.merge_parallel_replicas
                         )
@@ -315,7 +315,7 @@ Item {
                         )
                     }
                     Label {
-                        text: qsTr("Интервал, исходных реплик:")
+                        text: qsTr("Интервал, исходных строк:")
                         enabled: inlineTimecodesCheck.checked
                     }
                     TextField {
@@ -387,13 +387,13 @@ Item {
                     rowSpacing: 6
 
                     CheckBox {
-                        text: qsTr("Распознавать имя персонажа в начале реплики")
+                        text: qsTr("Распознавать имя персонажа в начале строки")
                         checked: Boolean(pane.srtConfiguration.detect_character_prefix)
                         Layout.columnSpan: 2
                         onToggled: pane.setSrtValue("detect_character_prefix", checked)
                     }
                     CheckBox {
-                        text: qsTr("Сохранять переносы строк внутри реплики")
+                        text: qsTr("Сохранять переносы внутри исходной строки")
                         checked: Boolean(pane.srtConfiguration.keep_multiline)
                         Layout.columnSpan: 2
                         onToggled: pane.setSrtValue("keep_multiline", checked)

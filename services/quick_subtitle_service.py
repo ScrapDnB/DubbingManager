@@ -46,7 +46,7 @@ class QuickSubtitleService:
         """Return normalized lines for quick preview."""
         _stats, lines = self.parse_file(path)
         if not lines:
-            raise ValueError("в файле нет реплик")
+            raise ValueError("в файле нет строк субтитров")
         return self.normalize_lines(lines)
 
     def preview_html(
@@ -179,7 +179,7 @@ class QuickSubtitleService:
     ]:
         _stats, lines = self.parse_file(path)
         if not lines:
-            raise ValueError("в файле нет реплик")
+            raise ValueError("в файле нет строк субтитров")
         lines = self.normalize_lines(lines)
         cfg = self.export_config(config)
         project_data = {

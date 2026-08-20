@@ -204,7 +204,7 @@ Item {
                                     }
                                     Label {
                                         width: parent.width
-                                        text: scope + " · " + rings + " колец · " + words + " слов"
+                                        text: scope + " · " + rings + " реплик · " + words + " слов"
                                         elide: Text.ElideRight
                                         maximumLineCount: 1
                                         color: sidebar.softMuted

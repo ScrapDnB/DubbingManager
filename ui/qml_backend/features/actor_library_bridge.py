@@ -49,6 +49,11 @@ class ActorLibraryBridge(QObject):
         self._global_choice_model = DictListModel({
             "id": Qt.UserRole + 1, "name": Qt.UserRole + 2,
         }, self)
+        self._global_search_model = DictListModel({
+            "id": Qt.UserRole + 1, "name": Qt.UserRole + 2,
+            "gender": Qt.UserRole + 3,
+        }, self)
+        self._global_search_text = ""
         self._merge_target_model = DictListModel({
             "targetId": Qt.UserRole + 1, "targetKind": Qt.UserRole + 2,
             "label": Qt.UserRole + 3,
@@ -66,6 +71,10 @@ class ActorLibraryBridge(QObject):
     @Property(QObject, constant=True)
     def globalActorChoicesModel(self) -> QObject:
         return self._global_choice_model
+
+    @Property(QObject, constant=True)
+    def globalActorSearchModel(self) -> QObject:
+        return self._global_search_model
 
     @Property(QObject, constant=True)
     def mergeTargetModel(self) -> QObject:
@@ -90,6 +99,11 @@ class ActorLibraryBridge(QObject):
             self._actor_sort_ascending = True
         self._save_sort()
         self.refresh()
+
+    @Slot(str)
+    def setGlobalActorSearchText(self, text: str) -> None:
+        self._global_search_text = (text or "").strip().casefold()
+        self._refresh_global_search_model()
 
     def _restore_sort(self) -> tuple[str, bool]:
         if self._ui_state is None:
@@ -532,22 +546,49 @@ class ActorLibraryBridge(QObject):
             reverse=not self._actor_sort_ascending,
         )
         self._global_model.set_rows(global_rows)
+        available_actors = [
+            (actor_id, actor)
+            for actor_id, actor in sorted(
+                self._settings.get_global_actor_base().items(),
+                key=lambda item: str(item[1].get("name", item[0])).casefold(),
+            )
+            if not self._project_actor_by_name(
+                str(actor.get("name", actor_id))
+            )
+        ]
         self._global_choice_model.set_rows([
             {"id": "", "name": "Создать нового актёра"},
             *[
                 {"id": actor_id, "name": actor.get("name", actor_id)}
+                for actor_id, actor in available_actors
+            ],
+        ])
+        self._refresh_global_search_model(available_actors)
+        self.changed.emit()
+
+    def _refresh_global_search_model(self, available_actors=None) -> None:
+        if available_actors is None:
+            available_actors = [
+                (actor_id, actor)
                 for actor_id, actor in sorted(
                     self._settings.get_global_actor_base().items(),
-                    key=lambda item: str(
-                        item[1].get("name", item[0])
-                    ).casefold(),
+                    key=lambda item: str(item[1].get("name", item[0])).casefold(),
                 )
                 if not self._project_actor_by_name(
                     str(actor.get("name", actor_id))
                 )
-            ],
+            ]
+        self._global_search_model.set_rows([
+            {
+                "id": actor_id,
+                "name": actor.get("name", actor_id),
+                "gender": actor.get("gender", ""),
+            }
+            for actor_id, actor in available_actors
+            if self._global_search_text in str(
+                actor.get("name", actor_id)
+            ).casefold()
         ])
-        self.changed.emit()
 
     def _actor_sort_value(self, row: dict):
         value = row.get(self._actor_sort_key)

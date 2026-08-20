@@ -12,6 +12,7 @@ NativeDialogWindow {
     required property color softAltRow
     required property color softMuted
     property var selectedIds: ({})
+    property string searchText: ""
 
     title: qsTr("Добавить актёров из глобальной базы")
     modal: true
@@ -21,12 +22,21 @@ NativeDialogWindow {
 
     function openForProject() {
         selectedIds = ({})
+        searchField.text = ""
         actorLibraryBackend.refresh()
         open()
     }
 
     content: ColumnLayout {
         anchors.fill: parent
+
+        TextField {
+            id: searchField
+            Layout.fillWidth: true
+            placeholderText: qsTr("Поиск актёра")
+            selectByMouse: true
+            onTextChanged: dialog.searchText = text.trim().toLocaleLowerCase()
+        }
 
         PersistentListView {
             id: transferView
@@ -41,7 +51,11 @@ NativeDialogWindow {
                 required property string name
                 required property bool inProject
                 width: transferView.viewportWidth
-                height: dialog.regularRowHeight
+                readonly property bool matches: name.toLocaleLowerCase().indexOf(
+                    dialog.searchText
+                ) >= 0
+                height: matches ? dialog.regularRowHeight : 0
+                visible: matches
                 color: index % 2 === 0 ? dialog.softRow : dialog.softAltRow
 
                 RowLayout {

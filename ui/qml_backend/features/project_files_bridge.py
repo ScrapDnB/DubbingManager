@@ -1,17 +1,23 @@
 """QML backend for project file links and project health checks."""
 
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from PySide6.QtCore import QObject, Property, QUrl, Signal, Slot, Qt
 
+from config.constants import PROJECT_VERSION
 from core.commands import UpdateProjectFileStateCommand
 from services.docx_import_service import DocxImportService
 from services.dynamic_script_storage import (
     SOURCE_LINE_MODE_ATOMIC,
     SOURCE_LINE_MODE_PREMERGED,
+    new_script_storage,
 )
+from services.episode_service import EpisodeService
+from services.export_service import ExportService
 from services.project_fps_service import consider_ass_fps, consider_video_fps
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
@@ -145,6 +151,41 @@ class ProjectFilesBridge(QObject):
     def healthModel(self) -> QObject:
         return self._health_model
 
+    @Property(bool, notify=filesChanged)
+    def legacyMergedProject(self) -> bool:
+        """Return whether the open subtitle project uses saved merged lines."""
+        runtime = self._session.data.get("_project_format")
+        return bool(
+            self._session.data.get("project_kind") == "subtitle"
+            and isinstance(runtime, dict)
+            and runtime.get("storage_model") == "legacy_merged"
+        )
+
+    @Property(bool, notify=filesChanged)
+    def canConvertToNewFormat(self) -> bool:
+        """Return whether every legacy episode has a resolved ASS source."""
+        return bool(
+            self.legacyMergedProject
+            and self._conversion_episode_names(self._session.data)
+            and not self._missing_conversion_ass(self._session.data)
+        )
+
+    @Property(str, notify=filesChanged)
+    def conversionStatus(self) -> str:
+        """Explain whether the legacy project can be converted."""
+        if not self.legacyMergedProject:
+            return ""
+        episodes = self._conversion_episode_names(self._session.data)
+        if not episodes:
+            return "В проекте нет серий для конвертации"
+        missing = self._missing_conversion_ass(self._session.data)
+        if missing:
+            return (
+                "Для конвертации должны быть найдены ASS всех серий. "
+                f"Не найдены: {', '.join(missing)}"
+            )
+        return "Все ASS найдены; проект можно конвертировать в формат 2.0"
+
     @Slot()
     def refresh(self) -> None:
         self._project_folder_service.invalidate_cache()
@@ -167,15 +208,136 @@ class ProjectFilesBridge(QObject):
         materialized = self._materialize_missing_source_lines(candidate)
         if not materialized:
             self.statusRequested.emit(
-                "Нет рабочих текстов, которым нужны построчные реплики"
+                "Нет рабочих текстов, которым нужны исходные строки"
             )
             return
         self._push_file_state(
             candidate,
-            "Созданы построчные реплики из исходников",
+            "Созданы исходные строки из файлов субтитров",
         )
         self.statusRequested.emit(
-            f"Созданы построчные реплики: {materialized}"
+            f"Созданы исходные строки: {materialized}"
+        )
+
+    @Slot()
+    def convertToNewFormat(self) -> None:
+        """Convert a legacy merged project to dynamic ASS-backed storage."""
+        if not self.legacyMergedProject:
+            self.errorRequested.emit(
+                "Конвертация доступна только для проектов старого формата"
+            )
+            return
+
+        episodes = self._conversion_episode_names(self._session.data)
+        missing = self._missing_conversion_ass(self._session.data)
+        if not episodes:
+            self.errorRequested.emit("В проекте нет серий для конвертации")
+            return
+        if missing:
+            self.errorRequested.emit(
+                "Для конвертации должны быть найдены ASS всех серий: "
+                + ", ".join(missing)
+            )
+            return
+
+        candidate = deepcopy(self._session.data)
+        legacy_payloads = deepcopy(candidate.get("episode_working_texts", {}))
+        parsed_by_episode: Dict[str, List[Dict[str, Any]]] = {}
+        sources: Dict[str, str] = {}
+        import_configs: Dict[str, Dict[str, Any]] = {}
+
+        try:
+            # Older projects may keep their editable working text in a file
+            # instead of embedding it in the project.  Load those payloads
+            # before clearing ``episode_texts`` so their edits are migrated
+            # into dynamic edit blocks as well.
+            for episode in episodes:
+                if episode in legacy_payloads:
+                    continue
+                legacy_path = candidate.get("episode_texts", {}).get(episode)
+                if not legacy_path:
+                    continue
+                resolved_path = self._project_folder_service.resolve_project_path(
+                    candidate, legacy_path
+                )
+                if not resolved_path or not Path(resolved_path).is_file():
+                    raise ValueError(
+                        f"не найден рабочий текст серии {episode}"
+                    )
+                payload = self._script_text_service.load_episode_text(
+                    resolved_path
+                )
+                if not isinstance(payload, dict):
+                    raise ValueError(
+                        f"некорректный рабочий текст серии {episode}"
+                    )
+                legacy_payloads[episode] = payload
+
+            for episode in episodes:
+                source = self._resolved_episode_source(episode, candidate)
+                import_config = self._legacy_ass_import_config(
+                    candidate, episode
+                )
+                _stats, lines = EpisodeService(
+                    ass_import_config=import_config
+                ).parse_ass_file(source)
+                if not lines:
+                    raise ValueError(
+                        f"в ASS серии {episode} не найдено строк"
+                    )
+                sources[episode] = source
+                parsed_by_episode[episode] = lines
+                import_configs[episode] = import_config
+
+            candidate["script_storage"] = new_script_storage()
+            candidate["episode_working_texts"] = {}
+            candidate["episode_texts"] = {}
+            candidate.setdefault("loaded_episodes", {}).clear()
+
+            for episode in episodes:
+                source = sources[episode]
+                lines = parsed_by_episode[episode]
+                self._script_text_service.create_episode_text(
+                    candidate,
+                    episode,
+                    source,
+                    lines,
+                    self._script_text_service.get_merge_config(candidate),
+                    self._session.project_service.current_project_path or None,
+                    import_config=import_configs[episode],
+                    line_mode=SOURCE_LINE_MODE_ATOMIC,
+                )
+                dynamic_payload = candidate["script_storage"]["episodes"][
+                    episode
+                ]
+                legacy_payload = legacy_payloads.get(episode)
+                if isinstance(legacy_payload, dict):
+                    self._restore_legacy_edits(
+                        candidate,
+                        episode,
+                        legacy_payload,
+                        dynamic_payload,
+                        lines,
+                    )
+        except Exception as exc:
+            self.errorRequested.emit(f"Не удалось конвертировать проект: {exc}")
+            return
+
+        candidate["_project_format"] = {
+            "storage_model": "dynamic_source",
+            "original_version": PROJECT_VERSION,
+            "preserved_fields": {},
+        }
+        if not self._push_file_state(
+            candidate,
+            "Проект конвертирован в новый формат",
+            include_format=True,
+        ):
+            return
+        self._episode_service.clear_cache()
+        self.statusRequested.emit(
+            f"Проект конвертирован в формат {PROJECT_VERSION}: "
+            f"серий {len(episodes)}"
         )
 
     def _materialize_missing_source_lines(
@@ -451,7 +613,7 @@ class ProjectFilesBridge(QObject):
             )
             return
         if not lines:
-            self.errorRequested.emit("В исходном файле нет реплик")
+            self.errorRequested.emit("В исходном файле нет строк")
             return
 
         candidate = deepcopy(self._session.data)
@@ -669,7 +831,7 @@ class ProjectFilesBridge(QObject):
                 "kind": "working",
                 "kindLabel": "Рабочий текст",
                 "status": "В проекте" if has_embedded and has_source_lines else (
-                    "Нет построчных реплик" if has_embedded else (
+                    "Нет исходных строк" if has_embedded else (
                     "Найден" if legacy_exists else (
                         "Не найден" if legacy_path else "Не создан"
                     ))
@@ -784,6 +946,7 @@ class ProjectFilesBridge(QObject):
         description: str,
         include_folder: bool = False,
         include_project_kind: bool = False,
+        include_format: bool = False,
     ) -> bool:
         fields = [
             "episodes",
@@ -798,6 +961,8 @@ class ProjectFilesBridge(QObject):
             fields.append("project_folder")
         if include_project_kind:
             fields.append("project_kind")
+        if include_format:
+            fields.append("_project_format")
         updates = {
             field: candidate.get(field)
             for field in fields
@@ -817,6 +982,220 @@ class ProjectFilesBridge(QObject):
         )
         self.projectDataChanged.emit("project_files")
         return True
+
+    @staticmethod
+    def _conversion_episode_names(project_data: Dict[str, Any]) -> List[str]:
+        """Return every legacy subtitle episode that must be converted."""
+        names = {
+            str(name)
+            for mapping in (
+                project_data.get("episodes", {}),
+                project_data.get("episode_working_texts", {}),
+                project_data.get("episode_texts", {}),
+            )
+            if isinstance(mapping, dict)
+            for name in mapping
+        }
+        return sorted(names, key=_episode_sort_key)
+
+    def _missing_conversion_ass(
+        self,
+        project_data: Dict[str, Any],
+    ) -> List[str]:
+        """Return episodes without a resolved ASS source file."""
+        missing = []
+        for episode in self._conversion_episode_names(project_data):
+            source = self._resolved_episode_source(episode, project_data)
+            if not source or Path(source).suffix.lower() != ".ass":
+                missing.append(episode)
+        return missing
+
+    def _legacy_ass_import_config(
+        self,
+        project_data: Dict[str, Any],
+        episode: str,
+    ) -> Dict[str, Any]:
+        """Return the ASS rules used by the legacy project when available."""
+        payload = self._script_text_service.get_episode_payload(
+            project_data, episode
+        )
+        source = payload.get("source") if isinstance(payload, dict) else None
+        saved = source.get("import_config") if isinstance(source, dict) else None
+        if isinstance(saved, dict) and saved:
+            return deepcopy(saved)
+
+        runtime = project_data.get("_project_format")
+        preserved = (
+            runtime.get("preserved_fields", {})
+            if isinstance(runtime, dict)
+            else {}
+        )
+        saved = preserved.get("ass_import_config")
+        if isinstance(saved, dict) and saved:
+            return deepcopy(saved)
+        return deepcopy(self._episode_service.ass_import_config)
+
+    def _restore_legacy_edits(
+        self,
+        project_data: Dict[str, Any],
+        episode: str,
+        legacy_payload: Dict[str, Any],
+        dynamic_payload: Dict[str, Any],
+        source_lines: List[Dict[str, Any]],
+    ) -> None:
+        """Carry legacy text/character edits into dynamic edit blocks."""
+        legacy_lines = [
+            line for line in legacy_payload.get("lines", [])
+            if isinstance(line, dict)
+        ]
+        if not legacy_lines:
+            return
+
+        source_id_map = {
+            str(line.get("origin", {}).get("imported_id")): str(line["id"])
+            for line in dynamic_payload.get("source_lines", [])
+            if isinstance(line, dict)
+            and line.get("id")
+            and isinstance(line.get("origin"), dict)
+        }
+        source_order = {
+            str(line.get("id")): index
+            for index, line in enumerate(dynamic_payload.get("source_lines", []))
+            if isinstance(line, dict) and line.get("id")
+        }
+
+        merge_config = legacy_payload.get("merge_config")
+        if not isinstance(merge_config, dict):
+            runtime = project_data.get("_project_format")
+            preserved = (
+                runtime.get("preserved_fields", {})
+                if isinstance(runtime, dict)
+                else {}
+            )
+            merge_config = preserved.get("replica_merge_config")
+        if not isinstance(merge_config, dict):
+            merge_config = self._script_text_service.get_merge_config(
+                project_data
+            )
+
+        normalized_source_lines = []
+        for index, line in enumerate(source_lines):
+            normalized = deepcopy(line)
+            normalized.setdefault("id", index)
+            normalized_source_lines.append(normalized)
+        expected_rows = ExportService(project_data).process_merge_logic(
+            normalized_source_lines,
+            merge_config,
+        )
+        expected_by_sources = {
+            self._legacy_source_key(row): row
+            for row in expected_rows
+            if self._legacy_source_key(row)
+        }
+
+        desired_characters: Dict[str, set[str]] = {}
+        analyzed = []
+        for line in legacy_lines:
+            legacy_key = self._legacy_source_key(line)
+            expected = expected_by_sources.get(legacy_key)
+            base_character = str(
+                (expected or {}).get("char")
+                or line.get("character", "")
+                or ""
+            )
+            desired_character = str(
+                line.get("display_character")
+                or line.get("character", "")
+                or ""
+            )
+            if base_character:
+                desired_characters.setdefault(base_character, set()).add(
+                    desired_character
+                )
+            analyzed.append((line, legacy_key, expected, base_character,
+                             desired_character))
+
+        aliases = dynamic_payload.setdefault("character_aliases", {})
+        for base_character, values in desired_characters.items():
+            if len(values) != 1:
+                continue
+            desired_character = next(iter(values))
+            if desired_character and desired_character != base_character:
+                aliases[base_character] = desired_character
+
+        edit_rows = []
+        for line, legacy_key, expected, base_character, desired_character in analyzed:
+            expected_text = (
+                str(expected.get("text", ""))
+                if isinstance(expected, dict)
+                else None
+            )
+            text_changed = (
+                str(line.get("text", "")) != expected_text
+                if expected_text is not None
+                else bool(line.get("dirty"))
+            )
+            character_changed = bool(
+                desired_character != base_character
+                and aliases.get(base_character) != desired_character
+            )
+            if not text_changed and not character_changed:
+                continue
+
+            dynamic_ids = [
+                source_id_map.get(source_id) for source_id in legacy_key
+            ]
+            if not dynamic_ids or any(not value for value in dynamic_ids):
+                raise ValueError(
+                    f"не удалось сопоставить правки серии {episode} "
+                    "с исходными строками ASS"
+                )
+            indices = sorted(source_order[str(value)] for value in dynamic_ids)
+            if indices != list(range(indices[0], indices[-1] + 1)):
+                raise ValueError(
+                    f"правки серии {episode} охватывают несмежные строки ASS"
+                )
+            edit_rows.append({
+                "source_ids": [str(value) for value in dynamic_ids],
+                "fragment": {
+                    "id": f"frag_{uuid4().hex}",
+                    "text": str(line.get("text", "") or ""),
+                    "character": desired_character,
+                },
+            })
+
+        blocks = []
+        for row in edit_rows:
+            row_ids = set(row["source_ids"])
+            if blocks and row_ids.intersection(blocks[-1]["_source_id_set"]):
+                block = blocks[-1]
+                block["_source_id_set"].update(row_ids)
+                block["fragments"].append(row["fragment"])
+                block["source_ids"] = sorted(
+                    block["_source_id_set"],
+                    key=source_order.__getitem__,
+                )
+                continue
+            blocks.append({
+                "id": f"edit_{uuid4().hex}",
+                "source_ids": list(row["source_ids"]),
+                "fragments": [row["fragment"]],
+                "_source_id_set": set(row["source_ids"]),
+            })
+
+        for block in blocks:
+            block.pop("_source_id_set", None)
+        if blocks or aliases:
+            dynamic_payload["edit_blocks"] = blocks
+            dynamic_payload["modified_at"] = datetime.now().isoformat()
+
+    @staticmethod
+    def _legacy_source_key(line: Dict[str, Any]) -> tuple[str, ...]:
+        source_ids = line.get("source_ids")
+        if not isinstance(source_ids, list):
+            source_id = line.get("id")
+            source_ids = [] if source_id is None else [source_id]
+        return tuple(str(value) for value in source_ids if value is not None)
 
     def _consider_fps_for_link_changes(
         self,

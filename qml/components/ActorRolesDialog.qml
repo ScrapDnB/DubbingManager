@@ -40,7 +40,7 @@ NativeDialogWindow {
                 anchors.leftMargin: 8
                 anchors.rightMargin: 8
                 Label { text: name; Layout.fillWidth: true }
-                Label { text: rings + " кол."; Layout.preferredWidth: 70; horizontalAlignment: Text.AlignRight }
+                Label { text: rings + " реп."; Layout.preferredWidth: 70; horizontalAlignment: Text.AlignRight }
                 Label { text: words + " сл."; Layout.preferredWidth: 70; horizontalAlignment: Text.AlignRight }
             }
         }

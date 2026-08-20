@@ -37,7 +37,7 @@ NativeDialogWindow {
 
     ListModel {
         id: metricModel
-        ListElement { label: "Кольца"; value: "rings" }
+        ListElement { label: "Реплики"; value: "rings" }
         ListElement { label: "Строчки"; value: "lines" }
         ListElement { label: "Слова"; value: "words" }
     }
@@ -84,7 +84,7 @@ NativeDialogWindow {
 
                 Label { text: qsTr(""); Layout.preferredWidth: 20 }
                 TableHeaderButton { text: dialog.sortTitle(qsTr("Актёр"), "actor"); Layout.preferredWidth: 190; onClicked: dialog.reportsBackend.setSummarySort("actor") }
-                TableHeaderButton { text: dialog.sortTitle(qsTr("Колец"), "rings"); textAlignment: Text.AlignRight; Layout.preferredWidth: 60; onClicked: dialog.reportsBackend.setSummarySort("rings") }
+                TableHeaderButton { text: dialog.sortTitle(qsTr("Реплик"), "rings"); textAlignment: Text.AlignRight; Layout.preferredWidth: 60; onClicked: dialog.reportsBackend.setSummarySort("rings") }
                 TableHeaderButton { text: dialog.sortTitle(qsTr("Слов"), "words"); textAlignment: Text.AlignRight; Layout.preferredWidth: 70; onClicked: dialog.reportsBackend.setSummarySort("words") }
                 TableHeaderButton { text: dialog.sortTitle(qsTr("Персонажи"), "roles"); Layout.fillWidth: true; onClicked: dialog.reportsBackend.setSummarySort("roles") }
             }

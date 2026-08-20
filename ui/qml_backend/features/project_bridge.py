@@ -353,7 +353,7 @@ class ProjectBridge(QObject):
         self.refreshRequested.emit()
         self.statusRequested.emit(
             f"Импортирована серия {episode}: {source_path.name}"
-            + (f" ({len(lines)} реплик)" if lines else "")
+            + (f" ({len(lines)} строк)" if lines else "")
         )
 
     @Slot(str)
@@ -660,7 +660,7 @@ class ProjectBridge(QObject):
     def _save_status(message: str, materialized: int) -> str:
         if not materialized:
             return message
-        return f"{message} · добавлены построчные реплики: {materialized}"
+        return f"{message} · добавлены исходные строки: {materialized}"
 
     def _import_controller(self) -> ImportController:
         return ImportController(

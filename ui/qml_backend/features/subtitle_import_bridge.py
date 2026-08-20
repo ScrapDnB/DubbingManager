@@ -167,7 +167,7 @@ class SubtitleImportBridge(QObject):
         if candidate.get("project_name") != old_project_name:
             self.projectNameChanged.emit()
         self.statusRequested.emit(
-            f"Импортировано серий: {len(episodes)} · реплик: {imported_lines}"
+            f"Импортировано серий: {len(episodes)} · строк: {imported_lines}"
         )
         self.reset()
         return True

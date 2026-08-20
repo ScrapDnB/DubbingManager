@@ -1682,7 +1682,7 @@ def test_qml_open_embeds_external_working_text_and_rebases_paths(tmp_path):
         row for row in bridge.projectFiles.filesModel.rows()
         if row["episode"] == "1" and row["kind"] == "working"
     )
-    assert working_row["status"] == "Нет построчных реплик"
+    assert working_row["status"] == "Нет исходных строк"
 
     migrated_path = tmp_path / "portable.dub"
     bridge.project.saveAs(str(migrated_path))
@@ -2126,6 +2126,16 @@ def test_qml_parallel_merge_setting_updates_dynamic_project_live(tmp_path):
     assert [line["char"] for line in rendered] == ["A", "B"]
     assert rendered[0]["text"] == "A one //  (0:00:10) A two"
     assert rendered[1]["text"] == "B one /  B two"
+    character_rows = {
+        row["character"]: row for row in bridge.casting.charactersModel.rows()
+    }
+    assert character_rows["A"]["lines"] == 2
+    assert character_rows["A"]["rings"] == 1
+    assert character_rows["B"]["lines"] == 2
+    assert character_rows["B"]["rings"] == 1
+    bridge.casting.selectCharacter("A")
+    assert "Строк: 2" in bridge.casting.selectedCharacterStats
+    assert "Реплик: 1" in bridge.casting.selectedCharacterStats
     bridge.montage.prepare("1")
     assert "(00:10)" in bridge.montage.html
     assert "(00:03)" not in bridge.montage.html
@@ -2966,6 +2976,68 @@ def test_qml_character_stats_cover_every_episode_and_sorting(tmp_path):
     assert [row["character"] for row in casting.charactersModel.rows()] == [
         "Hero", "Other",
     ]
+
+
+def test_qml_episode_timeline_uses_dynamic_merged_replicas(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "one.ass"
+    source.write_text("[Events]\n", encoding="utf-8")
+    bridge._session.data["episodes"] = {"1": str(source)}
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Яна", "color": "#123456"},
+        "actor-2": {"name": "Пётр", "color": "#654321"},
+    }
+    bridge._session.data["global_map"] = {
+        "Hero": "actor-1",
+        "Other": "actor-2",
+    }
+    bridge._script_text_service.create_episode_text(
+        bridge._session.data,
+        "1",
+        str(source),
+        [
+            {"id": 0, "s": 1.0, "e": 2.0, "char": "Hero", "text": "One"},
+            {"id": 1, "s": 2.1, "e": 3.0, "char": "Hero", "text": "Two"},
+            {"id": 2, "s": 4.0, "e": 5.0, "char": "Other", "text": "Three"},
+        ],
+        bridge._script_text_service.get_merge_config(bridge._session.data),
+    )
+    bridge._session.current_episode = "1"
+
+    bridge.refresh()
+
+    assert bridge.casting.linesModel.rowCount() == 3
+    assert bridge.casting.timelineModel.rows() == [
+        {
+            "start": 1.0,
+            "end": 3.0,
+            "character": "Hero",
+            "actor": "Яна",
+            "actorId": "actor-1",
+            "actorColor": "#123456",
+            "lane": 0,
+            "selected": False,
+        },
+        {
+            "start": 4.0,
+            "end": 5.0,
+            "character": "Other",
+            "actor": "Пётр",
+            "actorId": "actor-2",
+            "actorColor": "#654321",
+            "lane": 1,
+            "selected": False,
+        },
+    ]
+    character_rows = {
+        row["character"]: row for row in bridge.casting.charactersModel.rows()
+    }
+    assert character_rows["Hero"]["lines"] == 2
+    assert character_rows["Hero"]["rings"] == 1
+    bridge.casting.selectCharacter("Hero")
+    assert "Строк: 2" in bridge.casting.selectedCharacterStats
+    assert "Реплик: 1" in bridge.casting.selectedCharacterStats
 
 
 def test_qml_casting_assigns_project_roles_atomically_with_undo(tmp_path):
@@ -4071,7 +4143,7 @@ def test_qml_bridge_builds_project_file_and_health_models(tmp_path):
     rows = project_files.filesModel.rows()
     assert [row["kind"] for row in rows] == ["source", "working", "video"]
     assert rows[0]["status"] == "Не найден"
-    assert rows[1]["status"] == "Нет построчных реплик"
+    assert rows[1]["status"] == "Нет исходных строк"
     assert project_files.currentEpisodeSourceMissing
     assert "предупреждения: 1" in project_files.healthSummary
     assert any(
@@ -4297,6 +4369,169 @@ def test_qml_bridge_regenerates_working_text_with_undo(tmp_path):
 
     assert "1" not in bridge._session.data["script_storage"]["episodes"]
     assert bridge.casting.charactersModel.rowCount() == 0
+
+
+def test_qml_project_files_converts_legacy_merged_project_from_ass(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode 1.ass"
+    source.write_text(
+        "[Events]\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,First\n"
+        "Dialogue: 0,0:00:02.20,0:00:03.00,Default,Hero,0,0,0,,Second\n",
+        encoding="utf-8",
+    )
+    data = bridge._project_service.create_new_project("Legacy")
+    data.pop("script_storage")
+    data.update({
+        "episodes": {"1": str(source)},
+        "episode_working_texts": {
+            "1": {
+                "lines": [{
+                    "id": "1_0001",
+                    "source_ids": [0, 1],
+                    "source_texts": ["First", "Second"],
+                    "start": 1.0,
+                    "end": 3.0,
+                    "character": "Hero",
+                    "display_character": "Hero",
+                    "text": "Edited merged line",
+                    "dirty": True,
+                }],
+                "merge_config": {
+                    "merge": True,
+                    "merge_gap": 120,
+                    "fps": 25,
+                    "p_short": 0.5,
+                    "p_long": 2.0,
+                },
+            }
+        },
+        "_project_format": {
+            "storage_model": "legacy_merged",
+            "original_version": "1.3",
+            "preserved_fields": {},
+        },
+    })
+    bridge._session.replace_project(data, "1")
+    bridge.refresh()
+    errors = []
+    bridge.errorOccurred.connect(errors.append)
+
+    assert bridge.projectFiles.legacyMergedProject is True
+    assert bridge.projectFiles.canConvertToNewFormat is True
+    assert "Все ASS найдены" in bridge.projectFiles.conversionStatus
+
+    bridge.projectFiles.convertToNewFormat()
+
+    assert errors == []
+    assert bridge.projectFiles.legacyMergedProject is False
+    assert bridge.settings.dynamicTextStorage is True
+    assert bridge._session.data["episode_working_texts"] == {}
+    payload = bridge._session.data["script_storage"]["episodes"]["1"]
+    assert len(payload["source_lines"]) == 2
+    assert len(payload["edit_blocks"]) == 1
+    assert bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "1"
+    )[0]["text"] == "Edited merged line"
+
+    saved_path = tmp_path / "converted.dub"
+    bridge.project.saveAs(str(saved_path))
+    stored = json.loads(saved_path.read_text(encoding="utf-8"))
+    assert stored["metadata"]["format_version"] == "2.0"
+    assert stored["script_storage"]["model"] == "dynamic_source"
+    assert "episode_working_texts" not in stored
+
+    bridge.project.undo()
+
+    assert bridge.projectFiles.legacyMergedProject is True
+    assert bridge._session.data["episode_working_texts"]["1"]["lines"][0][
+        "text"
+    ] == "Edited merged line"
+
+
+def test_qml_project_files_conversion_preserves_external_legacy_edits(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode 1.ass"
+    source.write_text(
+        "[Events]\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,First\n",
+        encoding="utf-8",
+    )
+    working_text = tmp_path / "Episode 1.json"
+    working_text.write_text(json.dumps({
+        "lines": [{
+            "id": "1_0001",
+            "source_ids": [0],
+            "source_texts": ["First"],
+            "start": 1.0,
+            "end": 2.0,
+            "character": "Hero",
+            "display_character": "Hero",
+            "text": "Edited external line",
+            "dirty": True,
+        }],
+        "merge_config": {"merge": True, "merge_gap": 120, "fps": 25},
+    }), encoding="utf-8")
+    data = bridge._project_service.create_new_project("Legacy")
+    data.pop("script_storage")
+    data.update({
+        "episodes": {"1": str(source)},
+        "episode_texts": {"1": str(working_text)},
+        "episode_working_texts": {},
+        "_project_format": {
+            "storage_model": "legacy_merged",
+            "original_version": "1.3",
+            "preserved_fields": {},
+        },
+    })
+    bridge._session.replace_project(data, "1")
+
+    bridge.projectFiles.convertToNewFormat()
+
+    assert bridge._session.data["episode_texts"] == {}
+    assert bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "1"
+    )[0]["text"] == "Edited external line"
+
+
+def test_qml_legacy_conversion_requires_ass_for_every_episode(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode 1.ass"
+    source.write_text(
+        "[Events]\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,Line\n",
+        encoding="utf-8",
+    )
+    data = bridge._project_service.create_new_project("Legacy")
+    data.pop("script_storage")
+    data.update({
+        "episodes": {
+            "1": str(source),
+            "2": str(tmp_path / "missing.ass"),
+        },
+        "episode_working_texts": {},
+        "_project_format": {
+            "storage_model": "legacy_merged",
+            "original_version": "1.3",
+            "preserved_fields": {},
+        },
+    })
+    bridge._session.replace_project(data, "1")
+    bridge.refresh()
+    errors = []
+    bridge.errorOccurred.connect(errors.append)
+
+    assert bridge.projectFiles.legacyMergedProject is True
+    assert bridge.projectFiles.canConvertToNewFormat is False
+    assert "Не найдены: 2" in bridge.projectFiles.conversionStatus
+
+    bridge.projectFiles.convertToNewFormat()
+
+    assert "script_storage" not in bridge._session.data
+    assert errors and "ASS всех серий" in errors[-1]
 
 
 def test_qml_bridge_regenerates_docx_using_saved_mapping_without_merging(tmp_path):

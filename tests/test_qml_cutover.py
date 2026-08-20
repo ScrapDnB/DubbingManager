@@ -296,7 +296,11 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "page_gap_prefetch_seconds" in source
     assert "page_gap_prefetch_delay_seconds" in source
     assert "nextStart - currentEnd < gapThreshold" in source
-    assert "currentTime < currentEnd + delay" in source
+    assert "currentTime < currentEnd" in source
+    assert "function desiredScrollDurationForMove(sourceY, targetY)" in source
+    assert "var preferredStart = currentEnd + delay;" in source
+    assert "var prefetchStart = Math.min(" in source
+    assert "Пауза: мало времени для плавной прокрутки" in source
     assert "Пауза: следующая реплика" in source
     assert "targetItem.y - preferredHighlightBegin" in source
     assert "onDraggingChanged:" in source
@@ -519,6 +523,8 @@ def test_settings_use_platform_navigation_and_shared_page_headers():
     ).read_text(encoding="utf-8")
 
     assert 'text: qsTr("Разделы")' not in navigation
+    assert "Application.font.pixelSize - 1" in navigation
+    assert "Math.max(10, font.pixelSize - 1)" not in navigation
     assert "SettingsPageHeader" in global_settings
     assert "SettingsPageHeader" in project_settings
     assert "backend.projectFpsDisplay" in project_settings
@@ -571,7 +577,7 @@ def test_character_numeric_columns_fit_their_sorted_headers():
 
     assert "baseWordsColumnWidth: Math.max(58" in character_table
     assert 'text: qsTr("Строк") + " ↓"' in character_table
-    assert 'text: qsTr("Колец") + " ↓"' in character_table
+    assert 'text: qsTr("Реплик") + " ↓"' in character_table
     assert 'text: qsTr("Слов") + " ↓"' in character_table
 
 
@@ -629,7 +635,18 @@ def test_import_settings_expose_parallel_replica_merge_option():
 
     assert 'id: mergeParallelCheck' in source
     assert '"merge_parallel_replicas"' in source
-    assert "Не разрывать реплики параллельными репликами" in source
+    assert "Не разрывать объединение параллельными строками" in source
     assert 'id: respectExistingSeparatorsCheck' in source
     assert '"respect_existing_separators"' in source
     assert "Учитывать уже имеющиеся разделители" in source
+
+
+def test_project_files_exposes_guarded_legacy_format_conversion():
+    source = (
+        ROOT / "qml" / "components" / "ProjectFilesDialog.qml"
+    ).read_text(encoding="utf-8")
+
+    assert 'text: qsTr("Конвертировать в новый формат")' in source
+    assert "dialog.projectFilesBackend.legacyMergedProject" in source
+    assert "dialog.projectFilesBackend.canConvertToNewFormat" in source
+    assert "dialog.projectFilesBackend.convertToNewFormat()" in source

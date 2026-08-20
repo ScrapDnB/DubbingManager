@@ -86,7 +86,7 @@ Item {
     }
     TextMetrics {
         id: ringsHeaderMetrics
-        text: qsTr("Колец") + " ↓"
+        text: qsTr("Реплик") + " ↓"
         font.pixelSize: table.macOSStyle ? 11 : 13
         font.weight: table.macOSStyle ? Font.Medium : Font.DemiBold
     }
@@ -510,7 +510,7 @@ Item {
 
                 TableHeaderButton { visible: table.isColumnVisible("character"); x: table.characterColumnX; width: table.characterColumnWidth; height: parent.height; text: table.sortTitle("Персонаж", "character"); onClicked: table.castingBackend.setCharacterSort("character"); Accessible.name: qsTr("Сортировать по персонажу") }
                 TableHeaderButton { visible: table.isColumnVisible("lines"); x: table.lineColumnX; width: table.lineColumnWidth; height: parent.height; textAlignment: Text.AlignRight; text: table.sortTitle("Строк", "lines"); onClicked: table.castingBackend.setCharacterSort("lines"); Accessible.name: qsTr("Сортировать по строкам") }
-                TableHeaderButton { visible: table.isColumnVisible("rings"); x: table.ringsColumnX; width: table.ringsColumnWidth; height: parent.height; textAlignment: Text.AlignRight; text: table.sortTitle("Колец", "rings"); onClicked: table.castingBackend.setCharacterSort("rings"); Accessible.name: qsTr("Сортировать по кольцам") }
+                TableHeaderButton { visible: table.isColumnVisible("rings"); x: table.ringsColumnX; width: table.ringsColumnWidth; height: parent.height; textAlignment: Text.AlignRight; text: table.sortTitle("Реплик", "rings"); onClicked: table.castingBackend.setCharacterSort("rings"); Accessible.name: qsTr("Сортировать по репликам") }
                 TableHeaderButton { visible: table.isColumnVisible("words"); x: table.wordsColumnX; width: table.wordsColumnWidth; height: parent.height; textAlignment: Text.AlignRight; text: table.sortTitle("Слов", "words"); onClicked: table.castingBackend.setCharacterSort("words"); Accessible.name: qsTr("Сортировать по словам") }
                 TableHeaderButton { visible: table.isColumnVisible("scope"); x: table.scopeColumnX; width: table.scopeColumnWidth; height: parent.height; textAlignment: Text.AlignHCenter; text: table.sortTitle("Область", "scope"); onClicked: table.castingBackend.setCharacterSort("scope"); Accessible.name: qsTr("Сортировать по области назначения") }
                 TableHeaderButton { visible: table.isColumnVisible("actor"); x: table.actorColumnX; width: table.actorColumnWidth; height: parent.height; text: table.sortTitle("Актёр", "actor"); onClicked: table.castingBackend.setCharacterSort("actor"); Accessible.name: qsTr("Сортировать по актёру") }

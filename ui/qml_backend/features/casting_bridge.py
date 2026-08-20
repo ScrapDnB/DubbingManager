@@ -77,6 +77,7 @@ class CastingBridge(QObject):
         self._selected_character = ""
         self._selected_character_stats = "Выберите персонажа в таблице"
         self._episode_lines_cache: Dict[str, list[Dict[str, Any]]] = {}
+        self._timeline_lines_cache: Dict[str, list[Dict[str, Any]]] = {}
         self._project_stats_cache: Dict[str, Dict[str, Any]] = {}
         self._timeline_sort_mode = "appearance"
         self._actor_sort_key, self._actor_sort_ascending = self._restore_sort(
@@ -673,7 +674,6 @@ class CastingBridge(QObject):
             actor = actors.get(actor_ids[0], {}) if actor_ids else {}
             start = max(0.0, float(line.get("s") or 0.0))
             end = max(start, float(line.get("e") or start))
-            duration = max(duration, end)
             rows.append({
                 "time": f"{_format_time(line.get('s'))} - {_format_time(line.get('e'))}",
                 "character": character or "-",
@@ -682,6 +682,15 @@ class CastingBridge(QObject):
                 "color": actor.get("color", "#4F81BD") if len(actor_ids) == 1 else "transparent",
                 "start": start, "end": end, "actorIds": actor_ids,
             })
+
+        for line in self._get_timeline_lines():
+            character = str(line.get("char") or "")
+            actor_ids = get_actor_ids_for_character(
+                self._session.data, character, episode
+            )
+            start = max(0.0, float(line.get("s") or 0.0))
+            end = max(start, float(line.get("e") or start))
+            duration = max(duration, end)
             # A multiple cast produces one segment on each assigned actor's
             # lane; unassigned lines stay visible on a neutral lane.
             segment_actor_ids = actor_ids or [""]
@@ -756,8 +765,13 @@ class CastingBridge(QObject):
                 "character": character, "lines": 0, "rings": 0, "words": 0,
             })
             item["lines"] += 1
-            item["rings"] += max(1, len(line.get("parts") or []))
             item["words"] += len(str(line.get("text") or "").split())
+        for line in self._get_timeline_lines():
+            character = str(line.get("char") or "-")
+            item = stats.setdefault(character, {
+                "character": character, "lines": 0, "rings": 0, "words": 0,
+            })
+            item["rings"] += 1
         actors = self._session.data.get("actors", {})
         local = self._session.data.get("episode_actor_map", {}).get(episode, {})
         rows = []
@@ -857,7 +871,7 @@ class CastingBridge(QObject):
             actor_name = self._actor_names(actor_ids)
             text = (
                 f"{self._selected_character}\nАктёр: {actor_name}\n"
-                f"Реплик: {stats['lines']}\nКолец: {stats['rings']}\n"
+                f"Строк: {stats['lines']}\nРеплик: {stats['rings']}\n"
                 f"Слов: {stats['words']}"
                 if episode_rows else
                 f"{self._selected_character}\nНет реплик в проекте"
@@ -886,6 +900,16 @@ class CastingBridge(QObject):
             )
         return self._episode_lines_cache[episode]
 
+    def _get_timeline_lines(self) -> list[Dict[str, Any]]:
+        episode = str(self._session.current_episode or "")
+        if episode not in self._timeline_lines_cache:
+            self._timeline_lines_cache[episode] = (
+                self._script_text_service.load_episode_lines(
+                    self._session.data, episode
+                )
+            )
+        return self._timeline_lines_cache[episode]
+
     def _project_stats(self, character: str) -> Dict[str, Any]:
         if character not in self._project_stats_cache:
             self._project_stats_cache[character] = CharacterStatsService(
@@ -899,6 +923,7 @@ class CastingBridge(QObject):
     def invalidate_cache(self, domain: str = "") -> None:
         if domain in {"", "project", "working_text", "project_files", "settings"}:
             self._episode_lines_cache.clear()
+            self._timeline_lines_cache.clear()
             self._project_stats_cache.clear()
 
     def _find_actor_by_name(self, name: str) -> Optional[str]:

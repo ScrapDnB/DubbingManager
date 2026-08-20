@@ -82,7 +82,7 @@ Item {
                 text: qsTr("Построчно")
                 checked: panel.backend ? panel.backend.lineByLine : false
                 onToggled: if (panel.backend) panel.backend.setLineByLine(checked)
-                Accessible.description: qsTr("Не объединять соседние реплики")
+                Accessible.description: qsTr("Не объединять соседние строки")
             }
         }
 

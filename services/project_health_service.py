@@ -189,7 +189,7 @@ class ProjectHealthService:
                 issues.append(ProjectHealthIssue(
                     self.SEVERITY_WARNING,
                     "Рабочий текст",
-                    "В рабочем тексте нет реплик.",
+                    "В рабочем тексте нет строк.",
                     ep_num,
                 ))
             return lines
@@ -208,7 +208,7 @@ class ProjectHealthService:
             issues.append(ProjectHealthIssue(
                 self.SEVERITY_WARNING,
                 "Рабочий текст",
-                "В рабочем тексте нет реплик.",
+                "В рабочем тексте нет строк.",
                 ep_num
             ))
 
@@ -286,7 +286,7 @@ class ProjectHealthService:
             ).strip()
             start = self._as_float(line.get("start", line.get("s")))
             end = self._as_float(line.get("end", line.get("e")))
-            line_label = f"Реплика {index}"
+            line_label = f"Строка {index}"
 
             if ignore_empty_lines and not text:
                 continue
@@ -294,7 +294,7 @@ class ProjectHealthService:
             if not text:
                 issues.append(ProjectHealthIssue(
                     self.SEVERITY_WARNING,
-                    "Реплики",
+                    "Строки",
                     f"{line_label}: пустой текст.",
                     ep_num
                 ))
@@ -302,7 +302,7 @@ class ProjectHealthService:
             if not character:
                 issues.append(ProjectHealthIssue(
                     self.SEVERITY_WARNING,
-                    "Реплики",
+                    "Строки",
                     f"{line_label}: не указан персонаж.",
                     ep_num
                 ))

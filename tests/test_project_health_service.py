@@ -103,9 +103,9 @@ class TestProjectHealthService:
 
         assert "Исходный файл серии не найден." in messages
         assert "Видео файл не найден." in messages
-        assert "Реплика 1: пустой текст." in messages
-        assert "Реплика 1: не указан персонаж." in messages
-        assert "Реплика 1: конец фразы не позже начала." in messages
+        assert "Строка 1: пустой текст." in messages
+        assert "Строка 1: не указан персонаж." in messages
+        assert "Строка 1: конец фразы не позже начала." in messages
         assert "Персонаж без назначенного актёра: Villain" in messages
 
     def test_reports_invalid_working_json(self, tmp_path):

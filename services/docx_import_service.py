@@ -381,7 +381,7 @@ class DocxImportService:
         for char, info in char_data.items():
             char_lines = info["raw"]
             
-            # For DOCX, rings equal lines because each replica is already merged
+            # For DOCX, replica totals equal lines because each line is premerged
             rings = info["lines"]
             words = 0
 

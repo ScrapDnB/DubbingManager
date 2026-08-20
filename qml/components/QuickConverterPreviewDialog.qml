@@ -72,7 +72,7 @@ NativeDialogWindow {
             onToggled: if (dialog.backend) {
                 dialog.backend.setLineByLine(checked)
             }
-            Accessible.description: qsTr("Не объединять соседние реплики")
+            Accessible.description: qsTr("Не объединять соседние строки")
         }
 
         Item { Layout.fillWidth: true }

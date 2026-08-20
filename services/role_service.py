@@ -87,7 +87,7 @@ def actor_role_stats(
     actor_id: str,
     get_episode_lines: Callable[[str], List[Dict[str, Any]]],
 ) -> List[Dict[str, Any]]:
-    """Return merged-replica ring and word totals for one actor's roles."""
+    """Return merged-replica and word totals for one actor's roles."""
     stats: Dict[str, Dict[str, Any]] = {}
     export_service = ExportService(project_data)
     for episode in project_data.get("episodes", {}):

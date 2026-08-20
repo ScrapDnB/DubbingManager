@@ -2650,8 +2650,7 @@ NativeDialogWindow {
                         pageTargetHighlightFade.start();
                     }
 
-                    function scrollDurationForMove(
-                            sourceY, targetY, deadline) {
+                    function desiredScrollDurationForMove(sourceY, targetY) {
                         // The slider is a smoothness level, not a literal
                         // duration.  Short movements retain more of the
                         // configured smoothness through a sublinear distance
@@ -2664,10 +2663,17 @@ NativeDialogWindow {
                         var distanceFactor = Math.pow(
                             Math.min(1, distanceScreens), 0.65
                         );
-                        var desiredDuration = Math.max(
+                        return Math.max(
                             80, Math.round(
                                 window.scrollDurationMs * distanceFactor
                             )
+                        );
+                    }
+
+                    function scrollDurationForMove(
+                            sourceY, targetY, deadline) {
+                        var desiredDuration = desiredScrollDurationForMove(
+                            sourceY, targetY
                         );
                         var duration = desiredDuration;
                         var currentTime = Number(window.teleprompter.time);
@@ -3051,7 +3057,7 @@ NativeDialogWindow {
                         var currentTime = Number(window.teleprompter.time);
                         if (gapThreshold <= 0
                                 || nextStart - currentEnd < gapThreshold
-                                || currentTime < currentEnd + delay
+                                || currentTime < currentEnd
                                 || currentTime >= nextStart) {
                             pageGapPrefetchIndex = -1;
                             return;
@@ -3081,13 +3087,43 @@ NativeDialogWindow {
                         var itemBottom = targetItem
                             ? itemTop + targetItem.playbackHeight : itemTop;
                         var viewportBottom = sourceY + height;
-                        pageGapPrefetchIndex = nextIndex;
                         if (itemTop < sourceY || itemBottom > viewportBottom) {
+                            // Do not let a delayed gap prefetch be compressed
+                            // into a near-instant animation.  If its usual
+                            // delay leaves too little time, start earlier in
+                            // the silence.  If even the full silence cannot
+                            // fit the desired movement, leave this transition
+                            // to normal following instead of rushing it.
+                            var desiredDuration = desiredScrollDurationForMove(
+                                sourceY, targetY
+                            );
+                            var reserveSeconds = 0.1;
+                            var latestStart = nextStart - (
+                                desiredDuration / 1000 + reserveSeconds
+                            );
+                            var preferredStart = currentEnd + delay;
+                            var prefetchStart = Math.min(
+                                preferredStart, latestStart
+                            );
+                            if (latestStart < currentEnd
+                                    || currentTime > latestStart + 0.0005) {
+                                pageGapPrefetchIndex = nextIndex;
+                                capturePageDebug(
+                                    "Пауза: мало времени для плавной прокрутки",
+                                    sourceY, targetY, itemTop, itemBottom
+                                );
+                                return;
+                            }
+                            if (currentTime + 0.0005 < prefetchStart) {
+                                return;
+                            }
+                            pageGapPrefetchIndex = nextIndex;
                             capturePageDebug("Пауза: следующая реплика", sourceY, targetY, itemTop, itemBottom);
                             if (Math.abs(targetY - sourceY) > 0.5) {
                                 startPageScroll(sourceY, targetY, nextIndex);
                             }
                         } else {
+                            pageGapPrefetchIndex = nextIndex;
                             capturePageDebug("Пауза: следующая реплика уже видима", sourceY, targetY, itemTop, itemBottom);
                         }
                     }

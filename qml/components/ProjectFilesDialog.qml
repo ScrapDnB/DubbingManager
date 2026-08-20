@@ -239,6 +239,24 @@ NativeDialogWindow {
         }
     }
 
+    NativeDialogWindow {
+        id: convertDialog
+        ownerWindow: dialog
+        modal: true
+        title: qsTr("Конвертировать проект")
+        standardButtons: Dialog.Yes | Dialog.No
+        width: 470
+
+        content: Label {
+            anchors.fill: parent
+            width: 410
+            text: qsTr("Проект будет переведён в новый построчный формат на основе найденных ASS. Конвертацию можно отменить до сохранения проекта.")
+            wrapMode: Text.WordWrap
+        }
+
+        onAccepted: dialog.projectFilesBackend.convertToNewFormat()
+    }
+
     Menu {
         id: fileActionsMenu
         width: 360
@@ -546,6 +564,21 @@ NativeDialogWindow {
                     Layout.fillWidth: true
                     spacing: 6
                     AdaptiveButton {
+                        id: convertFormatButton
+                        visible: dialog.projectFilesBackend
+                            && dialog.projectFilesBackend.legacyMergedProject
+                        text: qsTr("Конвертировать в новый формат")
+                        enabled: dialog.projectFilesBackend
+                            && dialog.projectFilesBackend.canConvertToNewFormat
+                        onClicked: convertDialog.open()
+                        PlatformToolTip {
+                            target: convertFormatButton
+                            text: dialog.projectFilesBackend
+                                ? dialog.projectFilesBackend.conversionStatus
+                                : ""
+                        }
+                    }
+                    AdaptiveButton {
                         text: qsTr("Создать недостающие")
                         onClicked: dialog.projectFilesBackend.createMissingWorkingTexts()
                     }
@@ -577,7 +610,7 @@ NativeDialogWindow {
                         color: dialog.softMuted
                     }
                     CheckBox {
-                        text: qsTr("Игнорировать пустые реплики")
+                        text: qsTr("Игнорировать пустые строки")
                         checked: dialog.projectFilesBackend
                             ? dialog.projectFilesBackend.ignoreEmptyLines
                             : false

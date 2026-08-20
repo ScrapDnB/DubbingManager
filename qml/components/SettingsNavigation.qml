@@ -183,7 +183,8 @@ Item {
                     font.weight: sectionDelegate.heading
                         || sectionDelegate.selected ? Font.DemiBold : Font.Normal
                     font.pixelSize: sectionDelegate.heading
-                        ? Math.max(10, font.pixelSize - 1) : font.pixelSize
+                        ? Math.max(10, Application.font.pixelSize - 1)
+                        : Application.font.pixelSize
                     font.capitalization: sectionDelegate.heading
                         ? Font.AllUppercase : Font.MixedCase
                     color: sectionDelegate.selected && navigation.macOSStyle

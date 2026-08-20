@@ -259,14 +259,28 @@ Item {
             : qsTr("Добавить актёра в проект")
         standardButtons: Dialog.Ok | Dialog.Cancel
         width: boundedWidth(500, 36)
-        height: panel.globalMode ? 280 : 330
+        height: panel.globalMode ? 280 : 300
 
         onOpened: {
             actorNameField.text = ""
-            actorSourceCombo.currentIndex = 0
-            addActorColor = "#4F81BD"
+            actorNameInput.text = ""
+            actorSuggestionView.currentIndex = -1
+            actorSuggestionPopup.close()
+            selectedGlobalActorId = ""
+            panel.actorLibraryBackend.setGlobalActorSearchText("")
+            var colors = panel.castingBackend
+                ? panel.castingBackend.actorPalette : []
+            addActorColor = colors.length > 0
+                ? colors[Math.floor(Math.random() * colors.length)]
+                : "#4F81BD"
             addActorGenderCombo.currentIndex = 0
-            actorNameField.forceActiveFocus()
+            Qt.callLater(function() {
+                if (panel.globalMode) {
+                    actorNameField.forceActiveFocus()
+                } else {
+                    actorNameInput.forceActiveFocus()
+                }
+            })
         }
         onAccepted: {
             if (panel.globalMode) {
@@ -274,15 +288,33 @@ Item {
                     actorNameField.text,
                     addActorGenderCombo.currentText
                 )
-            } else if (String(actorSourceCombo.currentValue || "").length > 0) {
-                panel.chooseGlobalActorColor(actorSourceCombo.currentValue)
+            } else if (selectedGlobalActorId.length > 0) {
+                panel.actorLibraryBackend.addGlobalActorToProject(
+                    selectedGlobalActorId, addActorColor.toString()
+                )
             } else {
                 panel.castingBackend.addActorWithDetails(
-                    actorNameField.text,
+                    actorNameInput.text,
                     addActorColor.toString(),
                     addActorGenderCombo.currentText
                 )
             }
+        }
+
+        property string selectedGlobalActorId: ""
+
+        function selectGlobalActorSuggestion(index) {
+            var model = panel.actorLibraryBackend
+                ? panel.actorLibraryBackend.globalActorSearchModel : null
+            if (!model || index < 0 || index >= model.count)
+                return false
+            var actor = model.get(index)
+            actorNameInput.text = actor.name
+            selectedGlobalActorId = actor.id
+            addActorGenderCombo.currentIndex = actor.gender === "М"
+                ? 1 : (actor.gender === "Ж" ? 2 : 0)
+            actorSuggestionPopup.close()
+            return true
         }
 
         content: ColumnLayout {
@@ -375,37 +407,139 @@ Item {
                 visible: panel.globalMode
             }
 
-            Label {
-                text: qsTr("Источник")
-                color: panel.softMuted
-                visible: !panel.globalMode
-            }
-
-            PlatformComboBox {
-                id: actorSourceCombo
-                visible: !panel.globalMode
-                Layout.fillWidth: true
-                model: panel.actorLibraryBackend
-                    ? panel.actorLibraryBackend.globalActorChoicesModel : null
-                textRole: "name"
-                valueRole: "id"
-            }
-
             TextField {
                 id: actorNameField
                 Layout.fillWidth: true
                 placeholderText: qsTr("Имя актёра")
                 selectByMouse: true
                 visible: panel.globalMode
-                    || String(actorSourceCombo.currentValue || "").length === 0
                 onAccepted: addActorDialog.accept()
+            }
+
+            TextField {
+                id: actorNameInput
+                Layout.fillWidth: true
+                visible: !panel.globalMode
+                placeholderText: qsTr("Имя актёра")
+                selectByMouse: true
+                Keys.priority: Keys.BeforeItem
+                onTextEdited: {
+                    addActorDialog.selectedGlobalActorId = ""
+                    panel.actorLibraryBackend.setGlobalActorSearchText(text)
+                    actorSuggestionView.currentIndex = -1
+                    if (text.trim().length > 0
+                            && actorSuggestionView.count > 0) {
+                        actorSuggestionPopup.open()
+                    } else {
+                        actorSuggestionPopup.close()
+                    }
+                }
+                Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Down
+                            && actorSuggestionView.count > 0) {
+                        actorSuggestionPopup.open()
+                        actorSuggestionView.currentIndex = Math.min(
+                            actorSuggestionView.count - 1,
+                            actorSuggestionView.currentIndex + 1
+                        )
+                        actorSuggestionView.positionViewAtIndex(
+                            actorSuggestionView.currentIndex, ListView.Contain
+                        )
+                        event.accepted = true
+                    } else if (event.key === Qt.Key_Up
+                            && actorSuggestionView.currentIndex >= 0) {
+                        actorSuggestionView.currentIndex--
+                        if (actorSuggestionView.currentIndex >= 0) {
+                            actorSuggestionView.positionViewAtIndex(
+                                actorSuggestionView.currentIndex,
+                                ListView.Contain
+                            )
+                        }
+                        event.accepted = true
+                    } else if ((event.key === Qt.Key_Return
+                                || event.key === Qt.Key_Enter)
+                            && actorSuggestionView.currentIndex >= 0) {
+                        addActorDialog.selectGlobalActorSuggestion(
+                            actorSuggestionView.currentIndex
+                        )
+                    } else if (event.key === Qt.Key_Escape
+                            && actorSuggestionPopup.opened) {
+                        actorSuggestionPopup.close()
+                        actorSuggestionView.currentIndex = -1
+                        event.accepted = true
+                    }
+                }
+                onAccepted: addActorDialog.accept()
+
+                Popup {
+                    id: actorSuggestionPopup
+                    parent: actorNameInput
+                    x: 0
+                    y: actorNameInput.height + 2
+                    width: actorNameInput.width
+                    height: Math.min(
+                        actorSuggestionView.contentHeight,
+                        4 * panel.actorRowHeight
+                    )
+                    padding: 0
+                    modal: false
+                    focus: false
+                    closePolicy: Popup.CloseOnEscape
+                        | Popup.CloseOnPressOutsideParent
+
+                    background: Rectangle {
+                        color: panel.panelSurface
+                        border.color: panel.softBorder
+                        radius: 3
+                    }
+
+                    contentItem: ListView {
+                        id: actorSuggestionView
+                        clip: true
+                        model: panel.actorLibraryBackend
+                            ? panel.actorLibraryBackend.globalActorSearchModel
+                            : null
+
+                        delegate: Rectangle {
+                            required property int index
+                            required property string name
+                            required property string gender
+                            width: actorSuggestionView.width
+                            height: panel.actorRowHeight
+                            color: actorSuggestionView.currentIndex === index
+                                ? panel.selectedRow
+                                : suggestionHover.hovered ? panel.softHover
+                                : (index % 2 === 0
+                                    ? panel.softRow : panel.softAltRow)
+
+                            Label {
+                                anchors.fill: parent
+                                anchors.leftMargin: 8
+                                anchors.rightMargin: 8
+                                verticalAlignment: Text.AlignVCenter
+                                text: name + (gender.length > 0
+                                    ? " · " + gender : "")
+                                elide: Text.ElideRight
+                            }
+
+                            HoverHandler { id: suggestionHover }
+                            TapHandler {
+                                onTapped: {
+                                    actorSuggestionView.currentIndex = index
+                                    addActorDialog.selectGlobalActorSuggestion(
+                                        index
+                                    )
+                                    actorNameInput.forceActiveFocus()
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8
-                visible: panel.globalMode
-                    || String(actorSourceCombo.currentValue || "").length === 0
 
                 AdaptiveButton {
                     text: qsTr("Цвет")

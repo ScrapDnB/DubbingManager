@@ -134,7 +134,7 @@ NativeDialogWindow {
                 { title: "Проекты и данные", heading: true },
                 { title: "Резервные копии", page: 2, keywords: "автосохранение папка интервал" },
                 { title: "Обработка текста", heading: true },
-                { title: "Объединение реплик", page: 4, keywords: "пауза разделитель таймкод" },
+                { title: "Формирование реплик", page: 4, keywords: "пауза разделитель таймкод" },
                 { title: "Аудиокниги", page: 3, keywords: "главы ключевые слова" },
                 { title: "Импорт", heading: true },
                 { title: "ASS", page: 5, keywords: "субтитры теги персонаж" },
@@ -540,7 +540,7 @@ NativeDialogWindow {
             ColumnLayout {
                 spacing: 8
                 SettingsPageHeader {
-                    title: qsTr("Объединение реплик")
+                    title: qsTr("Формирование реплик")
                     subtitle: dialog.backend.dynamicTextStorage
                         ? qsTr("Глобальные правила применяются к открытому динамическому проекту на лету.")
                         : qsTr("Открыт legacy-проект с сохранёнными объединёнными репликами; новые правила применятся к динамическим проектам.")

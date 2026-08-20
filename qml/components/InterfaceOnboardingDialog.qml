@@ -61,7 +61,7 @@ NativeDialogWindow {
     readonly property var columnDefinitions: [
         { key: "character", title: qsTr("Персонаж"), mandatory: true },
         { key: "lines", title: qsTr("Строк") },
-        { key: "rings", title: qsTr("Колец") },
+        { key: "rings", title: qsTr("Реплик") },
         { key: "words", title: qsTr("Слов") },
         { key: "scope", title: qsTr("Область") },
         { key: "actor", title: qsTr("Актёр") },
