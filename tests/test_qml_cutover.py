@@ -298,6 +298,11 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "nextStart - currentEnd < gapThreshold" in source
     assert "currentTime < currentEnd" in source
     assert "function desiredScrollDurationForMove(sourceY, targetY)" in source
+    assert "function scrollDistanceScreens(sourceY, targetY)" in source
+    scheduler_start = source.index("function scrollDurationForMove(")
+    scheduler_end = source.index("function nextActiveReplicaStart(")
+    scheduler = source[scheduler_start:scheduler_end]
+    assert "var distanceScreens = scrollDistanceScreens(" in scheduler
     assert "var preferredStart = currentEnd + delay;" in source
     assert "var prefetchStart = Math.min(" in source
     assert "Пауза: мало времени для плавной прокрутки" in source

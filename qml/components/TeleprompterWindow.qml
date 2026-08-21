@@ -2656,10 +2656,9 @@ NativeDialogWindow {
                         // configured smoothness through a sublinear distance
                         // curve, while a full-screen movement uses the whole
                         // internal duration represented by the level.
-                        var screenDistance = Math.max(1, pageFragmentStep());
-                        var distanceScreens = Math.abs(
-                            targetY - sourceY
-                        ) / screenDistance;
+                        var distanceScreens = scrollDistanceScreens(
+                            sourceY, targetY
+                        );
                         var distanceFactor = Math.pow(
                             Math.min(1, distanceScreens), 0.65
                         );
@@ -2670,9 +2669,18 @@ NativeDialogWindow {
                         );
                     }
 
+                    function scrollDistanceScreens(sourceY, targetY) {
+                        return Math.abs(targetY - sourceY) / Math.max(
+                            1, pageFragmentStep()
+                        );
+                    }
+
                     function scrollDurationForMove(
                             sourceY, targetY, deadline) {
                         var desiredDuration = desiredScrollDurationForMove(
+                            sourceY, targetY
+                        );
+                        var distanceScreens = scrollDistanceScreens(
                             sourceY, targetY
                         );
                         var duration = desiredDuration;
