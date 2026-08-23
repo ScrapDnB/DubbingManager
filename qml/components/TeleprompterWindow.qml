@@ -48,6 +48,7 @@ NativeDialogWindow {
     property int pendingLocalNavigationIndex: -1
     property string lastViewportConfigSignature: ""
     property var expandedReplicaKeys: ({})
+    property string lastDiagnosticScreenshotPath: ""
     readonly property var config: teleprompter.config
     readonly property var colors: Object.assign(
         {}, config.colors || {}, colorPreviewOverrides
@@ -111,6 +112,93 @@ NativeDialogWindow {
             window.teleprompter.time
                 + interval / 1000 * window.debugSimulationSpeed
         )
+    }
+
+    Timer {
+        id: diagnosticSampleTimer
+        interval: 100
+        repeat: true
+        running: window.teleprompter.diagnosticRecording && window.visible
+        onTriggered: window.recordDiagnosticEvent("viewport_sample", {})
+    }
+
+    function diagnosticPayload(extra) {
+        var base = {
+            episode: String(teleprompter.episode || ""),
+            reaper_time: Number(teleprompter.time),
+            position_origin: String(teleprompter.positionOrigin || ""),
+            current_index: Number(teleprompter.currentIndexNow()),
+            window_width: Number(width),
+            window_height: Number(height),
+            viewport_width: Number(replicaView.width),
+            viewport_height: Number(replicaView.height),
+            content_y: Number(replicaView.contentY),
+            origin_y: Number(replicaView.originY),
+            content_height: Number(replicaView.contentHeight),
+            page_mode: Boolean(replicaView.pageScrollMode),
+            follow_enabled: Boolean(followEnabled),
+            animation_running: Boolean(
+                replicaView.diagnosticAnimationRunning
+            ),
+            manual_scroll: Boolean(replicaView.manualDragScroll),
+            local_navigation: Boolean(replicaView.localNavigationActive),
+            seek_in_progress: Boolean(
+                replicaView.deferredReaperPageFollow
+            ),
+            model_refresh: Boolean(replicaView.modelRefreshQueued),
+            target_index: Number(replicaView.pageScrollTargetIndex)
+        };
+        return Object.assign(base, extra || {});
+    }
+
+    function recordDiagnosticEvent(event, extra) {
+        if (!teleprompter.diagnosticRecording) {
+            return "";
+        }
+        var anomalyId = teleprompter.recordDiagnosticEvent(
+            event, diagnosticPayload(extra)
+        );
+        if (anomalyId) {
+            captureDiagnosticScreenshot(anomalyId);
+        }
+        return anomalyId;
+    }
+
+    function captureDiagnosticScreenshot(label) {
+        if (!teleprompter.diagnosticRecording) {
+            return;
+        }
+        var path = teleprompter.diagnosticScreenshotPath(label);
+        if (!path) {
+            return;
+        }
+        lastDiagnosticScreenshotPath = path;
+        window.contentItem.grabToImage(function(result) {
+            var saved = result.saveToFile(path);
+            teleprompter.recordDiagnosticEvent("screenshot_saved", {
+                label: String(label),
+                path: path,
+                saved: Boolean(saved),
+                reaper_time: Number(teleprompter.time),
+                current_index: Number(teleprompter.currentIndexNow())
+            });
+        });
+    }
+
+    function markDiagnosticIssue() {
+        var anomalyId = teleprompter.markDiagnosticIssue("");
+        if (anomalyId) {
+            captureDiagnosticScreenshot(anomalyId);
+        }
+    }
+
+    function toggleDiagnosticRecording() {
+        if (teleprompter.diagnosticRecording) {
+            recordDiagnosticEvent("recording_stopped_by_operator", {});
+            teleprompter.stopDiagnosticRecording();
+        } else if (teleprompter.startDiagnosticRecording()) {
+            recordDiagnosticEvent("initial_viewport", {});
+        }
     }
 
     function setDebugReaperTime(seconds) {
@@ -377,6 +465,9 @@ NativeDialogWindow {
                 return;
             }
             window.lastViewportConfigSignature = signature;
+            window.recordDiagnosticEvent("viewport_config_changed", {
+                signature: signature
+            });
             // Font profiles, layout and focus can change delegate geometry
             // without changing the window itself.  Recalculate against the
             // newly rendered items instead of reusing old pixel targets.
@@ -737,6 +828,54 @@ NativeDialogWindow {
                 Layout.preferredHeight: window.toolbarControlHeight
                 Layout.alignment: Qt.AlignVCenter
                 onClicked: window.teleprompter.refreshCast()
+            }
+            CompactToolButton {
+                id: diagnosticMenuButton
+                visible: window.teleprompter.diagnosticRecording || Boolean(
+                    window.config.show_diagnostic_controls === undefined
+                        ? true
+                        : window.config.show_diagnostic_controls
+                )
+                iconSource: Qt.resolvedUrl("../icons/report.svg")
+                toolTipText: window.teleprompter.diagnosticRecording
+                    ? qsTr("Диагностическая запись идёт")
+                    : qsTr("Диагностическая запись")
+                Layout.alignment: Qt.AlignVCenter
+                onClicked: diagnosticMenu.open()
+
+                Menu {
+                    id: diagnosticMenu
+                    y: diagnosticMenuButton.height
+                    width: 300
+                    MenuItem {
+                        text: qsTr("Начать запись лога")
+                        enabled: !window.teleprompter.diagnosticRecording
+                        onTriggered: window.toggleDiagnosticRecording()
+                    }
+                    MenuItem {
+                        text: qsTr("Завершить и сформировать отчёт")
+                        enabled: window.teleprompter.diagnosticRecording
+                        onTriggered: window.toggleDiagnosticRecording()
+                    }
+                    MenuItem {
+                        text: qsTr("Отметить проблему")
+                        enabled: window.teleprompter.diagnosticRecording
+                        onTriggered: window.markDiagnosticIssue()
+                    }
+                    MenuSeparator { }
+                    MenuItem {
+                        text: qsTr("Открыть папку логов")
+                        onTriggered: window.teleprompter.openDiagnosticDirectory()
+                    }
+                }
+            }
+            AdaptiveButton {
+                visible: diagnosticMenuButton.visible
+                    && window.teleprompter.diagnosticRecording
+                text: qsTr("Метка")
+                Layout.preferredHeight: window.toolbarControlHeight
+                Layout.alignment: Qt.AlignVCenter
+                onClicked: window.markDiagnosticIssue()
             }
             Item {
                 Layout.fillWidth: true
@@ -1678,6 +1817,9 @@ NativeDialogWindow {
                     }
                     currentIndex: window.followEnabled ? window.teleprompter.currentIndex : -1
                     readonly property bool pageScrollMode: Boolean(window.config.page_scroll_mode)
+                    readonly property bool diagnosticAnimationRunning:
+                        pageScrollAnimation.running
+                        || longReplicaScrollAnimation.running
                     property real pageScrollHoldUntil: -1
                     property real pageHoldLastReaperTime: -1
                     property real pageHoldLastReaperReceivedAt: -1
@@ -1729,6 +1871,7 @@ NativeDialogWindow {
                     property real scrollDebugDeadline: -1
                     property string scrollDebugDurationLimit: "нет"
                     property string pageDebugLastTraceSignature: ""
+                    property string diagnosticDecisionSignature: ""
                     property var pageDebugTrace: []
                     // Keep the focus at the same absolute Y within the
                     // teleprompter when the in-viewport header is toggled.
@@ -1754,6 +1897,13 @@ NativeDialogWindow {
                         easing.type: Easing.InOutCubic
                         onStopped: replicaView.pageFocusAlignmentActive = false
                         onFinished: {
+                            window.recordDiagnosticEvent(
+                                "page_scroll_finished", {
+                                    target_y: Number(to),
+                                    target_index:
+                                        replicaView.pageScrollTargetIndex
+                                }
+                            );
                             replicaView.correctPageScrollTarget();
                             replicaView.fadePageTargetHighlight();
                             replicaView.finishLocalNavigation();
@@ -1815,6 +1965,11 @@ NativeDialogWindow {
                         duration: window.scrollDurationMs
                         easing.type: Easing.InOutCubic
                         onFinished: {
+                            window.recordDiagnosticEvent(
+                                "continuous_scroll_finished", {
+                                    target_y: Number(to)
+                                }
+                            );
                             replicaView.fadePageTargetHighlight();
                             replicaView.finishLocalNavigation();
                         }
@@ -1881,6 +2036,26 @@ NativeDialogWindow {
                         pageDebugTargetY = targetY;
                         pageDebugItemTop = itemTop;
                         pageDebugItemBottom = itemBottom;
+                        var diagnosticSignature = [
+                            currentIndex,
+                            pageDebugPage,
+                            event
+                        ].join("|");
+                        if (diagnosticSignature
+                                !== diagnosticDecisionSignature) {
+                            diagnosticDecisionSignature = diagnosticSignature;
+                            window.recordDiagnosticEvent("scroll_decision", {
+                                decision: String(event),
+                                source_y: Number(sourceY),
+                                target_y: Number(targetY),
+                                item_top: Number(itemTop),
+                                item_bottom: Number(itemBottom),
+                                page: Number(pageDebugPage),
+                                page_count: Number(pageDebugPageCount),
+                                timing_source: String(pageDebugTimingSource),
+                                threshold_time: Number(pageDebugThresholdTime)
+                            });
+                        }
                         if (!window.pageDebugVisible) {
                             return;
                         }
@@ -1993,6 +2168,12 @@ NativeDialogWindow {
                         // manual scroll, resize or model refresh the previous
                         // pixel target can consequently lie beyond the new
                         // extent and leave the viewport effectively empty.
+                        window.recordDiagnosticEvent("viewport_invalid", {
+                            reason: "contentY вне границ ListView",
+                            invalid_content_y: Number(contentY),
+                            minimum_y: Number(minimumY),
+                            maximum_y: Number(maximumY)
+                        });
                         pageScrollAnimation.stop();
                         longReplicaScrollAnimation.stop();
                         pageScrollTargetIndex = -1;
@@ -2480,6 +2661,24 @@ NativeDialogWindow {
                             sourceY, targetY,
                             continuousScrollDeadline(currentIndex, bounds)
                         );
+                        window.recordDiagnosticEvent(
+                            "continuous_scroll_started", {
+                                source_y: Number(sourceY),
+                                target_y: Number(targetY),
+                                target_index: Number(currentIndex),
+                                distance_screens:
+                                    scrollDistanceScreens(sourceY, targetY),
+                                desired_duration_ms:
+                                    scrollDebugDesiredDurationMs,
+                                available_duration_ms:
+                                    scrollDebugAvailableDurationMs,
+                                actual_duration_ms:
+                                    longReplicaScrollAnimation.duration,
+                                duration_limit:
+                                    String(scrollDebugDurationLimit),
+                                deadline: Number(scrollDebugDeadline)
+                            }
+                        );
                         longReplicaScrollAnimation.start();
                     }
 
@@ -2784,6 +2983,24 @@ NativeDialogWindow {
                         pageScrollAnimation.duration = pageScrollDurationForTarget(
                             sourceY, targetY, targetIndex
                         );
+                        window.recordDiagnosticEvent(
+                            "page_scroll_started", {
+                                source_y: Number(sourceY),
+                                target_y: Number(targetY),
+                                target_index: Number(targetIndex),
+                                distance_screens:
+                                    scrollDistanceScreens(sourceY, targetY),
+                                desired_duration_ms:
+                                    scrollDebugDesiredDurationMs,
+                                available_duration_ms:
+                                    scrollDebugAvailableDurationMs,
+                                actual_duration_ms:
+                                    pageScrollAnimation.duration,
+                                duration_limit:
+                                    String(scrollDebugDurationLimit),
+                                deadline: Number(scrollDebugDeadline)
+                            }
+                        );
                         pageScrollAnimation.start();
                     }
 
@@ -2837,6 +3054,12 @@ NativeDialogWindow {
                         pageScrollTargetIndex = -1;
                         pageScrollAnimation.stop();
                         var targetY = exactPageTargetY(index);
+                        window.recordDiagnosticEvent("instant_position", {
+                            cause: String(event),
+                            source_y: Number(contentY),
+                            target_y: Number(targetY),
+                            target_index: Number(index)
+                        });
                         contentY = targetY;
                         var item = itemAtIndex(index);
                         var itemTop = item ? item.y : targetY;
@@ -2870,6 +3093,14 @@ NativeDialogWindow {
                         var sourceY = contentY;
                         var targetY = exactPageTargetY(index);
                         contentY = targetY;
+                        window.recordDiagnosticEvent(
+                            "scroll_target_corrected", {
+                                source_y: Number(sourceY),
+                                target_y: Number(targetY),
+                                delta_y: Number(targetY - sourceY),
+                                target_index: Number(index)
+                            }
+                        );
                         updatePageTargetHighlightGeometry(index, targetY);
                         var item = itemAtIndex(index);
                         var itemTop = item ? item.y : targetY;
@@ -3354,6 +3585,9 @@ NativeDialogWindow {
                         longReplicaScrollAnimation.stop();
                         pageGapPrefetchIndex = -1;
                         manualDragScroll = true;
+                        window.recordDiagnosticEvent(
+                            "manual_scroll_started", {}
+                        );
                         if (!pageScrollMode) {
                             window.followEnabled = false;
                         }
@@ -3363,6 +3597,9 @@ NativeDialogWindow {
                         if (!manualDragScroll) {
                             return;
                         }
+                        window.recordDiagnosticEvent(
+                            "manual_scroll_finished", {}
+                        );
                         if (pageScrollMode) {
                             // Establish the hold before releasing the manual
                             // guard, leaving no event-loop gap in which an OSC

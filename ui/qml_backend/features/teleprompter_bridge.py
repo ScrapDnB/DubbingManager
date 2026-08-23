@@ -1,10 +1,14 @@
 """QML backend for the teleprompter workflow."""
 
 from copy import deepcopy
+from pathlib import Path
+import platform
+import sys
 from time import monotonic
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot, Qt
+from PySide6.QtCore import QObject, Property, QTimer, QUrl, Signal, Slot, Qt
+from PySide6.QtGui import QDesktopServices
 
 from config.constants import (
     DEFAULT_PROMPTER_CONFIG,
@@ -19,6 +23,9 @@ from services.global_settings_service import GlobalSettingsService
 from services.osc_worker import OSC_AVAILABLE, OscWorker
 from services.script_text_service import ScriptTextService
 from services.teleprompter_navigation_service import TeleprompterNavigationService
+from services.teleprompter_diagnostic_service import (
+    TeleprompterDiagnosticService,
+)
 from services.layout_template_service import layout_template_rows
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
@@ -51,6 +58,7 @@ class TeleprompterBridge(QObject):
     configChanged = Signal()
     positionChanged = Signal()
     oscChanged = Signal()
+    diagnosticChanged = Signal()
     projectDataChanged = Signal(str)
     statusRequested = Signal(str)
     errorRequested = Signal(str)
@@ -71,6 +79,7 @@ class TeleprompterBridge(QObject):
         self._global_settings_service = global_settings_service
         self._episodes_model = episodes_model
         self._navigation = TeleprompterNavigationService()
+        self._diagnostics = TeleprompterDiagnosticService()
         self._episode = ""
         self._selected_actor_ids: Optional[List[str]] = None
         self._time = 0.0
@@ -82,6 +91,7 @@ class TeleprompterBridge(QObject):
         self._last_osc_activity: Optional[float] = None
         self._last_reaper_time: Optional[float] = None
         self._reaper_playing = False
+        self._last_diagnostic_osc_sample = 0.0
         self._debug_simulation_active = False
         self._pending_reaper_time: Optional[tuple[float, float]] = None
         self._osc_runtime_config: Optional[tuple[int, int]] = None
@@ -177,6 +187,22 @@ class TeleprompterBridge(QObject):
     def oscAvailable(self) -> bool:
         return OSC_AVAILABLE
 
+    @Property(bool, notify=diagnosticChanged)
+    def diagnosticRecording(self) -> bool:
+        return self._diagnostics.recording
+
+    @Property(str, notify=diagnosticChanged)
+    def diagnosticSessionPath(self) -> str:
+        directory = self._diagnostics.session_dir
+        return str(directory) if directory is not None else ""
+
+    @Property(str, notify=diagnosticChanged)
+    def diagnosticDirectoryUrl(self) -> str:
+        directory = self._diagnostics.session_dir
+        if directory is None:
+            directory = self._diagnostic_root()
+        return QUrl.fromLocalFile(str(directory)).toString()
+
     @Property(list, notify=changed)
     def characterNames(self) -> List[str]:
         project_data = self._session.data
@@ -246,7 +272,82 @@ class TeleprompterBridge(QObject):
     @Slot()
     def close(self) -> None:
         self._debug_simulation_active = False
+        if self._diagnostics.recording:
+            self.stopDiagnosticRecording()
         self._stop_osc()
+
+    @Slot(result=bool)
+    def startDiagnosticRecording(self) -> bool:
+        if self._diagnostics.recording:
+            return True
+        if not self._episode:
+            self.errorRequested.emit("Сначала откройте серию в телесуфлёре")
+            return False
+        try:
+            directory = self._diagnostics.start(
+                self._diagnostic_root(),
+                self._episode,
+                self._diagnostic_manifest(),
+            )
+        except Exception as exc:
+            self.errorRequested.emit(
+                f"Не удалось начать диагностическую запись: {exc}"
+            )
+            return False
+        self.diagnosticChanged.emit()
+        self.statusRequested.emit(
+            f"Диагностическая запись начата: {directory}"
+        )
+        return True
+
+    @Slot(result=bool)
+    def stopDiagnosticRecording(self) -> bool:
+        if not self._diagnostics.recording:
+            return False
+        directory = self._diagnostics.stop()
+        self.diagnosticChanged.emit()
+        if self._diagnostics.writer_error:
+            self.errorRequested.emit(
+                "Диагностическая запись завершена с ошибкой: "
+                + self._diagnostics.writer_error
+            )
+            return False
+        self.statusRequested.emit(
+            f"Диагностический отчёт сохранён: {directory}"
+        )
+        return True
+
+    @Slot(str, "QVariantMap", result=str)
+    def recordDiagnosticEvent(
+        self,
+        event: str,
+        payload: Dict[str, Any],
+    ) -> str:
+        return self._diagnostics.record(str(event), dict(payload or {}))
+
+    @Slot(str, result=str)
+    def markDiagnosticIssue(self, comment: str = "") -> str:
+        anomaly_id = self._diagnostics.mark_problem({
+            "comment": str(comment or ""),
+            "reaper_time": self._time,
+            "current_index": self._current_index,
+            "episode": self._episode,
+        })
+        if anomaly_id:
+            self.statusRequested.emit(
+                f"Диагностическая метка сохранена: {anomaly_id}"
+            )
+        return anomaly_id
+
+    @Slot(str, result=str)
+    def diagnosticScreenshotPath(self, label: str) -> str:
+        return self._diagnostics.screenshot_path(label)
+
+    @Slot(result=bool)
+    def openDiagnosticDirectory(self) -> bool:
+        directory = self._diagnostics.session_dir or self._diagnostic_root()
+        directory.mkdir(parents=True, exist_ok=True)
+        return bool(QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory))))
 
     @Slot(bool)
     def debugSetSimulationActive(self, active: bool) -> None:
@@ -287,11 +388,16 @@ class TeleprompterBridge(QObject):
             or episode not in self._session.data.get("episodes", {})
         ):
             return
+        previous_episode = self._episode
         self._episode = episode
         self._time = 0.0
         self._current_index = -1
         self._position_origin = "internal"
         self.refresh()
+        self._diagnostics.record("episode_changed", {
+            "previous_episode": previous_episode,
+            "episode": episode,
+        })
         self.changed.emit()
 
     @Slot()
@@ -464,6 +570,12 @@ class TeleprompterBridge(QObject):
         self._time = max(0.0, float(rows[index]["start"]))
         self._position_origin = origin
         self._current_index = index
+        self._diagnostics.record("local_navigation", {
+            "direction": "exact",
+            "target_index": index,
+            "reaper_time": self._time,
+            "origin": origin,
+        })
         self.positionChanged.emit()
         self._send_time_to_reaper(send_sync)
 
@@ -1002,6 +1114,7 @@ class TeleprompterBridge(QObject):
             "show_block_borders", "hide_leading_timecode_zeros", "osc_enabled",
             "sync_in", "sync_out", "sync_play_only", "reaper_offset_enabled", "page_scroll_mode",
             "page_debug_overlay", "page_target_highlight_enabled",
+            "show_diagnostic_controls",
             "page_timecode_highlight_enabled",
             *PROMPTER_FONT_BOLD_KEYS,
         }:
@@ -1055,6 +1168,37 @@ class TeleprompterBridge(QObject):
         if key in {"key_prev", "key_next"}:
             return str(value or "")
         return None
+
+    def _diagnostic_root(self) -> Path:
+        project_path = self._session.project_service.current_project_path
+        if project_path:
+            return Path(project_path).expanduser().resolve().parent / (
+                "teleprompter_diagnostics"
+            )
+        return (
+            self._global_settings_service._settings_file.parent
+            / "teleprompter_diagnostics"
+        )
+
+    def _diagnostic_manifest(self) -> Dict[str, Any]:
+        rows = self._model.rows()
+        active_rows = [row for row in rows if row.get("active")]
+        return {
+            "application": "DubbingManager",
+            "python": sys.version.split()[0],
+            "platform": platform.platform(),
+            "project_path": str(
+                self._session.project_service.current_project_path or ""
+            ),
+            "project_kind": str(
+                self._session.data.get("project_kind") or "dubbing"
+            ),
+            "replica_count": len(rows),
+            "active_replica_count": len(active_rows),
+            "selected_actor_ids": deepcopy(self._selected_actor_ids),
+            "config": deepcopy(self.config),
+            "osc_available": OSC_AVAILABLE,
+        }
 
     def _refresh_presets(self) -> None:
         self._preset_model.set_rows([
@@ -1231,8 +1375,25 @@ class TeleprompterBridge(QObject):
 
     @Slot(float)
     def _on_osc_time(self, seconds: float) -> None:
+        previous_reaper_time = self._last_reaper_time
         self._last_reaper_time = float(seconds)
         self._mark_osc_activity()
+        sampled_at = monotonic()
+        discontinuity = bool(
+            previous_reaper_time is not None
+            and abs(float(seconds) - previous_reaper_time) >= 0.5
+        )
+        if (
+            discontinuity
+            or sampled_at - self._last_diagnostic_osc_sample >= 0.1
+        ):
+            self._last_diagnostic_osc_sample = sampled_at
+            self._diagnostics.record("osc_time", {
+                "reaper_time": float(seconds),
+                "playing": self._reaper_playing,
+                "follow_enabled": self._should_follow_reaper_time(self.config),
+                "discontinuity": discontinuity,
+            })
         if self._debug_simulation_active:
             return
         config = self.config
@@ -1259,6 +1420,7 @@ class TeleprompterBridge(QObject):
         if self._debug_simulation_active:
             return
         playing = bool(playing)
+        self._diagnostics.record("osc_transport", {"playing": playing})
         if self._reaper_playing != playing:
             self._reaper_playing = playing
             self.oscChanged.emit()

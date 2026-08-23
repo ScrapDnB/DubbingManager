@@ -79,6 +79,7 @@ class PrompterConfig:
     page_target_highlight_fade_in_ms: int = 500
     page_target_highlight_fade_ms: int = 1000
     page_debug_overlay: bool = False
+    show_diagnostic_controls: bool = True
     colors: PrompterColors = field(default_factory=PrompterColors)
 
     def __post_init__(self) -> None:

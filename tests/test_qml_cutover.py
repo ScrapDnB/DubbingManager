@@ -346,7 +346,8 @@ def test_teleprompter_has_a_page_scroll_mode():
     )
     assert 'title: qsTr("Диагностика")' in automation_settings
     assert 'title: qsTr("Анимация подсветки")' in automation_settings
-    assert "Показывать диагностику постраничного режима" in automation_settings
+    assert "Диагностический оверлей" in automation_settings
+    assert "Показывать управление записью лога" in automation_settings
     assert "Считать паузой интервал от:" in automation_settings
     assert "Подтягивать следующую реплику через:" in automation_settings
     assert "Подсвечивать цель при перемотке" in automation_settings

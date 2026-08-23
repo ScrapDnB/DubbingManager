@@ -272,6 +272,7 @@ DEFAULT_PROMPTER_CONFIG = {
     "page_target_highlight_fade_in_ms": 500,
     "page_target_highlight_fade_ms": 1000,
     "page_debug_overlay": False,
+    "show_diagnostic_controls": True,
     "colors": {
         "bg": "#000000",
         "active_text": "#FFFFFF",

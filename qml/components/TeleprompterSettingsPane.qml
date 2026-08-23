@@ -131,9 +131,21 @@ PersistentScrollView {
                 anchors.fill: parent
                 columns: 1
                 CheckBox {
-                    text: qsTr("Показывать диагностику постраничного режима")
+                    text: qsTr("Диагностический оверлей")
                     checked: Boolean(pane.configuration.page_debug_overlay)
                     onToggled: pane.setValue("page_debug_overlay", checked)
+                }
+                CheckBox {
+                    text: qsTr("Показывать управление записью лога")
+                    checked: Boolean(
+                        pane.configuration.show_diagnostic_controls
+                            === undefined
+                            ? true
+                            : pane.configuration.show_diagnostic_controls
+                    )
+                    onToggled: pane.setValue(
+                        "show_diagnostic_controls", checked
+                    )
                 }
             }
         }

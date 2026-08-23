@@ -533,6 +533,32 @@ def test_qml_teleprompter_debug_reaper_simulator(tmp_path):
     assert not prompter._reaper_playing
 
 
+def test_qml_teleprompter_records_a_diagnostic_session(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    assert not prompter.diagnosticRecording
+    assert prompter.startDiagnosticRecording()
+    assert prompter.diagnosticRecording
+    session_path = Path(prompter.diagnosticSessionPath)
+
+    prompter.recordDiagnosticEvent("viewport_sample", {
+        "content_y": 10,
+        "origin_y": 0,
+        "viewport_height": 700,
+    })
+    assert prompter.markDiagnosticIssue("") == "a00001"
+    screenshot = prompter.diagnosticScreenshotPath("a00001")
+    assert Path(screenshot).parent.name == "screenshots"
+    assert prompter.stopDiagnosticRecording()
+    assert not prompter.diagnosticRecording
+    assert (session_path / "manifest.json").is_file()
+    assert (session_path / "summary.json").is_file()
+
+
 def test_qml_teleprompter_defers_reaper_time_after_local_navigation(tmp_path):
     _app()
     bridge = AppBridge()
@@ -936,17 +962,20 @@ def test_qml_bridge_teleprompter_settings_and_presets(tmp_path, monkeypatch):
     bridge.teleprompter.setConfigValue("show_end_timecode", False)
     bridge.teleprompter.setConfigValue("show_block_borders", True)
     bridge.teleprompter.setConfigValue("hide_leading_timecode_zeros", True)
+    bridge.teleprompter.setConfigValue("show_diagnostic_controls", False)
     global_prompter = bridge._global_settings_service.get_default_prompter_config()
     assert global_prompter["show_actor"] is False
     assert global_prompter["show_replica"] is False
     assert global_prompter["show_end_timecode"] is False
     assert global_prompter["show_block_borders"] is True
     assert global_prompter["hide_leading_timecode_zeros"] is True
+    assert global_prompter["show_diagnostic_controls"] is False
     assert bridge.teleprompter.config["show_actor"] is False
     assert bridge.teleprompter.config["show_replica"] is False
     assert bridge.teleprompter.config["show_end_timecode"] is False
     assert bridge.teleprompter.config["show_block_borders"] is True
     assert bridge.teleprompter.config["hide_leading_timecode_zeros"] is True
+    assert bridge.teleprompter.config["show_diagnostic_controls"] is False
 
     bridge.teleprompter.savePreset(0)
     assert bridge.teleprompter.presetModel.rows()[0]["filled"]
