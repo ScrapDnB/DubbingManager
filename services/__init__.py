@@ -12,6 +12,8 @@ from .project_folder_service import ProjectFolderService
 from .project_health_service import ProjectHealthIssue, ProjectHealthService
 from .docx_import_service import DocxImportService
 from .book_import_service import BookImportError, BookImportService
+from .audiobook_pdf_export_service import AudiobookPdfExportService
+from .audiobook_review_service import AudiobookReviewService
 from .script_text_service import ScriptTextService
 from .quick_subtitle_service import QuickSubtitleService
 from .reaper_rpp_service import ReaperRppService
@@ -72,6 +74,8 @@ __all__ = [
     'DocxImportService',
     'BookImportError',
     'BookImportService',
+    'AudiobookPdfExportService',
+    'AudiobookReviewService',
     'ScriptTextService',
     'QuickSubtitleService',
     'ReaperRppService',

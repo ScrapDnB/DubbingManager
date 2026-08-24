@@ -46,6 +46,19 @@ def ensure_project_compatibility(data: Dict[str, Any]) -> None:
         data["prompter_config"] = deepcopy(DEFAULT_PROMPTER_CONFIG)
     if "global_map" not in data:
         data["global_map"] = {}
+    aliases = data.get("character_aliases")
+    if not isinstance(aliases, dict):
+        data["character_aliases"] = {}
+    else:
+        data["character_aliases"] = {
+            str(character): list(dict.fromkeys(
+                str(alias).strip()
+                for alias in values
+                if str(alias).strip()
+            ))
+            for character, values in aliases.items()
+            if str(character).strip() and isinstance(values, list)
+        }
     if "episode_actor_map" not in data:
         data["episode_actor_map"] = {}
     ensure_project_settings(data)

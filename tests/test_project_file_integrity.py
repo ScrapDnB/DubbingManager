@@ -32,6 +32,7 @@ class TestProjectFileStructure:
         assert "project_kind" in data
         assert "actors" in data
         assert "global_map" in data
+        assert "character_aliases" in data
         assert "episodes" in data
         assert "video_paths" in data
         assert "episode_texts" in data
@@ -55,6 +56,7 @@ class TestProjectFileStructure:
         # Проверка типа полей
         assert isinstance(data["actors"], dict)
         assert isinstance(data["global_map"], dict)
+        assert isinstance(data["character_aliases"], dict)
         assert isinstance(data["episodes"], dict)
         assert data["project_kind"] == "subtitle"
         assert isinstance(data["video_paths"], dict)

@@ -261,7 +261,11 @@ class AudiobookDocumentService:
             ):
                 runs[-1]["text"] += text
                 return
-            run = {"id": self._new_id(), "text": text, "character": character}
+            run = {
+                "id": self._new_id(),
+                "text": text,
+                "character": character,
+            }
             if actor_id:
                 run["actor_id"] = actor_id
             runs.append(run)

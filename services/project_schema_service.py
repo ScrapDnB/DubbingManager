@@ -62,6 +62,7 @@ class ProjectSchemaService:
         self._require_type(data, "project_kind", str)
         self._require_type(data, "actors", dict)
         self._require_type(data, "global_map", dict)
+        self._require_type(data, "character_aliases", dict)
         self._require_type(data, "episode_actor_map", dict)
         self._require_type(data, "episodes", dict)
         self._require_type(data, "video_paths", dict)
@@ -101,6 +102,7 @@ class ProjectSchemaService:
         self._validate_string_mapping(data["episodes"], "episodes")
         self._validate_project_settings(data["project_settings"])
         self._validate_actors(data["actors"])
+        self._validate_character_aliases(data["character_aliases"])
         if kind == "audiobook":
             self._validate_audiobook(data)
 
@@ -292,6 +294,26 @@ class ProjectSchemaService:
                 )
             if "actor_id" in run and not isinstance(run["actor_id"], str):
                 raise ProjectSchemaError(f"{run_path}.actor_id должно быть строкой.")
+
+    @staticmethod
+    def _validate_character_aliases(aliases: Dict[str, Any]) -> None:
+        for character, values in aliases.items():
+            if not isinstance(character, str) or not character.strip():
+                raise ProjectSchemaError(
+                    "character_aliases содержит некорректное имя персонажа."
+                )
+            if not isinstance(values, list) or any(
+                not isinstance(value, str) or not value.strip()
+                for value in values
+            ):
+                raise ProjectSchemaError(
+                    f"character_aliases.{character} должно быть списком непустых строк."
+                )
+            folded = [value.strip().casefold() for value in values]
+            if len(folded) != len(set(folded)):
+                raise ProjectSchemaError(
+                    f"character_aliases.{character} содержит повторяющиеся алиасы."
+                )
 
     @staticmethod
     def _require_type(

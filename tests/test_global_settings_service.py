@@ -55,7 +55,6 @@ class TestGlobalSettingsService:
             'interval_minutes': 5,
             'max_backups': 10,
         }
-
     def test_load_settings_with_data(self, service, temp_settings_file):
         """Тест загрузки с данными"""
         test_data = {

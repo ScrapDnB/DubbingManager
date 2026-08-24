@@ -26,6 +26,7 @@ def test_ensure_project_compatibility_adds_current_fields_to_legacy_project():
     assert data["episode_texts"] == {}
     assert data["episode_working_texts"] == {}
     assert data["global_map"] == {}
+    assert data["character_aliases"] == {}
     assert data["episode_actor_map"] == {}
     assert data["prompter_config"]
     assert data["project_folder"] is None

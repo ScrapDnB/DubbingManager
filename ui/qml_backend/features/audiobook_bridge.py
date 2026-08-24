@@ -10,12 +10,24 @@ from typing import Any, Optional
 from lxml import etree
 from lxml import html as lxml_html
 from PySide6.QtCore import (
-    QDir, QObject, Property, QTemporaryFile, QThread, QUrl, Signal, Slot, Qt,
+    QDir, QObject, Property, QTemporaryFile, QThread, QUrl, Signal,
+    Slot, Qt,
 )
 from PySide6.QtGui import QColor, QFontDatabase
 
 from core.commands import UpdateProjectFileStateCommand
-from services.audiobook_document_service import AudiobookDocumentService
+from services.audiobook_document_service import (
+    AudiobookDocumentService,
+)
+from services.audiobook_pdf_export_service import AudiobookPdfExportService
+from services.audiobook_review_service import (
+    AudiobookReviewService,
+    REVIEW_ALL,
+    REVIEW_IGNORED,
+    REVIEW_ISSUES,
+    REVIEW_UNASSIGNED,
+    REVIEW_UNMARKED_DIALOGUE,
+)
 from services.book_import_service import BookChapter, BookImportService
 from services.project_metadata_service import maybe_set_project_name_from_first_import
 from services.script_text_service import ScriptTextService
@@ -60,6 +72,8 @@ class AudiobookBridge(QObject):
     importChanged = Signal()
     projectDataChanged = Signal(str)
     projectNameChanged = Signal()
+    reviewChanged = Signal()
+    reviewNavigationRequested = Signal(str)
     statusRequested = Signal(str)
     errorRequested = Signal(str)
 
@@ -74,6 +88,8 @@ class AudiobookBridge(QObject):
         self._session = session
         self._script_text_service = script_text_service
         self._document_service = AudiobookDocumentService()
+        self._pdf_export_service = AudiobookPdfExportService()
+        self._review_service = AudiobookReviewService()
         self._global_settings_service = global_settings_service
         self._chapters: dict[str, str] = {}
         self._order: list[str] = []
@@ -94,6 +110,10 @@ class AudiobookBridge(QObject):
         self._pending_path = ""
         self._thread: Optional[QThread] = None
         self._worker: Optional[_PdfImportWorker] = None
+        self._review_filter = REVIEW_ISSUES
+        self._review_search = ""
+        self._review_ignored: set[str] = set()
+        self._review_rows_by_id: dict[str, dict[str, Any]] = {}
         self._editor_temp: Optional[QTemporaryFile] = None
         self._markup_temp: Optional[QTemporaryFile] = None
         self._editor_url = QUrl()
@@ -124,6 +144,18 @@ class AudiobookBridge(QObject):
             "title": Qt.UserRole + 1,
             "selected": Qt.UserRole + 2,
         }, self)
+        self._review_model = DictListModel({
+            "itemId": Qt.UserRole + 1,
+            "chapter": Qt.UserRole + 2,
+            "character": Qt.UserRole + 3,
+            "aliases": Qt.UserRole + 4,
+            "snippet": Qt.UserRole + 5,
+            "kind": Qt.UserRole + 6,
+            "kindLabel": Qt.UserRole + 7,
+            "issue": Qt.UserRole + 8,
+            "ignored": Qt.UserRole + 9,
+            "runId": Qt.UserRole + 10,
+        }, self)
 
     @Property(QObject, constant=True)
     def chaptersModel(self) -> QObject:
@@ -145,9 +177,37 @@ class AudiobookBridge(QObject):
     def markupChaptersModel(self) -> QObject:
         return self._markup_model
 
+    @Property(QObject, constant=True)
+    def reviewModel(self) -> QObject:
+        return self._review_model
+
+    @Property(str, notify=reviewChanged)
+    def reviewFilter(self) -> str:
+        return self._review_filter
+
+    @Property(str, notify=reviewChanged)
+    def reviewSearch(self) -> str:
+        return self._review_search
+
+    @Property(int, notify=reviewChanged)
+    def reviewCount(self) -> int:
+        return sum(
+            1 for row in self._review_rows_by_id.values()
+            if row.get("issue") and not row.get("ignored")
+        )
+
+    @Property(str, notify=reviewChanged)
+    def reviewSummary(self) -> str:
+        total = len(self._review_rows_by_id)
+        return f"{self.reviewCount} проблем · {total} фрагментов"
+
     @Property(str, notify=changed)
     def currentChapter(self) -> str:
         return self._current
+
+    @Property("QVariantList", notify=changed)
+    def chapterTitles(self) -> list[str]:
+        return list(self._order)
 
     @Property(str, notify=changed)
     def sourceName(self) -> str:
@@ -260,6 +320,10 @@ class AudiobookBridge(QObject):
             for item in settings.get("slots", [])[:9]
         ]
         self._slots.extend({"character": "", "actor_id": None} for _ in range(9 - len(self._slots)))
+        ignored = settings.get("review_ignored", [])
+        self._review_ignored = {
+            str(value) for value in ignored
+        } if isinstance(ignored, list) else set()
         self._global_map = deepcopy(data.get("global_map", {}))
         self._refresh_actors()
         self._current = self._order[0] if self._order else ""
@@ -292,6 +356,7 @@ class AudiobookBridge(QObject):
         except (TypeError, ValueError):
             self._current_segments = self._segments_from_html(html_text)
         self._refresh_marked()
+        self._refresh_review()
         self.changed.emit()
 
     @Slot(int, str, str)
@@ -307,7 +372,97 @@ class AudiobookBridge(QObject):
             else:
                 self._global_map.pop(character, None)
         self._refresh_slots()
+        self._refresh_review()
         self.changed.emit()
+
+    @Slot(str)
+    def setReviewFilter(self, value: str) -> None:
+        allowed = {
+            REVIEW_ALL,
+            REVIEW_ISSUES,
+            REVIEW_UNMARKED_DIALOGUE,
+            REVIEW_UNASSIGNED,
+            REVIEW_IGNORED,
+        }
+        value = str(value or REVIEW_ISSUES)
+        if value not in allowed or value == self._review_filter:
+            return
+        self._review_filter = value
+        self._apply_review_filter()
+
+    @Slot(str)
+    def setReviewSearch(self, value: str) -> None:
+        value = " ".join(str(value or "").split())
+        if value == self._review_search:
+            return
+        self._review_search = value
+        self._apply_review_filter()
+
+    @Slot(str)
+    def openReviewItem(self, item_id: str) -> None:
+        row = self._review_rows_by_id.get(str(item_id or ""))
+        if not row:
+            return
+        chapter = str(row.get("chapter", ""))
+        if chapter and chapter != self._current:
+            self.selectChapter(chapter)
+        self.reviewNavigationRequested.emit(str(row.get("text", "")))
+
+    @Slot(str)
+    def ignoreReviewItem(self, item_id: str) -> None:
+        item_id = str(item_id or "")
+        row = self._review_rows_by_id.get(item_id)
+        if not row or not row.get("issue"):
+            return
+        self._review_ignored.add(item_id)
+        self._store_review_ignored("Фрагмент исключён из проверки")
+
+    @Slot()
+    def resetIgnoredReviewItems(self) -> None:
+        if not self._review_ignored:
+            return
+        self._review_ignored.clear()
+        self._store_review_ignored("Возвращены пропущенные проверки")
+
+    @Slot("QVariantList", str, bool, bool, result=bool)
+    def exportPdf(
+        self,
+        chapter_titles: list,
+        path_or_url: str,
+        separate_files: bool,
+        studio_layout: bool,
+    ) -> bool:
+        titles = [str(value) for value in chapter_titles if str(value)]
+        path = self._local_path(path_or_url)
+        if not titles or not path:
+            self.errorRequested.emit("Выберите главы и место экспорта")
+            return False
+        try:
+            document = self._live_document()
+            if separate_files:
+                paths = self._pdf_export_service.export_separate(
+                    document,
+                    self._session.data,
+                    titles,
+                    path,
+                    studio_layout,
+                )
+                self.statusRequested.emit(
+                    f"Экспортировано PDF: {len(paths)}"
+                )
+            else:
+                saved = self._pdf_export_service.export_combined(
+                    document,
+                    self._session.data,
+                    titles,
+                    path,
+                    studio_layout,
+                )
+                self.statusRequested.emit(f"PDF сохранён: {saved}")
+            return True
+        except Exception as exc:
+            self.errorRequested.emit(f"Не удалось экспортировать PDF: {exc}")
+            return False
 
     @Slot(str)
     def setFontFamily(self, family: str) -> None:
@@ -530,10 +685,14 @@ class AudiobookBridge(QObject):
         ):
             document["source"] = deepcopy(previous.get("source", {}))
         candidate["audiobook_document"] = document
-        candidate["audiobook_settings"] = {
-            "font_family": self._font_family, "zoom_steps": self._zoom,
+        settings = deepcopy(candidate.get("audiobook_settings", {}))
+        settings.update({
+            "font_family": self._font_family,
+            "zoom_steps": self._zoom,
             "slots": deepcopy(self._slots),
-        }
+            "review_ignored": sorted(self._review_ignored),
+        })
+        candidate["audiobook_settings"] = settings
         candidate["global_map"] = deepcopy(self._global_map)
         if candidate.get("project_kind") == "audiobook":
             candidate["episode_working_texts"] = {}
@@ -562,6 +721,7 @@ class AudiobookBridge(QObject):
         ])
         self._refresh_slots()
         self._refresh_marked()
+        self._refresh_review()
 
     def _refresh_editor_document(self) -> None:
         document = editor_document(
@@ -622,6 +782,60 @@ class AudiobookBridge(QObject):
             {"character": name, "fragments": values[0], "words": values[1], "summary": f"{values[0]} фр. · {values[1]} слов"}
             for name, values in sorted(stats.items(), key=lambda item: item[0].casefold())
         ])
+
+    def _refresh_review(self) -> None:
+        rows = self._review_service.rows(
+            self._live_document(), self._session.data, self._review_ignored
+        )
+        self._review_rows_by_id = {
+            str(row["itemId"]): row for row in rows
+        }
+        self._apply_review_filter()
+
+    def _apply_review_filter(self) -> None:
+        rows = self._review_service.filtered_rows(
+            self._review_rows_by_id.values(),
+            self._review_filter,
+            self._review_search,
+        )
+        self._review_model.set_rows([
+            {**row, "snippet": str(row.get("text", ""))}
+            for row in rows
+        ])
+        self.reviewChanged.emit()
+
+    def _live_document(self) -> dict[str, Any]:
+        source = self._session.data.get("audiobook_document", {}).get(
+            "source", {}
+        )
+        return {
+            "format_version": "1.0",
+            "source": deepcopy(source),
+            "chapters": [
+                self._document_service.chapter_from_html(
+                    title, self._chapters[title]
+                )
+                for title in self._order
+                if title in self._chapters
+            ],
+        }
+
+    def _store_review_ignored(self, description: str) -> None:
+        settings = deepcopy(
+            self._session.data.get("audiobook_settings", {})
+        )
+        settings["review_ignored"] = sorted(self._review_ignored)
+        self._session.execute(
+            UpdateProjectFileStateCommand(
+                self._session.data,
+                {"audiobook_settings": settings},
+                description,
+            ),
+            "settings",
+        )
+        self.projectDataChanged.emit("settings")
+        self._refresh_review()
+        self.statusRequested.emit(description)
 
     def _refresh_markup_model(self) -> None:
         self._markup_model.set_rows([

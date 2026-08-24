@@ -129,6 +129,111 @@ def test_qml_audiobook_saves_html_markup_through_undo_command(tmp_path):
     assert any(line["char"] == "Герой" and line["text"] == "Первый" for line in redone)
 
 
+def test_qml_character_card_updates_aliases_with_rename_and_undo(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    source = str(tmp_path / "book.pdf")
+    bridge._session.data["episodes"] = {"Глава 1": source}
+    bridge._session.data["audiobook_document"] = (
+        AudiobookDocumentService().create_document(source, [(
+            "Глава 1",
+            "<!DOCTYPE html><html><body><h1>Глава 1</h1>"
+            '<p><span data-dm-character="Герой">Реплика.</span></p>'
+            "</body></html>",
+        )])
+    )
+    bridge._session.current_episode = "Глава 1"
+    bridge.casting.refresh("project")
+
+    bridge.casting.updateCharacterProfile(
+        "Герой", "Александр", ["Саша", "капитан", "Саша"]
+    )
+
+    assert bridge._session.data["character_aliases"] == {
+        "Александр": ["Саша", "капитан"]
+    }
+    lines = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(line["char"] == "Александр" for line in lines)
+    assert bridge.casting.characterAliases("Александр") == [
+        "Саша", "капитан"
+    ]
+
+    bridge.project.undo()
+
+    assert bridge._session.data["character_aliases"] == {}
+    restored = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(line["char"] == "Герой" for line in restored)
+
+
+def test_qml_audiobook_review_queue_search_and_ignore(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    audiobook = bridge.audiobook
+    audiobook.prepare()
+    audiobook.updateEditorState(
+        "<!DOCTYPE html><html><body><h1>Глава 1</h1>"
+        "<p>— Кто здесь?</p></body></html>",
+        '[{"character":"Автор","text":"— Кто здесь?"}]',
+    )
+
+    assert audiobook.reviewCount == 1
+    row = audiobook.reviewModel.get(0)
+    assert row["kind"] == "unmarked_dialogue"
+
+    audiobook.setReviewSearch("кто здесь")
+    assert audiobook.reviewModel.rowCount() == 1
+    audiobook.ignoreReviewItem(row["itemId"])
+    assert audiobook.reviewCount == 0
+    assert row["itemId"] in bridge._session.data[
+        "audiobook_settings"
+    ]["review_ignored"]
+
+    audiobook.setReviewFilter("ignored")
+    assert audiobook.reviewModel.rowCount() == 1
+    audiobook.resetIgnoredReviewItems()
+    assert audiobook.reviewCount == 1
+
+
+
+def test_qml_audiobook_pdf_export_uses_live_selected_chapters(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    audiobook = bridge.audiobook
+    audiobook.prepare()
+    calls = []
+
+    class Exporter:
+        def export_combined(
+            self, document, project, titles, path, studio_layout
+        ):
+            calls.append((document, list(titles), path, studio_layout))
+            return Path(path)
+
+    audiobook._pdf_export_service = Exporter()
+    audiobook.updateEditorState(
+        "<!DOCTYPE html><html><body><h1>Глава 1</h1>"
+        "<p>Несохранённая правка.</p></body></html>",
+        '[{"character":"Автор","text":"Несохранённая правка."}]',
+    )
+
+    assert audiobook.exportPdf(
+        ["Глава 1"], str(tmp_path / "book.pdf"), False, True
+    )
+    document, titles, path, studio = calls[0]
+    assert titles == ["Глава 1"]
+    assert path.endswith("book.pdf") and studio is True
+    assert "Несохранённая правка" in json.dumps(
+        document, ensure_ascii=False
+    )
+
+
 def test_qml_audiobook_applies_reordered_chapter_structure(tmp_path):
     _app()
     bridge = AppBridge()

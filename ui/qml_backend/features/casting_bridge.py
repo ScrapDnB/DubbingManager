@@ -15,6 +15,7 @@ from core.commands import (
     DeleteActorsCommand,
     RenameActorCommand,
     RenameCharacterCommand,
+    UpdateCharacterProfileCommand,
     UpdateActorColorCommand,
     UpdateActorGenderCommand,
 )
@@ -30,6 +31,7 @@ from services import (
     get_actor_roles,
     rename_character_assignments,
 )
+from services.role_service import collect_project_roles
 from utils.helpers import natural_sort_key
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
@@ -122,6 +124,7 @@ class CastingBridge(QObject):
             "color": Qt.UserRole + 7, "actorId": Qt.UserRole + 8,
             "scopeId": Qt.UserRole + 9, "actorIds": Qt.UserRole + 10,
             "actorEntries": Qt.UserRole + 11,
+            "aliasesText": Qt.UserRole + 12,
         }, self)
         self._character_episode_stats_model = DictListModel({
             "episode": Qt.UserRole + 1, "lines": Qt.UserRole + 2,
@@ -558,6 +561,23 @@ class CastingBridge(QObject):
 
     @Slot(str, str)
     def renameCharacter(self, old_name: str, new_name: str) -> None:
+        self.updateCharacterProfile(
+            old_name,
+            new_name,
+            self.characterAliases(old_name),
+        )
+
+    @Slot(str, result="QVariantList")
+    def characterAliases(self, character: str) -> list[str]:
+        values = self._session.data.get("character_aliases", {}).get(
+            str(character or ""), []
+        )
+        return list(values) if isinstance(values, list) else []
+
+    @Slot(str, str, "QVariantList")
+    def updateCharacterProfile(
+        self, old_name: str, new_name: str, aliases: list
+    ) -> None:
         old_name, new_name = (old_name or "").strip(), (new_name or "").strip()
         episode = self._session.current_episode
         if not episode:
@@ -566,28 +586,74 @@ class CastingBridge(QObject):
         if not old_name:
             self.errorRequested.emit("Выберите персонажа")
             return
-        if not new_name or new_name == old_name:
+        if not new_name:
             return
-        if new_name in {row.get("character") for row in self._characters_model.rows()}:
-            self.errorRequested.emit("Персонаж с таким именем уже есть в серии")
-            return
-        command = RenameCharacterCommand(
-            self._session.data.setdefault("global_map", {}),
-            self._session.data.setdefault("loaded_episodes", {}),
-            self._characters_model.rows(), episode, old_name, new_name,
-            lambda source, target: (
-                rename_character_assignments(self._session.data, source, target),
-                self._script_text_service.rename_character(
-                    self._session.data, source, target, episode
+        current_names = {
+            str(row["name"])
+            for row in collect_project_roles(
+                self._session.data,
+                lambda ep: self._script_text_service.load_episode_lines(
+                    self._session.data, ep
                 ),
-            ),
+            )
+        }
+        if new_name != old_name and new_name in current_names:
+            self.errorRequested.emit("Персонаж с таким именем уже есть в проекте")
+            return
+        normalized_aliases = []
+        seen = set()
+        for value in aliases:
+            alias = " ".join(str(value or "").split())
+            folded = alias.casefold()
+            if not alias or folded in seen or folded == new_name.casefold():
+                continue
+            seen.add(folded)
+            normalized_aliases.append(alias)
+        alias_mapping = self._session.data.setdefault("character_aliases", {})
+        occupied = {name.casefold() for name in current_names if name != old_name}
+        for character, values in alias_mapping.items():
+            if character == old_name or not isinstance(values, list):
+                continue
+            occupied.update(str(value).casefold() for value in values)
+        conflict = next(
+            (alias for alias in normalized_aliases if alias.casefold() in occupied),
+            "",
+        )
+        if conflict:
+            self.errorRequested.emit(
+                f"Имя или алиас «{conflict}» уже используется другим персонажем"
+            )
+            return
+        old_aliases = self.characterAliases(old_name)
+        if new_name == old_name and normalized_aliases == old_aliases:
+            return
+        rename_command = None
+        if new_name != old_name:
+            rename_command = RenameCharacterCommand(
+                self._session.data.setdefault("global_map", {}),
+                self._session.data.setdefault("loaded_episodes", {}),
+                self._characters_model.rows(), episode, old_name, new_name,
+                lambda source, target: (
+                    rename_character_assignments(
+                        self._session.data, source, target
+                    ),
+                    self._script_text_service.rename_character(
+                        self._session.data, source, target, episode
+                    ),
+                ),
+            )
+        command = UpdateCharacterProfileCommand(
+            alias_mapping,
+            old_name,
+            new_name,
+            normalized_aliases,
+            rename_command,
         )
         self._execute(command, "working_text")
-        self._episode_service.invalidate_episode(episode)
+        if new_name != old_name:
+            self._episode_service.invalidate_episode(episode)
         self._set_selected_character(new_name)
-        self.statusRequested.emit(
-            f"Персонаж переименован: {old_name} -> {new_name}"
-        )
+        self.statusRequested.emit(f"Карточка персонажа обновлена: {new_name}")
 
     def refresh(self, domain: str = "") -> None:
         self.invalidate_cache(domain)
@@ -773,6 +839,7 @@ class CastingBridge(QObject):
             })
             item["rings"] += 1
         actors = self._session.data.get("actors", {})
+        character_aliases = self._session.data.get("character_aliases", {})
         local = self._session.data.get("episode_actor_map", {}).get(episode, {})
         rows = []
         for character, item in stats.items():
@@ -798,6 +865,11 @@ class CastingBridge(QObject):
                     }
                     for actor_id in actor_ids
                 ],
+                "aliasesText": ", ".join(
+                    character_aliases.get(character, [])
+                    if isinstance(character_aliases.get(character, []), list)
+                    else []
+                ),
             })
         rows.sort(
             key=self._character_sort_value,
@@ -816,7 +888,14 @@ class CastingBridge(QObject):
         if self._show_unassigned_only and actor_ids:
             return False
         if self._search_text:
-            haystack = " ".join((character, actor_name, str(item["words"]), str(item["lines"]))).casefold()
+            aliases = self._session.data.get("character_aliases", {}).get(
+                character, []
+            )
+            alias_text = " ".join(aliases) if isinstance(aliases, list) else ""
+            haystack = " ".join((
+                character, alias_text, actor_name,
+                str(item["words"]), str(item["lines"]),
+            )).casefold()
             return self._search_text.casefold() in haystack
         return True
 

@@ -512,6 +512,47 @@ class RenameCharacterCommand(Command):
         return f"Переименован персонаж: {self.old_name} -> {self.new_name}"
 
 
+class UpdateCharacterProfileCommand(Command):
+    """Atomically update a character name and its project-wide aliases."""
+
+    def __init__(
+        self,
+        aliases: Dict[str, List[str]],
+        old_name: str,
+        new_name: str,
+        new_aliases: List[str],
+        rename_command: Optional[RenameCharacterCommand] = None,
+    ) -> None:
+        self.aliases = aliases
+        self.old_name = old_name
+        self.new_name = new_name
+        self.new_aliases = list(new_aliases)
+        self.rename_command = rename_command
+        self._old_aliases: Optional[Dict[str, List[str]]] = None
+
+    def execute(self) -> None:
+        if self._old_aliases is None:
+            self._old_aliases = deepcopy(self.aliases)
+        if self.rename_command is not None:
+            self.rename_command.execute()
+        self.aliases.pop(self.old_name, None)
+        if self.new_aliases:
+            self.aliases[self.new_name] = list(self.new_aliases)
+        else:
+            self.aliases.pop(self.new_name, None)
+
+    def undo(self) -> None:
+        if self.rename_command is not None:
+            self.rename_command.undo()
+        self.aliases.clear()
+        self.aliases.update(deepcopy(self._old_aliases or {}))
+
+    def get_description(self) -> str:
+        if self.old_name != self.new_name:
+            return f"Обновлена карточка персонажа: {self.old_name} -> {self.new_name}"
+        return f"Обновлены алиасы персонажа: {self.new_name}"
+
+
 class AddEpisodeCommand(Command):
     """Undoable command for add episode."""
 

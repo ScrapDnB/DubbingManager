@@ -18,6 +18,7 @@ NativeDialogWindow {
     required property color softAltRow
     required property color softMuted
     readonly property var backend: appBridge.audiobook
+    property string pendingReviewText: ""
 
     title: qsTr("Аудиокнига")
     modal: false
@@ -76,6 +77,14 @@ NativeDialogWindow {
         softMuted: window.softMuted
     }
 
+    AudiobookExportDialog {
+        id: exportDialog
+        ownerWindow: window
+        appBridge: window.appBridge
+        backend: window.backend
+        softMuted: window.softMuted
+    }
+
     content: ColumnLayout {
         anchors.fill: parent
         spacing: 8
@@ -95,6 +104,12 @@ NativeDialogWindow {
                 Layout.preferredWidth: 120
                 enabled: window.backend.canEditMarkup && !window.backend.importing
                 onClicked: markupWindow.openEditor()
+            }
+            AdaptiveButton {
+                text: qsTr("Экспорт PDF")
+                Layout.preferredWidth: 110
+                enabled: window.backend.chapterTitles.length > 0
+                onClicked: exportDialog.openExporter()
             }
             Label {
                 text: window.backend.sourceName
@@ -205,8 +220,16 @@ NativeDialogWindow {
                     webChannel: editorChannel
                     backgroundColor: palette.base
                     onLoadingChanged: function(request) {
-                        if (request.status === WebEngineView.LoadSucceededStatus)
+                        if (request.status === WebEngineView.LoadSucceededStatus) {
                             window.syncSlots()
+                            if (window.pendingReviewText.length > 0) {
+                                editorView.runJavaScript(
+                                    "window.dmEditor && window.dmEditor.focusText("
+                                    + JSON.stringify(window.pendingReviewText) + ")"
+                                )
+                                window.pendingReviewText = ""
+                            }
+                        }
                     }
                 }
             }
@@ -226,125 +249,33 @@ NativeDialogWindow {
                     anchors.fill: parent
                     spacing: 7
 
-                    RowLayout {
+                    TabBar {
+                        id: sideTabs
                         Layout.fillWidth: true
-                        Label { text: qsTr("Разметка ролей"); font.bold: true; Layout.fillWidth: true }
-                        Label { text: qsTr("Клавиши 1–9"); color: window.softMuted }
-                    }
-
-                    PersistentScrollView {
-                        id: slotsScroll
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 330
-                        clip: true
-                        contentWidth: availableWidth
-
-                        ColumnLayout {
-                            width: slotsScroll.availableWidth
-                            spacing: 5
-
-                            Repeater {
-                                model: window.backend.slotsModel
-                                delegate: RowLayout {
-                                    id: slotRow
-                                    required property int slotIndex
-                                    required property string character
-                                    required property int actorIndex
-                                    Layout.fillWidth: true
-                                    spacing: 5
-
-                                    Label {
-                                        text: String(slotRow.slotIndex + 1)
-                                        horizontalAlignment: Text.AlignHCenter
-                                        Layout.preferredWidth: 18
-                                    }
-                                    PlatformComboBox {
-                                        id: characterBox
-                                        editable: true
-                                        model: window.backend.characterNames
-                                        Component.onCompleted: currentIndex = Math.max(0, find(slotRow.character))
-                                        Layout.fillWidth: true
-                                        Layout.preferredWidth: 120
-                                        onAccepted: {
-                                            var actor = window.backend.actorsModel.get(actorBox.currentIndex)
-                                            window.backend.setSlot(slotRow.slotIndex, editText, actor.actorId || "")
-                                            window.syncSlots()
-                                        }
-                                    }
-                                    PlatformComboBox {
-                                        id: actorBox
-                                        model: window.backend.actorsModel
-                                        textRole: "name"
-                                        Component.onCompleted: currentIndex = slotRow.actorIndex
-                                        Layout.fillWidth: true
-                                        Layout.preferredWidth: 120
-                                        onActivated: function(comboIndex) {
-                                            var actor = window.backend.actorsModel.get(currentIndex)
-                                            var character = characterBox.editText
-                                            var actorId = actor.actorId || ""
-                                            var color = window.backend.actorColor(actorId)
-                                            editorView.runJavaScript(
-                                                "window.dmEditor.recolor(" + JSON.stringify(character)
-                                                + "," + JSON.stringify(actorId) + ","
-                                                + JSON.stringify(color) + ")"
-                                            )
-                                            window.backend.setSlot(slotRow.slotIndex, character, actorId)
-                                        }
-                                    }
-                                    ToolButton {
-                                        id: applyMarkupButton
-                                        text: qsTr("✓")
-                                        enabled: characterBox.editText.trim().length > 0
-                                        PlatformToolTip {
-                                            target: applyMarkupButton
-                                            text: qsTr("Разметить выделение")
-                                        }
-                                        onClicked: {
-                                            var actor = window.backend.actorsModel.get(actorBox.currentIndex)
-                                            var character = characterBox.editText
-                                            var actorId = actor.actorId || ""
-                                            var color = window.backend.actorColor(actorId)
-                                            editorView.runJavaScript(
-                                                "window.dmEditor.applyMarkup(" + JSON.stringify(character)
-                                                + "," + JSON.stringify(actorId) + ","
-                                                + JSON.stringify(color) + ")"
-                                            )
-                                            window.backend.setSlot(slotRow.slotIndex, character, actorId)
-                                        }
-                                    }
-                                }
-                            }
+                        TabButton { text: qsTr("Разметка") }
+                        TabButton {
+                            text: window.backend.reviewCount > 0
+                                ? qsTr("Проверка (%1)").arg(
+                                    window.backend.reviewCount
+                                )
+                                : qsTr("Проверка")
                         }
                     }
 
-                    AdaptiveButton {
-                        text: qsTr("Снять разметку с выделения")
-                        Layout.fillWidth: true
-                        onClicked: editorView.runJavaScript("window.dmEditor.clearMarkup()")
-                    }
-
-                    ToolSeparator { orientation: Qt.Horizontal; Layout.fillWidth: true }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Label { text: qsTr("В главе"); font.bold: true; Layout.fillWidth: true }
-                        Label { text: window.backend.statsSummary; color: window.softMuted }
-                    }
-                    PersistentListView {
-                        id: markedItemsView
+                    StackLayout {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        model: window.backend.markedModel
-                        clip: true
-                        delegate: ItemDelegate {
-                            id: markedRow
-                            required property string character
-                            required property string summary
-                            width: markedItemsView.viewportWidth
-                            height: window.macOSStyle ? 28 : 32
-                            contentItem: RowLayout {
-                                Label { text: markedRow.character; Layout.fillWidth: true; elide: Text.ElideRight }
-                                Label { text: markedRow.summary; color: window.softMuted }
-                            }
+                        currentIndex: sideTabs.currentIndex
+
+                        AudiobookMarkupPane {
+                            backend: window.backend
+                            editorView: editorView
+                            softMuted: window.softMuted
+                            macOSStyle: window.macOSStyle
+                        }
+                        AudiobookReviewPane {
+                            backend: window.backend
+                            softMuted: window.softMuted
                         }
                     }
                 }
@@ -382,5 +313,12 @@ NativeDialogWindow {
         target: window.backend
         function onEditorChanged() { window.reloadEditor() }
         function onChanged() { window.syncSlots() }
+        function onReviewNavigationRequested(text) {
+            window.pendingReviewText = text
+            editorView.runJavaScript(
+                "window.dmEditor && window.dmEditor.focusText("
+                + JSON.stringify(text) + ")"
+            )
+        }
     }
 }

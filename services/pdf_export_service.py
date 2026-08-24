@@ -6,12 +6,14 @@ from typing import Optional
 from PySide6.QtCore import QCoreApplication, QMarginsF
 from PySide6.QtGui import (
     QGuiApplication, QPageLayout, QPageSize, QPdfWriter, QTextDocument,
+    QTextFormat,
 )
 
 
 class PdfExportService:
     """Render montage-sheet HTML into a PDF file."""
 
+    PAGE_BREAK_MARKER = "[[DM_PAGE_BREAK]]"
     _qt_app: Optional[QGuiApplication] = None
 
     def _ensure_qapplication(self) -> None:
@@ -41,4 +43,18 @@ class PdfExportService:
 
         document = QTextDocument()
         document.setHtml(html)
+        self._apply_page_break_markers(document)
         document.print_(writer)
+
+    def _apply_page_break_markers(self, document: QTextDocument) -> None:
+        """Convert inline markers into reliable Qt block page breaks."""
+        while True:
+            cursor = document.find(self.PAGE_BREAK_MARKER)
+            if cursor.isNull():
+                return
+            block_format = cursor.blockFormat()
+            block_format.setPageBreakPolicy(
+                QTextFormat.PageBreakFlag.PageBreak_AlwaysBefore
+            )
+            cursor.setBlockFormat(block_format)
+            cursor.removeSelectedText()

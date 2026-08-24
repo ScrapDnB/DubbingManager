@@ -134,6 +134,7 @@ class ProjectService:
             "project_kind": "subtitle",
             "actors": {},
             "global_map": {},
+            "character_aliases": {},
             "episode_actor_map": {},
             "episodes": {},
             "video_paths": {},

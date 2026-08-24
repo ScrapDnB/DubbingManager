@@ -415,17 +415,30 @@ Item {
         id: renameCharacterDialog
         ownerWindow: table.Window.window
         modal: true
-        title: qsTr("Переименовать персонажа")
+        title: qsTr("Карточка персонажа")
         standardButtons: Dialog.Ok | Dialog.Cancel
-        width: 380
-        height: 150
+        width: 430
+        height: 270
 
         onOpened: {
             renameCharacterField.text = table.renameCharacterSource
+            var aliases = table.castingBackend
+                ? table.castingBackend.characterAliases(table.renameCharacterSource)
+                : []
+            characterAliasesField.text = aliases.join("\n")
             renameCharacterField.selectAll()
             renameCharacterField.forceActiveFocus()
         }
-        onAccepted: if (table.castingBackend) table.castingBackend.renameCharacter(table.renameCharacterSource, renameCharacterField.text)
+        onAccepted: if (table.castingBackend) {
+            var aliases = characterAliasesField.text.split(/[\n,;]/).map(
+                function(value) { return value.trim() }
+            ).filter(function(value) { return value.length > 0 })
+            table.castingBackend.updateCharacterProfile(
+                table.renameCharacterSource,
+                renameCharacterField.text,
+                aliases
+            )
+        }
 
         content: ColumnLayout {
             anchors.fill: parent
@@ -437,6 +450,24 @@ Item {
                 placeholderText: qsTr("Имя персонажа")
                 selectByMouse: true
                 onAccepted: renameCharacterDialog.accept()
+            }
+            Label {
+                text: qsTr("Алиасы, прозвища и варианты имени")
+                font.bold: true
+            }
+            TextArea {
+                id: characterAliasesField
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                placeholderText: qsTr("По одному на строке, например:\nСаша\nкапитан")
+                selectByMouse: true
+                wrapMode: TextEdit.Wrap
+            }
+            Label {
+                text: qsTr("Алиасы используются в поиске, экспорте и будущей авторазметке.")
+                color: table.softMuted
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
             }
         }
     }
@@ -587,10 +618,13 @@ Item {
                 readonly property bool hasMultipleActors: model.actorEntries.length > 1
                 readonly property bool actorCellIsCollapsed: hasMultipleActors
                     && table.actorCellCollapsed(model.character)
+                readonly property int profileRowHeight: model.aliasesText.length > 0
+                    ? table.baseRowHeight + Math.max(10, tableFontMetrics.height - 3)
+                    : table.baseRowHeight
                 height: actorCellIsCollapsed
-                    ? table.baseRowHeight
+                    ? profileRowHeight
                     : Math.max(
-                        table.baseRowHeight,
+                        profileRowHeight,
                         (model.actorEntries.length || 1) * table.actorEntryHeight
                             + (table.actorCellColorFill
                                 && table.actorCellFillFullHeight
@@ -620,15 +654,33 @@ Item {
                 Item {
                     anchors.fill: parent
 
-                    Label {
+                    Item {
                         visible: table.isColumnVisible("character")
                         x: table.characterColumnX
                         width: table.characterColumnWidth
                         height: parent.height
-                        text: model.character
-                        elide: Text.ElideRight
                         clip: true
-                        verticalAlignment: Text.AlignVCenter
+
+                        Column {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 1
+
+                            Label {
+                                width: parent.width
+                                text: model.character
+                                elide: Text.ElideRight
+                            }
+                            Label {
+                                width: parent.width
+                                visible: model.aliasesText.length > 0
+                                text: model.aliasesText
+                                color: table.softMuted
+                                font.pixelSize: Math.max(10, Application.font.pixelSize - 2)
+                                elide: Text.ElideRight
+                            }
+                        }
 
                         MouseArea {
                             anchors.fill: parent

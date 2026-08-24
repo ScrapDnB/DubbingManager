@@ -90,13 +90,24 @@ function applyMarkup(character, actorId, color) {{
 }}
 function clearMarkup() {{ const range=restoreRange(); if(!range || range.collapsed) return false; markSpans(range).forEach(unwrap); sendState(); return true; }}
 function recolor(character, actorId, color) {{ editor.querySelectorAll('span[data-dm-character]').forEach(span => {{ if(span.dataset.dmCharacter===character) {{ span.style.backgroundColor=color; if(actorId) span.dataset.dmActor=actorId; else delete span.dataset.dmActor; }} }}); sendState(); }}
+function focusText(value) {{
+  const query=(value||'').replace(/\s+/g,' ').trim().toLocaleLowerCase(); if(!query) return false;
+  const walker=document.createTreeWalker(editor,NodeFilter.SHOW_TEXT); let node;
+  while((node=walker.nextNode())) {{
+    const text=(node.nodeValue||''); const index=text.toLocaleLowerCase().indexOf(query);
+    if(index>=0) {{ const range=document.createRange(); range.setStart(node,index); range.setEnd(node,Math.min(node.length,index+query.length)); const selection=getSelection(); selection.removeAllRanges(); selection.addRange(range); savedRange=range.cloneRange(); node.parentElement?.scrollIntoView({{behavior:'smooth',block:'center'}}); return true; }}
+  }}
+  const elements=[...editor.querySelectorAll('p,blockquote,li,div')];
+  const target=elements.find(element=>(element.innerText||'').replace(/\s+/g,' ').toLocaleLowerCase().includes(query));
+  if(target) {{ target.scrollIntoView({{behavior:'smooth',block:'center'}}); return true; }} return false;
+}}
 editor.addEventListener('input', sendState);
 editor.addEventListener('keydown', event => {{
   if(!event.metaKey && !event.ctrlKey && !event.altKey && /^[1-9]$/.test(event.key) && savedRange && !savedRange.collapsed) {{
     event.preventDefault(); applySlot(Number(event.key)-1);
   }}
 }});
-window.dmEditor={{setSlots,applySlot,applyMarkup,clearMarkup,recolor,sendState}};
+window.dmEditor={{setSlots,applySlot,applyMarkup,clearMarkup,recolor,focusText,sendState}};
 </script></body></html>"""
 
 
