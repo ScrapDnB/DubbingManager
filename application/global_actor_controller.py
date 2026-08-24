@@ -2,6 +2,8 @@
 
 from typing import Any, Dict
 
+from services.assignment_service import replace_actor_id_in_assignment
+
 
 class GlobalActorController:
     """Synchronize project actor records with the global actor base."""
@@ -181,18 +183,35 @@ class GlobalActorController:
             mapping = self.data_ref.get(mapping_name, {})
             if not isinstance(mapping, dict):
                 continue
-            for char_name, actor_id in list(mapping.items()):
-                if actor_id == old_actor_id:
-                    mapping[char_name] = new_actor_id
+            for char_name, assignment in list(mapping.items()):
+                mapping[char_name] = replace_actor_id_in_assignment(
+                    assignment,
+                    old_actor_id,
+                    new_actor_id,
+                )
 
         episode_maps = self.data_ref.get("episode_actor_map", {})
         if isinstance(episode_maps, dict):
             for episode_map in episode_maps.values():
                 if not isinstance(episode_map, dict):
                     continue
-                for char_name, actor_id in list(episode_map.items()):
-                    if actor_id == old_actor_id:
-                        episode_map[char_name] = new_actor_id
+                for char_name, assignment in list(episode_map.items()):
+                    episode_map[char_name] = replace_actor_id_in_assignment(
+                        assignment,
+                        old_actor_id,
+                        new_actor_id,
+                    )
+
+        self._replace_nested_actor_ids(
+            self.data_ref.get("audiobook_settings", {}),
+            old_actor_id,
+            new_actor_id,
+        )
+        self._replace_nested_actor_ids(
+            self.data_ref.get("audiobook_document", {}),
+            old_actor_id,
+            new_actor_id,
+        )
 
         export_config = self.data_ref.get("export_config", {})
         if (
@@ -206,6 +225,31 @@ class GlobalActorController:
                     new_actor_id
                 )
             )
+
+    @classmethod
+    def _replace_nested_actor_ids(
+        cls,
+        value: Any,
+        old_actor_id: str,
+        new_actor_id: str,
+    ) -> None:
+        """Replace explicit actor_id fields in nested project structures."""
+        if isinstance(value, dict):
+            if value.get("actor_id") == old_actor_id:
+                value["actor_id"] = new_actor_id
+            for nested in value.values():
+                cls._replace_nested_actor_ids(
+                    nested,
+                    old_actor_id,
+                    new_actor_id,
+                )
+        elif isinstance(value, list):
+            for nested in value:
+                cls._replace_nested_actor_ids(
+                    nested,
+                    old_actor_id,
+                    new_actor_id,
+                )
 
     def replace_actor_ids_in_list(
         self,

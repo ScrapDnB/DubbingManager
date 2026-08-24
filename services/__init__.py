@@ -45,6 +45,7 @@ from .assignment_service import (
     get_actor_for_character,
     get_actor_ids_for_character,
     actor_ids_from_assignment,
+    assignment_from_actor_ids,
     build_actor_roles_index,
     get_actor_roles,
     get_assignment_map,
@@ -52,6 +53,7 @@ from .assignment_service import (
     get_episode_assignments,
     move_episode_assignments,
     remove_actor_assignments,
+    replace_actor_id_in_assignment,
     rename_character_assignments,
 )
 
@@ -99,6 +101,7 @@ __all__ = [
     'get_actor_for_character',
     'get_actor_ids_for_character',
     'actor_ids_from_assignment',
+    'assignment_from_actor_ids',
     'build_actor_roles_index',
     'get_actor_roles',
     'get_assignment_map',
@@ -106,5 +109,6 @@ __all__ = [
     'get_episode_assignments',
     'move_episode_assignments',
     'remove_actor_assignments',
+    'replace_actor_id_in_assignment',
     'rename_character_assignments',
 ]

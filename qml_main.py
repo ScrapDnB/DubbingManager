@@ -120,6 +120,7 @@ from PySide6.QtWebEngineQuick import QtWebEngineQuick
 
 from app_startup import initial_project_path, setup_logging
 from ui.macos_integration import MacOSIntegration
+from ui.project_open_router import ProjectOpenRouter
 from ui.qml_backend.app_bridge import AppBridge
 from utils.i18n import JsonSourceTranslator
 
@@ -143,14 +144,37 @@ class DubbingQmlApplication(QGuiApplication):
     def __init__(self, argv: list[str]) -> None:
         super().__init__(argv)
         self.bridge: AppBridge | None = None
+        self.project_router: ProjectOpenRouter | None = None
+        self._project_open_callback = None
+        self._pending_project_paths: list[str] = []
 
     def event(self, event) -> bool:
-        if event.type() == QEvent.FileOpen and self.bridge:
+        if event.type() == QEvent.FileOpen:
             path = event.file()
             if path:
-                self.bridge.project.open(path)
+                self.open_project_path(path)
                 return True
         return super().event(event)
+
+    def open_project_path(self, path: str) -> None:
+        """Forward to the primary instance or open locally when this is it."""
+        if (
+            self.project_router is not None
+            and not self.project_router.owns_listener
+        ):
+            if self.project_router.forward_project(path):
+                return
+            self.project_router.start_listener()
+        if self._project_open_callback is None:
+            self._pending_project_paths.append(path)
+            return
+        self._project_open_callback(path)
+
+    def set_project_open_callback(self, callback) -> None:
+        self._project_open_callback = callback
+        pending, self._pending_project_paths = self._pending_project_paths, []
+        for path in dict.fromkeys(pending):
+            callback(path)
 
 
 def main() -> int:
@@ -165,6 +189,20 @@ def main() -> int:
     app.setApplicationName("Dubbing Manager")
     app.setOrganizationName("DubbingTools")
 
+    start_project = initial_project_path(sys.argv)
+    project_router = ProjectOpenRouter(parent=app)
+    app.project_router = project_router
+    if start_project and project_router.forward_project(start_project):
+        return 0
+    owns_project_listener = project_router.start_listener()
+    if (
+        start_project
+        and not owns_project_listener
+        and project_router.forward_project(start_project)
+    ):
+        return 0
+    app.aboutToQuit.connect(project_router.close)
+
     engine = QQmlApplicationEngine()
     bridge = AppBridge()
     macos_integration = MacOSIntegration(app)
@@ -175,9 +213,6 @@ def main() -> int:
     app.installTranslator(translator)
     app._source_translator = translator
     app.bridge = bridge
-    start_project = initial_project_path(sys.argv)
-    if start_project:
-        bridge.project.open(start_project)
     engine.setInitialProperties({
         "appBridge": bridge,
         "macOSIntegration": macos_integration,
@@ -189,6 +224,27 @@ def main() -> int:
         logger.error("Could not load QML interface from %s", qml_file)
         return 1
     root_window = engine.rootObjects()[0]
+
+    def open_project_in_current_window(path: str) -> None:
+        try:
+            current_path = (
+                Path(bridge.project.path).expanduser().resolve()
+                if bridge.project.path else None
+            )
+            requested_path = Path(path).expanduser().resolve()
+        except OSError:
+            current_path = None
+            requested_path = Path(path)
+        if current_path != requested_path:
+            bridge.project.open(path)
+        root_window.show()
+        root_window.raise_()
+        root_window.requestActivate()
+
+    project_router.projectOpenRequested.connect(open_project_in_current_window)
+    app.set_project_open_callback(open_project_in_current_window)
+    if start_project:
+        app.open_project_path(start_project)
     macos_integration.configure_main_window(root_window, bridge.project)
     if sys.platform == "darwin":
         app.focusWindowChanged.connect(macos_integration.configure_window)

@@ -1,5 +1,6 @@
 """QML backend for the teleprompter workflow."""
 
+from bisect import bisect_right
 from copy import deepcopy
 from pathlib import Path
 import platform
@@ -14,7 +15,11 @@ from config.constants import (
     DEFAULT_PROMPTER_CONFIG,
     PROMPTER_FONT_BOLD_KEYS,
     PROMPTER_FONT_KEYS,
+    PROMPTER_INT_LIMITS,
+    PROMPTER_FLOAT_LIMITS,
     PROMPTER_LAYOUT_TYPES,
+    PROMPTER_OSC_ACTIVITY_POLL_INTERVAL_MS,
+    PROMPTER_UI_BEHAVIOR,
 )
 from core.commands import ReplaceMappingValueCommand, UpdateProjectFileStateCommand
 from services import ExportService, get_actor_ids_for_character
@@ -34,6 +39,13 @@ from ui.qml_backend.project_session import ProjectSession
 REAPER_ACTIVITY_TIMEOUT_SECONDS = 3.0
 LOCAL_REAPER_SETTLE_SECONDS = 0.5
 REAPER_TIME_ACK_TOLERANCE_SECONDS = 0.25
+
+
+def _replica_index_at_time(start_times: List[float], seconds: float) -> int:
+    """Find the latest started replica in O(log n)."""
+    if not start_times:
+        return -1
+    return max(0, bisect_right(start_times, seconds) - 1)
 
 
 def _format_time(seconds: Any, include_milliseconds: bool = False) -> str:
@@ -84,6 +96,7 @@ class TeleprompterBridge(QObject):
         self._selected_actor_ids: Optional[List[str]] = None
         self._time = 0.0
         self._current_index = -1
+        self._start_times: List[float] = []
         self._position_origin = "internal"
         self._osc_status = "OSC выключен"
         self._osc_worker: Optional[OscWorker] = None
@@ -97,7 +110,9 @@ class TeleprompterBridge(QObject):
         self._osc_runtime_config: Optional[tuple[int, int]] = None
         self._reaper_connection_state = "disabled"
         self._osc_activity_timer = QTimer(self)
-        self._osc_activity_timer.setInterval(500)
+        self._osc_activity_timer.setInterval(
+            PROMPTER_OSC_ACTIVITY_POLL_INTERVAL_MS
+        )
         self._osc_activity_timer.timeout.connect(
             self._refresh_reaper_connection_state
         )
@@ -142,6 +157,10 @@ class TeleprompterBridge(QObject):
     @Property("QVariantMap", notify=configChanged)
     def config(self) -> Dict[str, Any]:
         return self._normalized_config(None)
+
+    @Property("QVariantMap", constant=True)
+    def behaviorConstants(self) -> Dict[str, Any]:
+        return dict(PROMPTER_UI_BEHAVIOR)
 
     @Property(float, notify=positionChanged)
     def time(self) -> float:
@@ -336,6 +355,11 @@ class TeleprompterBridge(QObject):
         if anomaly_id:
             self.statusRequested.emit(
                 f"Диагностическая метка сохранена: {anomaly_id}"
+            )
+        elif self._diagnostics.last_marker_coalesced:
+            self.statusRequested.emit(
+                "Повторное нажатие добавлено к метке: "
+                + self._diagnostics.last_marker_anomaly_id
             )
         return anomaly_id
 
@@ -835,6 +859,7 @@ class TeleprompterBridge(QObject):
         self._position_origin = "internal"
         if self._episode not in project_data.get("episodes", {}):
             self._model.set_rows([])
+            self._start_times = []
             self._actor_model.set_rows([])
             self._current_index = -1
             self.changed.emit()
@@ -947,6 +972,7 @@ class TeleprompterBridge(QObject):
                 "replicaKey": replica_key,
             })
         self._model.set_rows(rows)
+        self._start_times = [float(row["start"]) for row in rows]
         self._actor_model.set_rows([
             {
                 "actorId": actor_id,
@@ -1066,6 +1092,7 @@ class TeleprompterBridge(QObject):
         self._selected_actor_ids = None
         self._time = 0.0
         self._current_index = -1
+        self._start_times = []
         self._position_origin = "internal"
         self._model.set_rows([])
         self._actor_model.set_rows([])
@@ -1119,44 +1146,16 @@ class TeleprompterBridge(QObject):
             *PROMPTER_FONT_BOLD_KEYS,
         }:
             return bool(value)
-        limits = {
-            "f_tc": (10, 150),
-            "f_char": (10, 150),
-            "f_actor": (10, 150),
-            "f_text": (10, 300),
-            "port_in": (1, 65535),
-            "port_out": (1, 65535),
-            "scroll_smoothness_slider": (0, 100),
-            "page_target_highlight_fade_in_ms": (0, 10000),
-            "page_target_highlight_fade_ms": (0, 10000),
-        }
-        if key in limits:
+        if key in PROMPTER_INT_LIMITS:
             try:
-                low, high = limits[key]
+                low, high = PROMPTER_INT_LIMITS[key]
                 return max(low, min(high, int(value)))
             except (TypeError, ValueError):
                 return None
-        if key == "focus_ratio":
+        if key in PROMPTER_FLOAT_LIMITS:
             try:
-                return max(0.1, min(0.9, float(value)))
-            except (TypeError, ValueError):
-                return None
-        if key == "reaper_offset_seconds":
-            try:
-                return max(-60.0, min(60.0, float(value)))
-            except (TypeError, ValueError):
-                return None
-        if key in {
-            "page_gap_prefetch_seconds",
-            "page_gap_prefetch_delay_seconds",
-        }:
-            try:
-                return max(0.0, min(60.0, float(value)))
-            except (TypeError, ValueError):
-                return None
-        if key == "page_target_highlight_opacity":
-            try:
-                return max(0.0, min(0.44, float(value)))
+                low, high = PROMPTER_FLOAT_LIMITS[key]
+                return max(low, min(high, float(value)))
             except (TypeError, ValueError):
                 return None
         if key.startswith("colors."):
@@ -1223,19 +1222,13 @@ class TeleprompterBridge(QObject):
         self.positionChanged.emit()
 
     def _update_index(self) -> None:
-        rows = self._model.rows()
-        if not rows:
-            self._current_index = -1
-            return
-        current = 0
-        for index, row in enumerate(rows):
-            if self._time < float(row["start"]):
-                break
-            current = index
-            # Multiple ASS events may overlap. Incoming REAPER time has no
-            # row identity, so prefer the latest row that has already begun;
-            # local list navigation carries an exact index separately.
-        self._current_index = current
+        # Multiple ASS events may overlap. Incoming REAPER time has no row
+        # identity, so prefer the latest row that has already begun. Binary
+        # search keeps high-frequency OSC updates O(log n).
+        self._current_index = _replica_index_at_time(
+            self._start_times,
+            self._time,
+        )
 
     def _replace_payload(
         self,

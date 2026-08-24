@@ -551,8 +551,10 @@ def test_qml_teleprompter_records_a_diagnostic_session(tmp_path):
         "viewport_height": 700,
     })
     assert prompter.markDiagnosticIssue("") == "a00001"
+    assert prompter.markDiagnosticIssue("") == ""
     screenshot = prompter.diagnosticScreenshotPath("a00001")
     assert Path(screenshot).parent.name == "screenshots"
+    assert Path(screenshot).suffix == ".jpg"
     assert prompter.stopDiagnosticRecording()
     assert not prompter.diagnosticRecording
     assert (session_path / "manifest.json").is_file()

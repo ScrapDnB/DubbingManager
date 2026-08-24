@@ -6,17 +6,27 @@ import shutil
 import logging
 import sys
 import hashlib
+import stat
+import tempfile
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-# fcntl is only available on Unix-like systems; Windows saves without locking.
+# Project files are locked on every supported desktop platform while replacing
+# them. The lock lives beside the project and remains stable across os.replace.
 try:
     import fcntl
     HAS_FCNTL = True
 except ImportError:
     HAS_FCNTL = False
+
+try:
+    import msvcrt
+    HAS_MSVCRT = True
+except ImportError:
+    HAS_MSVCRT = False
 
 from config.constants import (
     APP_VERSION,
@@ -45,6 +55,46 @@ MAX_BACKUPS = int(DEFAULT_BACKUP_CONFIG["max_backups"])
 class ProjectValidationError(Exception):
     """Project Validation Error class."""
     pass
+
+
+class ProjectWriteConflictError(OSError):
+    """Another DubbingManager process is currently saving this project."""
+
+
+def _project_lock_path(path: Path) -> Path:
+    return path.with_name(f".{path.name}.lock")
+
+
+@contextmanager
+def _exclusive_project_lock(path: Path):
+    """Hold a non-blocking lock that survives atomic replacement of *path*."""
+    lock_path = _project_lock_path(path)
+    with open(lock_path, "a+b") as handle:
+        try:
+            if HAS_FCNTL:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            elif HAS_MSVCRT:
+                if handle.seek(0, os.SEEK_END) == 0:
+                    handle.write(b"\0")
+                    handle.flush()
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except (IOError, OSError) as exc:
+            raise ProjectWriteConflictError(
+                f"Project is already being saved: {path}"
+            ) from exc
+
+        try:
+            yield
+        finally:
+            try:
+                if HAS_FCNTL:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                elif HAS_MSVCRT:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            except (IOError, OSError):
+                logger.warning("Could not release project lock %s", lock_path)
 
 
 class ProjectService:
@@ -204,53 +254,20 @@ class ProjectService:
             logger.error(f"Save validation failed: {exc}")
             return False
 
-        data["metadata"] = deepcopy(save_data["metadata"])
-
-        # Write to a temporary file first so a failed save does not corrupt the project.
-        temp_path = path + ".tmp"
-
         try:
-            with open(temp_path, 'w', encoding='utf-8') as f:
-                if HAS_FCNTL:
-                    try:
-                        # Use a non-blocking exclusive lock when the platform supports it.
-                        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    except (IOError, OSError) as lock_err:
-                        logger.warning(f"Could not acquire lock on {temp_path}: {lock_err}")
+            self._write_json_atomic(Path(path), save_data, lock=True)
 
-                json.dump(save_data, f, ensure_ascii=False, indent=4)
-                f.flush()
-                # Force the JSON to disk before swapping it into place.
-                os.fsync(f.fileno())
-
-                if HAS_FCNTL:
-                    try:
-                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                    except (IOError, OSError):
-                        pass
-
-            # os.replace is atomic on the same filesystem.
-            os.replace(temp_path, path)
-
+            data["metadata"] = deepcopy(save_data["metadata"])
             self.is_dirty = False
             logger.info(f"Project saved to {path}")
             return True
 
+        except ProjectWriteConflictError as exc:
+            logger.warning("Save skipped to avoid a concurrent write: %s", exc)
+            return False
         except Exception as e:
             logger.error(f"Save failed: {e}")
-            if os.path.exists(temp_path):
-                try:
-                    os.unlink(temp_path)
-                except OSError:
-                    pass
             return False
-        finally:
-            # Clean up a leftover temp file if os.replace or any earlier step failed.
-            if os.path.exists(temp_path):
-                try:
-                    os.unlink(temp_path)
-                except OSError:
-                    pass
 
     def auto_save(self, data: Dict[str, Any]) -> bool:
         """Auto save."""
@@ -409,21 +426,55 @@ class ProjectService:
         data.pop("prompter_config", None)
 
     @staticmethod
-    def _write_json_atomic(path: Path, data: Dict[str, Any]) -> None:
+    def _write_json_atomic(
+        path: Path,
+        data: Dict[str, Any],
+        *,
+        lock: bool = False,
+    ) -> None:
         """Write a JSON snapshot without exposing a partially written file."""
-        temp_path = Path(f"{path}.tmp")
+        path = Path(path)
+        temp_fd, temp_name = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+        )
+        temp_path = Path(temp_name)
+        lock_context = _exclusive_project_lock(path) if lock else nullcontext()
         try:
-            with open(temp_path, "w", encoding="utf-8") as handle:
-                json.dump(data, handle, ensure_ascii=False, indent=4)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temp_path, path)
+            with lock_context:
+                with os.fdopen(temp_fd, "w", encoding="utf-8") as handle:
+                    temp_fd = -1
+                    json.dump(data, handle, ensure_ascii=False, indent=4)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                if path.exists():
+                    os.chmod(temp_path, stat.S_IMODE(path.stat().st_mode))
+                os.replace(temp_path, path)
+                ProjectService._sync_parent_directory(path.parent)
         finally:
+            if temp_fd >= 0:
+                os.close(temp_fd)
             if temp_path.exists():
                 try:
                     temp_path.unlink()
                 except OSError:
                     pass
+
+    @staticmethod
+    def _sync_parent_directory(directory: Path) -> None:
+        """Best-effort durability for the rename itself on Unix filesystems."""
+        if not hasattr(os, "O_DIRECTORY"):
+            return
+        directory_fd = None
+        try:
+            directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            os.fsync(directory_fd)
+        except OSError:
+            logger.debug("Could not fsync project directory %s", directory)
+        finally:
+            if directory_fd is not None:
+                os.close(directory_fd)
 
     def _validate_project_structure(self, data: Dict[str, Any]) -> None:
         """Validate project structure."""

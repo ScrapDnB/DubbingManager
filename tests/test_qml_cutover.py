@@ -153,7 +153,7 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "scrollDurationMs" in source
     assert "scrollSmoothnessLevel" in source
     assert 'qsTr("Уровень плавности · %1%")' in source
-    assert "5000 / 150" in source
+    assert "window.behavior.scrollDurationMaxMs" in source
     assert "pausePageFollowAtVisibleBoundary" in source
     assert "function resumePageFollowForReaperPosition()" in source
     assert "Ручная пауза отменена: seek REAPER" in source
@@ -214,18 +214,25 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "function prepareForTimeSeek()" in source
     assert "function queueModelRefresh()" in source
     assert "retargetThreshold" in source
-    assert "function startPageScroll(sourceY, targetY, targetIndex)" in source
+    assert "function startPageScroll(" in source
+    assert "function acquireGapPrefetch(" in source
+    assert "function releaseGapPrefetch(reason, unexpected)" in source
+    assert "function retainPrefetchForForwardSeek(" in source
+    assert '"Промежуточная неактивная строка"' in source
+    assert '"scroll_retarget_prevented"' in source
     assert "function deferReaperFollowDuringPageTurn()" in source
     assert "function finishDeferredReaperPageFollow()" in source
     assert '"Seek REAPER отложен до конца перелистывания"' in source
     assert '"Перелистывание завершено перед seek REAPER"' in source
-    assert "smoothDeferredReaperPageFollow = true" in source
+    assert "smoothDeferredReaperPageFollow =" in source
     assert "if (!resumeDeferredSeekSmoothly)" in source
     assert "timeDelta >= Math.max(0.5, elapsed * 4)" in source
     assert "function episodeFinishedAtReplica(index)" in source
     assert "function finalReplicaBottomTargetY(index)" in source
     assert '"Конец серии ожидает конца перелистывания"' in source
-    assert '"Конец серии: последняя реплика остаётся внизу"' in source
+    assert '"Конец серии: позиция сохраняется"' in source
+    assert "targetY > sourceY + 0.5" in source
+    assert '"final-replica", true, false' in source
     assert "function scrollDurationForMove(" in source
     assert "function continuousScrollDeadline(index, bounds)" in source
     assert "function pageScrollDurationForTarget(" in source
@@ -370,7 +377,7 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "duration: window.targetHighlightFadeMs" in source
     assert "Подсветка прокрутки" in source
     assert "Яркость подсветки · %1%" in source
-    assert "value * 0.0044" in source
+    assert "behavior.highlightOpacityMax" in source
     assert "percent * 0.0044" in automation_settings
     assert "property var colorPreviewOverrides: ({})" in source
     assert "function previewColor(index, value)" in source
@@ -415,6 +422,21 @@ def test_teleprompter_settings_show_page_options_without_mode_toggle():
     assert 'title: qsTr("Паузы в постраничном режиме")' in source
     assert "page_gap_prefetch_seconds" in source
     assert "page_gap_prefetch_delay_seconds" in source
+
+
+def test_teleprompter_diagnostics_use_event_driven_screenshots():
+    source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "function diagnosticEventNeedsScreenshot(event)" in source
+    assert 'event === "page_scroll_started"' in source
+    assert 'event === "page_scroll_finished"' in source
+    assert "behavior.diagnosticScreenshotThrottleMs" in source
+    assert "function diagnosticScreenshotSize()" in source
+    assert "behavior.diagnosticScreenshotMaxDimension" in source
+    assert "diagnosticRollingFrameTimer" not in source
+    assert "diagnosticRollingFramePath" not in source
 
 
 def test_teleprompter_restores_following_after_manual_scroll_and_list_jump():

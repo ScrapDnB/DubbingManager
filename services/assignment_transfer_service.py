@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from config.constants import APP_VERSION
-from services.assignment_service import LOCAL_UNASSIGNED_ACTOR_ID
+from services.assignment_service import (
+    LOCAL_UNASSIGNED_ACTOR_ID,
+    actor_ids_from_assignment,
+    assignment_from_actor_ids,
+)
 from utils.i18n import translate_source
 
 
@@ -102,30 +106,54 @@ class AssignmentTransferService:
             actor_id_map[str(imported_id)] = new_id
             stats["actors_added"] += 1
 
-        for char_name, imported_actor_id in payload.get("global_map", {}).items():
-            mapped_id = actor_id_map.get(str(imported_actor_id))
-            if not mapped_id or mapped_id == LOCAL_UNASSIGNED_ACTOR_ID:
+        for char_name, imported_assignment in payload.get("global_map", {}).items():
+            mapped_assignment = self._map_assignment(
+                imported_assignment,
+                actor_id_map,
+            )
+            if not mapped_assignment:
                 continue
-            global_map[str(char_name)] = mapped_id
+            global_map[str(char_name)] = mapped_assignment
             stats["global_assignments"] += 1
 
         for ep_num, assignments in payload.get("episode_actor_map", {}).items():
             ep_key = str(ep_num)
+            if not isinstance(assignments, dict):
+                continue
             if existing_episodes and ep_key not in existing_episodes:
                 stats["skipped_episode_assignments"] += len(assignments)
                 continue
-            if not isinstance(assignments, dict):
-                continue
 
             target_map = episode_actor_map.setdefault(ep_key, {})
-            for char_name, imported_actor_id in assignments.items():
-                mapped_id = actor_id_map.get(str(imported_actor_id))
-                if not mapped_id:
+            for char_name, imported_assignment in assignments.items():
+                if imported_assignment == LOCAL_UNASSIGNED_ACTOR_ID:
+                    target_map[str(char_name)] = LOCAL_UNASSIGNED_ACTOR_ID
+                    stats["episode_assignments"] += 1
                     continue
-                target_map[str(char_name)] = mapped_id
+                mapped_assignment = self._map_assignment(
+                    imported_assignment,
+                    actor_id_map,
+                )
+                if not mapped_assignment:
+                    continue
+                target_map[str(char_name)] = mapped_assignment
                 stats["episode_assignments"] += 1
 
         return stats
+
+    @staticmethod
+    def _map_assignment(
+        value: Any,
+        actor_id_map: Dict[str, Optional[str]],
+    ) -> Any:
+        mapped_ids = [
+            actor_id_map.get(actor_id)
+            for actor_id in actor_ids_from_assignment(value)
+        ]
+        return assignment_from_actor_ids(
+            actor_id for actor_id in mapped_ids
+            if actor_id and actor_id != LOCAL_UNASSIGNED_ACTOR_ID
+        )
 
     def _validate_payload(self, payload: Dict[str, Any]) -> None:
         """Validate assignment transfer payload shape."""
@@ -137,6 +165,13 @@ class AssignmentTransferService:
         if payload.get("format") != ASSIGNMENT_TRANSFER_FORMAT:
             raise ValueError(
                 translate_source("Это не файл распределения актёров Dubbing Manager.")
+            )
+
+        if payload.get("version") != ASSIGNMENT_TRANSFER_VERSION:
+            raise ValueError(
+                translate_source(
+                    "Неподдерживаемая версия файла распределения актёров."
+                )
             )
 
         for key in ("actors", "global_map", "episode_actor_map"):

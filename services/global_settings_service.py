@@ -25,6 +25,8 @@ from config.constants import (
     DEFAULT_SRT_IMPORT_CONFIG,
     PROMPTER_FONT_BOLD_KEYS,
     PROMPTER_FONT_KEYS,
+    PROMPTER_FLOAT_LIMITS,
+    PROMPTER_INT_LIMITS,
     PROMPTER_LAYOUT_TYPES,
 )
 from core.export_config_profiles import (
@@ -977,41 +979,26 @@ class GlobalSettingsService:
                     bold_profiles[layout_type][key] = bool(config[key])
         result["layout_font_bold"] = bold_profiles
         result.update(bold_profiles[layout_type])
-        try:
-            result["page_target_highlight_opacity"] = max(
-                0.0,
-                min(0.44, float(result["page_target_highlight_opacity"])),
-            )
-        except (KeyError, TypeError, ValueError):
-            result["page_target_highlight_opacity"] = (
-                DEFAULT_PROMPTER_CONFIG["page_target_highlight_opacity"]
-            )
-        try:
-            result["page_target_highlight_fade_in_ms"] = max(
-                0,
-                min(10000, int(result["page_target_highlight_fade_in_ms"])),
-            )
-        except (KeyError, TypeError, ValueError):
-            result["page_target_highlight_fade_in_ms"] = (
-                DEFAULT_PROMPTER_CONFIG["page_target_highlight_fade_in_ms"]
-            )
-        try:
-            result["page_target_highlight_fade_ms"] = max(
-                0,
-                min(10000, int(result["page_target_highlight_fade_ms"])),
-            )
-        except (KeyError, TypeError, ValueError):
-            result["page_target_highlight_fade_ms"] = (
-                DEFAULT_PROMPTER_CONFIG["page_target_highlight_fade_ms"]
-            )
+        for key, (minimum, maximum) in PROMPTER_INT_LIMITS.items():
+            if key in PROMPTER_FONT_KEYS:
+                continue
+            try:
+                result[key] = max(minimum, min(maximum, int(result[key])))
+            except (KeyError, TypeError, ValueError):
+                result[key] = DEFAULT_PROMPTER_CONFIG[key]
+        for key, (minimum, maximum) in PROMPTER_FLOAT_LIMITS.items():
+            try:
+                result[key] = max(minimum, min(maximum, float(result[key])))
+            except (KeyError, TypeError, ValueError):
+                result[key] = DEFAULT_PROMPTER_CONFIG[key]
         return result
 
     @staticmethod
     def _prompter_font_size(key: str, value: Any) -> int:
-        maximum = 300 if key == "f_text" else 150
+        minimum, maximum = PROMPTER_INT_LIMITS[key]
         fallback = DEFAULT_PROMPTER_CONFIG[key]
         try:
-            return max(10, min(maximum, int(value)))
+            return max(minimum, min(maximum, int(value)))
         except (TypeError, ValueError):
             return fallback
 

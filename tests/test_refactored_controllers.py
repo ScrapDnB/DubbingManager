@@ -420,6 +420,41 @@ def test_global_actor_controller_syncs_and_transfers():
     assert any(row["name"] == "Bob" and not row["exists"] for row in rows)
 
 
+def test_global_actor_controller_replaces_nested_and_multiple_actor_ids():
+    data = {
+        "actors": {
+            "local": {"name": "Alice", "color": "#fff"},
+            "other": {"name": "Bob", "color": "#000"},
+        },
+        "global_map": {"Duo": ["local", "other"]},
+        "episode_actor_map": {"1": {"Duo": ["other", "local"]}},
+        "audiobook_settings": {
+            "slots": [{"character": "Duo", "actor_id": "local"}],
+        },
+        "audiobook_document": {
+            "chapters": [{
+                "blocks": [{"runs": [{"actor_id": "local"}]}],
+            }],
+        },
+    }
+    service = MagicMock()
+    service.get_global_actor_base.return_value = {
+        "global-alice": {"name": "Alice", "gender": "Ж"},
+    }
+
+    assert GlobalActorController(
+        data, service
+    ).sync_project_actors_with_global_base() == 1
+
+    assert data["global_map"]["Duo"] == ["global-alice", "other"]
+    assert data["episode_actor_map"]["1"]["Duo"] == [
+        "other", "global-alice",
+    ]
+    assert data["audiobook_settings"]["slots"][0]["actor_id"] == "global-alice"
+    run = data["audiobook_document"]["chapters"][0]["blocks"][0]["runs"][0]
+    assert run["actor_id"] == "global-alice"
+
+
 def test_reaper_export_service_previews_and_saves(tmp_path):
     data = {
         "project_name": "Show",

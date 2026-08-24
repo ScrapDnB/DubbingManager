@@ -41,6 +41,10 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: python -m pytest -q
 
+      - name: Check QML syntax and imports
+        shell: pwsh
+        run: python scripts/lint_qml.py
+
       - name: Prepare icons
         shell: pwsh
         run: python scripts/prepare_icons.py
@@ -108,6 +112,9 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: python -m pytest -q
+
+      - name: Check QML syntax and imports
+        run: python scripts/lint_qml.py
 
       - name: Prepare icons
         run: python scripts/prepare_icons.py

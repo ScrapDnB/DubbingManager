@@ -19,6 +19,8 @@ CHUNK_UNCOMPRESSED_BYTES = 10 * 1024 * 1024
 FAST_SCROLL_MIN_DURATION_MS = 250
 FAST_SCROLL_MIN_DISTANCE_SCREENS = 0.20
 TELEPORT_MIN_DISTANCE_SCREENS = 0.25
+REVERSE_SCROLL_MIN_DISTANCE_SCREENS = 0.05
+MARKER_COALESCE_MS = 10_000
 
 
 def _json_value(value: Any) -> Any:
@@ -57,6 +59,12 @@ class TeleprompterDiagnosticService:
         self._writer_error = ""
         self._last_viewport_sample: Optional[Dict[str, Any]] = None
         self._last_allowed_jump_ms = -10000.0
+        self._last_marker_signature: Optional[tuple[Any, ...]] = None
+        self._last_marker_reaper_time = -1.0
+        self._last_marker_t_ms = -10000.0
+        self._last_marker_anomaly_id = ""
+        self._last_marker_coalesced = False
+        self._marker_counts: Counter[str] = Counter()
 
     @property
     def recording(self) -> bool:
@@ -75,6 +83,14 @@ class TeleprompterDiagnosticService:
     @property
     def writer_error(self) -> str:
         return self._writer_error
+
+    @property
+    def last_marker_coalesced(self) -> bool:
+        return self._last_marker_coalesced
+
+    @property
+    def last_marker_anomaly_id(self) -> str:
+        return self._last_marker_anomaly_id
 
     def start(
         self,
@@ -111,10 +127,16 @@ class TeleprompterDiagnosticService:
         self._writer_error = ""
         self._last_viewport_sample = None
         self._last_allowed_jump_ms = -10000.0
+        self._last_marker_signature = None
+        self._last_marker_reaper_time = -1.0
+        self._last_marker_t_ms = -10000.0
+        self._last_marker_anomaly_id = ""
+        self._last_marker_coalesced = False
+        self._marker_counts.clear()
 
         manifest_payload = {
             "schema": "dubbing-manager.teleprompter-diagnostics",
-            "schema_version": 1,
+            "schema_version": 2,
             "started_at": self._started_at,
             "episode": str(episode),
             **_json_value(manifest),
@@ -166,14 +188,45 @@ class TeleprompterDiagnosticService:
         if not self._recording:
             return ""
         context = _json_value(payload or {})
+        now_ms = round((monotonic() - self._started_monotonic) * 1000, 3)
+        reaper_time = self._number(context.get("reaper_time"), -1)
+        signature = (
+            str(context.get("episode") or ""),
+            int(self._number(context.get("current_index"), -1)),
+            str(context.get("comment") or ""),
+        )
+        same_marker = (
+            signature == self._last_marker_signature
+            and now_ms - self._last_marker_t_ms <= MARKER_COALESCE_MS
+            and abs(reaper_time - self._last_marker_reaper_time) <= 0.02
+            and bool(self._last_marker_anomaly_id)
+        )
+        if same_marker:
+            self._last_marker_coalesced = True
+            self._last_marker_t_ms = now_ms
+            self._marker_counts[self._last_marker_anomaly_id] += 1
+            self.record("operator_marker_repeated", {
+                **context,
+                "anomaly_id": self._last_marker_anomaly_id,
+                "marker_count": self._marker_counts[self._last_marker_anomaly_id],
+            })
+            return ""
+
+        self._last_marker_coalesced = False
         self.record("operator_marker", context)
-        return self._record_anomaly(
+        anomaly_id = self._record_anomaly(
             {
                 "kind": "operator_marker",
                 "reason": str(context.get("comment") or "Ручная метка оператора"),
             },
             context,
         )
+        self._last_marker_signature = signature
+        self._last_marker_reaper_time = reaper_time
+        self._last_marker_t_ms = now_ms
+        self._last_marker_anomaly_id = anomaly_id
+        self._marker_counts[anomaly_id] = 1
+        return anomaly_id
 
     def screenshot_path(self, label: str) -> str:
         if not self._recording or self._session_dir is None:
@@ -185,7 +238,7 @@ class TeleprompterDiagnosticService:
         return str(
             self._session_dir
             / "screenshots"
-            / f"{elapsed_ms:010d}_{safe_label}.png"
+            / f"{elapsed_ms:010d}_{safe_label}.jpg"
         )
 
     def stop(self) -> Optional[Path]:
@@ -206,7 +259,7 @@ class TeleprompterDiagnosticService:
         ended_at = datetime.now().astimezone().isoformat(timespec="milliseconds")
         if session_dir is not None:
             self._write_json(session_dir / "summary.json", {
-                "schema_version": 1,
+                "schema_version": 2,
                 "started_at": self._started_at,
                 "ended_at": ended_at,
                 "duration_ms": duration_ms,
@@ -214,6 +267,7 @@ class TeleprompterDiagnosticService:
                 "event_counts": dict(sorted(self._event_counts.items())),
                 "anomaly_count": sum(self._anomaly_counts.values()),
                 "anomaly_counts": dict(sorted(self._anomaly_counts.items())),
+                "operator_markers": dict(sorted(self._marker_counts.items())),
                 "dropped_events": self._dropped_events,
                 "writer_error": self._writer_error,
                 "chunks": sorted(
@@ -231,6 +285,20 @@ class TeleprompterDiagnosticService:
         if event in {"page_scroll_started", "continuous_scroll_started"}:
             duration = self._number(entry.get("actual_duration_ms"), -1)
             distance = abs(self._number(entry.get("distance_screens"), 0))
+            signed_distance = self._number(
+                entry.get("signed_distance_screens"),
+                self._number(entry.get("distance_screens"), 0),
+            )
+            if (
+                signed_distance <= -REVERSE_SCROLL_MIN_DISTANCE_SCREENS
+                and not bool(entry.get("reverse_allowed"))
+            ):
+                return {
+                    "kind": "reverse_auto_scroll",
+                    "reason": (
+                        f"Автоматическая прокрутка назад на {distance:.2f} экрана"
+                    ),
+                }
             if (
                 0 <= duration < FAST_SCROLL_MIN_DURATION_MS
                 and distance >= FAST_SCROLL_MIN_DISTANCE_SCREENS
@@ -241,6 +309,30 @@ class TeleprompterDiagnosticService:
                         f"Переход {distance:.2f} экрана за {duration:.0f} мс"
                     ),
                 }
+
+            if bool(entry.get("deadline_expired")):
+                return {
+                    "kind": "expired_scroll_deadline",
+                    "reason": "Прокрутка запущена с уже прошедшим дедлайном",
+                }
+
+        if event == "scroll_retargeted" and not bool(entry.get("allowed")):
+            return {
+                "kind": "unexpected_scroll_retarget",
+                "reason": str(
+                    entry.get("reason")
+                    or "Цель незавершённой прокрутки была изменена"
+                ),
+            }
+
+        if event == "prefetch_released" and bool(entry.get("unexpected")):
+            return {
+                "kind": "prefetch_interrupted",
+                "reason": str(
+                    entry.get("reason")
+                    or "Prefetch был неожиданно прерван"
+                ),
+            }
 
         if event == "viewport_sample":
             previous = self._last_viewport_sample

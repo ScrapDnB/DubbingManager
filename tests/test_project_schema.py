@@ -7,7 +7,11 @@ import pytest
 
 from config.constants import APP_VERSION, PROJECT_VERSION
 from services.audiobook_document_service import AudiobookDocumentService
-from services.project_service import ProjectService, ProjectValidationError
+from services.project_service import (
+    ProjectService,
+    ProjectValidationError,
+    _exclusive_project_lock,
+)
 from services.script_text_service import ScriptTextService
 
 
@@ -156,6 +160,23 @@ def test_failed_atomic_replace_preserves_previous_project(monkeypatch, tmp_path)
     assert service.save_project(changed, str(path)) is False
     assert path.read_bytes() == previous_bytes
     assert not (tmp_path / "project.dub.tmp").exists()
+
+
+def test_concurrent_save_does_not_overwrite_locked_project(tmp_path):
+    service = ProjectService()
+    path = tmp_path / "project.dub"
+    original = service.create_new_project("Исходный проект")
+    assert service.save_project(original, str(path))
+    previous_bytes = path.read_bytes()
+
+    changed = service.create_new_project("Конкурирующая запись")
+    previous_metadata = deepcopy(changed["metadata"])
+    with _exclusive_project_lock(path):
+        assert service.save_project(changed, str(path)) is False
+
+    assert path.read_bytes() == previous_bytes
+    assert changed["metadata"] == previous_metadata
+    assert not list(tmp_path.glob(".project.dub.*.tmp"))
 
 
 def test_failed_backup_replace_leaves_no_partial_backup(monkeypatch, tmp_path):

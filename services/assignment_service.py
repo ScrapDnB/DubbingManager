@@ -1,6 +1,6 @@
 """Helpers for global and per-episode actor assignments."""
 
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 
 ASSIGNMENT_SCOPE_GLOBAL = "global"
@@ -58,6 +58,31 @@ def actor_ids_from_assignment(value: Any) -> List[str]:
         if actor_id and actor_id != LOCAL_UNASSIGNED_ACTOR_ID and actor_id not in result:
             result.append(actor_id)
     return result
+
+
+def assignment_from_actor_ids(values: Iterable[Any]) -> Any:
+    """Return the canonical scalar-or-list representation for actor ids."""
+    actor_ids = actor_ids_from_assignment(list(values))
+    if not actor_ids:
+        return None
+    return actor_ids[0] if len(actor_ids) == 1 else actor_ids
+
+
+def replace_actor_id_in_assignment(
+    value: Any,
+    old_actor_id: str,
+    new_actor_id: str,
+) -> Any:
+    """Replace an actor id while preserving every co-assigned actor."""
+    if value == LOCAL_UNASSIGNED_ACTOR_ID:
+        return value
+    actor_ids = actor_ids_from_assignment(value)
+    if old_actor_id not in actor_ids:
+        return value
+    return assignment_from_actor_ids(
+        new_actor_id if actor_id == old_actor_id else actor_id
+        for actor_id in actor_ids
+    )
 
 
 def get_actor_ids_for_character(

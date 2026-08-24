@@ -1,6 +1,13 @@
 """Тесты для core/models.py"""
 
+from dataclasses import fields
+
 import pytest
+from config.constants import (
+    DEFAULT_EXPORT_CONFIG,
+    DEFAULT_PROMPTER_CONFIG,
+    DEFAULT_REPLICA_MERGE_CONFIG,
+)
 from core.models import (
     PrompterColors,
     PrompterConfig,
@@ -9,6 +16,18 @@ from core.models import (
     Actor,
     DialogueLine,
 )
+
+
+def test_config_models_cover_the_canonical_persisted_schemas():
+    assert {item.name for item in fields(PrompterConfig)} == set(
+        DEFAULT_PROMPTER_CONFIG
+    )
+    assert set(DEFAULT_EXPORT_CONFIG) <= {
+        item.name for item in fields(ExportConfig)
+    }
+    assert {item.name for item in fields(ReplicaMergeConfig)} == set(
+        DEFAULT_REPLICA_MERGE_CONFIG
+    )
 
 
 class TestPrompterColors:
@@ -273,7 +292,9 @@ class TestReplicaMergeConfig:
         config = ReplicaMergeConfig()
         
         assert config.merge == True
-        assert config.merge_gap == 5
+        assert config.merge_gap == 120
+        assert config.merge_parallel_replicas is False
+        assert config.respect_existing_separators is False
         assert config.p_short == 0.5
         assert config.p_long == 2.0
         assert config.fps == 25.0
@@ -455,6 +476,7 @@ class TestActor:
         
         assert actor.name == "Test Actor"
         assert actor.color == "#FFFFFF"
+        assert actor.gender == ""
         assert actor.roles == []
 
     def test_custom_values(self):

@@ -89,6 +89,7 @@ hidden_imports = [
     'PySide6.QtQml',
     'PySide6.QtQuick',
     'PySide6.QtMultimedia',
+    'PySide6.QtNetwork',
     'PySide6.QtSvg',
     'PySide6.QtWebChannel',
     'PySide6.QtWebEngineCore',

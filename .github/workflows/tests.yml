@@ -38,3 +38,6 @@ jobs:
 
       - name: Run tests
         run: python -m pytest -q
+
+      - name: Check QML syntax and imports
+        run: python scripts/lint_qml.py
