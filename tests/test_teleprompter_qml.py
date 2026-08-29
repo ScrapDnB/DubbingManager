@@ -26,10 +26,13 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "Постраничный режим" in source
     assert 'text: qsTr("Режим прокрутки")' in source
     assert 'text: qsTr("Обычный")' in source
+    assert 'text: qsTr("Плавный")' in source
     assert 'text: qsTr("Постраничный")' in source
     assert "id: scrollModeSelector" in source
     assert "systemPalette.button" in source
     assert 'Accessible.name: qsTr("Постраничный режим прокрутки")' in source
+    assert 'Accessible.name: qsTr("Плавный режим прокрутки")' in source
+    assert 'scrollModeSelector.setMode("smooth")' in source
     assert 'text: qsTr("Подсвечивать каждую реплику")' in source
     assert 'visible: scrollModeSelector.pageSelected' in source
     assert 'enabled: Boolean(\n                                        window.config.page_target_highlight_enabled' in source
@@ -68,7 +71,7 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "&& !manualDragScroll && !dragging && !moving" in source
     assert "function scrollCurrentReplicaToFocusBoundary()" in source
     assert "function resetPageFollowState()" in source
-    assert "height: replicaView.pageScrollMode ? replicaView.height : 0" in source
+    assert "|| replicaView.smoothFocusMode" in source
     assert "property bool pageFocusAlignmentActive: false" in source
     assert "property bool manualDragScroll: false" in source
     assert "var viewportBottom = sourceY + height;" in source
@@ -87,6 +90,14 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "function pageFragmentStep()" in source
     assert "height - preferredHighlightBegin" in source
     assert "function followCurrentLongReplica()" in source
+    assert "function followSmoothFocusFrame(playbackTime)" in source
+    assert "function smoothFocusTargetY(playbackTime)" in source
+    assert "var timingGuides = item.laidOutTimingGuides();" in source
+    assert "Number(item.replicaTextBottom())" in source
+    assert "function updateSmoothFollowClock(" in source
+    assert "id: smoothFocusFrameTimer" in source
+    assert "interval: 16" in source
+    assert "cacheBuffer: Math.max(height * 2, 800)" in source
     assert "longReplicaScrollAnimation" in source
     assert "replicaView.queueContinuousFollow();" in source
     assert "var renderedHeight = bounds.item.playbackHeight;" in source

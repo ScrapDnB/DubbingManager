@@ -190,6 +190,11 @@ class TeleprompterBridge(QObject):
     def reaperConnectionState(self) -> str:
         return self._reaper_connection_state
 
+    @Property(bool, notify=oscChanged)
+    def reaperPlaying(self) -> bool:
+        """Whether REAPER currently reports an active transport."""
+        return self._reaper_playing
+
     @Property(str, notify=oscChanged)
     def reaperConnectionText(self) -> str:
         labels = {
@@ -1139,7 +1144,8 @@ class TeleprompterBridge(QObject):
             "show_end_timecode",
             "show_character", "show_actor", "show_replica",
             "show_block_borders", "hide_leading_timecode_zeros", "osc_enabled",
-            "sync_in", "sync_out", "sync_play_only", "reaper_offset_enabled", "page_scroll_mode",
+            "sync_in", "sync_out", "sync_play_only", "reaper_offset_enabled",
+            "page_scroll_mode", "smooth_scroll_mode",
             "page_debug_overlay", "page_target_highlight_enabled",
             "show_diagnostic_controls",
             "page_timecode_highlight_enabled",

@@ -116,6 +116,7 @@ class TestPrompterConfig:
         assert config.focus_ratio == 0.1
         assert config.is_mirrored == False
         assert config.page_scroll_mode == False
+        assert config.smooth_scroll_mode == False
         assert config.page_timecode_highlight_enabled is False
         assert config.page_gap_prefetch_seconds == 1.0
         assert config.page_gap_prefetch_delay_seconds == 1.0

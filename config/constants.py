@@ -285,6 +285,7 @@ DEFAULT_PROMPTER_CONFIG = {
     "key_next": "Right",
     "scroll_smoothness_slider": 18,
     "page_scroll_mode": False,
+    "smooth_scroll_mode": False,
     "page_timecode_highlight_enabled": False,
     "page_gap_prefetch_seconds": 1.0,
     "page_gap_prefetch_delay_seconds": 1.0,

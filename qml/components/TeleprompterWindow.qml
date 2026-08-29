@@ -487,6 +487,10 @@ NativeDialogWindow {
                 : 0;
             window.lastObservedPositionTime = currentTime;
             window.lastObservedPositionReceivedAt = receivedAt;
+            replicaView.updateSmoothFollowClock(
+                previousTime, currentTime, receivedAt,
+                elapsed, discontinuity
+            );
             var backwardReaperSeek = reaperSeek
                 && currentTime < previousTime
                     - window.behavior.positionToleranceSeconds;
@@ -1476,6 +1480,12 @@ NativeDialogWindow {
                                     id: scrollModeSelector
                                     readonly property bool pageSelected:
                                         Boolean(window.config.page_scroll_mode)
+                                    readonly property bool smoothSelected:
+                                        !pageSelected && Boolean(
+                                            window.config.smooth_scroll_mode
+                                        )
+                                    readonly property bool normalSelected:
+                                        !pageSelected && !smoothSelected
 
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: Math.max(
@@ -1491,12 +1501,14 @@ NativeDialogWindow {
                                     border.width: 1
                                     border.color: window.softBorder
 
+                                    function setMode(mode) {
+                                        window.appBridge.settings.setPrompterScrollMode(
+                                            mode
+                                        );
+                                    }
+
                                     function setPageMode(enabled) {
-                                        if (pageSelected !== enabled) {
-                                            window.appBridge.settings.setPrompterPageScrollMode(
-                                                enabled
-                                            );
-                                        }
+                                        setMode(enabled ? "page" : "normal");
                                     }
 
                                     RowLayout {
@@ -1507,7 +1519,7 @@ NativeDialogWindow {
                                         Rectangle {
                                             id: continuousModeSegment
                                             readonly property bool selected:
-                                                !scrollModeSelector.pageSelected
+                                                scrollModeSelector.normalSelected
 
                                             Layout.fillWidth: true
                                             Layout.fillHeight: true
@@ -1529,12 +1541,12 @@ NativeDialogWindow {
                                             Accessible.name: qsTr("Обычный режим прокрутки")
                                             Accessible.checked: selected
                                             Accessible.onPressAction:
-                                                scrollModeSelector.setPageMode(false)
+                                                scrollModeSelector.setMode("normal")
                                             Keys.onPressed: function(event) {
                                                 if (event.key === Qt.Key_Space
                                                         || event.key === Qt.Key_Return
                                                         || event.key === Qt.Key_Enter) {
-                                                    scrollModeSelector.setPageMode(false);
+                                                    scrollModeSelector.setMode("normal");
                                                     event.accepted = true;
                                                 }
                                             }
@@ -1544,7 +1556,7 @@ NativeDialogWindow {
                                                 anchors.fill: parent
                                                 hoverEnabled: true
                                                 cursorShape: Qt.PointingHandCursor
-                                                onClicked: scrollModeSelector.setPageMode(false)
+                                                onClicked: scrollModeSelector.setMode("normal")
                                             }
 
                                             Text {
@@ -1556,6 +1568,65 @@ NativeDialogWindow {
                                                     ? systemPalette.buttonText
                                                     : window.softMuted
                                                 font.weight: continuousModeSegment.selected
+                                                    ? Font.DemiBold : Font.Normal
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            id: smoothModeSegment
+                                            readonly property bool selected:
+                                                scrollModeSelector.smoothSelected
+
+                                            Layout.fillWidth: true
+                                            Layout.fillHeight: true
+                                            radius: window.macOSStyle ? 5 : 3
+                                            color: selected
+                                                ? systemPalette.button
+                                                : smoothModeMouse.containsMouse
+                                                    ? Qt.rgba(
+                                                        systemPalette.text.r,
+                                                        systemPalette.text.g,
+                                                        systemPalette.text.b,
+                                                        0.07
+                                                    )
+                                                    : "transparent"
+                                            border.width: selected || activeFocus ? 1 : 0
+                                            border.color: window.softBorder
+                                            activeFocusOnTab: true
+                                            Accessible.role: Accessible.RadioButton
+                                            Accessible.name: qsTr("Плавный режим прокрутки")
+                                            Accessible.checked: selected
+                                            Accessible.onPressAction:
+                                                scrollModeSelector.setMode("smooth")
+                                            Keys.onPressed: function(event) {
+                                                if (event.key === Qt.Key_Space
+                                                        || event.key === Qt.Key_Return
+                                                        || event.key === Qt.Key_Enter) {
+                                                    scrollModeSelector.setMode("smooth");
+                                                    event.accepted = true;
+                                                }
+                                            }
+
+                                            MouseArea {
+                                                id: smoothModeMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: scrollModeSelector.setMode("smooth")
+                                            }
+
+                                            Text {
+                                                anchors.fill: parent
+                                                anchors.leftMargin: 6
+                                                anchors.rightMargin: 6
+                                                text: qsTr("Плавный")
+                                                color: smoothModeSegment.selected
+                                                    ? systemPalette.buttonText
+                                                    : window.softMuted
+                                                font.weight: smoothModeSegment.selected
                                                     ? Font.DemiBold : Font.Normal
                                                 horizontalAlignment: Text.AlignHCenter
                                                 verticalAlignment: Text.AlignVCenter
@@ -1627,7 +1698,9 @@ NativeDialogWindow {
                                         target: parent
                                         text: scrollModeSelector.pageSelected
                                             ? qsTr("Прокрутка экранными фрагментами")
-                                            : qsTr("Плавное следование по окончании реплик")
+                                            : scrollModeSelector.smoothSelected
+                                                ? qsTr("Непрерывное следование по таймкоду")
+                                                : qsTr("Плавное следование по окончании реплик")
                                     }
                                 }
 
@@ -1917,14 +1990,27 @@ NativeDialogWindow {
                     // otherwise Windows relayouts the first replica on the
                     // first scroll.
                     verticalScrollBarEnabled: false
+                    // Keep the upcoming replica instantiated so smooth mode
+                    // can interpolate to its real, laid-out Y coordinate.
+                    cacheBuffer: Math.max(height * 2, 800)
                     spacing: Math.max(14, window.config.f_text * 0.45)
                     model: window.teleprompter.model
+                    header: Item {
+                        width: replicaView.width
+                        height: replicaView.smoothFocusMode
+                            ? replicaView.preferredHighlightBegin : 0
+                    }
                     footer: Item {
                         width: replicaView.width
-                        height: replicaView.pageScrollMode ? replicaView.height : 0
+                        height: replicaView.pageScrollMode
+                            || replicaView.smoothFocusMode
+                            ? replicaView.height : 0
                     }
                     currentIndex: window.followEnabled ? window.teleprompter.currentIndex : -1
                     readonly property bool pageScrollMode: Boolean(window.config.page_scroll_mode)
+                    readonly property bool smoothFocusMode:
+                        !pageScrollMode
+                        && Boolean(window.config.smooth_scroll_mode)
                     readonly property bool diagnosticAnimationRunning:
                         pageScrollAnimation.running
                         || longReplicaScrollAnimation.running
@@ -1964,6 +2050,9 @@ NativeDialogWindow {
                     property real pageTargetHighlightWidth: 0
                     property real pageTargetHighlightHeight: 0
                     property bool manualDragScroll: false
+                    property real smoothClockTime: 0
+                    property real smoothClockReceivedAt: -1
+                    property real smoothClockRate: 0
                     property int expansionAnchorIndex: -1
                     property real expansionAnchorOffset: Number.NaN
                     property int expansionReflowCount: 0
@@ -2058,6 +2147,22 @@ NativeDialogWindow {
                             }
                             replicaView.finishManualDragScroll();
                         }
+                    }
+
+                    Timer {
+                        id: smoothFocusFrameTimer
+                        // The OSC clock usually updates at a lower and uneven
+                        // rate than the display. Interpolate it locally at
+                        // roughly 60 fps instead of restarting an easing
+                        // animation for every incoming packet.
+                        interval: 16
+                        repeat: true
+                        running: replicaView.smoothFocusMode
+                            && window.visible
+                            && window.followEnabled
+                            && !replicaView.manualDragScroll
+                            && !replicaView.localNavigationActive
+                        onTriggered: replicaView.followSmoothFocusFrame()
                     }
 
                     NumberAnimation {
@@ -2553,6 +2658,218 @@ NativeDialogWindow {
                         ));
                     }
 
+                    function effectiveSmoothClockTime() {
+                        var baseTime = Number(smoothClockTime);
+                        if (smoothClockReceivedAt < 0) {
+                            return Number(window.teleprompter.time);
+                        }
+                        var age = Math.max(
+                            0, (Date.now() - smoothClockReceivedAt) / 1000
+                        );
+                        // A reported Play state permits a longer prediction
+                        // through a delayed OSC packet. Without transport
+                        // state keep it short so a disconnected source cannot
+                        // make the prompter run away on its own.
+                        var predictionWindow = window.teleprompter.reaperPlaying
+                                || window.debugSimulationRunning
+                            ? 1.0 : 0.25;
+                        return baseTime + Math.min(
+                            age, predictionWindow
+                        ) * smoothClockRate;
+                    }
+
+                    function updateSmoothFollowClock(
+                            previousTime, currentTime, receivedAt,
+                            elapsed, discontinuity) {
+                        previousTime = Number(previousTime);
+                        currentTime = Number(currentTime);
+                        receivedAt = Number(receivedAt);
+                        elapsed = Number(elapsed);
+                        var previousPrediction = effectiveSmoothClockTime();
+                        var rate = 0;
+                        if (!discontinuity && previousTime >= 0
+                                && elapsed > 0.001) {
+                            var sampledRate = (
+                                currentTime - previousTime
+                            ) / elapsed;
+                            if (sampledRate > 0.02 && sampledRate <= 8) {
+                                rate = smoothClockRate > 0
+                                    ? smoothClockRate * 0.7
+                                        + sampledRate * 0.3
+                                    : sampledRate;
+                            }
+                        }
+                        var correctedTime = currentTime;
+                        if (rate > 0 && smoothClockReceivedAt >= 0
+                                && Math.abs(
+                                    currentTime - previousPrediction
+                                ) < 0.25) {
+                            // Small OSC timing jitter is phase-corrected over
+                            // several frames; it never becomes a visible
+                            // one-packet jump in contentY.
+                            correctedTime = previousPrediction + (
+                                currentTime - previousPrediction
+                            ) * 0.2;
+                        }
+                        smoothClockTime = correctedTime;
+                        smoothClockReceivedAt = receivedAt;
+                        smoothClockRate = rate;
+                        if (smoothFocusMode && discontinuity) {
+                            Qt.callLater(function() {
+                                replicaView.followSmoothFocusFrame(
+                                    Number(window.teleprompter.time)
+                                );
+                            });
+                        }
+                    }
+
+                    function smoothFocusIndexAtTime(playbackTime) {
+                        var index = Number(
+                            window.teleprompter.currentIndexNow()
+                        );
+                        if (!isFinite(index) || index < 0 || count <= 0) {
+                            return -1;
+                        }
+                        index = Math.min(count - 1, Math.floor(index));
+                        while (index + 1 < count) {
+                            var nextReplica = window.teleprompter.model.get(
+                                index + 1
+                            );
+                            if (!nextReplica || playbackTime + 0.0005
+                                    < Number(nextReplica.start)) {
+                                break;
+                            }
+                            index++;
+                        }
+                        while (index > 0) {
+                            var replica = window.teleprompter.model.get(index);
+                            if (replica && playbackTime + 0.0005
+                                    >= Number(replica.start)) {
+                                break;
+                            }
+                            index--;
+                        }
+                        return index;
+                    }
+
+                    function smoothFocusTargetY(playbackTime) {
+                        var index = smoothFocusIndexAtTime(playbackTime);
+                        if (index < 0) {
+                            return Number.NaN;
+                        }
+                        var item = ensureReplicaItem(index);
+                        var replica = window.teleprompter.model.get(index);
+                        if (!item || !replica) {
+                            return Number.NaN;
+                        }
+                        var segmentStart = Number(replica.start);
+                        var segmentEnd = Number(replica.end);
+                        var startY = Number(item.y)
+                            - preferredHighlightBegin;
+                        var endY = Number(item.y + item.playbackHeight)
+                            - preferredHighlightBegin;
+                        var timingGuides = item.laidOutTimingGuides();
+                        if (timingGuides && timingGuides.length > 0
+                                && playbackTime <= segmentEnd + 0.0005) {
+                            var previousTime = segmentStart;
+                            var previousY = Number(item.replicaTextTop());
+                            var cursorY = previousY;
+                            var guideResolved = false;
+                            for (var guideIndex = 0;
+                                    guideIndex < timingGuides.length;
+                                    guideIndex++) {
+                                var guide = timingGuides[guideIndex];
+                                var guideTime = Number(guide.end);
+                                if (playbackTime <= guideTime) {
+                                    var guideDuration = Math.max(
+                                        0.001, guideTime - previousTime
+                                    );
+                                    var guideProgress = Math.max(0, Math.min(
+                                        1, (playbackTime - previousTime)
+                                            / guideDuration
+                                    ));
+                                    cursorY = previousY + (
+                                        Number(guide.y) - previousY
+                                    ) * guideProgress;
+                                    guideResolved = true;
+                                    break;
+                                }
+                                previousTime = guideTime;
+                                previousY = Number(guide.y);
+                            }
+                            if (!guideResolved) {
+                                var tailDuration = Math.max(
+                                    0.001, segmentEnd - previousTime
+                                );
+                                var tailProgress = Math.max(0, Math.min(
+                                    1, (playbackTime - previousTime)
+                                        / tailDuration
+                                ));
+                                cursorY = previousY + (
+                                    Number(item.replicaTextBottom())
+                                        - previousY
+                                ) * tailProgress;
+                            }
+                            return clampedContentY(
+                                Number(item.y) + cursorY
+                                    - preferredHighlightBegin
+                            );
+                        }
+                        if (timingGuides && timingGuides.length > 0) {
+                            startY = Number(item.y)
+                                + Number(item.replicaTextBottom())
+                                - preferredHighlightBegin;
+                            segmentStart = Math.min(
+                                segmentEnd, playbackTime
+                            );
+                        }
+                        if (index + 1 < count) {
+                            var nextReplica = window.teleprompter.model.get(
+                                index + 1
+                            );
+                            var nextStart = nextReplica
+                                ? Number(nextReplica.start) : Number.NaN;
+                            if (isFinite(nextStart)
+                                    && nextStart > segmentStart) {
+                                segmentEnd = nextStart;
+                            }
+                            var nextItem = itemAtIndex(index + 1);
+                            // cacheBuffer normally keeps this delegate alive.
+                            // The estimate is only a one-frame fallback while
+                            // ListView finishes laying it out.
+                            endY = nextItem
+                                ? Number(nextItem.y) - preferredHighlightBegin
+                                : Number(item.y + item.playbackHeight + spacing)
+                                    - preferredHighlightBegin;
+                        }
+                        var duration = Math.max(
+                            0.001, segmentEnd - segmentStart
+                        );
+                        var progress = Math.max(0, Math.min(
+                            1, (playbackTime - segmentStart) / duration
+                        ));
+                        return clampedContentY(
+                            startY + (endY - startY) * progress
+                        );
+                    }
+
+                    function followSmoothFocusFrame(playbackTime) {
+                        if (!smoothFocusMode || !window.followEnabled
+                                || manualDragScroll || localNavigationActive) {
+                            return;
+                        }
+                        var resolvedTime = playbackTime === undefined
+                            ? effectiveSmoothClockTime()
+                            : Number(playbackTime);
+                        var targetY = smoothFocusTargetY(resolvedTime);
+                        if (!isFinite(targetY)) {
+                            return;
+                        }
+                        // This assignment is a frame sample of one continuous
+                        // time function, not a chain of easing animations.
+                        contentY = targetY;
+                    }
+
                     function pageFragmentStep() {
                         // A page starts at the reading focus.  Its useful
                         // length is consequently the space below that line,
@@ -2744,7 +3061,8 @@ NativeDialogWindow {
                     }
 
                     function followCurrentLongReplica() {
-                        if (pageScrollMode || !window.followEnabled
+                        if (pageScrollMode || smoothFocusMode
+                                || !window.followEnabled
                                 || manualDragScroll || localNavigationActive
                                 || currentIndex < 0) {
                             return;
@@ -3808,6 +4126,10 @@ NativeDialogWindow {
                                 } else {
                                     followCurrentReplicaByPage();
                                 }
+                            } else if (smoothFocusMode) {
+                                followSmoothFocusFrame(
+                                    Number(window.teleprompter.time)
+                                );
                             } else {
                                 followCurrentLongReplica();
                             }
@@ -4068,6 +4390,19 @@ NativeDialogWindow {
                         lastTimecodeHighlightIndex = -1;
                         timecodeHighlightDeadline = -1;
                         cancelPageHold();
+                        queueViewportFollow();
+                    }
+                    onSmoothFocusModeChanged: {
+                        releaseGapPrefetch("Изменён режим листания", false);
+                        pageScrollAnimation.stop();
+                        longReplicaScrollAnimation.stop();
+                        pageScrollTargetIndex = -1;
+                        continuousScrollTargetIndex = -1;
+                        lastPageFollowIndex = -1;
+                        smoothClockTime = Number(window.teleprompter.time);
+                        smoothClockReceivedAt = Date.now();
+                        smoothClockRate = 0;
+                        forceLayout();
                         queueViewportFollow();
                     }
                     onDraggingChanged: {

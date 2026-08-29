@@ -535,11 +535,41 @@ class SettingsBridge(QObject):
 
     @Slot(bool, result=bool)
     def setPrompterPageScrollMode(self, enabled: bool) -> bool:
-        return self._set_global_prompter_flag(
-            "page_scroll_mode",
-            enabled,
-            "Постраничный режим телесуфлёра сохранён",
+        return self.setPrompterScrollMode(
+            "page" if enabled else "normal"
         )
+
+    @Slot(str, result=bool)
+    def setPrompterScrollMode(self, mode: str) -> bool:
+        """Persist one of the mutually exclusive teleprompter scroll modes."""
+        mode = str(mode or "").strip().lower()
+        if mode not in {"normal", "smooth", "page"}:
+            return False
+        config = self.globalPrompterConfig
+        page_enabled = mode == "page"
+        smooth_enabled = mode == "smooth"
+        if (
+            bool(config.get("page_scroll_mode")) == page_enabled
+            and bool(config.get("smooth_scroll_mode")) == smooth_enabled
+        ):
+            return True
+        config["page_scroll_mode"] = page_enabled
+        config["smooth_scroll_mode"] = smooth_enabled
+        updated = deepcopy(self._global_settings)
+        updated["default_prompter_config"] = self._prompter_config(config)
+        if not self._global_settings_service.save_settings(updated):
+            self.errorRequested.emit(
+                "Не удалось сохранить режим прокрутки телесуфлёра"
+            )
+            return False
+        self._global_settings.clear()
+        self._global_settings.update(
+            self._global_settings_service.get_settings()
+        )
+        self.globalPrompterConfigChanged.emit()
+        self.changed.emit()
+        self.statusRequested.emit("Режим прокрутки телесуфлёра сохранён")
+        return True
 
     def _set_global_prompter_flag(
         self,
@@ -766,6 +796,9 @@ class SettingsBridge(QObject):
         current = self._global_settings_service.get_default_prompter_config()
         config["page_scroll_mode"] = bool(
             current.get("page_scroll_mode", False)
+        )
+        config["smooth_scroll_mode"] = bool(
+            current.get("smooth_scroll_mode", False)
         )
         return config
 

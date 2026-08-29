@@ -116,6 +116,9 @@ class PrompterConfig:
         "scroll_smoothness_slider"
     ]
     page_scroll_mode: bool = DEFAULT_PROMPTER_CONFIG["page_scroll_mode"]
+    smooth_scroll_mode: bool = DEFAULT_PROMPTER_CONFIG[
+        "smooth_scroll_mode"
+    ]
     page_timecode_highlight_enabled: bool = DEFAULT_PROMPTER_CONFIG[
         "page_timecode_highlight_enabled"
     ]
