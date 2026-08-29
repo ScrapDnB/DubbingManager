@@ -54,6 +54,9 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "Ручная пауза отменена: seek REAPER" in source
     assert "forceLayout();" in source
     assert "function queuePageFollow()" in source
+    assert "function queueContinuousFollow()" in source
+    assert "property bool continuousFollowQueued: false" in source
+    assert "replicaView.queueContinuousFollow();" in source
     assert "function queueViewportFollow()" in source
     assert "function viewportConfigSignature()" in source
     assert "lastViewportConfigSignature" in source
@@ -71,6 +74,10 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "var viewportBottom = sourceY + height;" in source
     assert "function currentReplicaFocusTargetY()" in source
     assert "function replicaReadingBounds(index)" in source
+    assert "var readingViewportHeight = Math.max(" in source
+    assert "1, height - preferredHighlightBegin" in source
+    assert "> readingViewportHeight + 0.5" in source
+    assert "tall: item.playbackHeight > height" not in source
     assert "function ensureReplicaItem(index)" in source
     assert "function replicaInsideCurrentPage(index)" in source
     assert "if (!replicaInsideCurrentPage(currentIndex))" in source
@@ -81,7 +88,7 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "height - preferredHighlightBegin" in source
     assert "function followCurrentLongReplica()" in source
     assert "longReplicaScrollAnimation" in source
-    assert "replicaView.followCurrentLongReplica();" in source
+    assert "replicaView.queueContinuousFollow();" in source
     assert "var renderedHeight = bounds.item.playbackHeight;" in source
     assert "Math.floor((renderedHeight - 1) / step)" in source
     assert "function sourceTimedContinuousTarget(index, bounds)" in source

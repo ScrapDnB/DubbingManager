@@ -552,7 +552,13 @@ NativeDialogWindow {
                     && !replicaView.moving) {
                 window.followEnabled = true;
             }
-            replicaView.followCurrentLongReplica();
+            // The backend updates its current index together with the
+            // position, but ListView.currentIndex can still hold the previous
+            // binding value while this signal handler is running.  Defer and
+            // coalesce continuous following just like page following so a
+            // seek never starts toward a stale replica and then immediately
+            // retargets to the real one.
+            replicaView.queueContinuousFollow();
             replicaView.queuePageFollow();
             if (window.teleprompter.positionOrigin === "reaper") {
                 replicaView.resumePageFollowForReaperPosition();
@@ -1926,6 +1932,7 @@ NativeDialogWindow {
                     property real pageHoldLastReaperTime: -1
                     property real pageHoldLastReaperReceivedAt: -1
                     property bool pageFollowQueued: false
+                    property bool continuousFollowQueued: false
                     property bool pageFollowAfterAnimation: false
                     property bool viewportFollowQueued: false
                     property bool modelRefreshQueued: false
@@ -2322,11 +2329,21 @@ NativeDialogWindow {
                         var bottomY = clampedContentY(
                             item.y + item.playbackHeight - height
                         );
+                        // The replica begins at the focus line, not at the
+                        // viewport's top edge.  Only the area below that line
+                        // is available for its text.  Comparing with the full
+                        // viewport misclassifies a replica which fits in the
+                        // window but overflows the reading area as short, so
+                        // neither scrolling mode ever advances inside it.
+                        var readingViewportHeight = Math.max(
+                            1, height - preferredHighlightBegin
+                        );
                         return {
                             item: item,
                             topY: topY,
                             bottomY: Math.max(topY, bottomY),
-                            tall: item.playbackHeight > height
+                            tall: item.playbackHeight
+                                > readingViewportHeight + 0.5
                         };
                     }
 
@@ -3742,6 +3759,17 @@ NativeDialogWindow {
                         Qt.callLater(function() {
                             pageFollowQueued = false;
                             followCurrentReplicaByPage();
+                        });
+                    }
+
+                    function queueContinuousFollow() {
+                        if (continuousFollowQueued) {
+                            return;
+                        }
+                        continuousFollowQueued = true;
+                        Qt.callLater(function() {
+                            continuousFollowQueued = false;
+                            followCurrentLongReplica();
                         });
                     }
 
