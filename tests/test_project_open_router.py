@@ -1,8 +1,10 @@
 """Tests for routing OS project-open requests between app instances."""
 
+import sys
 from threading import Thread
 from uuid import uuid4
 
+import pytest
 from PySide6.QtCore import QCoreApplication, QEventLoop, QTimer
 
 from ui.project_open_router import ProjectOpenRouter
@@ -39,6 +41,10 @@ def test_second_router_does_not_claim_existing_listener():
         primary.close()
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Windows named pipes cannot model two app instances in one process",
+)
 def test_project_path_is_forwarded_to_primary_instance(tmp_path):
     _app()
     path = tmp_path / "Маршрутизируемый проект.dub"
