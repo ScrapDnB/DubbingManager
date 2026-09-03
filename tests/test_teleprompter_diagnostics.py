@@ -58,9 +58,8 @@ def test_diagnostics_parser_exposes_scrolling_modes_and_seeks():
     assert args.layout == ["Сценарий 3"]
     assert args.stress_events == 25
     assert args.seed == 42
-    assert build_parser().parse_args([
-        "example.dub", "--mode", "smooth"
-    ]).mode == "smooth"
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["example.dub", "--mode", "smooth"])
 
 
 def test_parse_viewport_accepts_ascii_and_typographic_separator():

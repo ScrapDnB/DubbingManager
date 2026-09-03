@@ -543,18 +543,13 @@ class SettingsBridge(QObject):
     def setPrompterScrollMode(self, mode: str) -> bool:
         """Persist one of the mutually exclusive teleprompter scroll modes."""
         mode = str(mode or "").strip().lower()
-        if mode not in {"normal", "smooth", "page"}:
+        if mode not in {"normal", "page"}:
             return False
         config = self.globalPrompterConfig
         page_enabled = mode == "page"
-        smooth_enabled = mode == "smooth"
-        if (
-            bool(config.get("page_scroll_mode")) == page_enabled
-            and bool(config.get("smooth_scroll_mode")) == smooth_enabled
-        ):
+        if bool(config.get("page_scroll_mode")) == page_enabled:
             return True
         config["page_scroll_mode"] = page_enabled
-        config["smooth_scroll_mode"] = smooth_enabled
         updated = deepcopy(self._global_settings)
         updated["default_prompter_config"] = self._prompter_config(config)
         if not self._global_settings_service.save_settings(updated):
@@ -796,9 +791,6 @@ class SettingsBridge(QObject):
         current = self._global_settings_service.get_default_prompter_config()
         config["page_scroll_mode"] = bool(
             current.get("page_scroll_mode", False)
-        )
-        config["smooth_scroll_mode"] = bool(
-            current.get("smooth_scroll_mode", False)
         )
         return config
 

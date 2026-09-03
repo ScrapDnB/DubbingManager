@@ -163,7 +163,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Live-change the layout before playback; may be repeated.",
     )
     parser.add_argument(
-        "--mode", choices=("page", "smooth", "continuous"), default="page"
+        "--mode", choices=("page", "continuous"), default="page"
     )
     parser.add_argument(
         "--seek", action="append", type=parse_time, default=[],
@@ -249,7 +249,6 @@ def main(argv: list[str] | None = None) -> int:
         "sync_in": True,
         "page_debug_overlay": True,
         "page_scroll_mode": args.mode == "page",
-        "smooth_scroll_mode": args.mode == "smooth",
     })
     bridge._global_settings_service.set_default_prompter_config(config)
     bridge.teleprompter.configChanged.emit()
@@ -903,7 +902,6 @@ def main(argv: list[str] | None = None) -> int:
             "index": index,
             "qml_index": qml_index,
             "mode": "page" if bool(view.property("pageScrollMode"))
-                else "smooth" if bool(view.property("smoothFocusMode"))
                 else "continuous",
             "viewport": (
                 f"{numeric_property(view, 'width'):.1f}x"

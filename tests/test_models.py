@@ -116,7 +116,6 @@ class TestPrompterConfig:
         assert config.focus_ratio == 0.1
         assert config.is_mirrored == False
         assert config.page_scroll_mode == False
-        assert config.smooth_scroll_mode == False
         assert config.scroll_delay_seconds == 0.0
         assert config.scroll_deadline_enabled is True
         assert config.page_timecode_highlight_enabled is False

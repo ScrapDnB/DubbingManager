@@ -287,7 +287,6 @@ DEFAULT_PROMPTER_CONFIG = {
     "scroll_delay_seconds": 0.0,
     "scroll_deadline_enabled": True,
     "page_scroll_mode": False,
-    "smooth_scroll_mode": False,
     "page_timecode_highlight_enabled": False,
     "page_gap_prefetch_seconds": 1.0,
     "page_gap_prefetch_delay_seconds": 1.0,
@@ -556,7 +555,7 @@ DEFAULT_GLOBAL_SETTINGS = {
 }
 
 # Application version shown in the UI and build metadata.
-APP_VERSION = "2.0.0-rc10"
+APP_VERSION = "2.0.0-rc11"
 
 # Project file format version used for compatibility migrations.
 PROJECT_VERSION = "2.0"

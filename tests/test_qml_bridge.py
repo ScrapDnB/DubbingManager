@@ -1152,7 +1152,6 @@ def test_qml_teleprompter_sync_toggles_update_global_settings(tmp_path):
     assert saved["default_prompter_config"]["sync_out"] is True
     assert saved["default_prompter_config"]["sync_play_only"] is True
     assert saved["default_prompter_config"]["page_scroll_mode"] is True
-    assert saved["default_prompter_config"]["smooth_scroll_mode"] is False
     assert bridge.teleprompter.config["sync_in"] is True
     assert bridge.teleprompter.config["sync_out"] is True
     assert bridge.teleprompter.config["page_scroll_mode"] is True
@@ -1160,11 +1159,11 @@ def test_qml_teleprompter_sync_toggles_update_global_settings(tmp_path):
     assert bridge._session.data["prompter_config"]["page_scroll_mode"] is False
     assert not bridge.settings.setPrompterSyncEnabled("port_in", True)
 
-    assert bridge.settings.setPrompterScrollMode("smooth")
+    assert bridge.settings.setPrompterScrollMode("normal")
     saved = bridge._global_settings_service.load_settings()
     assert saved["default_prompter_config"]["page_scroll_mode"] is False
-    assert saved["default_prompter_config"]["smooth_scroll_mode"] is True
-    assert bridge.teleprompter.config["smooth_scroll_mode"] is True
+    assert bridge.teleprompter.config["page_scroll_mode"] is False
+    assert not bridge.settings.setPrompterScrollMode("smooth")
     assert not bridge.settings.setPrompterScrollMode("unsupported")
 
 

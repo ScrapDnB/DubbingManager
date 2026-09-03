@@ -26,13 +26,10 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "Постраничный режим" in source
     assert 'text: qsTr("Режим прокрутки")' in source
     assert 'text: qsTr("Обычный")' in source
-    assert 'text: qsTr("Плавный")' in source
     assert 'text: qsTr("Постраничный")' in source
     assert "id: scrollModeSelector" in source
     assert "systemPalette.button" in source
     assert 'Accessible.name: qsTr("Постраничный режим прокрутки")' in source
-    assert 'Accessible.name: qsTr("Плавный режим прокрутки")' in source
-    assert 'scrollModeSelector.setMode("smooth")' in source
     assert 'text: qsTr("Подсвечивать каждую реплику")' in source
     assert 'visible: scrollModeSelector.pageSelected' in source
     assert 'enabled: Boolean(\n                                        window.config.page_target_highlight_enabled' in source
@@ -71,7 +68,6 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "&& !manualDragScroll && !dragging && !moving" in source
     assert "function scrollCurrentReplicaToFocusBoundary()" in source
     assert "function resetPageFollowState()" in source
-    assert "|| replicaView.smoothFocusMode" in source
     assert "property bool pageFocusAlignmentActive: false" in source
     assert "property bool manualDragScroll: false" in source
     assert "var viewportBottom = sourceY + height;" in source
@@ -90,18 +86,9 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "function pageFragmentStep()" in source
     assert "height - preferredHighlightBegin" in source
     assert "function followCurrentLongReplica()" in source
-    assert "function followSmoothFocusFrame(playbackTime)" in source
-    assert "function smoothFocusTargetY(playbackTime)" in source
-    assert "var timingGuides = item.laidOutTimingGuides();" in source
-    assert "Number(item.replicaTextBottom())" in source
-    assert "function updateSmoothFollowClock(" in source
-    assert "else if (transportAdvancing || (" in source
-    assert "receivedAt - smoothClockLastAdvanceAt" in source
-    assert "rate = smoothClockRate > 0" in source
-    assert "id: smoothFocusFrameTimer" in source
-    assert "interval: 16" in source
+    assert "bounds.item.replicaTextBottom()" in source
     assert "cacheBuffer: Math.max(height * 2, 800)" in source
-    assert "currentIndex: !smoothFocusMode ? playbackIndex : -1" in source
+    assert "currentIndex: playbackIndex" in source
     assert "onPlaybackIndexChanged:" in source
     assert "longReplicaScrollAnimation" in source
     assert "replicaView.queueContinuousFollow();" in source
@@ -142,8 +129,8 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "function finishDeferredReaperPageFollow()" in source
     assert '"Seek REAPER отложен до конца перелистывания"' in source
     assert '"Перелистывание завершено перед seek REAPER"' in source
-    assert "smoothDeferredReaperPageFollow =" in source
-    assert "if (!resumeDeferredSeekSmoothly)" in source
+    assert "animateDeferredReaperPageFollow =" in source
+    assert "if (!animateDeferredSeek)" in source
     assert "timeDelta >= Math.max(0.5, elapsed * 4)" in source
     assert "function episodeFinishedAtReplica(index)" in source
     assert "function finalReplicaBottomTargetY(index)" in source
@@ -310,6 +297,24 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "pane.setColor(pane.colorTarget, pane.colorOriginalValue)" in automation_settings
 
 
+def test_smooth_scroll_mode_is_fully_removed():
+    paths = [
+        ROOT / "config" / "constants.py",
+        ROOT / "core" / "models.py",
+        ROOT / "qml" / "components" / "TeleprompterWindow.qml",
+        ROOT / "ui" / "qml_backend" / "features" / "settings_bridge.py",
+        ROOT / "ui" / "qml_backend" / "features" / "teleprompter_bridge.py",
+        ROOT / "tools" / "teleprompter_diagnostics.py",
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in paths)
+
+    assert "smooth_scroll_mode" not in combined
+    assert "smoothFocusMode" not in combined
+    assert "smoothFocusFrameTimer" not in combined
+    assert 'setMode("smooth")' not in combined
+    assert 'qsTr("Плавный")' not in combined
+
+
 def test_teleprompter_parallel_replica_expansion_is_layout_independent():
     source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
         encoding="utf-8"
@@ -424,7 +429,7 @@ def test_teleprompter_pauses_while_the_reading_area_is_held():
     assert "onPressedChanged: replicaView.setPointerHeld(pressed)" in source
     assert "pageScrollAnimation.stop();" in source
     assert "longReplicaScrollAnimation.stop();" in source
-    assert "&& !replicaView.pointerHeld" in source
+    assert "if (replicaView.pointerHeld)" in source
 
 
 def test_disabling_reaper_follow_stops_all_running_scroll_motion():
@@ -437,8 +442,6 @@ def test_disabling_reaper_follow_stops_all_running_scroll_motion():
     assert "function suspendReaperFollow()" in source
     assert "pageScrollAnimation.stop();" in source
     assert "longReplicaScrollAnimation.stop();" in source
-    assert "smoothClockRate = 0;" in source
-    assert "&& Boolean(window.config.sync_in)" in source
     assert source.count("!Boolean(window.config.sync_in)") >= 4
 
 
