@@ -1,5 +1,6 @@
 """Tests for routing OS project-open requests between app instances."""
 
+from threading import Thread
 from uuid import uuid4
 
 from PySide6.QtCore import QCoreApplication, QEventLoop, QTimer
@@ -44,16 +45,29 @@ def test_project_path_is_forwarded_to_primary_instance(tmp_path):
     path.write_text("{}", encoding="utf-8")
     server_name = f"dm-test-{uuid4().hex[:16]}"
     primary = ProjectOpenRouter(server_name)
-    secondary = ProjectOpenRouter(server_name)
     received: list[str] = []
+    forwarded: list[bool] = []
     primary.projectOpenRequested.connect(received.append)
+
+    def forward_from_secondary_thread() -> None:
+        # Windows local servers use named pipes and need the primary thread's
+        # event loop to keep running while the secondary instance connects.
+        secondary = ProjectOpenRouter(server_name)
+        try:
+            forwarded.append(secondary.forward_project(str(path)))
+        finally:
+            secondary.close()
+
     try:
         assert primary.start_listener()
-        assert secondary.forward_project(str(path))
-        _drain_until(lambda: bool(received))
+        secondary_thread = Thread(target=forward_from_secondary_thread)
+        secondary_thread.start()
+        _drain_until(lambda: bool(received) or not secondary_thread.is_alive())
+        secondary_thread.join(timeout=1)
+        assert not secondary_thread.is_alive()
+        assert forwarded == [True]
         assert received == [str(path.resolve())]
     finally:
-        secondary.close()
         primary.close()
 
 
