@@ -1168,6 +1168,26 @@ def test_qml_teleprompter_sync_toggles_update_global_settings(tmp_path):
     assert not bridge.settings.setPrompterScrollMode("unsupported")
 
 
+def test_qml_teleprompter_stops_accepting_reaper_time_when_sync_is_disabled(
+    tmp_path,
+):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    assert bridge.settings.setPrompterSyncEnabled("sync_in", True)
+    prompter._on_osc_time(2.0)
+    assert prompter.time == 2.0
+
+    assert bridge.settings.setPrompterSyncEnabled("sync_in", False)
+    prompter._on_osc_time(4.0)
+
+    assert prompter.time == 2.0
+    assert prompter.config["sync_in"] is False
+
+
 def test_qml_teleprompter_saves_page_gap_prefetch_threshold(tmp_path):
     _app()
     bridge = AppBridge()

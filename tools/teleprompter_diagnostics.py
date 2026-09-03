@@ -349,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
         bridge.teleprompter.debugSetReaperTime(args.start)
         process_for(args.settle_ms)
         index = bridge.teleprompter.currentIndex
-        qml_index = int_property(view, "currentIndex", -1)
+        qml_index = int_property(view, "playbackIndex", -1)
         content_y = numeric_property(view, "contentY")
         origin_y = numeric_property(view, "originY")
         content_height = numeric_property(view, "contentHeight")
@@ -466,7 +466,7 @@ def main(argv: list[str] | None = None) -> int:
         process_for(args.tick_ms)
         sample_count += 1
         index = bridge.teleprompter.currentIndex
-        qml_index = int_property(view, "currentIndex", -1)
+        qml_index = int_property(view, "playbackIndex", -1)
         page = int_property(view, "pageDebugPage", 0)
         pages = int_property(view, "pageDebugPageCount", 1)
         content_y = numeric_property(view, "contentY")
@@ -498,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
                 int_property(view, "scrollDebugActualDurationMs") + 30,
             ))
             settled = True
-            qml_index = int_property(view, "currentIndex", -1)
+            qml_index = int_property(view, "playbackIndex", -1)
             page = int_property(view, "pageDebugPage", 0)
             pages = int_property(view, "pageDebugPageCount", 1)
             content_y = numeric_property(view, "contentY")
@@ -672,7 +672,7 @@ def main(argv: list[str] | None = None) -> int:
         bridge.teleprompter.debugSetReaperTime(seconds)
         process_for(args.settle_ms)
         index = bridge.teleprompter.currentIndex
-        qml_index = int_property(view, "currentIndex", -1)
+        qml_index = int_property(view, "playbackIndex", -1)
         row = rows[index] if 0 <= index < len(rows) else {}
         ok = qml_index == index
         if not ok:
@@ -726,7 +726,7 @@ def main(argv: list[str] | None = None) -> int:
             int_property(view, "scrollDebugActualDurationMs") + 200,
         ))
         actual_index = bridge.teleprompter.currentIndex
-        qml_index = int_property(view, "currentIndex", -1)
+        qml_index = int_property(view, "playbackIndex", -1)
         content_y = numeric_property(view, "contentY")
         target_y = numeric_property(view, "pageDebugTargetY")
         navigation_active = bool(view.property("localNavigationActive"))
@@ -770,7 +770,7 @@ def main(argv: list[str] | None = None) -> int:
             bridge.teleprompter.jumpToIndex(index)
             process_for(args.settle_ms)
             actual = bridge.teleprompter.currentIndex
-            qml_index = int_property(view, "currentIndex", -1)
+            qml_index = int_property(view, "playbackIndex", -1)
             ok = actual == index and qml_index == index
             if not ok:
                 failures.append(
@@ -783,7 +783,7 @@ def main(argv: list[str] | None = None) -> int:
                 bridge.teleprompter.navigate(1)
                 process_for(args.settle_ms)
                 actual_next = bridge.teleprompter.currentIndex
-                qml_next = int_property(view, "currentIndex", -1)
+                qml_next = int_property(view, "playbackIndex", -1)
                 next_ok = (
                     actual_next == expected_next and qml_next == expected_next
                 )
@@ -840,7 +840,7 @@ def main(argv: list[str] | None = None) -> int:
         process_for(min(max(args.tick_ms, 20), max(args.settle_ms, 20), 120))
         live_rows = bridge.teleprompter.model.rows()
         index = bridge.teleprompter.currentIndex
-        qml_index = int_property(view, "currentIndex", -1)
+        qml_index = int_property(view, "playbackIndex", -1)
         content_y = numeric_property(view, "contentY")
         origin_y = numeric_property(view, "originY")
         content_height = numeric_property(view, "contentHeight")

@@ -11,6 +11,8 @@ Item {
     required property var windowConfig
     required property var colors
     property var primaryTextItem: null
+    property string displayReplicaText: replicaDelegate.replicaText
+    property bool replicaTextStyled: false
     signal editRequested()
 
     implicitHeight: contentColumn.implicitHeight
@@ -103,7 +105,10 @@ Item {
                                                 ? renderer.replicaDelegate.character
                                                 : itemLoader.fieldName === "actor"
                                                     ? renderer.replicaDelegate.actor
-                                                    : renderer.replicaDelegate.replicaText
+                                                    : renderer.displayReplicaText
+                                        textFormat: itemLoader.fieldName === "replica"
+                                            && renderer.replicaTextStyled
+                                            ? Text.StyledText : Text.PlainText
                                         color: !renderer.replicaDelegate.active
                                             ? (renderer.colors.inactive_text || "#3b3b3b")
                                             : itemLoader.fieldName === "timecode"

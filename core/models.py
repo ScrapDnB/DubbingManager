@@ -115,6 +115,12 @@ class PrompterConfig:
     scroll_smoothness_slider: int = DEFAULT_PROMPTER_CONFIG[
         "scroll_smoothness_slider"
     ]
+    scroll_delay_seconds: float = DEFAULT_PROMPTER_CONFIG[
+        "scroll_delay_seconds"
+    ]
+    scroll_deadline_enabled: bool = DEFAULT_PROMPTER_CONFIG[
+        "scroll_deadline_enabled"
+    ]
     page_scroll_mode: bool = DEFAULT_PROMPTER_CONFIG["page_scroll_mode"]
     smooth_scroll_mode: bool = DEFAULT_PROMPTER_CONFIG[
         "smooth_scroll_mode"

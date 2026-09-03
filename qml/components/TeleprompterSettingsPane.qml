@@ -125,6 +125,30 @@ PersistentScrollView {
 
         FormSection {
             visible: pane.automationScope
+            title: qsTr("Прокрутка")
+            Layout.fillWidth: true
+            ColumnLayout {
+                anchors.fill: parent
+                CheckBox {
+                    text: qsTr("Ускорять прокрутку, чтобы успеть к таймкоду")
+                    checked: Boolean(
+                        pane.configuration.scroll_deadline_enabled === undefined
+                            ? true
+                            : pane.configuration.scroll_deadline_enabled
+                    )
+                    onToggled: pane.setValue(
+                        "scroll_deadline_enabled", checked
+                    )
+                    PlatformToolTip {
+                        target: parent
+                        text: qsTr("Если отключить, выбранная плавность всегда важнее времени начала следующей реплики")
+                    }
+                }
+            }
+        }
+
+        FormSection {
+            visible: pane.automationScope
             title: qsTr("Диагностика")
             Layout.fillWidth: true
             GridLayout {

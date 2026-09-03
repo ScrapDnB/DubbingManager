@@ -511,6 +511,17 @@ class TestGlobalSettingsService:
             'page_target_highlight_opacity': 'invalid',
         })['page_target_highlight_opacity'] == 0.2728
 
+    def test_prompter_scroll_delay_is_normalized(self, service):
+        assert service._normalize_prompter_config({
+            'scroll_delay_seconds': 2.5,
+        })['scroll_delay_seconds'] == 2.5
+        assert service._normalize_prompter_config({
+            'scroll_delay_seconds': 100,
+        })['scroll_delay_seconds'] == 60.0
+        assert service._normalize_prompter_config({
+            'scroll_delay_seconds': 'invalid',
+        })['scroll_delay_seconds'] == 0.0
+
     def test_prompter_highlight_fade_time_is_normalized(self, service):
         assert service._normalize_prompter_config({
             'page_target_highlight_fade_ms': 1750,

@@ -95,9 +95,14 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "var timingGuides = item.laidOutTimingGuides();" in source
     assert "Number(item.replicaTextBottom())" in source
     assert "function updateSmoothFollowClock(" in source
+    assert "else if (transportAdvancing || (" in source
+    assert "receivedAt - smoothClockLastAdvanceAt" in source
+    assert "rate = smoothClockRate > 0" in source
     assert "id: smoothFocusFrameTimer" in source
     assert "interval: 16" in source
     assert "cacheBuffer: Math.max(height * 2, 800)" in source
+    assert "currentIndex: !smoothFocusMode ? playbackIndex : -1" in source
+    assert "onPlaybackIndexChanged:" in source
     assert "longReplicaScrollAnimation" in source
     assert "replicaView.queueContinuousFollow();" in source
     assert "var renderedHeight = bounds.item.playbackHeight;" in source
@@ -407,3 +412,71 @@ def test_windows_teleprompter_is_not_transient_to_the_main_window():
     )
 
     assert "transientParent: windowsStyle || !ownerWindow ? null : ownerWindow" in source
+
+
+def test_teleprompter_pauses_while_the_reading_area_is_held():
+    source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "property bool pointerHeld: false" in source
+    assert "function setPointerHeld(held)" in source
+    assert "onPressedChanged: replicaView.setPointerHeld(pressed)" in source
+    assert "pageScrollAnimation.stop();" in source
+    assert "longReplicaScrollAnimation.stop();" in source
+    assert "&& !replicaView.pointerHeld" in source
+
+
+def test_disabling_reaper_follow_stops_all_running_scroll_motion():
+    source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "property bool lastSyncInEnabled: true" in source
+    assert "replicaView.suspendReaperFollow();" in source
+    assert "function suspendReaperFollow()" in source
+    assert "pageScrollAnimation.stop();" in source
+    assert "longReplicaScrollAnimation.stop();" in source
+    assert "smoothClockRate = 0;" in source
+    assert "&& Boolean(window.config.sync_in)" in source
+    assert source.count("!Boolean(window.config.sync_in)") >= 4
+
+
+def test_teleprompter_has_delayed_follow_and_optional_deadline_catch_up():
+    source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
+        encoding="utf-8"
+    )
+    settings_source = (
+        ROOT / "qml" / "components" / "TeleprompterSettingsPane.qml"
+    ).read_text(encoding="utf-8")
+
+    delay_index = source.index('text: qsTr("Задержка перелистывания")')
+    offset_index = source.index('text: qsTr("Смещение REAPER")')
+    assert delay_index < offset_index
+    assert '"scroll_delay_seconds", value / 10' in source
+    assert "id: scrollDelayTimer" in source
+    assert "id: pageScrollDelayTimer" in source
+    assert "function pageScrollDelayReady(targetIndex, owner)" in source
+    assert "function queueTimedFollow()" in source
+    assert "window.scrollDeadlineEnabled" in source
+    assert '"scroll_deadline_enabled", checked' in settings_source
+    assert "Ускорять прокрутку, чтобы успеть к таймкоду" in settings_source
+
+
+def test_teleprompter_toolbar_supports_series_and_global_search():
+    source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
+        encoding="utf-8"
+    )
+    template_source = (
+        ROOT / "qml" / "components" / "LayoutTemplateFlat.qml"
+    ).read_text(encoding="utf-8")
+
+    assert 'id: quickSearchField' in source
+    assert 'text: qsTr("Поиск в текущей серии")' in source
+    assert 'text: qsTr("Глобальный поиск по проекту")' in source
+    assert "GlobalSearchDialog {" in source
+    assert "function refreshQuickSearch(revealFirst)" in source
+    assert "function navigateQuickSearch(direction)" in source
+    assert "function highlightedReplicaText(value, replicaIndex)" in source
+    assert "displayReplicaText: window.highlightedReplicaText(" in source
+    assert "property bool replicaTextStyled: false" in template_source

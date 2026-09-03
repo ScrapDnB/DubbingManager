@@ -1146,6 +1146,7 @@ class TeleprompterBridge(QObject):
             "show_block_borders", "hide_leading_timecode_zeros", "osc_enabled",
             "sync_in", "sync_out", "sync_play_only", "reaper_offset_enabled",
             "page_scroll_mode", "smooth_scroll_mode",
+            "scroll_deadline_enabled",
             "page_debug_overlay", "page_target_highlight_enabled",
             "show_diagnostic_controls",
             "page_timecode_highlight_enabled",

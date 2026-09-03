@@ -284,6 +284,8 @@ DEFAULT_PROMPTER_CONFIG = {
     "key_prev": "Left",
     "key_next": "Right",
     "scroll_smoothness_slider": 18,
+    "scroll_delay_seconds": 0.0,
+    "scroll_deadline_enabled": True,
     "page_scroll_mode": False,
     "smooth_scroll_mode": False,
     "page_timecode_highlight_enabled": False,
@@ -335,6 +337,7 @@ PROMPTER_FLOAT_LIMITS = {
         PROMPTER_REAPER_OFFSET_MIN_SECONDS,
         PROMPTER_REAPER_OFFSET_MAX_SECONDS,
     ),
+    "scroll_delay_seconds": (0.0, 60.0),
     "page_gap_prefetch_seconds": (
         PROMPTER_GAP_PREFETCH_MIN_SECONDS,
         PROMPTER_GAP_PREFETCH_MAX_SECONDS,
