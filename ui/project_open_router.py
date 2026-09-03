@@ -9,7 +9,14 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QLockFile, QObject, QStandardPaths, Signal
+from PySide6.QtCore import (
+    QEventLoop,
+    QLockFile,
+    QObject,
+    QStandardPaths,
+    QTimer,
+    Signal,
+)
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from app_startup import is_project_file
@@ -90,8 +97,17 @@ class ProjectOpenRouter(QObject):
             return False
 
         socket = QLocalSocket()
+        connect_loop = QEventLoop()
+        connect_timeout = QTimer()
+        connect_timeout.setSingleShot(True)
+        socket.connected.connect(connect_loop.quit)
+        connect_timeout.timeout.connect(connect_loop.quit)
         socket.connectToServer(self._server_name)
-        if not socket.waitForConnected(PROJECT_OPEN_CONNECT_TIMEOUT_MS):
+        if socket.state() != QLocalSocket.ConnectedState:
+            connect_timeout.start(PROJECT_OPEN_CONNECT_TIMEOUT_MS)
+            connect_loop.exec()
+        if socket.state() != QLocalSocket.ConnectedState:
+            socket.abort()
             return False
 
         payload = json.dumps(
