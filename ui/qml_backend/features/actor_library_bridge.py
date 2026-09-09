@@ -1,7 +1,6 @@
 """QML backend for the shared global actor library."""
 
 from copy import deepcopy
-from datetime import datetime
 import random
 from typing import Optional
 
@@ -10,6 +9,7 @@ from PySide6.QtCore import QObject, Property, QUrl, Signal, Slot, Qt
 from config.constants import MY_PALETTE
 from core.commands import AddActorCommand, UpdateProjectFileStateCommand
 from services.assignment_transfer_service import AssignmentTransferService
+from services.actor_id_service import new_actor_id
 from application import GlobalActorController
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
@@ -197,7 +197,7 @@ class ActorLibraryBridge(QObject):
             self.errorRequested.emit(f"{name} уже добавлен в проект")
             return
         actors = self._session.data.setdefault("actors", {})
-        target_id = actor_id if actor_id not in actors else str(datetime.now().timestamp())
+        target_id = actor_id if actor_id not in actors else new_actor_id()
         self._session.execute(AddActorCommand(
             actors, target_id, name,
             self._normalized_color(color) or self._next_color(),
@@ -237,7 +237,7 @@ class ActorLibraryBridge(QObject):
             while target_id in project_actors or any(
                 row[0] == target_id for row in additions
             ):
-                target_id = f"{actor_id}-{datetime.now().timestamp()}"
+                target_id = new_actor_id()
             color = self._next_color(used_colors)
             used_colors.add(color.upper())
             additions.append((target_id, {

@@ -436,6 +436,10 @@ def test_global_actor_controller_replaces_nested_and_multiple_actor_ids():
                 "blocks": [{"runs": [{"actor_id": "local"}]}],
             }],
         },
+        "export_config": {
+            "highlight_ids_export": ["local", "other"],
+            "highlight_negative_ids_export": ["local"],
+        },
     }
     service = MagicMock()
     service.get_global_actor_base.return_value = {
@@ -453,6 +457,12 @@ def test_global_actor_controller_replaces_nested_and_multiple_actor_ids():
     assert data["audiobook_settings"]["slots"][0]["actor_id"] == "global-alice"
     run = data["audiobook_document"]["chapters"][0]["blocks"][0]["runs"][0]
     assert run["actor_id"] == "global-alice"
+    assert data["export_config"]["highlight_ids_export"] == [
+        "global-alice", "other",
+    ]
+    assert data["export_config"]["highlight_negative_ids_export"] == [
+        "global-alice",
+    ]
 
 
 def test_reaper_export_service_previews_and_saves(tmp_path):

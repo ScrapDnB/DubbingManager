@@ -168,6 +168,7 @@ class ProjectService:
                 if is_dynamic_script_project(data)
                 else "legacy_merged"
             )
+            actor_ids_before = set(map(str, data.get("actors", {})))
             preserved_legacy_fields = {
                 key: deepcopy(data[key])
                 for key in (
@@ -180,6 +181,7 @@ class ProjectService:
             }
             self._validate_project_structure(data)
             self._ensure_compatibility(data)
+            actor_ids_migrated = actor_ids_before != set(data.get("actors", {}))
             self._validate_current_schema(data)
             data["_project_format"] = {
                 "storage_model": original_model,
@@ -189,7 +191,9 @@ class ProjectService:
             self._update_metadata_on_load(data, path)
 
             self.current_project_path = path
-            self.is_dirty = False
+            # Keep the migrated project open and usable immediately, while
+            # prompting the normal save flow to persist its rebuilt references.
+            self.is_dirty = actor_ids_migrated
 
             logger.info(f"Project loaded from {path}")
             return data

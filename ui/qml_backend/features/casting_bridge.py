@@ -1,6 +1,5 @@
 """QML backend for actors, characters, filters, and assignments."""
 
-from datetime import datetime
 import random
 from typing import Any, Dict, Optional
 
@@ -31,6 +30,7 @@ from services import (
     get_actor_roles,
     rename_character_assignments,
 )
+from services.actor_id_service import new_actor_id
 from services.role_service import collect_project_roles
 from utils.helpers import natural_sort_key
 from ui.qml_backend.models import DictListModel
@@ -321,7 +321,12 @@ class CastingBridge(QObject):
         if self._find_actor_by_name(name):
             self.errorRequested.emit("Актёр с таким именем уже есть в проекте")
             return
-        actor_id = str(datetime.now().timestamp())
+        # Actor identifiers travel through QML and are persisted in assignment
+        # lists.  Timestamp-shaped IDs can be treated as numbers by QML/JS and
+        # lose precision, leaving a saved assignment that no longer matches the
+        # actor dictionary after reopening a project.  Use an opaque identifier
+        # instead, as ActorService does.
+        actor_id = new_actor_id()
         actor_color = self._normalized_color(color) or self._next_actor_color()
         self._execute(AddActorCommand(
             self._session.data.setdefault("actors", {}), actor_id, name,

@@ -231,6 +231,8 @@ ApplicationWindow {
     onClosing: function(close) {
         root.persistWindowState()
         if (root.closeApproved) {
+            teleprompterWindow.persistWindowGeometry()
+            teleprompterWindow.close()
             return
         }
         close.accepted = false

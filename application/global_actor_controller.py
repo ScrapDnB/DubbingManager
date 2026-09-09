@@ -214,17 +214,12 @@ class GlobalActorController:
         )
 
         export_config = self.data_ref.get("export_config", {})
-        if (
-            isinstance(export_config, dict) and
-            isinstance(export_config.get("highlight_ids_export"), list)
-        ):
-            export_config["highlight_ids_export"] = (
-                self.replace_actor_ids_in_list(
-                    export_config.get("highlight_ids_export"),
-                    old_actor_id,
-                    new_actor_id
-                )
-            )
+        if isinstance(export_config, dict):
+            for key in ("highlight_ids_export", "highlight_negative_ids_export"):
+                if isinstance(export_config.get(key), list):
+                    export_config[key] = self.replace_actor_ids_in_list(
+                        export_config.get(key), old_actor_id, new_actor_id
+                    )
 
     @classmethod
     def _replace_nested_actor_ids(

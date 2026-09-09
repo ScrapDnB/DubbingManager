@@ -22,14 +22,16 @@ NativeDialogWindow {
 
     modal: false
     title: qsTr("Телесуфлёр - серия ") + teleprompter.episode
-    width: boundedWidth(1240, 40)
-    height: boundedHeight(820, 50)
+    width: 1240
+    height: 820
     minimumWidth: 760
     minimumHeight: 520
     standardButtons: Dialog.NoButton
-    // A transient window is minimized together with its owner on Windows.
-    // Keep the owner only for sizing and initial placement there.
-    transientParent: windowsStyle || !ownerWindow ? null : ownerWindow
+    // The teleprompter must remain a fully independent top-level window.
+    // ownerWindow is used only to choose a sensible initial screen and position.
+    transientParent: null
+    centerOnOpen: false
+    property bool windowGeometryReady: false
 
     property bool sidePanelVisible: true
     property bool followEnabled: true
@@ -338,8 +340,127 @@ NativeDialogWindow {
         if (!teleprompter.prepare(episode)) {
             return;
         }
+        restoreWindowGeometry();
         open();
         requestActivate();
+    }
+
+    function restoreWindowGeometry() {
+        if (windowGeometryReady) {
+            return;
+        }
+
+        var savedScreenName = appBridge.uiState.stringValue(
+            "teleprompter.screen", ""
+        );
+        var targetScreen = screenByName(savedScreenName);
+        if (!targetScreen && ownerWindow) {
+            targetScreen = ownerWindow.screen;
+        }
+        if (!targetScreen) {
+            targetScreen = screen;
+        }
+        if (targetScreen) {
+            screen = targetScreen;
+        }
+
+        var area = targetScreen ? ({
+            x: Number(targetScreen.virtualX),
+            y: Number(targetScreen.virtualY),
+            width: Number(targetScreen.desktopAvailableWidth),
+            height: Number(targetScreen.desktopAvailableHeight)
+        }) : ({ x: 0, y: 0, width: 1240, height: 820 });
+        var defaultWidth = Math.min(1240, Math.max(
+            minimumWidth, Number(area.width) - 40
+        ));
+        var defaultHeight = Math.min(820, Math.max(
+            minimumHeight, Number(area.height) - 50
+        ));
+        width = Math.min(
+            Math.max(minimumWidth, Number(area.width)),
+            Math.max(minimumWidth, appBridge.uiState.intValue(
+                "teleprompter.width", defaultWidth
+            ))
+        );
+        height = Math.min(
+            Math.max(minimumHeight, Number(area.height)),
+            Math.max(minimumHeight, appBridge.uiState.intValue(
+                "teleprompter.height", defaultHeight
+            ))
+        );
+
+        var hasSavedPosition = appBridge.uiState.hasValue("teleprompter.x")
+            && appBridge.uiState.hasValue("teleprompter.y");
+        var desiredX = hasSavedPosition
+            ? appBridge.uiState.intValue("teleprompter.x", Number(area.x))
+            : ownerWindow
+                ? ownerWindow.x + Math.round((ownerWindow.width - width) / 2)
+                : Number(area.x) + Math.round((Number(area.width) - width) / 2);
+        var desiredY = hasSavedPosition
+            ? appBridge.uiState.intValue("teleprompter.y", Number(area.y))
+            : ownerWindow
+                ? ownerWindow.y + Math.round((ownerWindow.height - height) / 2)
+                : Number(area.y) + Math.round((Number(area.height) - height) / 2);
+        x = Math.max(
+            Number(area.x),
+            Math.min(
+                desiredX,
+                Number(area.x) + Math.max(0, Number(area.width) - width)
+            )
+        );
+        y = Math.max(
+            Number(area.y),
+            Math.min(
+                desiredY,
+                Number(area.y) + Math.max(0, Number(area.height) - height)
+            )
+        );
+        windowGeometryReady = true;
+    }
+
+    function screenByName(name) {
+        if (!name) {
+            return null;
+        }
+        var screens = Qt.application.screens;
+        for (var index = 0; index < screens.length; ++index) {
+            if (String(screens[index].name) === String(name)) {
+                return screens[index];
+            }
+        }
+        return null;
+    }
+
+    function persistWindowGeometry() {
+        if (!windowGeometryReady || visibility !== Window.Windowed) {
+            return;
+        }
+        appBridge.uiState.setIntValue(
+            "teleprompter.width", Math.round(width)
+        );
+        appBridge.uiState.setIntValue(
+            "teleprompter.height", Math.round(height)
+        );
+        appBridge.uiState.setIntValue("teleprompter.x", Math.round(x));
+        appBridge.uiState.setIntValue("teleprompter.y", Math.round(y));
+        if (screen) {
+            appBridge.uiState.setStringValue(
+                "teleprompter.screen", String(screen.name || "")
+            );
+        }
+    }
+
+    onXChanged: if (windowGeometryReady) windowGeometryTimer.restart()
+    onYChanged: if (windowGeometryReady) windowGeometryTimer.restart()
+    onWidthChanged: if (windowGeometryReady) windowGeometryTimer.restart()
+    onHeightChanged: if (windowGeometryReady) windowGeometryTimer.restart()
+    onScreenChanged: if (windowGeometryReady) windowGeometryTimer.restart()
+
+    Timer {
+        id: windowGeometryTimer
+        interval: 350
+        repeat: false
+        onTriggered: window.persistWindowGeometry()
     }
 
     function setEpisode(episode) {

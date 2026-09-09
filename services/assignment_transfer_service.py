@@ -3,7 +3,6 @@
 import json
 from copy import deepcopy
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from config.constants import APP_VERSION
@@ -12,6 +11,7 @@ from services.assignment_service import (
     actor_ids_from_assignment,
     assignment_from_actor_ids,
 )
+from services.actor_id_service import new_actor_id, normalize_actor_id
 from utils.i18n import translate_source
 
 
@@ -196,16 +196,10 @@ class AssignmentTransferService:
 
     def _available_actor_id(self, actors: Dict[str, Any], preferred_id: str) -> str:
         """Return a free actor id, preferring the imported id."""
-        if preferred_id and preferred_id not in actors:
-            return preferred_id
-
-        stem = Path(preferred_id or "actor").stem or "actor"
-        index = 1
-        while True:
-            candidate = f"{stem}_imported_{index}"
-            if candidate not in actors:
-                return candidate
-            index += 1
+        candidate = normalize_actor_id(preferred_id) if preferred_id else new_actor_id()
+        while candidate in actors:
+            candidate = new_actor_id()
+        return candidate
 
     @staticmethod
     def _normalize_gender(value: Any) -> str:

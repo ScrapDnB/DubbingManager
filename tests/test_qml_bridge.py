@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from uuid import UUID
 
 import pytest
 from PySide6.QtCore import QCoreApplication, QSettings
@@ -946,6 +947,112 @@ def test_qml_multiple_actors_render_and_undo_across_casting_tools(tmp_path):
 
     bridge.project.undo()
     assert bridge._session.data["global_map"]["Hero"] == "actor-1"
+
+
+def test_qml_new_actor_ids_survive_reopening_multi_actor_assignment(tmp_path):
+    """A project actor id must remain an opaque string through QML and JSON."""
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.current_episode = "1"
+
+    bridge.casting.addActorWithDetails("Actor Three", "#ABCDEF", "М")
+    actor_id = next(
+        row["id"]
+        for row in bridge.casting.actorsModel.rows()
+        if row["name"] == "Actor Three"
+    )
+    # Numeric timestamp identifiers can be coerced to JS numbers, which breaks
+    # an assignment after reopening. UUIDs stay exact across the boundary.
+    assert str(UUID(actor_id)) == actor_id
+
+    bridge.casting.addActorToCharacter("Hero", actor_id)
+    path = tmp_path / "multi-actor-reopen.dub"
+    assert bridge._session.project_service.save_project_as(
+        bridge._session.data, str(path)
+    )
+
+    reopened = AppBridge()
+    reopened.project._open_now(str(path))
+    hero = next(
+        row for row in reopened.casting.charactersModel.rows()
+        if row["character"] == "Hero"
+    )
+    assert {entry["name"] for entry in hero["actorEntries"]} == {
+        "Actor One", "Actor Three",
+    }
+
+
+def test_qml_reopening_migrates_legacy_numeric_multi_actor_ids(tmp_path):
+    _app()
+    source = AppBridge()
+    _configure_teleprompter_project(source, tmp_path)
+    source._session.data["actors"] = {
+        "1788437715.85358": {
+            "name": "Actor One", "color": "#123456", "gender": "М",
+        },
+        "1788437730.771291": {
+            "name": "Actor Two", "color": "#654321", "gender": "Ж",
+        },
+    }
+    source._session.data["global_map"] = {
+        "Hero": ["1788437715.85358", "1788437730.771291"],
+        "Villain": "1788437730.771291",
+    }
+    source._session.data["episode_actor_map"] = {
+        "1": {"Guest": ["1788437730.771291", "1788437715.85358"]},
+    }
+    source._global_settings_service.settings["global_actor_base"] = {
+        "1788437715.85358": {"name": "Actor One", "gender": "М"},
+        "1788437730.771291": {"name": "Actor Two", "gender": "Ж"},
+    }
+    source._global_settings["global_actor_base"] = (
+        source._global_settings_service.get_global_actor_base()
+    )
+    assert source._global_settings_service.save_settings(
+        source._global_settings
+    )
+    path = tmp_path / "legacy-numeric-multi-actor.dub"
+    # Emulate a project written by the legacy timestamp-ID implementation.
+    path.write_text(
+        json.dumps(source._session.data, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    reopened = AppBridge()
+    reopened.project._open_now(str(path))
+    actor_ids = reopened._session.data["global_map"]["Hero"]
+    assert all(actor_id in reopened._session.data["actors"] for actor_id in actor_ids)
+    assert all(str(UUID(actor_id)) == actor_id for actor_id in actor_ids)
+    assert all(
+        str(UUID(actor_id)) == actor_id
+        for actor_id in reopened._global_settings_service.get_global_actor_base()
+    )
+    episode_actor_ids = reopened._session.data["episode_actor_map"]["1"]["Guest"]
+    assert all(
+        actor_id in reopened._session.data["actors"]
+        and str(UUID(actor_id)) == actor_id
+        for actor_id in episode_actor_ids
+    )
+    assert reopened.project.dirty
+    hero = next(
+        row for row in reopened.casting.charactersModel.rows()
+        if row["character"] == "Hero"
+    )
+    assert [entry["name"] for entry in hero["actorEntries"]] == [
+        "Actor One", "Actor Two",
+    ]
+    assert reopened.teleprompter.prepare("1")
+    teleprompter_rows = reopened.teleprompter.model.rows()
+    assert teleprompter_rows[0]["actor"] == "Actor One / Actor Two"
+    assert teleprompter_rows[1]["actor"] == "Actor Two"
+    assert teleprompter_rows[1]["actorColor"] == "#654321"
+    reopened.montage.prepare("1")
+    montage_rows = reopened.montage.model.rows()
+    assert montage_rows[0]["actor"] == "Actor One / Actor Two"
+    assert montage_rows[0]["background"] == "transparent"
+    assert montage_rows[1]["actor"] == "Actor Two"
+    assert montage_rows[1]["background"] != "transparent"
 
 
 def test_qml_remove_one_actor_from_multi_cast_is_undoable(tmp_path):

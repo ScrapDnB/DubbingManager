@@ -18,6 +18,17 @@ def test_macos_main_window_waits_for_native_chrome_before_showing():
     assert "Qt.callLater(root.dismissStartupMenus)" in source
 
 
+def test_closing_main_window_also_closes_teleprompter():
+    source = (ROOT / "qml" / "Main.qml").read_text(encoding="utf-8")
+
+    approved_close = source.index("if (root.closeApproved)")
+    request_close = source.index("projectBackend.requestClose()", approved_close)
+    close_handler = source[approved_close:request_close]
+
+    assert "teleprompterWindow.persistWindowGeometry()" in close_handler
+    assert "teleprompterWindow.close()" in close_handler
+
+
 def test_main_tables_can_clear_their_selection():
     main = (ROOT / "qml" / "Main.qml").read_text(encoding="utf-8")
     actor_panel = (ROOT / "qml" / "components" / "ActorPanel.qml").read_text(

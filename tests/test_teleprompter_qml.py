@@ -411,12 +411,26 @@ def test_teleprompter_list_click_aligns_replica_to_the_top_transactionally():
     assert "floatWindow.replicaJumpRequested(" in float_source
 
 
-def test_windows_teleprompter_is_not_transient_to_the_main_window():
+def test_teleprompter_geometry_and_window_state_are_independent_from_main_window():
     source = (ROOT / "qml" / "components" / "TeleprompterWindow.qml").read_text(
         encoding="utf-8"
     )
 
-    assert "transientParent: windowsStyle || !ownerWindow ? null : ownerWindow" in source
+    assert "transientParent: null" in source
+    assert "width: boundedWidth(1240, 40)" not in source
+    assert "height: boundedHeight(820, 50)" not in source
+    assert '"teleprompter.width"' in source
+    assert '"teleprompter.height"' in source
+    assert '"teleprompter.x"' in source
+    assert '"teleprompter.y"' in source
+    assert '"teleprompter.screen"' in source
+    assert "Qt.application.screens" in source
+    assert "targetScreen.virtualX" in source
+    assert "targetScreen.virtualY" in source
+    assert "targetScreen.desktopAvailableWidth" in source
+    assert "targetScreen.desktopAvailableHeight" in source
+    assert "centerOnOpen: false" in source
+    assert "visibility !== Window.Windowed" in source
 
 
 def test_teleprompter_pauses_while_the_reading_area_is_held():

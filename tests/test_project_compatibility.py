@@ -1,5 +1,7 @@
 """Tests for project compatibility upgrades."""
 
+from uuid import UUID
+
 from config.constants import PROJECT_VERSION
 from services.project_compatibility import ensure_project_compatibility
 
@@ -135,4 +137,48 @@ def test_ensure_project_compatibility_adds_source_lines_to_working_texts():
             "character": "Hero",
             "text": "Two",
         },
+    ]
+
+
+def test_compatibility_rebuilds_every_legacy_actor_reference_with_uuids():
+    first = "1788437715.85358"
+    second = "global_1788437730.771291"
+    data = {
+        "project_name": "Legacy casting",
+        "actors": {
+            first: {"name": "One", "color": "#123456"},
+            second: {"name": "Two", "color": "#654321"},
+        },
+        "episodes": {"1": "episode.ass"},
+        "global_map": {"Crowd": [first, second]},
+        "episode_actor_map": {"1": {"Guest": second}},
+        "audiobook_settings": {
+            "slots": [{"character": "Crowd", "actor_id": first}],
+        },
+        "audiobook_document": {
+            "chapters": [{
+                "blocks": [{"runs": [{"actor_id": second}]}],
+            }],
+        },
+        "export_config": {
+            "highlight_ids_export": [first, second],
+            "highlight_negative_ids_export": [second],
+        },
+    }
+
+    ensure_project_compatibility(data)
+
+    migrated_ids = list(data["actors"])
+    assert all(str(UUID(actor_id)) == actor_id for actor_id in migrated_ids)
+    first_uuid, second_uuid = migrated_ids
+    assert data["global_map"]["Crowd"] == [first_uuid, second_uuid]
+    assert data["episode_actor_map"]["1"]["Guest"] == second_uuid
+    assert data["audiobook_settings"]["slots"][0]["actor_id"] == first_uuid
+    run = data["audiobook_document"]["chapters"][0]["blocks"][0]["runs"][0]
+    assert run["actor_id"] == second_uuid
+    assert data["export_config"]["highlight_ids_export"] == [
+        first_uuid, second_uuid,
+    ]
+    assert data["export_config"]["highlight_negative_ids_export"] == [
+        second_uuid,
     ]

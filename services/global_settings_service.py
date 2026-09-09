@@ -38,6 +38,7 @@ from services.layout_template_service import (
     builtin_layout_templates,
     normalize_layout_library,
 )
+from services.actor_id_service import new_actor_id, normalize_actor_id
 from utils.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, translate_source
 
 logger = logging.getLogger(__name__)
@@ -95,10 +96,16 @@ class GlobalSettingsService:
                     loaded.get('recent_projects', [])
                 )
 
+            actor_ids_migrated = False
             if 'global_actor_base' in loaded:
+                raw_actor_base = loaded.get('global_actor_base', {})
                 settings['global_actor_base'] = self._normalize_actor_base(
-                    loaded.get('global_actor_base', {})
+                    raw_actor_base
                 )
+                if isinstance(raw_actor_base, dict):
+                    actor_ids_migrated = {
+                        str(actor_id) for actor_id in raw_actor_base
+                    } != set(settings['global_actor_base'])
 
             if 'default_export_config' in loaded:
                 settings['default_export_config'] = self._normalize_export_config(
@@ -198,6 +205,13 @@ class GlobalSettingsService:
             )
 
             self.settings = settings
+            if actor_ids_migrated:
+                if self.save_settings(settings):
+                    settings = self.settings
+                else:
+                    logger.warning(
+                        "Could not persist migrated global actor UUIDs"
+                    )
             logger.info(f"Global settings loaded from {self._settings_file}")
             return settings
 
@@ -717,10 +731,9 @@ class GlobalSettingsService:
         if existing_id:
             return existing_id
 
-        import time
-        target_id = actor_id or f"global_{time.time()}"
+        target_id = normalize_actor_id(actor_id) if actor_id else new_actor_id()
         while target_id in actor_base:
-            target_id = f"{target_id}_copy"
+            target_id = new_actor_id()
 
         actor_base[target_id] = {
             "name": normalized_name,
@@ -766,9 +779,9 @@ class GlobalSettingsService:
                 skipped_existing += 1
                 continue
 
-            target_id = str(actor_id)
+            target_id = normalize_actor_id(actor_id)
             while target_id in actor_base:
-                target_id = f"{target_id}_imported"
+                target_id = new_actor_id()
             actor_base[target_id] = {
                 "name": name,
                 "gender": self._normalize_actor_gender(
@@ -830,7 +843,7 @@ class GlobalSettingsService:
 
             target_id = imported_id
             while target_id in current:
-                target_id = f"{target_id}_imported"
+                target_id = new_actor_id()
             current[target_id] = actor
             added += 1
 
@@ -863,13 +876,15 @@ class GlobalSettingsService:
             name = str(actor.get("name", "")).strip()
             if not name:
                 continue
-            result[str(actor_id)] = {
+            target_id = normalize_actor_id(actor_id)
+            result[target_id] = {
                 "name": name,
                 "gender": self._normalize_actor_gender(
                     str(actor.get("gender", ""))
                 ),
             }
         return result
+
 
     def _normalize_export_config(self, config: Any) -> Dict[str, Any]:
         """Return sanitized default export settings."""

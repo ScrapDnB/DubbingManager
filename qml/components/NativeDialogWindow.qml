@@ -11,6 +11,7 @@ Window {
     property bool modal: true
     // Large, long-lived tools are independent windows on macOS rather than sheets.
     property bool macOSDocumentWindow: false
+    property bool centerOnOpen: true
     property int standardButtons: Dialog.NoButton
     property var ownerWindow
     property alias content: contentHost.data
@@ -90,7 +91,8 @@ Window {
             requestActivate()
             return
         }
-        centerOnParent()
+        if (centerOnOpen)
+            centerOnParent()
         show()
         requestActivate()
         opened()

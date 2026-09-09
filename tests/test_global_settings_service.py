@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+from uuid import UUID
 
 from services.global_settings_service import (
     GlobalSettingsService,
@@ -356,6 +357,32 @@ class TestGlobalSettingsService:
         assert service.save_settings(settings) is True
         saved = json.loads(temp_settings_file.read_text(encoding="utf-8"))
         assert "color" not in saved["global_actor_base"]["actor1"]
+
+    def test_global_actor_base_migrates_numeric_timestamp_ids(
+        self, service, temp_settings_file
+    ):
+        temp_settings_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_settings_file.write_text(json.dumps({
+            "global_actor_base": {
+                "1788437715.85358": {
+                    "name": "Actor One",
+                    "gender": "М",
+                },
+            },
+        }), encoding="utf-8")
+
+        settings = service.load_settings()
+        actors = settings["global_actor_base"]
+        actor_id = next(iter(actors))
+
+        assert str(UUID(actor_id)) == actor_id
+        assert actors[actor_id] == {
+            "name": "Actor One",
+            "gender": "М",
+        }
+        assert service.find_global_actor_by_name("Actor One") == actor_id
+        saved = json.loads(temp_settings_file.read_text(encoding="utf-8"))
+        assert list(saved["global_actor_base"]) == [actor_id]
 
     def test_remove_global_actor(self, service):
         """Тест удаления актёра из глобальной базы."""

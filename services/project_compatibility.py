@@ -16,6 +16,8 @@ from core.export_config_profiles import (
 )
 from services.dynamic_script_storage import is_dynamic_script_project
 from services.project_fps_service import ensure_project_settings
+from services.assignment_service import replace_actor_id_in_assignment
+from services.actor_id_service import migrated_actor_id
 
 
 def ensure_project_compatibility(data: Dict[str, Any]) -> None:
@@ -61,6 +63,7 @@ def ensure_project_compatibility(data: Dict[str, Any]) -> None:
         }
     if "episode_actor_map" not in data:
         data["episode_actor_map"] = {}
+    _migrate_timestamp_actor_ids(data)
     ensure_project_settings(data)
     # Import rules belong to the application, not to a project.  Drop legacy
     # copies while loading so the next save transparently migrates old files.
@@ -91,6 +94,75 @@ def ensure_project_compatibility(data: Dict[str, Any]) -> None:
 
     if not dynamic_scripts:
         _ensure_working_text_source_layers(data)
+
+
+def _migrate_timestamp_actor_ids(data: Dict[str, Any]) -> None:
+    """Replace legacy numeric actor IDs before QML can coerce them to numbers."""
+    actors = data.get("actors")
+    if not isinstance(actors, dict):
+        return
+
+    replacements = {}
+    for actor_id in actors:
+        replacement = migrated_actor_id(actor_id)
+        if replacement:
+            replacements[str(actor_id)] = replacement
+    if not replacements:
+        return
+
+    data["actors"] = {
+        replacements.get(actor_id, actor_id): actor
+        for actor_id, actor in actors.items()
+    }
+    for mapping in [data.get("global_map", {})]:
+        _replace_assignment_actor_ids(mapping, replacements)
+    episode_maps = data.get("episode_actor_map", {})
+    if isinstance(episode_maps, dict):
+        for mapping in episode_maps.values():
+            _replace_assignment_actor_ids(mapping, replacements)
+    _replace_nested_actor_ids(data.get("audiobook_settings", {}), replacements)
+    _replace_nested_actor_ids(data.get("audiobook_document", {}), replacements)
+    export_config = data.get("export_config", {})
+    if isinstance(export_config, dict):
+        for key in ("highlight_ids_export", "highlight_negative_ids_export"):
+            values = export_config.get(key)
+            if isinstance(values, list):
+                export_config[key] = list(dict.fromkeys(
+                    replacements.get(str(actor_id), str(actor_id))
+                    for actor_id in values
+                ))
+
+
+def _replace_assignment_actor_ids(
+    mapping: Any,
+    replacements: Dict[str, str],
+) -> None:
+    """Update every actor assignment in one global or episode mapping."""
+    if not isinstance(mapping, dict):
+        return
+    for character, assignment in list(mapping.items()):
+        for old_actor_id, new_actor_id in replacements.items():
+            assignment = replace_actor_id_in_assignment(
+                assignment, old_actor_id, new_actor_id
+            )
+        mapping[character] = assignment
+
+
+def _replace_nested_actor_ids(
+    value: Any,
+    replacements: Dict[str, str],
+) -> None:
+    """Update explicit actor-ID fields in nested audiobook structures."""
+    if isinstance(value, dict):
+        for key in ("actor_id", "actorId"):
+            actor_id = value.get(key)
+            if actor_id is not None and str(actor_id) in replacements:
+                value[key] = replacements[str(actor_id)]
+        for nested in value.values():
+            _replace_nested_actor_ids(nested, replacements)
+    elif isinstance(value, list):
+        for nested in value:
+            _replace_nested_actor_ids(nested, replacements)
 
 
 def _ensure_working_text_source_layers(data: Dict[str, Any]) -> None:
