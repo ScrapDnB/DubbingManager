@@ -542,7 +542,10 @@ class ExportLayoutMixin:
             });
 
             function onBlur(el) {
-                if(backend) {
+                // innerText normalizes whitespace. Merely leaving the window
+                // must not turn that normalization into a working-text edit.
+                if (backend && el.dataset.edited === "true") {
+                    delete el.dataset.edited;
                     var cleanText = el.innerText;
                     cleanText = cleanText.replace(/(\\r\\n|\\n|\\r)/gm, "\\n");
                     backend.update_text(el.id, cleanText);
@@ -702,6 +705,7 @@ class ExportLayoutMixin:
                         f"<span id='{part_id}' "
                         f"class='edit-span' "
                         f"contenteditable='true' "
+                        f"oninput='this.dataset.edited = \"true\"' "
                         f"onblur='onBlur(this)' "
                         f"onkeypress='onKeyPress(event, this)'>"
                         f"{part_text}</span>"

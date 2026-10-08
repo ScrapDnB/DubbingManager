@@ -425,10 +425,11 @@ Item {
                 Keys.priority: Keys.BeforeItem
                 onTextEdited: {
                     addActorDialog.selectedGlobalActorId = ""
-                    panel.actorLibraryBackend.setGlobalActorSearchText(text)
+                    var resultCount = panel.actorLibraryBackend
+                        .setGlobalActorSearchText(text)
                     actorSuggestionView.currentIndex = -1
                     if (text.trim().length > 0
-                            && actorSuggestionView.count > 0) {
+                            && resultCount > 0) {
                         actorSuggestionPopup.open()
                     } else {
                         actorSuggestionPopup.close()

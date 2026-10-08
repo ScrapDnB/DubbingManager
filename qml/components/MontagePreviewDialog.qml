@@ -5,7 +5,6 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtWebChannel
-import QtWebEngine
 
 NativeDialogWindow {
     id: dialog
@@ -118,13 +117,6 @@ NativeDialogWindow {
         fontCombo.syncValue()
         timeModeCombo.syncValue()
         open()
-        reloadPreview()
-    }
-
-    function reloadPreview() {
-        if (montageBackend && previewBrowser) {
-            previewBrowser.loadHtml(montageBackend.html)
-        }
     }
 
     function selectedFormatCount() {
@@ -623,12 +615,14 @@ NativeDialogWindow {
                     ? "transparent" : dialog.softBorder
                 clip: true
 
-                WebEngineView {
+                MontagePreviewBrowser {
                     id: previewBrowser
                     anchors.fill: parent
                     anchors.margins: dialog.macOSStyle ? 0 : 1
                     webChannel: previewChannel
                     backgroundColor: palette.base
+                    previewHtml: dialog.montageBackend ? dialog.montageBackend.html : ""
+                    episode: dialog.montageBackend ? dialog.montageBackend.episode : ""
                 }
             }
         }
@@ -750,10 +744,5 @@ NativeDialogWindow {
                 onClicked: dialog.runExport()
             }
         }
-    }
-
-    Connections {
-        target: dialog.montageBackend
-        function onChanged() { dialog.reloadPreview() }
     }
 }

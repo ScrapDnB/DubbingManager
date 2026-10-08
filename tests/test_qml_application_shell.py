@@ -60,6 +60,16 @@ def test_main_tables_can_clear_their_selection():
     assert "rowIndex < 0" in character_table
 
 
+def test_actor_suggestion_popup_uses_synchronous_search_result_count():
+    actor_panel = (ROOT / "qml" / "components" / "ActorPanel.qml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "var resultCount = panel.actorLibraryBackend" in actor_panel
+    assert ".setGlobalActorSearchText(text)" in actor_panel
+    assert "&& resultCount > 0" in actor_panel
+
+
 def test_character_numeric_columns_fit_their_sorted_headers():
     character_table = (
         ROOT / "qml" / "components" / "CharacterTable.qml"

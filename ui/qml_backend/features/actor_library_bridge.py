@@ -100,10 +100,11 @@ class ActorLibraryBridge(QObject):
         self._save_sort()
         self.refresh()
 
-    @Slot(str)
-    def setGlobalActorSearchText(self, text: str) -> None:
-        self._global_search_text = (text or "").strip().casefold()
+    @Slot(str, result=int)
+    def setGlobalActorSearchText(self, text: str) -> int:
+        self._global_search_text = self._actor_search_key(text)
         self._refresh_global_search_model()
+        return self._global_search_model.rowCount()
 
     def _restore_sort(self) -> tuple[str, bool]:
         if self._ui_state is None:
@@ -578,6 +579,7 @@ class ActorLibraryBridge(QObject):
                     str(actor.get("name", actor_id))
                 )
             ]
+        search_terms = self._global_search_text.split()
         self._global_search_model.set_rows([
             {
                 "id": actor_id,
@@ -585,10 +587,16 @@ class ActorLibraryBridge(QObject):
                 "gender": actor.get("gender", ""),
             }
             for actor_id, actor in available_actors
-            if self._global_search_text in str(
-                actor.get("name", actor_id)
-            ).casefold()
+            if all(
+                term in self._actor_search_key(actor.get("name", actor_id))
+                for term in search_terms
+            )
         ])
+
+    @staticmethod
+    def _actor_search_key(value) -> str:
+        """Normalize a name or query for forgiving actor lookup."""
+        return " ".join(str(value or "").casefold().replace("ё", "е").split())
 
     def _actor_sort_value(self, row: dict):
         value = row.get(self._actor_sort_key)

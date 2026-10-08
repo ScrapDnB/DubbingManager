@@ -1590,6 +1590,31 @@ def test_qml_actor_library_sorts_global_actors_independently():
     ]
 
 
+def test_qml_actor_library_searches_every_name_fragment_reliably():
+    _app()
+    bridge = AppBridge()
+    library = bridge.actorLibrary
+    library.addGlobalActor("Иван Петров", "М")
+    library.addGlobalActor("Пётр Сидоров", "М")
+    library.addGlobalActor("Анна Иванова", "Ж")
+
+    assert library.setGlobalActorSearchText("иван") == 2
+    assert [row["name"] for row in library.globalActorSearchModel.rows()] == [
+        "Анна Иванова", "Иван Петров",
+    ]
+
+    assert library.setGlobalActorSearchText("пет ив") == 1
+    assert library.globalActorSearchModel.rows()[0]["name"] == "Иван Петров"
+
+    assert library.setGlobalActorSearchText("петр с") == 1
+    assert library.globalActorSearchModel.rows()[0]["name"] == "Пётр Сидоров"
+
+    assert library.setGlobalActorSearchText("  сид   пет  ") == 1
+    assert library.globalActorSearchModel.rows()[0]["name"] == "Пётр Сидоров"
+
+    assert library.setGlobalActorSearchText("нет такого") == 0
+
+
 def test_qml_table_sort_preferences_survive_a_new_bridge(tmp_path):
     _app()
     settings_path = tmp_path / "ui-state.ini"
