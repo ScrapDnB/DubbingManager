@@ -503,6 +503,7 @@ class ProjectBridge(QObject):
 
     @Slot()
     def undo(self) -> None:
+        self._session.pendingEditsRequested.emit()
         if not self._session.undo_stack.undo():
             return
         self._session.mark_dirty()
@@ -514,6 +515,7 @@ class ProjectBridge(QObject):
 
     @Slot()
     def redo(self) -> None:
+        self._session.pendingEditsRequested.emit()
         if not self._session.undo_stack.redo():
             return
         self._session.mark_dirty()
@@ -648,6 +650,7 @@ class ProjectBridge(QObject):
         self._save_preparer = preparer
 
     def _prepare_for_save(self) -> int:
+        self._session.pendingEditsRequested.emit()
         if self._save_preparer is None:
             return 0
         materialized = self._save_preparer()
@@ -735,6 +738,7 @@ class ProjectBridge(QObject):
         return rows
 
     def _defer_for_unsaved_changes(self, action: str, payload: str) -> bool:
+        self._session.pendingEditsRequested.emit()
         if not self._session.project_service.is_dirty:
             return False
         self._pending_action = (action, payload)

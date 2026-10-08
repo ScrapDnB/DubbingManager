@@ -336,6 +336,10 @@ NativeDialogWindow {
     }
 
     function openFor(episode) {
+        if (appBridge.audiobook.hasChapter(episode)) {
+            appBridge.audiobook.flush();
+            appBridge.audiobook.prepare();
+        }
         resetFollowingState();
         if (!teleprompter.prepare(episode)) {
             return;
@@ -343,6 +347,8 @@ NativeDialogWindow {
         restoreWindowGeometry();
         open();
         requestActivate();
+        var saved = appBridge.audiobook.recordingPosition(episode);
+        if (saved.length > 0) audiobookSessionTools.jumpToRun(saved);
     }
 
     function restoreWindowGeometry() {
@@ -660,6 +666,11 @@ NativeDialogWindow {
     }
 
     onClosed: {
+        if (appBridge.audiobook.hasChapter(teleprompter.episode) && teleprompter.currentIndex >= 0) {
+            var row = teleprompter.model.get(teleprompter.currentIndex);
+            appBridge.audiobook.saveRecordingPosition(teleprompter.episode, row.sourceIds || []);
+            appBridge.audiobook.flush();
+        }
         floatWindow.close();
         teleprompter.close();
     }
@@ -1397,6 +1408,14 @@ NativeDialogWindow {
                             id: settingsColumn
                             width: settingsScroll.availableWidth
                             spacing: window.macOSStyle ? 9 : 5
+
+                            AudiobookSessionTools {
+                                id: audiobookSessionTools
+                                appBridge: window.appBridge
+                                ownerWindow: window
+                                softMuted: window.softMuted
+                                Layout.fillWidth: true
+                            }
 
                             RowLayout {
                                 Layout.fillWidth: true

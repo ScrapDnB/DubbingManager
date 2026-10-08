@@ -96,3 +96,37 @@ def test_dub_file_embeds_document_without_duplicate_text_fields(tmp_path):
     assert "book_chapters" not in stored
     assert "audiobook_source" not in stored
     assert "audiobook_chapter_order" not in stored
+
+
+def test_html_round_trip_keeps_run_ids_and_explicit_adjacent_boundaries():
+    service = AudiobookDocumentService()
+    chapter = service.chapter_from_html("Глава", '<p><span data-dm-run-id="a">Первый</span><span data-dm-run-id="b"> второй</span></p>')
+    for _ in range(3):
+        chapter = service.chapter_from_html("Глава", service.chapter_to_html(chapter))
+    assert [(r["id"], r["text"]) for r in chapter["blocks"][0]["runs"]] == [("a", "Первый"), ("b", " второй")]
+
+
+def test_nested_partial_markup_keeps_unselected_text_and_deduplicates_ids():
+    service = AudiobookDocumentService()
+    chapter = service.chapter_from_html("Глава", '<p><span data-dm-run-id="a" data-dm-character="Макс" data-dm-actor="actor-1">до <span data-dm-run-id="b" data-dm-character="Автор" data-dm-actor="">выделение</span> после</span></p><p><span data-dm-run-id="a">Другой абзац</span></p>')
+    runs = [r for b in chapter["blocks"] for r in b["runs"]]
+    assert [r["text"] for r in runs] == ["до ", "выделение", " после", "Другой абзац"]
+    assert [r["character"] for r in runs] == ["Макс", "Автор", "Макс", "Автор"]
+    assert "actor_id" not in runs[1]
+    assert len({r["id"] for r in runs}) == len(runs)
+
+
+def test_line_breaks_survive_manuscript_conversion():
+    service = AudiobookDocumentService()
+    chapter = service.chapter_from_html("Глава", '<p><span data-dm-run-id="line">Один<br>Два</span></p>')
+    assert chapter["blocks"][0]["runs"][0]["text"] == "Один\nДва"
+    restored = service.chapter_from_html("Глава", service.chapter_to_html(chapter))
+    assert restored == chapter
+
+
+def test_imported_duplicate_run_ids_are_unique_across_chapters():
+    service = AudiobookDocumentService()
+    document = service.create_document("book.txt", [("Первая", '<p><span data-dm-run-id="same">Один</span></p>'), ("Вторая", '<p><span data-dm-run-id="same">Два</span></p>')])
+    ids = [r["id"] for c in document["chapters"] for b in c["blocks"] for r in b["runs"]]
+    assert len(set(ids)) == 2
+    assert document["source"]["type"] == "txt"

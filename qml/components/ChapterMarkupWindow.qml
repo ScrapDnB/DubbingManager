@@ -180,6 +180,7 @@ NativeDialogWindow {
 
             WebEngineView {
                 id: sourceView
+                objectName: "audiobookChapterStructureView"
                 anchors.fill: parent
                 anchors.margins: window.macOSStyle ? 0 : 1
                 webChannel: chapterChannel

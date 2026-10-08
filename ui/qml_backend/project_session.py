@@ -16,6 +16,7 @@ class ProjectSession(QObject):
     domainChanged = Signal(str)
     dirtyChanged = Signal()
     undoStateChanged = Signal()
+    pendingEditsRequested = Signal()
 
     def __init__(
         self,

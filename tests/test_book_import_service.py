@@ -214,3 +214,42 @@ def test_chapters_to_html_keeps_full_imported_book_text():
     assert "Первый текст." in html_text
     assert "Глава 2" in html_text
     assert "Второй текст." in html_text
+
+
+def test_import_utf8_and_windows1251_prose_txt(tmp_path):
+    service = BookImportService()
+    for encoding in ("utf-8-sig", "cp1251"):
+        path = tmp_path / "book.txt"
+        path.write_bytes("Пролог\nНачало книги.\n\nГлава 1\nПервый абзац.\n\nВторой абзац.".encode(encoding))
+        chapters = service.import_file(str(path))
+        assert [c.title for c in chapters] == ["Пролог", "Глава 1"]
+        assert chapters[1].paragraphs == ["Первый абзац.", "Второй абзац."]
+
+
+def test_import_docx_prose_uses_headings_without_screenplay_columns(tmp_path):
+    from docx import Document
+    document = Document()
+    document.add_heading("Обсерватория", level=1)
+    document.add_paragraph("Первый абзац книги.")
+    document.add_paragraph("— Кто здесь?")
+    document.add_heading("Возвращение", level=1)
+    document.add_paragraph("Последний абзац.")
+    path = tmp_path / "book.docx"
+    document.save(path)
+    chapters = BookImportService().import_file(str(path))
+    assert [c.title for c in chapters] == ["Обсерватория", "Возвращение"]
+    assert chapters[0].paragraphs == ["Первый абзац книги.", "— Кто здесь?"]
+
+
+def test_import_epub_follows_spine_and_skips_navigation(tmp_path):
+    from zipfile import ZipFile
+    path = tmp_path / "book.epub"
+    with ZipFile(path, "w") as archive:
+        archive.writestr("META-INF/container.xml", '<container><rootfiles><rootfile full-path="OPS/content.opf"/></rootfiles></container>')
+        archive.writestr("OPS/content.opf", '<package><manifest><item id="second" href="second.xhtml"/><item id="first" href="first.xhtml"/><item id="nav" href="nav.xhtml" properties="nav"/></manifest><spine><itemref idref="nav"/><itemref idref="first"/><itemref idref="second"/></spine></package>')
+        archive.writestr("OPS/second.xhtml", '<html><body><h1>Глава 2</h1><p>Второй текст.</p></body></html>')
+        archive.writestr("OPS/first.xhtml", '<html><body><h1>Глава 1</h1><p>Первый текст.</p></body></html>')
+        archive.writestr("OPS/nav.xhtml", '<html><body><p>Оглавление.</p></body></html>')
+    chapters = BookImportService().import_file(str(path))
+    assert [c.title for c in chapters] == ["Глава 1", "Глава 2"]
+    assert chapters[0].paragraphs == ["Первый текст."]

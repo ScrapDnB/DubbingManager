@@ -8,15 +8,16 @@ Item {
     id: pane
     required property var backend
     required property color softMuted
-
+    readonly property bool macOSStyle: Qt.platform.os === "osx"
     ColumnLayout {
         anchors.fill: parent
-        spacing: 7
-
-        Label { text: pane.backend.reviewSummary; color: pane.softMuted }
+        spacing: 10
+        Label { text: qsTr("Проверка книги"); font.bold: true }
+        Label { text: pane.backend.reviewSummary; color: pane.softMuted; Layout.fillWidth: true; wrapMode: Text.WordWrap }
         TextField {
+            objectName: "audiobookReviewSearch"
             Layout.fillWidth: true
-            placeholderText: qsTr("Поиск по тексту, главе, роли или алиасу")
+            placeholderText: qsTr("Текст, глава или роль")
             onTextChanged: pane.backend.setReviewSearch(text)
         }
         PlatformComboBox {
@@ -32,29 +33,16 @@ Item {
                 {label: qsTr("Пропущенные"), value: "ignored"}
             ]
             onActivated: pane.backend.setReviewFilter(currentValue)
-            Component.onCompleted: currentIndex = Math.max(
-                0, indexOfValue(pane.backend.reviewFilter)
-            )
+            Component.onCompleted: currentIndex = Math.max(0, indexOfValue(pane.backend.reviewFilter))
         }
-
-        Connections {
-            target: pane.backend
-            function onReviewChanged() {
-                var index = reviewFilterCombo.indexOfValue(
-                    pane.backend.reviewFilter
-                )
-                if (index >= 0 && index !== reviewFilterCombo.currentIndex)
-                    reviewFilterCombo.currentIndex = index
-            }
-        }
-
         PersistentListView {
             id: reviewItemsView
+            objectName: "audiobookReviewItems"
             Layout.fillWidth: true
             Layout.fillHeight: true
             model: pane.backend.reviewModel
             clip: true
-            spacing: 3
+            spacing: 2
             delegate: ItemDelegate {
                 id: reviewRow
                 required property string itemId
@@ -65,62 +53,34 @@ Item {
                 required property bool issue
                 required property bool ignored
                 width: reviewItemsView.viewportWidth
-                height: Math.max(72, reviewContent.implicitHeight + 10)
+                height: Math.max(98, reviewContent.implicitHeight + 18)
+                highlighted: pane.backend.selectedReviewId === itemId
                 onClicked: pane.backend.openReviewItem(itemId)
                 contentItem: ColumnLayout {
                     id: reviewContent
-                    spacing: 2
+                    spacing: 5
                     RowLayout {
                         Layout.fillWidth: true
-                        Label {
-                            text: reviewRow.chapter
-                            font.bold: true
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                        }
-                        Label {
-                            text: reviewRow.kindLabel
-                            color: reviewRow.issue ? "#b06020" : pane.softMuted
-                        }
-                        ToolButton {
-                            id: ignoreButton
-                            visible: reviewRow.issue && !reviewRow.ignored
-                            text: qsTr("×")
-                            onClicked: pane.backend.ignoreReviewItem(
-                                reviewRow.itemId
-                            )
-                            PlatformToolTip {
-                                target: ignoreButton
-                                text: qsTr("Пропустить проверку")
-                            }
-                        }
+                        Rectangle { implicitWidth: 6; implicitHeight: 6; radius: 3; color: reviewRow.issue ? "#c18a32" : pane.softMuted }
+                        Label { text: reviewRow.kindLabel; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
                     }
-                    Label {
-                        text: reviewRow.character
-                        color: pane.softMuted
-                    }
-                    Label {
-                        text: reviewRow.snippet
-                        Layout.fillWidth: true
-                        maximumLineCount: 2
-                        elide: Text.ElideRight
-                        wrapMode: Text.Wrap
-                    }
+                    Label { text: reviewRow.chapter + " · " + reviewRow.character; color: pane.softMuted; font.pixelSize: pane.macOSStyle ? 11 : 12; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Label { text: reviewRow.snippet; Layout.fillWidth: true; maximumLineCount: 2; elide: Text.ElideRight; wrapMode: Text.Wrap }
                 }
             }
-            Label {
+            ColumnLayout {
                 anchors.centerIn: parent
-                visible: parent.count === 0
-                text: qsTr("Нет подходящих фрагментов")
-                color: pane.softMuted
+                width: Math.max(100, parent.width - 30)
+                visible: reviewItemsView.count === 0
+                Label { text: pane.backend.reviewCount === 0 ? qsTr("Замечаний нет") : qsTr("Ничего не найдено"); font.bold: true; Layout.alignment: Qt.AlignHCenter }
+                Label { text: qsTr("Измените фильтр или поисковый запрос"); color: pane.softMuted; wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter; Layout.fillWidth: true }
             }
         }
-
         AdaptiveButton {
             visible: pane.backend.reviewFilter === "ignored"
-            text: qsTr("Вернуть все пропущенные")
-            Layout.fillWidth: true
+            text: qsTr("Вернуть пропущенные")
             onClicked: pane.backend.resetIgnoredReviewItems()
         }
+        Label { text: qsTr("Готовы %1 из %2 глав").arg(pane.backend.readyChapters).arg(pane.backend.chapterTitles.length); color: pane.softMuted }
     }
 }

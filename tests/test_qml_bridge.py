@@ -4923,3 +4923,194 @@ def test_qml_bridge_creates_missing_srt_and_docx_texts_with_one_undo(tmp_path):
 
     assert bridge._session.data["script_storage"]["episodes"] == {}
     assert not bridge.project.canUndo
+
+
+def test_audiobook_pending_text_is_included_when_project_is_saved(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    book = bridge.audiobook
+    book.prepare()
+    book.updateEditorState('<h1>Глава 1</h1><p>Несохранённая правка.</p>', '[]')
+    assert book.pending
+    path = tmp_path / "pending.dub"
+    bridge.project.saveAs(str(path))
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert "Несохранённая правка" in json.dumps(stored["audiobook_document"], ensure_ascii=False)
+    assert not book.pending
+    assert not bridge.project.dirty
+
+
+def test_audiobook_undo_flushes_pending_edit_and_refreshes_open_editor(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    book = bridge.audiobook
+    book.prepare()
+    token = book.editorToken
+    book.updateEditorState('<h1>Глава 1</h1><p>Новая правка.</p>', '[]')
+    bridge.project.undo()
+    assert "Новая правка" not in book.editorHtml
+    assert "Первый текст" in book.editorHtml
+    assert token != book.editorToken
+    bridge.project.redo()
+    assert "Новая правка" in book.editorHtml
+
+
+def test_audiobook_review_applies_role_to_the_exact_run_and_advances(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    book = bridge.audiobook
+    book.prepare()
+    book.updateEditorState('<h1>Глава 1</h1><p><span data-dm-run-id="first">— Кто здесь?</span></p><p><span data-dm-run-id="second">— Это я.</span></p>', '[]')
+    first = book.reviewModel.get(0)
+    book.openReviewItem(first["itemId"])
+    assert book.resolveReviewItem(first["itemId"], "Герой", "actor-1")
+    book.flush()
+    runs = [r for b in bridge._session.data["audiobook_document"]["chapters"][0]["blocks"] for r in b["runs"]]
+    assert next(r for r in runs if r["id"] == "first")["character"] == "Герой"
+    assert next(r for r in runs if r["id"] == "second")["character"] == "Автор"
+    assert book.reviewCount == 1
+    assert book.selectedReview["runId"] == "second"
+
+
+def test_audiobook_role_palette_has_only_used_shortcuts_and_preserves_markup_on_remove(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    book = bridge.audiobook
+    book.prepare()
+    assert book.rolesModel.rowCount() == 1
+    assert book.nextSlot == 1
+    assert book.configureRole(1, "Герой", "actor-1")
+    assert not book.configureRole(2, "Герой", "actor-1")
+    book.updateEditorState('<p><span data-dm-run-id="hero" data-dm-character="Герой">Реплика</span></p>', '[]')
+    book.removeRoleShortcut(1)
+    book.flush()
+    assert book.rolesModel.rowCount() == 2
+    assert next(row for row in book.rolesModel.rows() if row["character"] == "Герой")["slotIndex"] == -1
+    assert book.actorForCharacter("Герой") == "actor-1"
+    assert any(r["character"] == "Герой" for b in bridge._session.data["audiobook_document"]["chapters"][0]["blocks"] for r in b["runs"])
+
+
+def test_audiobook_readiness_invalidates_after_text_edit_and_searches_entire_book(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    book = bridge.audiobook
+    book.prepare()
+    assert book.markChapterReviewed()
+    assert book.readyChapters == 1
+    book.searchBook("Второй")
+    assert book.searchModel.get(0)["chapter"] == "Глава 2"
+    book.updateEditorState('<h1>Глава 1</h1><p><span data-dm-character="Герой">Изме</span><span>нённый текст.</span></p>', '[]')
+    assert book.readyChapters == 0
+    assert book.chapterWords == 2
+
+
+def test_audiobook_pronunciations_and_recording_notes_survive_save_and_undo(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    book = bridge.audiobook
+    book.prepare()
+    run_id = bridge._session.data["audiobook_document"]["chapters"][0]["blocks"][1]["runs"][0]["id"]
+    book.savePronunciation("Альдебаран", "Альдебара́н", "Звезда")
+    book.addRetake("Глава 1", [run_id], "Первый текст.", "Оговорка")
+    book.saveRecordingPosition("Глава 1", [run_id])
+    book.flush()
+    book.prepare()
+    assert book.pronunciations[0]["pronunciation"] == "Альдебара́н"
+    assert book.retakes[0]["runIds"] == [run_id]
+    assert book.recordingPosition("Глава 1") == [run_id]
+    path = tmp_path / "retakes.csv"
+    assert book.exportRetakes(str(path))
+    assert "Оговорка" in path.read_text(encoding="utf-8-sig")
+    bridge.project.undo()
+    assert book.retakes == []
+    assert book.pronunciations == []
+
+
+def test_audiobook_autosave_writes_named_project_and_never_prompts_for_unnamed_one(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    book = bridge.audiobook
+    book.prepare()
+    prompts = []
+    bridge.project.savePathRequested.connect(lambda: prompts.append(True))
+    book.savePronunciation("Имя", "И́мя", "")
+    book._auto_save_file()
+    assert prompts == []
+    path = tmp_path / "auto.dub"
+    bridge.project.saveAs(str(path))
+    book.savePronunciation("Имя", "Имя́", "Новая редакция")
+    book._auto_save_file()
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert stored["audiobook_settings"]["pronunciations"][0]["pronunciation"] == "Имя́"
+    assert not bridge.project.dirty
+
+
+def test_audiobook_palette_supports_more_roles_than_nine_shortcuts(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    book = bridge.audiobook
+    book.prepare()
+    for index in range(1, 9):
+        assert book.configureRole(index, f"Персонаж {index}", "actor-1")
+    assert book.nextSlot == -1
+    assert book.configureRole(-1, "Десятая роль", "actor-1")
+    book.flush()
+    book.prepare()
+    assert book.rolesModel.rowCount() == 10
+    assert len(book.slots) == 9
+    assert "Десятая роль" in book.characterNames
+    assert next(row for row in book.rolesModel.rows() if row["character"] == "Десятая роль")["slotIndex"] == -1
+
+
+def test_audiobook_adding_role_preserves_current_text_selection(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    book = bridge.audiobook
+    book.prepare()
+    token = book.editorToken
+    book.updateSelection(json.dumps({"text": "Первый текст", "character": "Автор"}))
+    assert book.configureRole(1, "Новая роль", "actor-1")
+    assert book.editorToken == token
+    assert book.selection["text"] == "Первый текст"
+    assert any(role["character"] == "Новая роль" for role in book.roles)
+
+
+def test_audiobook_chapter_structure_uses_live_text_and_moves_retakes_on_rename(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    book = bridge.audiobook
+    book.prepare()
+    book.updateEditorState('<h1>Глава 1</h1><p><span data-dm-run-id="body">Исправленный текст.</span></p>', '[]')
+    book.addRetake("Глава 1", ["body"], "Исправленный текст.", "Оговорка")
+    book.prepareChapterMarkup()
+    assert "Исправленный текст" in book.chapterMarkupHtml
+    assert "Первый текст" not in book.chapterMarkupHtml
+    book.updateBoundaries(json.dumps({"sourceHtml": "", "chapters": [{"title": "Обсерватория", "html": book._chapters["Глава 1"]}, {"title": "Глава 2", "html": book._chapters["Глава 2"]}]}))
+    assert book.applyChapterMarkup()
+    assert book.retakes[0]["chapter"] == "Обсерватория"
+    assert book.retakes[0]["runIds"] == ["body"]
+
+
+def test_audiobook_import_result_cannot_replace_another_open_project(tmp_path):
+    from services.book_import_service import BookChapter
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    book = bridge.audiobook
+    book.prepare()
+    book._import_project = bridge._session.data
+    replacement = bridge._session.project_service.create_new_project("Другой проект")
+    bridge._session.replace_project(replacement)
+    book._finish_import([BookChapter("Глава", ["Текст старого импорта."])])
+    assert bridge._session.data["audiobook_document"] == {}
+    assert bridge._session.data["project_name"] == "Другой проект"

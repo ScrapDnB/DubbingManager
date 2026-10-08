@@ -45,6 +45,28 @@ pytest tests/ -v -m integration
 
 ## Структура тестов
 
+### Живая проверка модуля аудиокниг
+
+В графической сессии macOS или Windows:
+
+```bash
+python tests/gui/audiobook_workspace_smoke.py
+```
+
+Сценарий создаёт изолированный демонстрационный проект и настройки, проверяет
+WebEngine/WebChannel, разметку части абзаца и нескольких абзацев, отмену/повтор,
+сохранность вступления при удалении границы главы, суфлёр, F8 и сохранение позиции. Снимки окна сохраняются в
+`output/audiobook-implementation`.
+
+Для проверки Windows-компоновки на macOS:
+
+```bash
+QT_QUICK_CONTROLS_STYLE=FluentWinUI3 python tests/gui/audiobook_workspace_smoke.py --fluent
+```
+
+Этот режим подменяет платформенные условия только во временной копии QML.
+Он не заменяет запуск на настоящей Windows 11.
+
 ```
 tests/
 ├── __init__.py

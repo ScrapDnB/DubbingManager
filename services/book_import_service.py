@@ -5,6 +5,8 @@ from __future__ import annotations
 import html
 import os
 import re
+from pathlib import Path, PurePosixPath
+from zipfile import ZipFile
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -66,7 +68,7 @@ class BookImportError(Exception):
 
 
 class BookImportService:
-    """Import PDF books and convert manual markup to project episodes."""
+    """Import prose books and convert manual markup to project episodes."""
 
     def __init__(self, chapter_keywords: Optional[List[str]] = None) -> None:
         source_keywords = (
@@ -89,6 +91,106 @@ class BookImportService:
                 seen.add(folded)
                 result.append(normalized)
         return result
+
+    def import_file(self, path: str, progress_callback=None) -> List[BookChapter]:
+        """Import prose in reading order without assuming a screenplay table."""
+        suffix = Path(path).suffix.lower()
+        if suffix == ".pdf":
+            return self.import_pdf(path, progress_callback)
+        if suffix == ".txt":
+            raw = Path(path).read_bytes()
+            try:
+                text = raw.decode("utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig")
+            except UnicodeDecodeError:
+                text = raw.decode("cp1251")
+            paragraphs = re.split(r"\n\s*\n", text.replace("\r\n", "\n"))
+            # Headings can also be separated by a single newline in plain text.
+            entries = []
+            for paragraph in paragraphs:
+                parts = paragraph.splitlines()
+                buffer = []
+                for line in parts:
+                    if self._looks_like_chapter_heading(line.strip()):
+                        if buffer:
+                            entries.append((" ".join(buffer), False))
+                            buffer = []
+                        entries.append((line.strip(), True))
+                    elif line.strip():
+                        buffer.append(line.strip())
+                if buffer:
+                    entries.append((" ".join(buffer), False))
+            result = self._chapters_from_paragraphs(entries)
+        elif suffix == ".docx":
+            from docx import Document
+            document = Document(path)
+            entries = [(p.text.strip(), bool(p.style and p.style.name in {"Heading 1", "Heading 2", "Заголовок 1", "Заголовок 2"}))
+                       for p in document.paragraphs if p.text.strip()]
+            result = self._chapters_from_paragraphs(entries)
+        elif suffix == ".epub":
+            result = self._import_epub(path)
+        else:
+            raise BookImportError("Поддерживаются PDF, DOCX, EPUB и TXT")
+        if not result:
+            raise BookImportError("В книге не найден текст")
+        if progress_callback:
+            progress_callback(1, 1)
+        return result
+
+    def _chapters_from_paragraphs(self, entries) -> List[BookChapter]:
+        chapters = []
+        current = BookChapter("Глава 1")
+        for text, heading in entries:
+            text = text.strip()
+            if not text:
+                continue
+            if heading or self._looks_like_chapter_heading(text):
+                if current.paragraphs:
+                    chapters.append(current)
+                current = BookChapter(text)
+            else:
+                current.paragraphs.append(text)
+        if current.paragraphs:
+            chapters.append(current)
+        return chapters
+
+    def _import_epub(self, path: str) -> List[BookChapter]:
+        from lxml import etree, html as lxml_html
+        import posixpath
+        from urllib.parse import unquote
+
+        parser = etree.XMLParser(resolve_entities=False, no_network=True)
+        with ZipFile(path) as archive:
+            if sum(info.file_size for info in archive.infolist()) > 100 * 1024 * 1024:
+                raise BookImportError("EPUB слишком большой для импорта текста (более 100 МБ)")
+            container = etree.fromstring(archive.read("META-INF/container.xml"), parser)
+            roots = container.xpath("//*[local-name()='rootfile']/@full-path")
+            if not roots:
+                raise BookImportError("В EPUB не найдена структура книги")
+            package_path = roots[0]
+            package = etree.fromstring(archive.read(package_path), parser)
+            manifest = {item.get("id"): item for item in package.xpath("//*[local-name()='manifest']/*")}
+            result = []
+            for ref in package.xpath("//*[local-name()='spine']/*"):
+                item = manifest.get(ref.get("idref"))
+                if item is None or ref.get("linear") == "no" or "nav" in item.get("properties", "").split():
+                    continue
+                member = posixpath.normpath(str(PurePosixPath(package_path).parent / unquote(item.get("href", "").split("#")[0])))
+                raw = archive.read(member)
+                try:
+                    root = etree.fromstring(raw, parser)
+                except etree.XMLSyntaxError:
+                    root = lxml_html.fromstring(raw, parser=lxml_html.HTMLParser(encoding="utf-8"))
+                entries = []
+                for node in root.xpath("//*[local-name()='h1' or local-name()='h2' or local-name()='p' or local-name()='blockquote']"):
+                    if any(etree.QName(parent).localname.lower() in {"nav", "p", "blockquote"} for parent in node.iterancestors() if isinstance(parent.tag, str)):
+                        continue
+                    text = " ".join("".join(node.itertext()).split())
+                    entries.append((text, etree.QName(node).localname.lower() in {"h1", "h2"}))
+                parts = self._chapters_from_paragraphs(entries)
+                if result and parts and parts[0].title == "Глава 1" and not any(heading for _, heading in entries):
+                    result[-1].paragraphs.extend(parts.pop(0).paragraphs)
+                result.extend(parts)
+            return result
 
     def _build_chapter_regex(self, keywords: List[str]) -> re.Pattern[str]:
         if not keywords:

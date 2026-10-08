@@ -231,6 +231,7 @@ ApplicationWindow {
     onClosing: function(close) {
         root.persistWindowState()
         if (root.closeApproved) {
+            audiobookWindow.close()
             teleprompterWindow.persistWindowGeometry()
             teleprompterWindow.close()
             return
@@ -691,6 +692,7 @@ ApplicationWindow {
         softRow: root.softRow
         softAltRow: root.softAltRow
         softMuted: root.softMuted
+        onRecordingRequested: function(chapter) { teleprompterWindow.openFor(chapter) }
     }
 
     QuickConverterPreviewDialog {

@@ -13,14 +13,14 @@ Window {
     property bool macOSDocumentWindow: false
     property bool centerOnOpen: true
     property int standardButtons: Dialog.NoButton
-    property var ownerWindow
+    property var ownerWindow: null
     property alias content: contentHost.data
     property alias footer: customFooter.data
     readonly property bool windowsStyle: Qt.platform.os === "windows"
     readonly property bool macOSStyle: Qt.platform.os === "osx"
     readonly property bool presentedAsSheet: macOSStyle
         && modal && !macOSDocumentWindow && ownerWindow
-    readonly property int contentMargin: macOSStyle ? 16 : 12
+    property int contentMargin: macOSStyle ? 16 : 12
     readonly property int footerSideMargin: macOSStyle ? 16 : 12
     readonly property int compactRowHeight: macOSStyle ? 28 : 34
     readonly property int regularRowHeight: macOSStyle ? 30 : 36

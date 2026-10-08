@@ -26,10 +26,10 @@ class AudiobookDocumentService:
         chapters: Iterable[tuple[str, str]],
     ) -> Dict[str, Any]:
         path = Path(str(source_path or ""))
-        return {
+        document = {
             "format_version": AUDIOBOOK_DOCUMENT_VERSION,
             "source": {
-                "type": "pdf",
+                "type": path.suffix.lstrip(".").lower() or "text",
                 "path": str(source_path or ""),
                 "imported_at": datetime.now().isoformat(),
                 "mtime": path.stat().st_mtime if path.is_file() else None,
@@ -39,6 +39,14 @@ class AudiobookDocumentService:
                 for title, html_text in chapters
             ],
         }
+        seen: set[str] = set()
+        for chapter in document["chapters"]:
+            for block in chapter["blocks"]:
+                for run in block["runs"]:
+                    if run["id"] in seen:
+                        run["id"] = self._new_id()
+                    seen.add(run["id"])
+        return document
 
     def chapter_from_html(self, title: str, html_text: str) -> Dict[str, Any]:
         try:
@@ -61,6 +69,12 @@ class AudiobookDocumentService:
                 blocks.append({"type": tag, "runs": runs})
             if node.tail and node.tail.strip():
                 blocks.append(self._block_from_text("p", node.tail))
+        seen: set[str] = set()
+        for block in blocks:
+            for run in block["runs"]:
+                if run["id"] in seen:
+                    run["id"] = self._new_id()
+                seen.add(run["id"])
         return {"title": str(title), "blocks": blocks}
 
     def chapter_to_html(
@@ -251,18 +265,19 @@ class AudiobookDocumentService:
     def _runs_from_element(self, node: Any) -> list[Dict[str, Any]]:
         runs: list[Dict[str, Any]] = []
 
-        def append_text(value: Any, character: str, actor_id: str) -> None:
+        def append_text(value: Any, character: str, actor_id: str, run_id: str) -> None:
             text = str(value or "")
             if not text:
                 return
             if (
                 runs and runs[-1].get("character") == character
                 and runs[-1].get("actor_id", "") == actor_id
+                and (not run_id or runs[-1]["id"] == run_id)
             ):
                 runs[-1]["text"] += text
                 return
             run = {
-                "id": self._new_id(),
+                "id": run_id if run_id and not any(r["id"] == run_id for r in runs) else self._new_id(),
                 "text": text,
                 "character": character,
             }
@@ -270,13 +285,17 @@ class AudiobookDocumentService:
                 run["actor_id"] = actor_id
             runs.append(run)
 
-        def walk(element: Any, character: str, actor_id: str) -> None:
+        def walk(element: Any, character: str, actor_id: str, run_id: str = "") -> None:
             current_character = str(element.attrib.get("data-dm-character", character))
             current_actor = str(element.attrib.get("data-dm-actor", actor_id))
-            append_text(element.text, current_character, current_actor)
+            current_id = str(element.attrib.get("data-dm-run-id", run_id))
+            append_text(element.text, current_character, current_actor, current_id)
             for child in element:
-                walk(child, current_character, current_actor)
-                append_text(child.tail, current_character, current_actor)
+                if str(child.tag).lower() == "br":
+                    append_text("\n", current_character, current_actor, current_id)
+                else:
+                    walk(child, current_character, current_actor, current_id)
+                append_text(child.tail, current_character, current_actor, current_id)
 
         walk(node, DEFAULT_NARRATOR, "")
         return runs

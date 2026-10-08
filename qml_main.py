@@ -246,6 +246,7 @@ def main() -> int:
     if start_project:
         app.open_project_path(start_project)
     macos_integration.configure_main_window(root_window, bridge.project)
+    app.aboutToQuit.connect(bridge.audiobook.shutdown)
     if sys.platform == "darwin":
         app.focusWindowChanged.connect(macos_integration.configure_window)
         for window in app.allWindows():

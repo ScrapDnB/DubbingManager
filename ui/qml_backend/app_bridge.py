@@ -272,6 +272,7 @@ class AppBridge(QObject):
         self._audiobook.projectNameChanged.connect(
             self._project.nameChanged
         )
+        self._audiobook.autoSaveRequested.connect(self._project.save)
         self._subtitle_import.projectNameChanged.connect(
             self._project.nameChanged
         )
