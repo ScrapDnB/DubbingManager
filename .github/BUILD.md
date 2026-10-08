@@ -96,9 +96,18 @@ Register_DUB_File_Association.ps1
 ## Публикация релиза
 
 ```bash
-git tag v2.0.0-rc1
-git push origin v2.0.0-rc1
+git checkout master
+git tag -a v2.0.0 -m "Dubbing Manager 2.0.0"
+git push origin master v2.0.0
 ```
 
-После этого workflow соберёт Windows и macOS артефакты и прикрепит их к
-предварительному релизу.
+Перед тегом обновите `APP_VERSION` в `config/constants.py`, README и
+`RELEASE_NOTES.md`, затем выполните тесты и проверку QML.
+
+После публикации тега workflow соберёт Windows и macOS артефакты и прикрепит
+их к GitHub Release. Тег без суффикса создаёт стабильный релиз; суффиксы
+`-beta` и `-rc` — предварительный. Проверьте успешное завершение обеих сборок
+и наличие ZIP/DMG, затем оформите описание из `RELEASE_NOTES.md`.
+
+При переходе на 2.0 ветка `legacy/1.7` сохраняет прежний `master` на релизе
+1.7.1, а QML-интерфейс переносится в `master` с сохранением истории коммитов.

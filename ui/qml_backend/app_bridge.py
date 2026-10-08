@@ -52,7 +52,7 @@ class AppBridge(QObject):
         super().__init__(parent)
         self._global_settings_service = GlobalSettingsService()
         self._global_settings = self._global_settings_service.load_settings()
-        # The QML beta is released with a Russian-only interface for now.
+        # The 2.0 release ships with a Russian-only interface for now.
         set_language("ru")
 
         self._project_service = ProjectService(
