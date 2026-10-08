@@ -3,7 +3,7 @@
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Tuple
 
-from services.assignment_service import get_actor_for_character
+from services.assignment_service import get_actor_ids_for_character
 from services.export_service import ExportService
 from utils.helpers import natural_sort_key
 
@@ -13,8 +13,13 @@ PROJECT_CASTING_METRICS = {"rings", "lines", "words"}
 class CharacterStatsService:
     """Calculate episode and project character statistics."""
 
-    def __init__(self, data_ref: Dict[str, Any]) -> None:
+    def __init__(
+        self,
+        data_ref: Dict[str, Any],
+        merge_config: Dict[str, Any] | None = None,
+    ) -> None:
         self.data_ref = data_ref
+        self._active_merge_config = dict(merge_config or {})
 
     def episode_stats(
         self,
@@ -65,6 +70,7 @@ class CharacterStatsService:
     ) -> Dict[str, Any]:
         """Calculate per-character stats across all project episodes."""
         result: Dict[str, Any] = {
+            "lines": 0,
             "rings": 0,
             "words": 0,
             "episodes": []
@@ -81,27 +87,110 @@ class CharacterStatsService:
 
             processed = export_service.process_merge_logic(
                 lines,
-                self.data_ref.get("replica_merge_config", {})
+                self._merge_config()
             )
             ep_rings = 0
             ep_words = 0
+            ep_lines = sum(
+                1 for line in lines if line.get("char") == char_name
+            )
 
             for line in processed:
                 if line.get("char") != char_name:
                     continue
                 ep_rings += 1
-                ep_words += len(line.get("text", "").split())
+                ep_words += self._word_count(line)
 
             if ep_rings:
                 result["episodes"].append({
                     "episode": str(ep),
+                    "lines": ep_lines,
                     "rings": ep_rings,
                     "words": ep_words
                 })
+                result["lines"] += ep_lines
                 result["rings"] += ep_rings
                 result["words"] += ep_words
 
         return result
+
+    def actor_summary_rows(
+        self,
+        get_episode_lines: Callable[[str], List[Dict[str, Any]]],
+        target_episode: str = "",
+    ) -> List[Dict[str, Any]]:
+        """Return actor totals for one episode or the whole project."""
+        actors = self.data_ref.get("actors", {})
+        stats: Dict[str, Dict[str, Any]] = {
+            actor_id: {"rings": 0, "words": 0, "roles": set()}
+            for actor_id in actors
+        }
+        unassigned: Dict[str, Any] = {
+            "rings": 0,
+            "words": 0,
+            "roles": set(),
+        }
+        episodes = (
+            [str(target_episode)]
+            if target_episode
+            else sorted(
+                (str(ep) for ep in self.data_ref.get("episodes", {})),
+                key=natural_sort_key,
+            )
+        )
+        export_service = ExportService(self.data_ref)
+
+        for episode in episodes:
+            lines = get_episode_lines(episode)
+            if not lines:
+                continue
+            for line in export_service.process_merge_logic(
+                lines,
+                self._merge_config(),
+            ):
+                character = str(line.get("char") or "")
+                if not character:
+                    continue
+                actor_ids = get_actor_ids_for_character(
+                    self.data_ref,
+                    character,
+                    episode,
+                )
+                targets = [stats[actor_id] for actor_id in actor_ids if actor_id in stats]
+                if not targets:
+                    targets = [unassigned]
+                for target in targets:
+                    target["rings"] += 1
+                    target["words"] += self._word_count(line)
+                    target["roles"].add(character)
+
+        rows: List[Dict[str, Any]] = []
+        for actor_id, actor in actors.items():
+            actor_stats = stats[actor_id]
+            if target_episode and actor_stats["rings"] == 0:
+                continue
+            rows.append({
+                "actorId": actor_id,
+                "actor": actor.get("name", actor_id),
+                "color": actor.get("color", "transparent"),
+                "rings": actor_stats["rings"],
+                "words": actor_stats["words"],
+                "roles": sorted(actor_stats["roles"], key=str.casefold),
+                "unassigned": False,
+            })
+
+        rows.sort(key=lambda row: str(row["actor"]).casefold())
+        if unassigned["roles"]:
+            rows.append({
+                "actorId": "",
+                "actor": "НЕ РАСПРЕДЕЛЕНЫ",
+                "color": "transparent",
+                "rings": unassigned["rings"],
+                "words": unassigned["words"],
+                "roles": sorted(unassigned["roles"], key=str.casefold),
+                "unassigned": True,
+            })
+        return rows
 
     def project_casting_summary_rows(
         self,
@@ -129,7 +218,7 @@ class CharacterStatsService:
             if metric == "rings":
                 processed = export_service.process_merge_logic(
                     lines,
-                    self.data_ref.get("replica_merge_config", {})
+                    self._merge_config()
                 )
 
             for line in processed:
@@ -137,28 +226,27 @@ class CharacterStatsService:
                 if not char:
                     continue
 
-                actor_id = get_actor_for_character(self.data_ref, char, ep)
-                actor_name = (
-                    actors.get(actor_id, {}).get("name", "")
-                    if actor_id
-                    else ""
-                )
-                key = (char, actor_name)
-                row = rows_by_key.get(key)
-                if row is None:
-                    row = {
-                        "char": char,
-                        "actor": actor_name,
-                        "first_ep": ep,
-                        "order": next_order,
-                        "episodes": defaultdict(int),
-                    }
-                    rows_by_key[key] = row
-                    next_order += 1
-                row["episodes"][ep] += self._project_casting_metric_value(
-                    line,
-                    metric
-                )
+                actor_ids = get_actor_ids_for_character(self.data_ref, char, ep)
+                for actor_id in actor_ids or [""]:
+                    actor_name = str(
+                        actors.get(actor_id, {}).get("name", "")
+                    )
+                    key = (char, actor_name)
+                    row = rows_by_key.get(key)
+                    if row is None:
+                        row = {
+                            "char": char,
+                            "actor": actor_name,
+                            "first_ep": ep,
+                            "order": next_order,
+                            "episodes": defaultdict(int),
+                        }
+                        rows_by_key[key] = row
+                        next_order += 1
+                    row["episodes"][ep] += self._project_casting_metric_value(
+                        line,
+                        metric
+                    )
 
         rows: List[List[Any]] = [header]
         rows_by_first_episode: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -188,6 +276,15 @@ class CharacterStatsService:
 
         return rows
 
+    def _merge_config(self) -> Dict[str, Any]:
+        if self._active_merge_config:
+            return dict(self._active_merge_config)
+        storage = self.data_ref.get("script_storage")
+        if isinstance(storage, dict) and storage.get("model") == "dynamic_source":
+            config = storage.get("merge_config")
+            return config if isinstance(config, dict) else {}
+        return self.data_ref.get("replica_merge_config", {})
+
     def _project_casting_metric_value(
         self,
         line: Dict[str, Any],
@@ -195,8 +292,13 @@ class CharacterStatsService:
     ) -> int:
         """Return one exported cell contribution for the selected metric."""
         if metric == "words":
-            return len(line.get("text", "").split())
+            return self._word_count(line)
         return 1
+
+    @staticmethod
+    def _word_count(line: Dict[str, Any]) -> int:
+        text = line.get("content_text", line.get("text", ""))
+        return len(str(text or "").split())
 
     def create_project_casting_xlsx(
         self,

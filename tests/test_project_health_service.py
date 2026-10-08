@@ -103,9 +103,9 @@ class TestProjectHealthService:
 
         assert "Исходный файл серии не найден." in messages
         assert "Видео файл не найден." in messages
-        assert "Реплика 1: пустой текст." in messages
-        assert "Реплика 1: не указан персонаж." in messages
-        assert "Реплика 1: конец фразы не позже начала." in messages
+        assert "Строка 1: пустой текст." in messages
+        assert "Строка 1: не указан персонаж." in messages
+        assert "Строка 1: конец фразы не позже начала." in messages
         assert "Персонаж без назначенного актёра: Villain" in messages
 
     def test_reports_invalid_working_json(self, tmp_path):
@@ -123,6 +123,37 @@ class TestProjectHealthService:
         assert issues[0].severity == ProjectHealthService.SEVERITY_ERROR
         assert issues[0].category == "Рабочий текст"
         assert "Не удалось прочитать рабочий JSON" in issues[0].message
+
+    def test_can_ignore_empty_lines_and_their_diagnostics(self):
+        data = {
+            "episode_working_texts": {
+                "1": {
+                    "lines": [
+                        {
+                            "start": 2.0,
+                            "end": 2.0,
+                            "character": "",
+                            "text": "",
+                        },
+                        {
+                            "start": 3.0,
+                            "end": 4.0,
+                            "character": "Hero",
+                            "text": "Line",
+                        },
+                    ]
+                }
+            },
+            "actors": [{"id": "actor-1", "name": "Actor"}],
+            "global_map": {"Hero": "actor-1"},
+        }
+
+        issues = ProjectHealthService().check_project(
+            data,
+            ignore_empty_lines=True,
+        )
+
+        assert issues == []
 
     def test_summary_counts_severities(self):
         service = ProjectHealthService()

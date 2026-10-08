@@ -3,22 +3,31 @@
 import os
 from typing import Optional
 
-from PySide6.QtCore import QMarginsF
-from PySide6.QtGui import QPageLayout, QPageSize, QPdfWriter, QTextDocument
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QCoreApplication, QMarginsF
+from PySide6.QtGui import (
+    QGuiApplication, QPageLayout, QPageSize, QPdfWriter, QTextDocument,
+    QTextFormat,
+)
 
 
 class PdfExportService:
     """Render montage-sheet HTML into a PDF file."""
 
-    _qt_app: Optional[QApplication] = None
+    PAGE_BREAK_MARKER = "[[DM_PAGE_BREAK]]"
+    _qt_app: Optional[QGuiApplication] = None
 
     def _ensure_qapplication(self) -> None:
-        """Create a QApplication for headless service/test usage."""
-        if QApplication.instance() is not None:
+        """Create a GUI application for standalone/headless service usage."""
+        instance = QCoreApplication.instance()
+        if isinstance(instance, QGuiApplication):
             return
+        if instance is not None:
+            raise RuntimeError(
+                "PDF export requires QGuiApplication, but QCoreApplication "
+                "is already running"
+            )
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-        PdfExportService._qt_app = QApplication([])
+        PdfExportService._qt_app = QGuiApplication([])
 
     def render_html_to_pdf(self, html: str, save_path: str) -> None:
         """Render HTML into an A4 portrait PDF."""
@@ -34,4 +43,18 @@ class PdfExportService:
 
         document = QTextDocument()
         document.setHtml(html)
+        self._apply_page_break_markers(document)
         document.print_(writer)
+
+    def _apply_page_break_markers(self, document: QTextDocument) -> None:
+        """Convert inline markers into reliable Qt block page breaks."""
+        while True:
+            cursor = document.find(self.PAGE_BREAK_MARKER)
+            if cursor.isNull():
+                return
+            block_format = cursor.blockFormat()
+            block_format.setPageBreakPolicy(
+                QTextFormat.PageBreakFlag.PageBreak_AlwaysBefore
+            )
+            cursor.setBlockFormat(block_format)
+            cursor.removeSelectedText()

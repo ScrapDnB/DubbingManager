@@ -1,15 +1,59 @@
 """Application constants."""
 
+from colorsys import hls_to_rgb, rgb_to_hls
+
 # =============================================================================
 # Palette and Colors
 # =============================================================================
 
-MY_PALETTE = [
+_ACTOR_PALETTE_BASE = [
     "#D9775F", "#E46C0A", "#9B5333", "#C0504D", "#C4BD97",
     "#D4A017", "#938953", "#8A7F80", "#76923C", "#4F6228",
     "#31859B", "#669999", "#4F81BD", "#5B9BD5", "#2C4D75",
     "#708090", "#B65C72", "#8064A2", "#5F497A", "#7B3F61"
 ]
+
+# Evenly distributed colour families used for the generated rows. The original
+# custom colours above remain first; these anchors keep the rest of the palette
+# from clustering around muted browns, blues, and purples.
+_ACTOR_PALETTE_FAMILIES = [
+    "#D64545", "#E05A2A", "#E67E22", "#D89B00", "#C8A600",
+    "#7EA72D", "#2F9E44", "#178F66", "#168C8C", "#1597B8",
+    "#2E86C1", "#3973C6", "#4C5BC0", "#744DB7", "#9249A8",
+    "#B54891", "#D64F7A", "#C74E61", "#9A623E", "#66717D",
+]
+
+
+def _build_actor_palette() -> list[str]:
+    """Build a broad but cohesive set of stable actor colours."""
+    # Preserve the original custom colours, then add seven rows spanning the
+    # full colour wheel. The result remains 160 stable choices.
+    palette = list(_ACTOR_PALETTE_BASE)
+    for lightness in (0.33, 0.40, 0.47, 0.54, 0.61, 0.68, 0.75):
+        for base in _ACTOR_PALETTE_FAMILIES:
+            red = int(base[1:3], 16) / 255
+            green = int(base[3:5], 16) / 255
+            blue = int(base[5:7], 16) / 255
+            hue, _, saturation = rgb_to_hls(red, green, blue)
+            color_hue = hue
+            while True:
+                variant = hls_to_rgb(
+                    color_hue,
+                    lightness,
+                    max(0.18, min(0.78, saturation * 0.9)),
+                )
+                color = "#{:02X}{:02X}{:02X}".format(
+                    *(round(channel * 255) for channel in variant)
+                )
+                if color not in palette:
+                    palette.append(color)
+                    break
+                # Very similar legacy bases can round to the same RGB value.
+                color_hue = (color_hue + 0.006) % 1
+    return palette
+
+
+MY_PALETTE = _build_actor_palette()
 
 # =============================================================================
 # Main Window UI Constants
@@ -17,8 +61,10 @@ MY_PALETTE = [
 
 PROJECT_FILE_EXTENSION = ".dub"
 PROJECT_LEGACY_FILE_EXTENSION = ".json"
+PROJECT_BACKUP_FILE_EXTENSION = ".dub_backup"
 PROJECT_FILE_FILTER = (
     "Dubbing Manager Project (*.dub);;"
+    "Dubbing Manager Backup (*.dub_backup);;"
     "Legacy JSON Project (*.json);;"
     "All Files (*)"
 )
@@ -96,8 +142,29 @@ PROMPTER_FONT_ACTOR_MAX = 150
 PROMPTER_FONT_TEXT_MAX = 300
 
 PROMPTER_FOCUS_SLIDER_MAX = 100
+PROMPTER_SCROLL_SMOOTHNESS_MIN = 0
 PROMPTER_SCROLL_SMOOTHNESS_MAX = 100
 PROMPTER_SCROLL_SMOOTHNESS_SCALE = 100
+
+PROMPTER_FOCUS_RATIO_MIN = 0.1
+PROMPTER_FOCUS_RATIO_MAX = 0.9
+PROMPTER_OSC_PORT_MIN = 1024
+PROMPTER_OSC_PORT_MAX = 65535
+PROMPTER_REAPER_OFFSET_MIN_SECONDS = -60.0
+PROMPTER_REAPER_OFFSET_MAX_SECONDS = 60.0
+PROMPTER_GAP_PREFETCH_MIN_SECONDS = 0.0
+PROMPTER_GAP_PREFETCH_MAX_SECONDS = 60.0
+PROMPTER_HIGHLIGHT_OPACITY_MIN = 0.0
+PROMPTER_HIGHLIGHT_OPACITY_MAX = 0.44
+PROMPTER_HIGHLIGHT_FADE_MIN_MS = 0
+PROMPTER_HIGHLIGHT_FADE_MAX_MS = 10_000
+PROMPTER_SCROLL_DURATION_MIN_MS = 150
+PROMPTER_SCROLL_DURATION_MAX_MS = 5_000
+PROMPTER_OSC_ACTIVITY_POLL_INTERVAL_MS = 500
+PROMPTER_POSITION_TOLERANCE_SECONDS = 0.02
+PROMPTER_PAUSE_DETECTION_SECONDS = 0.75
+PROMPTER_DIAGNOSTIC_SCREENSHOT_THROTTLE_MS = 3_000
+PROMPTER_DIAGNOSTIC_SCREENSHOT_MAX_DIMENSION = 1_280
 
 PROMPTER_TIMECODE_Y_CURSOR = 1000.0
 PROMPTER_SCENE_EXTRA_HEIGHT = 1000
@@ -153,35 +220,179 @@ FPS = 25
 # Default Configuration
 # =============================================================================
 
+PROMPTER_LAYOUT_TYPES = ("Сценарий 1", "Сценарий 2", "Сценарий 3")
+PROMPTER_FONT_KEYS = ("f_tc", "f_char", "f_actor", "f_text")
+PROMPTER_FONT_BOLD_KEYS = (
+    "bold_tc", "bold_char", "bold_actor", "bold_text",
+)
+DEFAULT_PROMPTER_FONT_SIZES = {
+    "Сценарий 1": {
+        "f_tc": 25, "f_char": 25, "f_actor": 18, "f_text": 30,
+    },
+    "Сценарий 2": {
+        "f_tc": 24, "f_char": 24, "f_actor": 18, "f_text": 36,
+    },
+    "Сценарий 3": {
+        "f_tc": 30, "f_char": 24, "f_actor": 18, "f_text": 29,
+    },
+}
+DEFAULT_PROMPTER_FONT_BOLD = {
+    "Сценарий 1": {
+        "bold_tc": False, "bold_char": True,
+        "bold_actor": False, "bold_text": False,
+    },
+    "Сценарий 2": {
+        "bold_tc": True, "bold_char": True,
+        "bold_actor": False, "bold_text": False,
+    },
+    "Сценарий 3": {
+        "bold_tc": True, "bold_char": True,
+        "bold_actor": False, "bold_text": False,
+    },
+}
+
 DEFAULT_PROMPTER_CONFIG = {
-    "f_tc": 20,
+    "f_tc": 30,
     "f_char": 24,
     "f_actor": 18,
-    "f_text": 36,
-    "focus_ratio": 0.5,
+    "f_text": 29,
+    "bold_tc": True,
+    "bold_char": True,
+    "bold_actor": False,
+    "bold_text": False,
+    "layout_type": "Сценарий 3",
+    "layout_font_sizes": DEFAULT_PROMPTER_FONT_SIZES,
+    "layout_font_bold": DEFAULT_PROMPTER_FONT_BOLD,
+    "show_timecode": True,
+    "show_end_timecode": True,
+    "show_character": True,
+    "show_actor": True,
+    "show_replica": True,
+    "show_block_borders": True,
+    "hide_leading_timecode_zeros": True,
+    "focus_ratio": 0.1,
     "is_mirrored": False,
-    "show_header": False,
+    "show_header": True,
     "port_in": 8000,
     "port_out": 9000,
     "osc_enabled": False,
     "sync_in": True,
     "sync_out": False,
+    "sync_play_only": False,
     "reaper_offset_enabled": False,
     "reaper_offset_seconds": -2.0,
     "key_prev": "Left",
     "key_next": "Right",
     "scroll_smoothness_slider": 18,
-    "use_cocoa_float_window": True,
+    "scroll_delay_seconds": 0.0,
+    "scroll_deadline_enabled": True,
+    "page_scroll_mode": False,
+    "page_timecode_highlight_enabled": False,
+    "page_gap_prefetch_seconds": 1.0,
+    "page_gap_prefetch_delay_seconds": 1.0,
+    "page_target_highlight_enabled": True,
+    "page_target_highlight_opacity": 0.2728,
+    "page_target_highlight_fade_in_ms": 500,
+    "page_target_highlight_fade_ms": 1000,
+    "page_debug_overlay": False,
+    "show_diagnostic_controls": True,
     "colors": {
         "bg": "#000000",
         "active_text": "#FFFFFF",
-        "inactive_text": "#444444",
-        "tc": "#888888",
+        "inactive_text": "#3b3b3b",
+        "tc": "#ffffff",
         "actor": "#AAAAAA",
         "header_bg": "#111111",
-        "header_text": "#00FF00"
+        "header_text": "#8bf500",
+        "block_border": "#4D4D4D",
+        "page_target_highlight": "#FFD54F"
     }
 }
+
+PROMPTER_INT_LIMITS = {
+    "f_tc": (PROMPTER_FONT_MIN_SIZE, PROMPTER_FONT_TC_MAX),
+    "f_char": (PROMPTER_FONT_MIN_SIZE, PROMPTER_FONT_CHAR_MAX),
+    "f_actor": (PROMPTER_FONT_MIN_SIZE, PROMPTER_FONT_ACTOR_MAX),
+    "f_text": (PROMPTER_FONT_MIN_SIZE, PROMPTER_FONT_TEXT_MAX),
+    "port_in": (PROMPTER_OSC_PORT_MIN, PROMPTER_OSC_PORT_MAX),
+    "port_out": (PROMPTER_OSC_PORT_MIN, PROMPTER_OSC_PORT_MAX),
+    "scroll_smoothness_slider": (
+        PROMPTER_SCROLL_SMOOTHNESS_MIN,
+        PROMPTER_SCROLL_SMOOTHNESS_MAX,
+    ),
+    "page_target_highlight_fade_in_ms": (
+        PROMPTER_HIGHLIGHT_FADE_MIN_MS,
+        PROMPTER_HIGHLIGHT_FADE_MAX_MS,
+    ),
+    "page_target_highlight_fade_ms": (
+        PROMPTER_HIGHLIGHT_FADE_MIN_MS,
+        PROMPTER_HIGHLIGHT_FADE_MAX_MS,
+    ),
+}
+
+PROMPTER_FLOAT_LIMITS = {
+    "focus_ratio": (PROMPTER_FOCUS_RATIO_MIN, PROMPTER_FOCUS_RATIO_MAX),
+    "reaper_offset_seconds": (
+        PROMPTER_REAPER_OFFSET_MIN_SECONDS,
+        PROMPTER_REAPER_OFFSET_MAX_SECONDS,
+    ),
+    "scroll_delay_seconds": (0.0, 60.0),
+    "page_gap_prefetch_seconds": (
+        PROMPTER_GAP_PREFETCH_MIN_SECONDS,
+        PROMPTER_GAP_PREFETCH_MAX_SECONDS,
+    ),
+    "page_gap_prefetch_delay_seconds": (
+        PROMPTER_GAP_PREFETCH_MIN_SECONDS,
+        PROMPTER_GAP_PREFETCH_MAX_SECONDS,
+    ),
+    "page_target_highlight_opacity": (
+        PROMPTER_HIGHLIGHT_OPACITY_MIN,
+        PROMPTER_HIGHLIGHT_OPACITY_MAX,
+    ),
+}
+
+PROMPTER_UI_BEHAVIOR = {
+    "highlightOpacityMin": PROMPTER_HIGHLIGHT_OPACITY_MIN,
+    "highlightOpacityMax": PROMPTER_HIGHLIGHT_OPACITY_MAX,
+    "highlightFadeMinMs": PROMPTER_HIGHLIGHT_FADE_MIN_MS,
+    "highlightFadeMaxMs": PROMPTER_HIGHLIGHT_FADE_MAX_MS,
+    "scrollSmoothnessMin": PROMPTER_SCROLL_SMOOTHNESS_MIN,
+    "scrollSmoothnessMax": PROMPTER_SCROLL_SMOOTHNESS_MAX,
+    "scrollDurationMinMs": PROMPTER_SCROLL_DURATION_MIN_MS,
+    "scrollDurationMaxMs": PROMPTER_SCROLL_DURATION_MAX_MS,
+    "positionToleranceSeconds": PROMPTER_POSITION_TOLERANCE_SECONDS,
+    "pauseDetectionSeconds": PROMPTER_PAUSE_DETECTION_SECONDS,
+    "diagnosticScreenshotThrottleMs": (
+        PROMPTER_DIAGNOSTIC_SCREENSHOT_THROTTLE_MS
+    ),
+    "diagnosticScreenshotMaxDimension": (
+        PROMPTER_DIAGNOSTIC_SCREENSHOT_MAX_DIMENSION
+    ),
+    "defaultHighlightOpacity": DEFAULT_PROMPTER_CONFIG[
+        "page_target_highlight_opacity"
+    ],
+    "defaultHighlightFadeInMs": DEFAULT_PROMPTER_CONFIG[
+        "page_target_highlight_fade_in_ms"
+    ],
+    "defaultHighlightFadeMs": DEFAULT_PROMPTER_CONFIG[
+        "page_target_highlight_fade_ms"
+    ],
+}
+
+EXPORT_LAYOUT_TYPES = (
+    'Таблица', 'Сценарий 1', 'Сценарий 2', 'Сценарий 3',
+)
+
+EXPORT_LAYOUT_PROFILE_KEYS = (
+    'font_family',
+    'col_tc', 'col_char', 'col_actor', 'col_text',
+    'table_width_time', 'table_width_char', 'table_width_actor',
+    'time_display', 'round_time', 'hide_leading_timecode_zeros',
+    'use_color', 'soften_colors', 'color_softening_level',
+    'highlight_character_only',
+    'f_time', 'f_char', 'f_actor', 'f_text',
+    'bold_time', 'bold_char', 'bold_actor', 'bold_text',
+)
 
 DEFAULT_EXPORT_CONFIG = {
     'format_html': True,
@@ -189,58 +400,165 @@ DEFAULT_EXPORT_CONFIG = {
     'format_docx': False,
     'format_pdf': False,
     'layout_type': 'Таблица',
+    'font_family': 'Segoe UI',
     'col_tc': True,
     'col_char': True,
-    'col_actor': True,
+    'col_actor': False,
     'col_text': True,
-    'f_time': 21,
-    'f_char': 20,
+    'f_time': 18,
+    'f_char': 15,
     'f_actor': 14,
-    'f_text': 30,
-    'table_width_time': 7.0,
-    'table_width_char': 10.0,
+    'f_text': 20,
+    'bold_time': True,
+    'bold_char': True,
+    'bold_actor': False,
+    'bold_text': False,
+    'table_width_time': 6.0,
+    'table_width_char': 14.5,
     'table_width_actor': 8.5,
     'use_color': True,
     'soften_colors': True,
+    'color_softening_level': -1,
+    'highlight_character_only': False,
     'open_auto': True,
-    'round_time': False,
+    'round_time': True,
+    'hide_leading_timecode_zeros': True,
     'time_display': 'range',
     'allow_edit': True,
-    'highlight_negative_ids_export': [],
+    'layout_profiles': {},
 }
+
+DEFAULT_EXPORT_CONFIG['layout_profiles'] = {
+    layout_type: {
+        key: DEFAULT_EXPORT_CONFIG[key]
+        for key in EXPORT_LAYOUT_PROFILE_KEYS
+    }
+    for layout_type in EXPORT_LAYOUT_TYPES
+}
+
+DEFAULT_EXPORT_CONFIG['layout_profiles']['Сценарий 1'].update({
+    'col_actor': True,
+    'color_softening_level': 0,
+    'f_time': 20,
+    'f_char': 20,
+    'bold_time': False,
+})
+DEFAULT_EXPORT_CONFIG['layout_profiles']['Сценарий 2'].update({
+    'f_char': 19,
+})
+DEFAULT_EXPORT_CONFIG['layout_profiles']['Сценарий 3'].update({
+    'soften_colors': False,
+    'highlight_character_only': True,
+    'f_time': 21,
+    'f_char': 17,
+    'bold_time': False,
+})
 
 DEFAULT_REPLICA_MERGE_CONFIG = {
     'merge': True,
+    'merge_parallel_replicas': False,
+    'respect_existing_separators': False,
     'merge_gap': 120,  # Maximum frame gap for merging adjacent replicas.
     'p_short': 0.5,
     'p_long': 2.0,
     'fps': 25,  # Frame rate used for time conversion.
 }
 
+DEFAULT_INLINE_TIMECODE_CONFIG = {
+    'inline_timecodes_enabled': False,
+    'inline_timecode_min_duration': 30.0,
+    'inline_timecode_every': 3,
+    'inline_timecode_brackets': 'square',
+}
+
+DEFAULT_GLOBAL_MERGE_CONFIG = {
+    'merge': True,
+    'merge_parallel_replicas': False,
+    'respect_existing_separators': False,
+    'merge_gap_seconds': 4.8,
+    'p_short': 0.5,
+    'p_long': 2.0,
+    **DEFAULT_INLINE_TIMECODE_CONFIG,
+}
+
+DEFAULT_PROJECT_FPS = 25.0
+
+DEFAULT_ASS_IMPORT_CONFIG = {
+    'split_character_names': True,
+    'character_separator': ';',
+    'strip_override_tags': True,
+}
+
+DEFAULT_SRT_IMPORT_CONFIG = {
+    'detect_character_prefix': True,
+    'character_separator': ':',
+    'keep_multiline': True,
+    'default_character': '',
+}
+
 # DOCX-specific handling
 DEFAULT_DOCX_IMPORT_CONFIG = {
     'mapping': {},
-    'time_separators': ['-'],
+    'time_separators': ['-', '–', '—', '|'],
+    'header_mode': 'auto',
+    'header_search_rows': 5,
+    'minimum_header_matches': 2,
+    'rows_to_skip': 0,
+    'default_duration': 1.0,
+    'field_priority': [
+        'character', 'time_start', 'time_end', 'time_split', 'text'
+    ],
+    'aliases': {
+        'character': [
+            'персонаж', 'имя', 'роль', 'actor', 'character', 'char',
+            'speaker', 'voice'
+        ],
+        'time_start': ['начало', 'старт', 'start', 'time start', 'in', 'from'],
+        'time_end': ['конец', 'end', 'time end', 'out', 'to'],
+        'time_split': ['тайминг', 'таймкод', 'время', 'timing', 'timecode', 'time'],
+        'text': [
+            'текст', 'реплика', 'фраза', 'text', 'replica', 'dialog',
+            'speech', 'line'
+        ],
+    },
+    'fallback_mapping': {
+        'character': 0,
+        'time_start': None,
+        'time_end': None,
+        'time_split': 1,
+        'text': 2,
+    },
 }
 
 DEFAULT_AUDIOBOOK_CONFIG = {
     "chapter_keywords": ["Глава", "Chapter"],
 }
 
+DEFAULT_BACKUP_CONFIG = {
+    "enabled": True,
+    "path_mode": "relative",
+    "directory": ".backups",
+    "interval_minutes": 5,
+    "max_backups": 10,
+}
+
 DEFAULT_GLOBAL_SETTINGS = {
     'export_config': None,  # Initialized from DEFAULT_EXPORT_CONFIG.
     'prompter_config': None,  # Initialized from DEFAULT_PROMPTER_CONFIG.
-    'replica_merge_config': None,  # Initialized from DEFAULT_REPLICA_MERGE_CONFIG.
+    'replica_merge_config': None,  # Initialized from DEFAULT_GLOBAL_MERGE_CONFIG.
+    'ass_import_config': DEFAULT_ASS_IMPORT_CONFIG,
+    'srt_import_config': DEFAULT_SRT_IMPORT_CONFIG,
     'docx_import_config': None,  # DOCX-specific handling
     'audiobook_config': DEFAULT_AUDIOBOOK_CONFIG,
+    'backup_config': DEFAULT_BACKUP_CONFIG,
     'language': 'ru',
 }
 
 # Application version shown in the UI and build metadata.
-APP_VERSION = "1.7.1"
+APP_VERSION = "2.0.0"
 
 # Project file format version used for compatibility migrations.
-PROJECT_VERSION = "1.4"
+PROJECT_VERSION = "2.0"
 
 # Folder name for Dubbing Manager working text JSON files.
 SCRIPT_TEXT_DIR_NAME = "texts_dm"

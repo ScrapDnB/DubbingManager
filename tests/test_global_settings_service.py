@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+from uuid import UUID
 
 from services.global_settings_service import (
     GlobalSettingsService,
@@ -13,6 +14,7 @@ from services.global_settings_service import (
 from config.constants import (
     DEFAULT_EXPORT_CONFIG,
     DEFAULT_PROMPTER_CONFIG,
+    PROMPTER_LAYOUT_TYPES,
     DEFAULT_REPLICA_MERGE_CONFIG,
 )
 
@@ -40,9 +42,20 @@ class TestGlobalSettingsService:
         assert 'prompter_config' not in settings
         assert 'replica_merge_config' not in settings
         assert settings['default_export_config'] == DEFAULT_EXPORT_CONFIG
+        assert settings['default_export_config']['highlight_character_only'] is False
+        assert settings['quick_converter_config']['layout_type'] == 'Таблица'
+        assert settings['quick_converter_config']['use_color'] is False
+        assert settings['quick_converter_config']['line_by_line'] is False
         assert settings['default_prompter_config'] == DEFAULT_PROMPTER_CONFIG
+        assert settings['default_prompter_config']['show_end_timecode'] is True
         assert settings['language'] == 'ru'
-
+        assert settings['backup_config'] == {
+            'enabled': True,
+            'path_mode': 'relative',
+            'directory': '.backups',
+            'interval_minutes': 5,
+            'max_backups': 10,
+        }
     def test_load_settings_with_data(self, service, temp_settings_file):
         """Тест загрузки с данными"""
         test_data = {
@@ -50,6 +63,12 @@ class TestGlobalSettingsService:
             'default_export_config': {
                 'layout_type': 'Сценарий 1',
                 'col_tc': False,
+            },
+            'quick_converter_config': {
+                'layout_type': 'Сценарий 2',
+                'f_text': 38,
+                'use_color': True,
+                'line_by_line': True,
             },
             'default_prompter_config': {
                 'f_text': 48,
@@ -75,10 +94,14 @@ class TestGlobalSettingsService:
         assert settings['default_export_config']['layout_type'] == 'Сценарий 1'
         assert settings['default_export_config']['col_tc'] is False
         assert settings['default_export_config']['col_char'] is True
+        assert settings['quick_converter_config']['layout_type'] == 'Сценарий 2'
+        assert settings['quick_converter_config']['f_text'] == 38
+        assert settings['quick_converter_config']['use_color'] is False
+        assert settings['quick_converter_config']['line_by_line'] is True
         assert settings['default_prompter_config']['f_text'] == 48
         assert settings['default_prompter_config']['osc_enabled'] is True
         assert settings['default_prompter_config']['sync_in'] is False
-        assert settings['default_prompter_config']['f_tc'] == 20
+        assert settings['default_prompter_config']['f_tc'] == 25
         assert settings['prompter_color_presets'] == [None, None, None, None]
         assert settings['recent_projects'] == [
             str(Path('/tmp/a.json').expanduser()),
@@ -121,6 +144,11 @@ class TestGlobalSettingsService:
                 'layout_type': 'Сценарий 1',
                 'col_tc': False,
             },
+            'quick_converter_config': {
+                'layout_type': 'Сценарий 2',
+                'f_text': 38,
+                'use_color': True,
+            },
             'default_prompter_config': {
                 'f_text': 42,
                 'osc_enabled': True,
@@ -139,6 +167,13 @@ class TestGlobalSettingsService:
                 'time_separators': ['-', '|']
             },
             'project_summary_export_metric': 'lines',
+            'backup_config': {
+                'enabled': False,
+                'path_mode': 'absolute',
+                'directory': '/tmp/dubbing-backups',
+                'interval_minutes': 15,
+                'max_backups': 25,
+            },
         }
         
         result = service.save_settings(settings)
@@ -152,20 +187,28 @@ class TestGlobalSettingsService:
         assert 'export_config' not in saved_data
         assert 'prompter_config' not in saved_data
         assert 'replica_merge_config' not in saved_data
-        assert 'docx_import_config' not in saved_data
+        assert saved_data['docx_import_config']['mapping']['text'] == 2
+        assert saved_data['docx_import_config']['time_separators'] == ['-', '|']
         assert saved_data['default_export_config']['layout_type'] == 'Сценарий 1'
         assert saved_data['default_export_config']['col_tc'] is False
         assert saved_data['default_export_config']['col_char'] is True
+        assert saved_data['quick_converter_config']['layout_type'] == 'Сценарий 2'
+        assert saved_data['quick_converter_config']['f_text'] == 38
+        assert saved_data['quick_converter_config']['use_color'] is False
         assert saved_data['default_prompter_config']['f_text'] == 42
         assert saved_data['default_prompter_config']['osc_enabled'] is True
         assert saved_data['default_prompter_config']['sync_out'] is True
-        assert saved_data['default_prompter_config']['f_tc'] == 20
+        assert saved_data['default_prompter_config']['f_tc'] == 25
         assert saved_data['prompter_color_presets'][0]['bg'] == '#111111'
         assert saved_data['prompter_color_presets'][0]['active_text'] == '#eeeeee'
         assert saved_data['prompter_color_presets'][1] is None
         assert saved_data['recent_projects'] == []
         assert saved_data['project_summary_export_metric'] == 'lines'
         assert saved_data['language'] == 'ru'
+        assert saved_data['backup_config']['enabled'] is False
+        assert saved_data['backup_config']['directory'] == '/tmp/dubbing-backups'
+        assert saved_data['backup_config']['interval_minutes'] == 15
+        assert saved_data['backup_config']['max_backups'] == 25
 
     def test_project_summary_export_metric_normalization(self, service):
         """Тест глобальной метрики экспорта сводки проекта."""
@@ -315,6 +358,32 @@ class TestGlobalSettingsService:
         saved = json.loads(temp_settings_file.read_text(encoding="utf-8"))
         assert "color" not in saved["global_actor_base"]["actor1"]
 
+    def test_global_actor_base_migrates_numeric_timestamp_ids(
+        self, service, temp_settings_file
+    ):
+        temp_settings_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_settings_file.write_text(json.dumps({
+            "global_actor_base": {
+                "1788437715.85358": {
+                    "name": "Actor One",
+                    "gender": "М",
+                },
+            },
+        }), encoding="utf-8")
+
+        settings = service.load_settings()
+        actors = settings["global_actor_base"]
+        actor_id = next(iter(actors))
+
+        assert str(UUID(actor_id)) == actor_id
+        assert actors[actor_id] == {
+            "name": "Actor One",
+            "gender": "М",
+        }
+        assert service.find_global_actor_by_name("Actor One") == actor_id
+        saved = json.loads(temp_settings_file.read_text(encoding="utf-8"))
+        assert list(saved["global_actor_base"]) == [actor_id]
+
     def test_remove_global_actor(self, service):
         """Тест удаления актёра из глобальной базы."""
         service.settings = service._get_defaults()
@@ -337,7 +406,10 @@ class TestGlobalSettingsService:
 
     def test_save_settings_io_error(self, service, temp_settings_file):
         """Тест сохранения с ошибкой IO"""
-        with patch('services.global_settings_service.open', side_effect=IOError("Disk full")):
+        with patch(
+            'services.global_settings_service.tempfile.mkstemp',
+            side_effect=OSError("Disk full"),
+        ):
             result = service.save_settings({})
         
         assert result == False
@@ -391,15 +463,19 @@ class TestGlobalSettingsService:
         
         config = service.get_prompter_config()
         
-        assert config['f_tc'] == 20  # Значение по умолчанию
+        assert config['f_tc'] == 30  # Значение по умолчанию
 
     def test_get_replica_merge_config(self, service):
         """Тест получения настроек объединения"""
-        service.settings = {'replica_merge_config': {'merge_gap': 100}}
+        service.settings = {
+            'replica_merge_config': {'merge_gap': 100, 'fps': 25}
+        }
         
         config = service.get_replica_merge_config()
         
-        assert config['merge_gap'] == 100
+        assert config['merge_gap_seconds'] == 4.0
+        assert 'merge_gap' not in config
+        assert 'fps' not in config
 
     def test_get_replica_merge_config_default(self, service):
         """Тест получения настроек объединения по умолчанию"""
@@ -407,7 +483,11 @@ class TestGlobalSettingsService:
         
         config = service.get_replica_merge_config()
         
-        assert config['merge_gap'] == 120  # Значение по умолчанию из constants.py
+        assert config['merge_gap_seconds'] == 4.8
+        assert config['merge_parallel_replicas'] is False
+        assert config['respect_existing_separators'] is False
+        assert config['inline_timecode_brackets'] == 'square'
+        assert 'fps' not in config
 
     def test_update_export_config(self, service):
         """Тест обновления настроек экспорта"""
@@ -428,6 +508,117 @@ class TestGlobalSettingsService:
         assert service.settings['default_prompter_config']['f_tc'] == 100
         assert 'prompter_config' not in service.settings
 
+    def test_legacy_prompter_font_sizes_migrate_to_scenario_one(self, service):
+        """Старые плоские размеры становятся профилем исходной разметки."""
+        config = service._normalize_prompter_config({
+            'f_tc': 31,
+            'f_char': 42,
+            'f_actor': 23,
+            'f_text': 57,
+        })
+
+        assert config['layout_type'] == 'Сценарий 1'
+        assert config['layout_font_sizes']['Сценарий 1'] == {
+            'f_tc': 31,
+            'f_char': 42,
+            'f_actor': 23,
+            'f_text': 57,
+        }
+        assert config['layout_font_sizes']['Сценарий 2']['f_text'] == 36
+        assert config['layout_font_sizes']['Сценарий 3']['f_text'] == 29
+
+    def test_prompter_highlight_opacity_is_normalized(self, service):
+        assert service._normalize_prompter_config({
+            'page_target_highlight_opacity': 0.31,
+        })['page_target_highlight_opacity'] == 0.31
+        assert service._normalize_prompter_config({
+            'page_target_highlight_opacity': 1,
+        })['page_target_highlight_opacity'] == 0.44
+        assert service._normalize_prompter_config({
+            'page_target_highlight_opacity': 'invalid',
+        })['page_target_highlight_opacity'] == 0.2728
+
+    def test_prompter_scroll_delay_is_normalized(self, service):
+        assert service._normalize_prompter_config({
+            'scroll_delay_seconds': 2.5,
+        })['scroll_delay_seconds'] == 2.5
+        assert service._normalize_prompter_config({
+            'scroll_delay_seconds': 100,
+        })['scroll_delay_seconds'] == 60.0
+        assert service._normalize_prompter_config({
+            'scroll_delay_seconds': 'invalid',
+        })['scroll_delay_seconds'] == 0.0
+
+    def test_prompter_highlight_fade_time_is_normalized(self, service):
+        assert service._normalize_prompter_config({
+            'page_target_highlight_fade_ms': 1750,
+        })['page_target_highlight_fade_ms'] == 1750
+        assert service._normalize_prompter_config({
+            'page_target_highlight_fade_ms': 20000,
+        })['page_target_highlight_fade_ms'] == 10000
+        assert service._normalize_prompter_config({
+            'page_target_highlight_fade_ms': 'invalid',
+        })['page_target_highlight_fade_ms'] == 1000
+
+    def test_prompter_highlight_fade_in_time_is_normalized(self, service):
+        assert service._normalize_prompter_config({
+            'page_target_highlight_fade_in_ms': 750,
+        })['page_target_highlight_fade_in_ms'] == 750
+        assert service._normalize_prompter_config({
+            'page_target_highlight_fade_in_ms': 20000,
+        })['page_target_highlight_fade_in_ms'] == 10000
+        assert service._normalize_prompter_config({
+            'page_target_highlight_fade_in_ms': 'invalid',
+        })['page_target_highlight_fade_in_ms'] == 500
+
+    def test_prompter_layout_font_profiles_are_independent(self, service):
+        """Каждая разметка хранит и отдаёт собственные размеры шрифтов."""
+        service.settings = {}
+        profiles = {
+            name: dict(DEFAULT_PROMPTER_CONFIG['layout_font_sizes'][name])
+            for name in PROMPTER_LAYOUT_TYPES
+        }
+        profiles['Сценарий 1']['f_text'] = 41
+        profiles['Сценарий 2']['f_text'] = 52
+        profiles['Сценарий 3']['f_text'] = 63
+
+        service.update_prompter_config({
+            'layout_type': 'Сценарий 2',
+            'layout_font_sizes': profiles,
+            'f_text': 52,
+        })
+        config = service.get_default_prompter_config()
+
+        assert config['layout_type'] == 'Сценарий 2'
+        assert config['f_text'] == 52
+        assert [
+            config['layout_font_sizes'][name]['f_text']
+            for name in PROMPTER_LAYOUT_TYPES
+        ] == [41, 52, 63]
+
+    def test_prompter_layout_bold_profiles_are_independent(self, service):
+        """Начертание текста хранится отдельно для каждой разметки."""
+        service.settings = {}
+
+        service.update_prompter_config({
+            'layout_type': 'Сценарий 2',
+            'bold_tc': True,
+            'bold_char': False,
+            'bold_actor': True,
+            'bold_text': True,
+        })
+        config = service.get_default_prompter_config()
+
+        assert config['layout_font_bold']['Сценарий 1']['bold_char'] is True
+        assert config['layout_font_bold']['Сценарий 1']['bold_text'] is False
+        assert config['layout_font_bold']['Сценарий 2'] == {
+            'bold_tc': True,
+            'bold_char': False,
+            'bold_actor': True,
+            'bold_text': True,
+        }
+        assert config['bold_text'] is True
+
     def test_prompter_color_presets(self, service):
         """Тест глобальных пресетов цветовых схем суфлёра."""
         service.settings = {}
@@ -435,12 +626,14 @@ class TestGlobalSettingsService:
         service.set_prompter_color_preset(1, {
             'bg': '#222222',
             'active_text': '#eeeeee',
+            'page_target_highlight': '#336699',
         })
         presets = service.get_prompter_color_presets()
 
         assert presets[0] is None
         assert presets[1]['bg'] == '#222222'
         assert presets[1]['active_text'] == '#eeeeee'
+        assert presets[1]['page_target_highlight'] == '#336699'
         assert presets[1]['inactive_text'] == (
             DEFAULT_PROMPTER_CONFIG['colors']['inactive_text']
         )
@@ -453,9 +646,23 @@ class TestGlobalSettingsService:
         """Тест обновления настроек объединения"""
         service.settings = {}
         
-        service.update_replica_merge_config({'merge': False})
-        
+        service.update_replica_merge_config({
+            'merge': False,
+            'merge_parallel_replicas': True,
+            'respect_existing_separators': True,
+            'inline_timecode_brackets': 'curly',
+        })
+
         assert service.settings['replica_merge_config']['merge'] == False
+        assert service.settings['replica_merge_config'][
+            'merge_parallel_replicas'
+        ] is True
+        assert service.settings['replica_merge_config'][
+            'respect_existing_separators'
+        ] is True
+        assert service.settings['replica_merge_config'][
+            'inline_timecode_brackets'
+        ] == 'curly'
 
     def test_update_docx_import_config(self, service):
         """Тест обновления настроек импорта DOCX"""
@@ -516,6 +723,27 @@ class TestGlobalSettingsService:
         assert service._settings_file == temp_settings_file
 
 
+    def test_docx_import_presets_are_named_normalized_configs(self, service):
+        service.settings = service._get_defaults()
+        service.set_docx_import_presets([
+            {
+                "name": "  Studio table  ",
+                "config": {
+                    "field_priority": ["text", "character"],
+                    "fallback_mapping": {"text": 5, "character": 1},
+                },
+            },
+            {"name": "studio TABLE", "config": {}},
+            {"name": "", "config": {}},
+        ])
+
+        presets = service.get_docx_import_presets()
+        assert len(presets) == 1
+        assert presets[0]["name"] == "Studio table"
+        assert presets[0]["config"]["field_priority"][0] == "text"
+        assert presets[0]["config"]["fallback_mapping"]["text"] == 5
+
+
 class TestGlobalSettingsServiceIntegration:
     """Интеграционные тесты для GlobalSettingsService"""
 
@@ -558,8 +786,51 @@ class TestGlobalSettingsServiceIntegration:
             assert loaded_settings['default_prompter_config']['f_tc'] == 50
             assert loaded_settings['default_prompter_config']['f_text'] == 100
             assert loaded_settings['default_prompter_config']['osc_enabled'] is True
-            assert loaded_settings['default_prompter_config']['f_char'] == 24
+            assert loaded_settings['default_prompter_config']['f_char'] == 25
             assert loaded_settings['language'] == 'en'
             assert loaded_settings['recent_projects'] == [
                 str(Path('/tmp/project.json').expanduser())
             ]
+
+    def test_recovers_latest_valid_backup_after_primary_file_is_corrupted(
+        self, tmp_path
+    ):
+        settings_file = tmp_path / "settings.json"
+        with patch(
+            'services.global_settings_service.SETTINGS_FILE', settings_file
+        ):
+            service = GlobalSettingsService()
+            first = service._get_defaults()
+            first["language"] = "en"
+            assert service.save_settings(first)
+            second = service._get_defaults()
+            second["language"] = "ru"
+            assert service.save_settings(second)
+            settings_file.write_text("{broken", encoding="utf-8")
+
+            restored = GlobalSettingsService().load_settings()
+
+            assert restored["language"] == "en"
+            assert json.loads(settings_file.read_text(encoding="utf-8"))
+
+    def test_failed_atomic_settings_replace_keeps_previous_file(self, tmp_path):
+        settings_file = tmp_path / "settings.json"
+        with patch(
+            'services.global_settings_service.SETTINGS_FILE', settings_file
+        ):
+            service = GlobalSettingsService()
+            original = service._get_defaults()
+            original["language"] = "en"
+            assert service.save_settings(original)
+
+            changed = service._get_defaults()
+            changed["language"] = "ru"
+            with patch(
+                "services.global_settings_service.os.replace",
+                side_effect=OSError("disk failure"),
+            ):
+                assert service.save_settings(changed) is False
+
+            assert json.loads(
+                settings_file.read_text(encoding="utf-8")
+            )["language"] == "en"

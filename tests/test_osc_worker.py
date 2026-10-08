@@ -1,5 +1,7 @@
 """Тесты для osc_worker.py"""
 
+from pathlib import Path
+
 import pytest
 from unittest.mock import patch, MagicMock, call
 
@@ -24,6 +26,26 @@ class TestOscWorker:
         """Тест пользовательского порта"""
         worker = OscWorker(port=9000)
         assert worker.port == 9000
+
+    def test_does_not_register_osc_navigation_commands(self):
+        source = (Path(__file__).resolve().parents[1] / "services" / "osc_worker.py").read_text(
+            encoding="utf-8"
+        )
+
+        assert "/track/1/name" not in source
+        assert "/prompter/next" not in source
+        assert "/prompter/prev" not in source
+
+    def test_reports_reaper_transport_state(self, worker):
+        states = []
+        worker.transport_playing_changed.connect(states.append)
+
+        worker._handle_play("/play", 1)
+        worker._handle_stop_or_pause("/stop", 1)
+        worker._handle_play("/play", "false")
+        worker._handle_stop_or_pause("/pause", 0)
+
+        assert states == [True, False, False]
 
     @pytest.mark.skipif(not OSC_AVAILABLE, reason="python-osc not installed")
     def test_run_with_osc(self, worker):
@@ -88,10 +110,15 @@ class TestOscWorker:
 
     def test_run_exception(self, worker, caplog):
         """Тест исключения в run"""
+        errors = []
+        worker.error_occurred.connect(
+            lambda source, message: errors.append((source, message))
+        )
         with patch.object(worker, '_setup_dispatcher', side_effect=Exception("Error")):
             worker.run()
             
             assert "OSC server error" in caplog.text
+            assert errors == [(worker, "Error")]
 
     @pytest.mark.skipif(not OSC_AVAILABLE, reason="python-osc not installed")
     def test_start_server(self, worker):

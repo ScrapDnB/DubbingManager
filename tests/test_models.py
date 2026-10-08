@@ -1,6 +1,13 @@
 """Тесты для core/models.py"""
 
+from dataclasses import fields
+
 import pytest
+from config.constants import (
+    DEFAULT_EXPORT_CONFIG,
+    DEFAULT_PROMPTER_CONFIG,
+    DEFAULT_REPLICA_MERGE_CONFIG,
+)
 from core.models import (
     PrompterColors,
     PrompterConfig,
@@ -9,6 +16,18 @@ from core.models import (
     Actor,
     DialogueLine,
 )
+
+
+def test_config_models_cover_the_canonical_persisted_schemas():
+    assert {item.name for item in fields(PrompterConfig)} == set(
+        DEFAULT_PROMPTER_CONFIG
+    )
+    assert set(DEFAULT_EXPORT_CONFIG) <= {
+        item.name for item in fields(ExportConfig)
+    }
+    assert {item.name for item in fields(ReplicaMergeConfig)} == set(
+        DEFAULT_REPLICA_MERGE_CONFIG
+    )
 
 
 class TestPrompterColors:
@@ -20,11 +39,12 @@ class TestPrompterColors:
         
         assert colors.bg == "#000000"
         assert colors.active_text == "#FFFFFF"
-        assert colors.inactive_text == "#444444"
-        assert colors.tc == "#888888"
+        assert colors.inactive_text == "#3b3b3b"
+        assert colors.tc == "#ffffff"
         assert colors.actor == "#AAAAAA"
         assert colors.header_bg == "#111111"
-        assert colors.header_text == "#00FF00"
+        assert colors.header_text == "#8bf500"
+        assert colors.block_border == "#4D4D4D"
 
     def test_custom_values(self):
         """Тест пользовательских значений"""
@@ -89,12 +109,22 @@ class TestPrompterConfig:
         """Тест значений по умолчанию"""
         config = PrompterConfig()
         
-        assert config.f_tc == 20
+        assert config.f_tc == 30
         assert config.f_char == 24
         assert config.f_actor == 18
-        assert config.f_text == 36
-        assert config.focus_ratio == 0.5
+        assert config.f_text == 29
+        assert config.focus_ratio == 0.1
         assert config.is_mirrored == False
+        assert config.page_scroll_mode == False
+        assert config.scroll_delay_seconds == 0.0
+        assert config.scroll_deadline_enabled is True
+        assert config.page_timecode_highlight_enabled is False
+        assert config.page_gap_prefetch_seconds == 1.0
+        assert config.page_gap_prefetch_delay_seconds == 1.0
+        assert config.page_target_highlight_enabled is True
+        assert config.page_target_highlight_opacity == 0.2728
+        assert config.page_target_highlight_fade_in_ms == 500
+        assert config.page_target_highlight_fade_ms == 1000
         assert config.port_in == 8000
         assert config.port_out == 9000
 
@@ -128,13 +158,13 @@ class TestPrompterConfig:
         """Тест создания из пустого словаря"""
         config = PrompterConfig.from_dict({})
         
-        assert config.f_tc == 20  # Значение по умолчанию
+        assert config.f_tc == 30  # Значение по умолчанию
 
     def test_from_dict_none(self):
         """Тест создания из None"""
         config = PrompterConfig.from_dict(None)
         
-        assert config.f_tc == 20
+        assert config.f_tc == 30
 
     def test_to_dict(self):
         """Тест преобразования в словарь"""
@@ -153,7 +183,7 @@ class TestPrompterConfig:
         
         config.ensure_defaults()
         
-        assert config.f_tc == 20
+        assert config.f_tc == 30
 
     def test_post_init_invalid_f_tc(self):
         """Тест валидации f_tc"""
@@ -221,6 +251,40 @@ class TestPrompterConfig:
         with pytest.raises(ValueError):
             PrompterConfig(scroll_smoothness_slider=101)
 
+    def test_post_init_invalid_page_gap_prefetch_seconds(self):
+        with pytest.raises(ValueError):
+            PrompterConfig(page_gap_prefetch_seconds=-0.1)
+
+        with pytest.raises(ValueError):
+            PrompterConfig(page_gap_prefetch_seconds=60.1)
+
+        with pytest.raises(ValueError):
+            PrompterConfig(page_gap_prefetch_delay_seconds=-0.1)
+
+        with pytest.raises(ValueError):
+            PrompterConfig(page_gap_prefetch_delay_seconds=60.1)
+
+    def test_post_init_invalid_page_target_highlight_opacity(self):
+        with pytest.raises(ValueError):
+            PrompterConfig(page_target_highlight_opacity=-0.01)
+
+        with pytest.raises(ValueError):
+            PrompterConfig(page_target_highlight_opacity=0.45)
+
+    def test_post_init_invalid_page_target_highlight_fade_ms(self):
+        with pytest.raises(ValueError):
+            PrompterConfig(page_target_highlight_fade_ms=-1)
+
+        with pytest.raises(ValueError):
+            PrompterConfig(page_target_highlight_fade_ms=10001)
+
+    def test_post_init_invalid_page_target_highlight_fade_in_ms(self):
+        with pytest.raises(ValueError):
+            PrompterConfig(page_target_highlight_fade_in_ms=-1)
+
+        with pytest.raises(ValueError):
+            PrompterConfig(page_target_highlight_fade_in_ms=10001)
+
 
 class TestReplicaMergeConfig:
     """Тесты для ReplicaMergeConfig"""
@@ -230,7 +294,9 @@ class TestReplicaMergeConfig:
         config = ReplicaMergeConfig()
         
         assert config.merge == True
-        assert config.merge_gap == 5
+        assert config.merge_gap == 120
+        assert config.merge_parallel_replicas is False
+        assert config.respect_existing_separators is False
         assert config.p_short == 0.5
         assert config.p_long == 2.0
         assert config.fps == 25.0
@@ -304,19 +370,34 @@ class TestExportConfig:
         config = ExportConfig()
         
         assert config.layout_type == 'Таблица'
+        assert config.font_family == 'Segoe UI'
         assert config.col_tc == True
         assert config.col_char == True
-        assert config.col_actor == True
+        assert config.col_actor == False
         assert config.col_text == True
         assert config.use_color == True
+        assert config.soften_colors is True
+        assert config.color_softening_level == -1
+        assert config.bold_time is True
+        assert config.bold_char is True
+        assert config.bold_actor is False
+        assert config.bold_text is False
+        assert config.highlight_character_only is False
         assert config.open_auto == True
+        assert config.hide_leading_timecode_zeros is True
         assert config.time_display == 'range'
 
     def test_from_dict(self):
         """Тест создания из словаря"""
         data = {
             "layout_type": "Сценарий 3",
+            "font_family": "Georgia",
             "col_tc": False,
+            "highlight_character_only": True,
+            "color_softening_level": 2,
+            "bold_time": True,
+            "bold_char": False,
+            "hide_leading_timecode_zeros": True,
             "time_display": "start",
             "f_text": 50
         }
@@ -324,7 +405,13 @@ class TestExportConfig:
         config = ExportConfig.from_dict(data)
         
         assert config.layout_type == "Сценарий 3"
+        assert config.font_family == "Georgia"
         assert config.col_tc == False
+        assert config.highlight_character_only is True
+        assert config.color_softening_level == 2
+        assert config.bold_time is True
+        assert config.bold_char is False
+        assert config.hide_leading_timecode_zeros is True
         assert config.time_display == "start"
         assert config.f_text == 50
 
@@ -391,6 +478,7 @@ class TestActor:
         
         assert actor.name == "Test Actor"
         assert actor.color == "#FFFFFF"
+        assert actor.gender == ""
         assert actor.roles == []
 
     def test_custom_values(self):

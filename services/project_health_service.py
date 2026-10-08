@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from services.assignment_service import get_actor_for_character
 from services.project_folder_service import ProjectFolderService
+from services.script_text_service import ScriptTextService
 
 
 @dataclass(frozen=True)
@@ -30,18 +31,28 @@ class ProjectHealthService:
     def __init__(self) -> None:
         self.project_folder_service = ProjectFolderService()
 
-    def check_project(self, project_data: Dict[str, Any]) -> List[ProjectHealthIssue]:
+    def check_project(
+        self,
+        project_data: Dict[str, Any],
+        ignore_empty_lines: bool = False,
+    ) -> List[ProjectHealthIssue]:
         """Return project health issues."""
         issues: List[ProjectHealthIssue] = []
 
         episodes = project_data.get("episodes", {})
         episode_texts = project_data.get("episode_working_texts", {})
+        dynamic_episode_texts = (
+            project_data.get("script_storage", {}).get("episodes", {})
+            if ScriptTextService().uses_dynamic_storage(project_data)
+            else {}
+        )
         legacy_episode_texts = project_data.get("episode_texts", {})
         video_paths = project_data.get("video_paths", {})
 
         all_episode_nums = sorted(
             set(episodes) |
             set(episode_texts) |
+            set(dynamic_episode_texts) |
             set(legacy_episode_texts) |
             set(video_paths),
             key=self._episode_sort_key
@@ -57,17 +68,26 @@ class ProjectHealthService:
 
         for ep_num in all_episode_nums:
             source_path = episodes.get(ep_num)
-            text_payload = episode_texts.get(ep_num)
+            text_payload = (
+                dynamic_episode_texts.get(ep_num)
+                if dynamic_episode_texts
+                else episode_texts.get(ep_num)
+            )
+            if project_data.get("project_kind") == "audiobook":
+                text_payload = ScriptTextService().get_episode_payload(
+                    project_data, ep_num
+                )
             legacy_text_path = legacy_episode_texts.get(ep_num)
             video_path = video_paths.get(ep_num)
 
-            self._check_source_file(
-                issues,
-                project_data,
-                ep_num,
-                source_path,
-                text_payload or legacy_text_path
-            )
+            if project_data.get("project_kind") != "audiobook":
+                self._check_source_file(
+                    issues,
+                    project_data,
+                    ep_num,
+                    source_path,
+                    text_payload or legacy_text_path
+                )
             lines = self._check_working_text(
                 issues,
                 project_data,
@@ -79,7 +99,13 @@ class ProjectHealthService:
             self._check_video_file(issues, project_data, ep_num, video_path)
 
             if lines:
-                self._check_lines(issues, project_data, ep_num, lines)
+                self._check_lines(
+                    issues,
+                    project_data,
+                    ep_num,
+                    lines,
+                    ignore_empty_lines=ignore_empty_lines,
+                )
 
         return issues
 
@@ -155,6 +181,19 @@ class ProjectHealthService:
                 ))
             return []
 
+        if ScriptTextService().uses_dynamic_storage(project_data):
+            lines = ScriptTextService().load_atomic_episode_lines(
+                project_data, ep_num
+            )
+            if not lines:
+                issues.append(ProjectHealthIssue(
+                    self.SEVERITY_WARNING,
+                    "Рабочий текст",
+                    "В рабочем тексте нет строк.",
+                    ep_num,
+                ))
+            return lines
+
         lines = text_payload.get("lines")
         if not isinstance(lines, list):
             issues.append(ProjectHealthIssue(
@@ -169,7 +208,7 @@ class ProjectHealthService:
             issues.append(ProjectHealthIssue(
                 self.SEVERITY_WARNING,
                 "Рабочий текст",
-                "В рабочем тексте нет реплик.",
+                "В рабочем тексте нет строк.",
                 ep_num
             ))
 
@@ -235,7 +274,8 @@ class ProjectHealthService:
         issues: List[ProjectHealthIssue],
         project_data: Dict[str, Any],
         ep_num: str,
-        lines: List[Dict[str, Any]]
+        lines: List[Dict[str, Any]],
+        ignore_empty_lines: bool = False,
     ) -> None:
         missing_actor_chars = set()
 
@@ -246,12 +286,15 @@ class ProjectHealthService:
             ).strip()
             start = self._as_float(line.get("start", line.get("s")))
             end = self._as_float(line.get("end", line.get("e")))
-            line_label = f"Реплика {index}"
+            line_label = f"Строка {index}"
+
+            if ignore_empty_lines and not text:
+                continue
 
             if not text:
                 issues.append(ProjectHealthIssue(
                     self.SEVERITY_WARNING,
-                    "Реплики",
+                    "Строки",
                     f"{line_label}: пустой текст.",
                     ep_num
                 ))
@@ -259,7 +302,7 @@ class ProjectHealthService:
             if not character:
                 issues.append(ProjectHealthIssue(
                     self.SEVERITY_WARNING,
-                    "Реплики",
+                    "Строки",
                     f"{line_label}: не указан персонаж.",
                     ep_num
                 ))

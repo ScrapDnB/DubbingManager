@@ -116,6 +116,13 @@ class TestActorServiceAdditional:
 
         assert actors[actor_id]["color"] == "#123456"
 
+    def test_add_actor_normalizes_gender(self, service):
+        actors = {}
+
+        actor_id = service.add_actor(actors, "New Actor", gender=" ж ")
+
+        assert actors[actor_id]["gender"] == "Ж"
+
     def test_update_actor_color_nonexistent(self, service):
         """Тест обновления цвета несуществующего актёра"""
         actors = {}
@@ -147,6 +154,13 @@ class TestActorServiceAdditional:
         service.assign_actor_to_character(global_map, "Char1", None)
 
         assert "Char1" not in global_map
+
+    def test_assign_actor_to_character_preserves_coactors(self, service):
+        global_map = {"Char1": "actor1"}
+
+        service.assign_actor_to_character(global_map, "Char1", "actor2")
+
+        assert global_map["Char1"] == ["actor1", "actor2"]
 
     def test_bulk_assign_actors_empty_list(self, service):
         """Тест массового назначения пустого списка"""
@@ -184,6 +198,20 @@ class TestActorServiceAdditional:
         assert "OldChar" not in global_map
         assert global_map["NewChar1"] == "actor1"
         assert global_map["NewChar2"] == "actor1"
+
+    def test_multiple_actor_assignments_are_preserved(self, service):
+        global_map = {
+            "Duo": ["actor1", "actor2"],
+            "Solo": "actor1",
+        }
+
+        assert service.get_actor_roles(global_map, "actor1") == ["Duo", "Solo"]
+
+        service.update_actor_roles(global_map, "actor1", ["Duo", "New"])
+
+        assert global_map["Duo"] == ["actor2", "actor1"]
+        assert global_map["New"] == "actor1"
+        assert "Solo" not in global_map
 
     def test_get_actor_statistics_multiple_episodes(self, service):
         """Тест статистики по нескольким эпизодам"""

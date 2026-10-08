@@ -2,11 +2,16 @@ from services.assignment_service import (
     ASSIGNMENT_SCOPE_EPISODE,
     ASSIGNMENT_SCOPE_GLOBAL,
     LOCAL_UNASSIGNED_ACTOR_ID,
+    actor_ids_from_assignment,
+    assignment_from_actor_ids,
+    build_actor_roles_index,
     get_actor_for_character,
+    get_actor_ids_for_character,
     get_actor_roles,
     get_assignment_scope,
     get_episode_assignments,
     rename_character_assignments,
+    replace_actor_id_in_assignment,
 )
 
 
@@ -52,6 +57,48 @@ def test_actor_roles_include_episode_local_roles() -> None:
     }
 
     assert get_actor_roles(data, "actor-1") == ["Hero", "Man 1"]
+
+
+def test_actor_roles_index_collects_every_actor_in_one_pass() -> None:
+    data = {
+        "global_map": {
+            "Hero": ["actor-1", "actor-2"],
+            "Narrator": "actor-1",
+        },
+        "episode_actor_map": {
+            "1": {"Crowd": "actor-2"},
+            "2": {"Guest": "actor-3", "Hero": "actor-3"},
+        },
+    }
+
+    assert build_actor_roles_index(data) == {
+        "actor-1": ["Hero", "Narrator"],
+        "actor-2": ["Crowd", "Hero"],
+        "actor-3": ["Guest", "Hero"],
+    }
+
+
+def test_multiple_actor_assignments_keep_legacy_primary_and_all_roles() -> None:
+    data = {
+        "global_map": {"Hero": ["actor-1", "actor-2"]},
+        "episode_actor_map": {},
+    }
+
+    assert actor_ids_from_assignment("actor-1") == ["actor-1"]
+    assert get_actor_for_character(data, "Hero", "1") == "actor-1"
+    assert get_actor_ids_for_character(data, "Hero", "1") == [
+        "actor-1", "actor-2",
+    ]
+    assert get_actor_roles(data, "actor-2") == ["Hero"]
+
+
+def test_assignment_helpers_preserve_order_and_coassigned_actors() -> None:
+    assert assignment_from_actor_ids(["actor-1", "actor-2", "actor-1"]) == [
+        "actor-1", "actor-2",
+    ]
+    assert replace_actor_id_in_assignment(
+        ["actor-1", "actor-2"], "actor-1", "actor-3"
+    ) == ["actor-3", "actor-2"]
 
 
 def test_rename_character_assignments_renames_local_maps() -> None:

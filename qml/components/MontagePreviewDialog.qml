@@ -1,0 +1,748 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Dialogs
+import QtQuick.Layouts
+import QtWebChannel
+
+NativeDialogWindow {
+    id: dialog
+    objectName: "montagePreviewDialog"
+
+    required property var appBridge
+    required property color softBorder
+    required property color softHeader
+    required property color softRow
+    required property color softAltRow
+    required property color softMuted
+    property string singleFormat: "html"
+    property bool settingsVisible: true
+    property real settingsWidth: 350
+    property int actorMarkerShape: 0
+    property int actorMarkerSize: 0
+    readonly property var montageBackend: appBridge ? appBridge.montage : null
+    readonly property var config: montageBackend ? montageBackend.config : ({})
+
+    modal: true
+    macOSDocumentWindow: true
+    title: qsTr("Монтажный лист: серия ") + (montageBackend ? montageBackend.episode : "")
+    standardButtons: macOSStyle ? Dialog.NoButton : Dialog.Close
+    width: boundedWidth(1160, 28)
+    height: boundedHeight(760, 28)
+
+    ListModel {
+        id: layoutModel
+        ListElement { label: "Таблица"; value: "Таблица" }
+        ListElement { label: "Сценарий 1"; value: "Сценарий 1" }
+        ListElement { label: "Сценарий 2"; value: "Сценарий 2" }
+        ListElement { label: "Сценарий 3"; value: "Сценарий 3" }
+    }
+
+    ListModel {
+        id: timeModeModel
+        ListElement { label: "Диапазон"; value: "range" }
+        ListElement { label: "Только начало"; value: "start" }
+    }
+
+    QtObject {
+        id: previewBackend
+        WebChannel.id: "backend"
+
+        function update_text(lineId, newText) {
+            dialog.montageBackend.updateText(String(lineId), String(newText))
+        }
+    }
+
+    WebChannel {
+        id: previewChannel
+        registeredObjects: [previewBackend]
+    }
+
+    ActorHighlightDialog {
+        id: actorHighlightDialog
+        ownerWindow: dialog
+        montageBackend: dialog.montageBackend
+        softBorder: dialog.softBorder
+        softHeader: dialog.softHeader
+        softRow: dialog.softRow
+        softAltRow: dialog.softAltRow
+        softMuted: dialog.softMuted
+        actorMarkerShape: dialog.actorMarkerShape
+        actorMarkerSize: dialog.actorMarkerSize
+    }
+
+    FileDialog {
+        id: singleFileDialog
+        title: qsTr("Сохранить монтажный лист")
+        fileMode: FileDialog.SaveFile
+        currentFolder: dialog.appBridge.uiState.folderUrl("exports")
+        onVisibleChanged: if (visible) currentFolder = dialog.appBridge.uiState.folderUrl("exports")
+        nameFilters: dialog.singleFormat === "html" ? ["HTML (*.html)"]
+            : dialog.singleFormat === "xlsx" ? ["Excel (*.xlsx)"]
+            : dialog.singleFormat === "docx" ? ["Word (*.docx)"]
+            : ["PDF (*.pdf)"]
+        defaultSuffix: dialog.singleFormat
+        onAccepted: {
+            dialog.appBridge.uiState.rememberFile("exports", selectedFile.toString())
+            dialog.montageBackend.exportFile(
+                dialog.singleFormat,
+                selectedFile.toString()
+            )
+        }
+    }
+
+    FolderDialog {
+        id: batchFolderDialog
+        title: qsTr("Выберите папку экспорта")
+        currentFolder: dialog.appBridge.uiState.folderUrl("exports")
+        onVisibleChanged: if (visible) currentFolder = dialog.appBridge.uiState.folderUrl("exports")
+        onAccepted: {
+            dialog.appBridge.uiState.rememberFolder("exports", selectedFolder.toString())
+            dialog.montageBackend.exportBatch(
+                selectedFolder.toString(),
+                formatHtml.checked,
+                formatXlsx.checked,
+                formatDocx.checked,
+                formatPdf.checked,
+                allEpisodes.checked
+            )
+        }
+    }
+
+    function openFor(episode) {
+        montageBackend.clearBatchResults()
+        montageBackend.prepare(episode)
+        layoutCombo.syncValue()
+        fontCombo.syncValue()
+        timeModeCombo.syncValue()
+        open()
+    }
+
+    function selectedFormatCount() {
+        return Number(formatHtml.checked) + Number(formatXlsx.checked)
+            + Number(formatDocx.checked) + Number(formatPdf.checked)
+    }
+
+    function softeningLevel() {
+        var value = config.color_softening_level
+        return value === undefined ? 1 : Math.max(-2, Math.min(2, Number(value)))
+    }
+
+    function systemFontFamilies() {
+        var result = ["Segoe UI"]
+        var installed = Qt.fontFamilies()
+        for (var index = 0; index < installed.length; ++index) {
+            if (installed[index] !== "Segoe UI") {
+                result.push(installed[index])
+            }
+        }
+        return result
+    }
+
+    function runExport() {
+        var count = selectedFormatCount()
+        if (count === 0) {
+            return
+        }
+        if (currentEpisode.checked && count === 1) {
+            singleFormat = formatHtml.checked ? "html"
+                : formatXlsx.checked ? "xlsx"
+                : formatDocx.checked ? "docx"
+                : "pdf"
+            singleFileDialog.open()
+            return
+        }
+        batchFolderDialog.open()
+    }
+
+    content: ColumnLayout {
+        anchors.fill: parent
+        spacing: 8
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: dialog.macOSStyle ? 12 : 0
+            Layout.rightMargin: dialog.macOSStyle ? 12 : 0
+            spacing: dialog.macOSStyle ? 10 : 8
+
+            CompactToolButton {
+                iconSource: Qt.resolvedUrl("../icons/settings.svg")
+                toolTipText: dialog.settingsVisible
+                    ? qsTr("Скрыть настройки") : qsTr("Показать настройки")
+                checkable: true
+                checked: dialog.settingsVisible
+                onClicked: dialog.settingsVisible = !dialog.settingsVisible
+            }
+
+            Label { text: qsTr("Серия:") }
+
+            PlatformComboBox {
+                id: episodeCombo
+                Layout.preferredWidth: 150
+                model: dialog.montageBackend ? dialog.montageBackend.episodesModel : null
+                textRole: "name"
+                valueRole: "name"
+                onActivated: dialog.montageBackend.prepare(currentValue)
+
+                function syncEpisode() {
+                    if (!dialog.montageBackend) {
+                        return
+                    }
+                    var episodeIndex = indexOfValue(dialog.montageBackend.episode)
+                    currentIndex = episodeIndex >= 0 ? episodeIndex : 0
+                }
+
+                Connections {
+                    target: dialog.montageBackend
+                    function onEpisodeChanged() { episodeCombo.syncEpisode() }
+                }
+            }
+
+            Label {
+                text: (dialog.montageBackend ? dialog.montageBackend.count : 0)
+                    + " реплик"
+                color: dialog.softMuted
+            }
+
+            Item { Layout.fillWidth: true }
+        }
+
+        SplitView {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            orientation: Qt.Horizontal
+
+            Rectangle {
+                visible: dialog.settingsVisible
+                SplitView.preferredWidth: dialog.settingsWidth
+                SplitView.minimumWidth: 300
+                color: palette.window
+                border.width: dialog.macOSStyle ? 0 : 1
+                border.color: dialog.softBorder
+                clip: true
+                onWidthChanged: {
+                    if (visible && width >= 300)
+                        dialog.settingsWidth = width
+                }
+
+                PersistentScrollView {
+                    id: settingsPane
+                    anchors.fill: parent
+                    anchors.leftMargin: dialog.macOSStyle ? 12 : 8
+                    anchors.rightMargin: dialog.macOSStyle ? 12 : 8
+                    anchors.topMargin: dialog.macOSStyle ? 10 : 8
+                    anchors.bottomMargin: dialog.macOSStyle ? 10 : 8
+                    clip: true
+                    contentWidth: availableWidth
+                    contentHeight: settingsColumn.implicitHeight
+
+                    ColumnLayout {
+                        id: settingsColumn
+                        width: settingsPane.availableWidth
+                        spacing: dialog.macOSStyle ? 9 : 5
+
+                        Label {
+                            text: qsTr("Просмотр")
+                            font.weight: dialog.macOSStyle
+                                ? Font.DemiBold : Font.Bold
+                            font.pixelSize: dialog.macOSStyle ? 11 : font.pixelSize
+                            font.capitalization: dialog.macOSStyle
+                                ? Font.AllUppercase : Font.MixedCase
+                            color: dialog.macOSStyle ? dialog.softMuted : palette.text
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: Boolean(dialog.config.layout_template)
+                            text: qsTr("Активен пользовательский макет: %1").arg(
+                                dialog.config.layout_template
+                                    ? dialog.config.layout_template.name : ""
+                            )
+                            color: dialog.softMuted
+                            wrapMode: Text.WordWrap
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label { text: qsTr("Макет") }
+                            PlatformComboBox {
+                                id: layoutCombo
+                                Layout.fillWidth: true
+                                model: layoutModel
+                                textRole: "label"
+                                valueRole: "value"
+                                onActivated: dialog.montageBackend.setOption(
+                                    "layout_type", currentValue
+                                )
+
+                                function syncValue() {
+                                    var layoutIndex = indexOfValue(
+                                        dialog.config.layout_type
+                                    )
+                                    currentIndex = layoutIndex >= 0
+                                        ? layoutIndex : 0
+                                }
+
+                                Connections {
+                                    target: dialog.montageBackend
+                                    function onConfigChanged() {
+                                        layoutCombo.syncValue()
+                                    }
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label { text: qsTr("Шрифт") }
+                            PlatformComboBox {
+                                id: fontCombo
+                                Layout.fillWidth: true
+                                model: dialog.systemFontFamilies()
+                                onActivated: dialog.montageBackend.setOption(
+                                    "font_family", currentText
+                                )
+
+                                function syncValue() {
+                                    var fontIndex = find(String(
+                                        dialog.config.font_family || "Segoe UI"
+                                    ))
+                                    currentIndex = fontIndex >= 0 ? fontIndex : 0
+                                }
+
+                                Connections {
+                                    target: dialog.montageBackend
+                                    function onConfigChanged() {
+                                        fontCombo.syncValue()
+                                    }
+                                }
+                            }
+                        }
+
+                        CollapsibleSection {
+                            title: qsTr("Элементы")
+                            expanded: true
+                            sidebarStyle: dialog.macOSStyle
+                            Layout.fillWidth: true
+
+                            CheckBox {
+                                text: qsTr("Таймкод")
+                                checked: Boolean(dialog.config.col_tc)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "col_tc", checked
+                                )
+                            }
+                            CheckBox {
+                                text: qsTr("Персонаж")
+                                checked: Boolean(dialog.config.col_char)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "col_char", checked
+                                )
+                            }
+                            CheckBox {
+                                text: qsTr("Актёр")
+                                checked: Boolean(dialog.config.col_actor)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "col_actor", checked
+                                )
+                            }
+                            CheckBox {
+                                text: qsTr("Реплика")
+                                checked: Boolean(dialog.config.col_text)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "col_text", checked
+                                )
+                            }
+                        }
+
+                        CollapsibleSection {
+                            title: qsTr("Таймкод")
+                            expanded: true
+                            sidebarStyle: dialog.macOSStyle
+                            Layout.fillWidth: true
+
+                            PlatformComboBox {
+                                id: timeModeCombo
+                                Layout.fillWidth: true
+                                model: timeModeModel
+                                textRole: "label"
+                                valueRole: "value"
+                                onActivated: dialog.montageBackend.setOption(
+                                    "time_display", currentValue
+                                )
+
+                                function syncValue() {
+                                    var modeIndex = indexOfValue(
+                                        dialog.config.time_display
+                                    )
+                                    currentIndex = modeIndex >= 0
+                                        ? modeIndex : 0
+                                }
+
+                                Connections {
+                                    target: dialog.montageBackend
+                                    function onConfigChanged() {
+                                        timeModeCombo.syncValue()
+                                    }
+                                }
+                            }
+
+                            CheckBox {
+                                text: qsTr("Округлять")
+                                checked: Boolean(dialog.config.round_time)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "round_time", checked
+                                )
+                            }
+                            CheckBox {
+                                text: qsTr("Скрывать нули")
+                                enabled: Boolean(dialog.config.col_tc)
+                                checked: Boolean(
+                                    dialog.config.hide_leading_timecode_zeros
+                                )
+                                onToggled: dialog.montageBackend.setOption(
+                                    "hide_leading_timecode_zeros", checked
+                                )
+                            }
+                        }
+
+                        CollapsibleSection {
+                            title: qsTr("Цвета и подсветка")
+                            sidebarStyle: dialog.macOSStyle
+                            Layout.fillWidth: true
+
+                            CheckBox {
+                                text: qsTr("Цвета актёров")
+                                checked: Boolean(dialog.config.use_color)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "use_color", checked
+                                )
+                            }
+                            CheckBox {
+                                text: qsTr("Выделять только персонажа")
+                                enabled: Boolean(dialog.config.use_color)
+                                checked: Boolean(
+                                    dialog.config.highlight_character_only
+                                )
+                                onToggled: dialog.montageBackend.setOption(
+                                    "highlight_character_only", checked
+                                )
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                CheckBox {
+                                    id: softenColorsCheck
+                                    Layout.fillWidth: true
+                                    text: qsTr("Смягчать цвета")
+                                    enabled: Boolean(dialog.config.use_color)
+                                    checked: Boolean(dialog.config.soften_colors)
+                                    onToggled: dialog.montageBackend.setOption(
+                                        "soften_colors", checked
+                                    )
+                                }
+                                Slider {
+                                    id: softeningLevelSlider
+                                    Layout.preferredWidth: 82
+                                    from: -2
+                                    to: 2
+                                    stepSize: 1
+                                    snapMode: Slider.SnapAlways
+                                    enabled: softenColorsCheck.enabled
+                                        && softenColorsCheck.checked
+                                    value: dialog.softeningLevel()
+                                    Accessible.name: qsTr("Уровень смягчения")
+                                    onMoved: dialog.montageBackend.setOption(
+                                        "color_softening_level", Math.round(value)
+                                    )
+                                }
+                            }
+                            AdaptiveButton {
+                                Layout.fillWidth: true
+                                text: qsTr("Подсветка: ")
+                                    + dialog.montageBackend.highlightSummary
+                                enabled: Boolean(dialog.config.use_color)
+                                    && dialog.montageBackend.highlightSummary !== "Нет актёров"
+                                onClicked: actorHighlightDialog.open()
+                            }
+                        }
+
+                        CollapsibleSection {
+                            title: qsTr("Размер текста")
+                            sidebarStyle: dialog.macOSStyle
+                            Layout.fillWidth: true
+
+                            Repeater {
+                                model: [
+                                    { label: "Таймкод", key: "f_time", value: Number(dialog.config.f_time || 21), boldKey: "bold_time", boldValue: Boolean(dialog.config.bold_time) },
+                                    { label: "Персонаж", key: "f_char", value: Number(dialog.config.f_char || 20), boldKey: "bold_char", boldValue: dialog.config.bold_char === undefined ? true : Boolean(dialog.config.bold_char) },
+                                    { label: "Актёр", key: "f_actor", value: Number(dialog.config.f_actor || 14), boldKey: "bold_actor", boldValue: Boolean(dialog.config.bold_actor) },
+                                    { label: "Реплика", key: "f_text", value: Number(dialog.config.f_text || 30), boldKey: "bold_text", boldValue: Boolean(dialog.config.bold_text) }
+                                ]
+
+                                delegate: RowLayout {
+                                    id: fontRow
+                                    required property var modelData
+                                    Layout.fillWidth: true
+
+                                    Label {
+                                        text: fontRow.modelData.label
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        elide: Text.ElideRight
+                                    }
+                                    SpinBox {
+                                        Layout.preferredWidth: dialog.windowsStyle ? 108 : 88
+                                        Layout.minimumWidth: dialog.windowsStyle ? 100 : 80
+                                        Layout.maximumWidth: dialog.windowsStyle ? 112 : 96
+                                        from: 8
+                                        to: 72
+                                        editable: true
+                                        value: fontRow.modelData.value
+                                        onValueModified: dialog.montageBackend.setOption(
+                                            fontRow.modelData.key, value
+                                        )
+                                    }
+                                    CheckBox {
+                                        text: qsTr("Жирный")
+                                        checked: fontRow.modelData.boldValue
+                                        onToggled: dialog.montageBackend.setOption(
+                                            fontRow.modelData.boldKey, checked
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        CollapsibleSection {
+                            title: qsTr("Ширина колонок таблицы")
+                            visible: dialog.config.layout_type === "Таблица"
+                            expanded: true
+                            sidebarStyle: dialog.macOSStyle
+                            Layout.fillWidth: true
+
+                            Repeater {
+                                model: [
+                                    { label: "Таймкод", key: "table_width_time", value: Number(dialog.config.table_width_time || 7) },
+                                    { label: "Персонаж", key: "table_width_char", value: Number(dialog.config.table_width_char || 10) },
+                                    { label: "Актёр", key: "table_width_actor", value: Number(dialog.config.table_width_actor || 8.5) }
+                                ]
+
+                                delegate: RowLayout {
+                                    id: widthRow
+                                    required property var modelData
+                                    Layout.fillWidth: true
+
+                                    Label {
+                                        text: widthRow.modelData.label
+                                        Layout.fillWidth: true
+                                    }
+                                    SpinBox {
+                                        from: 8
+                                        to: 48
+                                        stepSize: 1
+                                        editable: true
+                                        value: Math.round(
+                                            widthRow.modelData.value * 2
+                                        )
+                                        textFromValue: function(value) {
+                                            return (value / 2).toFixed(1)
+                                        }
+                                        valueFromText: function(text) {
+                                            return Math.round(
+                                                Number(text.replace(",", ".")) * 2
+                                            )
+                                        }
+                                        onValueModified: dialog.montageBackend.setOption(
+                                            widthRow.modelData.key, value / 2
+                                        )
+                                    }
+                                }
+                            }
+
+                            Label {
+                                text: qsTr("Ширина реплики подстраивается автоматически.")
+                                color: dialog.softMuted
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        CollapsibleSection {
+                            title: qsTr("Экспорт")
+                            expanded: true
+                            sidebarStyle: dialog.macOSStyle
+                            Layout.fillWidth: true
+
+                            CheckBox {
+                                text: qsTr("Разрешить правку текста")
+                                checked: Boolean(dialog.config.allow_edit)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "allow_edit", checked
+                                )
+                            }
+
+                            CheckBox {
+                                text: qsTr("Открывать после экспорта")
+                                checked: Boolean(dialog.config.open_auto)
+                                onToggled: dialog.montageBackend.setOption(
+                                    "open_auto", checked
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    visible: dialog.macOSStyle
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.right: parent.right
+                    width: 1
+                    color: Qt.rgba(
+                        palette.text.r,
+                        palette.text.g,
+                        palette.text.b,
+                        0.14
+                    )
+                }
+            }
+
+            Rectangle {
+                SplitView.fillWidth: true
+                color: palette.base
+                border.color: dialog.macOSStyle
+                    ? "transparent" : dialog.softBorder
+                clip: true
+
+                MontagePreviewBrowser {
+                    id: previewBrowser
+                    anchors.fill: parent
+                    anchors.margins: dialog.macOSStyle ? 0 : 1
+                    webChannel: previewChannel
+                    backgroundColor: palette.base
+                    previewHtml: dialog.montageBackend ? dialog.montageBackend.html : ""
+                    episode: dialog.montageBackend ? dialog.montageBackend.episode : ""
+                }
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            visible: dialog.montageBackend && (
+                dialog.montageBackend.batchBusy || batchResults.count > 0
+            )
+            spacing: 4
+
+            RowLayout {
+                Layout.fillWidth: true
+                Label {
+                    Layout.fillWidth: true
+                    text: dialog.montageBackend
+                        ? dialog.montageBackend.batchSummary : ""
+                    color: dialog.softMuted
+                    elide: Text.ElideRight
+                }
+                ProgressBar {
+                    Layout.preferredWidth: 180
+                    visible: dialog.montageBackend
+                        && dialog.montageBackend.batchBusy
+                    value: dialog.montageBackend
+                        ? dialog.montageBackend.batchProgress : 0
+                }
+                AdaptiveButton {
+                    text: qsTr("Отменить")
+                    visible: dialog.montageBackend
+                        && dialog.montageBackend.batchBusy
+                    onClicked: dialog.montageBackend.cancelBatch()
+                }
+            }
+
+            PersistentListView {
+                id: batchResults
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(
+                    96, count * (dialog.macOSStyle ? 28 : 30)
+                )
+                visible: count > 0
+                clip: true
+                model: dialog.montageBackend
+                    ? dialog.montageBackend.batchResultModel : null
+
+                delegate: ItemDelegate {
+                    id: batchResultDelegate
+                    required property int index
+                    required property string fileName
+                    required property string status
+                    required property string detail
+                    width: batchResults.viewportWidth
+                    height: dialog.macOSStyle ? 28 : 30
+                    text: fileName + " · " + status
+                    PlatformToolTip {
+                        target: batchResultDelegate
+                        text: batchResultDelegate.detail
+                    }
+                    onClicked: dialog.montageBackend.openBatchResult(index)
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+
+            Label { text: qsTr("Форматы:") }
+            CheckBox {
+                id: formatHtml
+                text: qsTr("HTML")
+                checked: Boolean(dialog.config.format_html)
+                onToggled: dialog.montageBackend.setOption("format_html", checked)
+            }
+            CheckBox {
+                id: formatXlsx
+                text: qsTr("XLSX")
+                checked: Boolean(dialog.config.format_xls)
+                onToggled: dialog.montageBackend.setOption("format_xls", checked)
+            }
+            CheckBox {
+                id: formatDocx
+                text: qsTr("DOCX")
+                checked: Boolean(dialog.config.format_docx)
+                onToggled: dialog.montageBackend.setOption("format_docx", checked)
+            }
+            CheckBox {
+                id: formatPdf
+                text: qsTr("PDF")
+                checked: Boolean(dialog.config.format_pdf)
+                onToggled: dialog.montageBackend.setOption("format_pdf", checked)
+            }
+
+            ToolSeparator {}
+
+            RadioButton {
+                id: currentEpisode
+                text: qsTr("Текущая серия")
+                checked: true
+                ButtonGroup.group: exportScopeGroup
+            }
+            RadioButton {
+                id: allEpisodes
+                text: qsTr("Все серии")
+                ButtonGroup.group: exportScopeGroup
+            }
+
+            ButtonGroup { id: exportScopeGroup }
+
+            Item { Layout.fillWidth: true }
+
+            AdaptiveButton {
+                text: qsTr("Экспортировать")
+                highlighted: true
+                Layout.preferredWidth: 120
+                enabled: dialog.selectedFormatCount() > 0
+                    && !dialog.montageBackend.batchBusy
+                onClicked: dialog.runExport()
+            }
+        }
+    }
+}

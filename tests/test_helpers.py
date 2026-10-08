@@ -46,7 +46,7 @@ class TestLogException:
         assert "Traceback" in caplog.text
 
 
-def test_ordered_episode_names_uses_audiobook_chapter_order():
+def test_ordered_episode_names_uses_audiobook_document_order():
     data = {
         "project_kind": "audiobook",
         "episodes": {
@@ -54,7 +54,10 @@ def test_ordered_episode_names_uses_audiobook_chapter_order():
             "Пролог": "book.pdf",
             "Вступление": "book.pdf",
         },
-        "audiobook_chapter_order": ["Вступление", "Пролог", "Глава 1"],
+        "audiobook_document": {"chapters": [
+            {"title": title, "blocks": []}
+            for title in ("Вступление", "Пролог", "Глава 1")
+        ]},
     }
 
     assert ordered_episode_names(data) == ["Вступление", "Пролог", "Глава 1"]

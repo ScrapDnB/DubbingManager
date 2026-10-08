@@ -23,7 +23,7 @@ def maybe_set_project_name_from_first_import(
     if allowed_extensions is not None and ext not in allowed_extensions:
         return False
 
-    if project_data.get("episodes") or project_data.get("book_chapters"):
+    if project_data.get("episodes"):
         return False
 
     current_name = str(project_data.get("project_name", "")).strip()

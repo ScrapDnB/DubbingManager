@@ -9,12 +9,8 @@ from services import (
     EpisodeService,
     ScriptTextService,
 )
-from ui.controllers import (
-    GlobalActorController,
-    ImportController,
-    ReaperExportController,
-    SettingsController,
-)
+from application import GlobalActorController, ImportController
+from services.reaper_export_service import ReaperExportService
 
 
 def test_character_stats_service_counts_episode_and_project_stats():
@@ -40,8 +36,57 @@ def test_character_stats_service_counts_episode_and_project_stats():
 
     assert project_stats["rings"] == 2
     assert project_stats["words"] == 3
+    assert project_stats["lines"] == 2
     assert project_stats["episodes"] == [
-        {"episode": "1", "rings": 2, "words": 3}
+        {"episode": "1", "lines": 2, "rings": 2, "words": 3}
+    ]
+
+
+def test_character_stats_service_builds_actor_summary_rows():
+    data = {
+        "episodes": {"1": "one.ass", "2": "two.ass"},
+        "replica_merge_config": {"merge": False},
+        "actors": {
+            "actor-1": {"name": "Actor One", "color": "#123456"},
+            "actor-2": {"name": "Actor Two", "color": "#654321"},
+        },
+        "global_map": {"Hero": "actor-1"},
+        "episode_actor_map": {"2": {"Hero": "actor-2"}},
+    }
+    lines_by_ep = {
+        "1": [
+            {"id": 0, "s": 0.0, "e": 1.0, "char": "Hero", "text": "one two"},
+            {"id": 1, "s": 2.0, "e": 3.0, "char": "Other", "text": "three"},
+        ],
+        "2": [
+            {"id": 2, "s": 0.0, "e": 1.0, "char": "Hero", "text": "four"},
+        ],
+    }
+    service = CharacterStatsService(data)
+
+    rows = service.actor_summary_rows(lambda ep: lines_by_ep.get(ep, []))
+
+    assert rows[0] == {
+        "actorId": "actor-1",
+        "actor": "Actor One",
+        "color": "#123456",
+        "rings": 1,
+        "words": 2,
+        "roles": ["Hero"],
+        "unassigned": False,
+    }
+    assert rows[1]["actor"] == "Actor Two"
+    assert rows[1]["rings"] == 1
+    assert rows[2]["actor"] == "НЕ РАСПРЕДЕЛЕНЫ"
+    assert rows[2]["roles"] == ["Other"]
+
+    episode_rows = service.actor_summary_rows(
+        lambda ep: lines_by_ep.get(ep, []),
+        "1",
+    )
+    assert [row["actor"] for row in episode_rows] == [
+        "Actor One",
+        "НЕ РАСПРЕДЕЛЕНЫ",
     ]
 
 
@@ -177,6 +222,45 @@ def test_import_controller_adds_srt_episode_and_working_text(tmp_path):
     assert lines[0]["text"] == "Hello"
 
 
+def test_import_controller_uses_explicit_global_merge_config(tmp_path):
+    source = tmp_path / "Episode_01.ass"
+    source.write_text("[Script Info]\n", encoding="utf-8")
+    lines = [
+        {"id": 0, "s": 1.0, "e": 2.0, "char": "Hero", "text": "First"},
+        {"id": 1, "s": 2.5, "e": 3.0, "char": "Hero", "text": "Second"},
+    ]
+
+    for merge_enabled, expected_count in ((True, 1), (False, 2)):
+        data = {
+            "episodes": {},
+            "episode_texts": {},
+            "episode_working_texts": {},
+            "loaded_episodes": {},
+            "actors": {},
+            "global_map": {},
+        }
+        controller = ImportController(
+            data_ref=data,
+            episode_service=EpisodeService(),
+            script_text_service=ScriptTextService(),
+            undo_stack=UndoStack(),
+            get_current_project_path=lambda: str(tmp_path / "project.dub"),
+            merge_config={
+                "merge": merge_enabled,
+                "merge_gap": 120,
+                "p_short": 0.5,
+                "p_long": 2.0,
+                "fps": 25,
+            },
+        )
+
+        controller.create_working_text_for_episode("1", str(source), lines)
+
+        payload = data["episode_working_texts"]["1"]
+        assert len(payload["lines"]) == expected_count
+        assert payload["merge_config"]["merge"] is merge_enabled
+
+
 def test_import_controller_sets_default_project_name_from_first_ass(tmp_path):
     ass_path = tmp_path / "Pilot Episode.ass"
     ass_path.write_text(
@@ -204,6 +288,45 @@ def test_import_controller_sets_default_project_name_from_first_ass(tmp_path):
     controller.add_subtitle_episode("1", str(ass_path))
 
     assert data["project_name"] == "Pilot Episode"
+
+
+def test_import_controller_undo_restores_project_fps_detection(tmp_path):
+    ass_path = tmp_path / "Pilot.ass"
+    ass_path.write_text(
+        "[Script Info]\nVideo FPS: 24\n[Events]\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,Hello\n",
+        encoding="utf-8",
+    )
+    data = {
+        "project_name": "Новый проект",
+        "episodes": {},
+        "episode_texts": {},
+        "episode_working_texts": {},
+        "loaded_episodes": {},
+        "actors": {},
+        "global_map": {},
+    }
+    undo_stack = UndoStack()
+    controller = ImportController(
+        data_ref=data,
+        episode_service=EpisodeService(),
+        script_text_service=ScriptTextService(),
+        undo_stack=undo_stack,
+        get_current_project_path=lambda: str(tmp_path / "project.dub"),
+    )
+
+    controller.add_subtitle_episode("1", str(ass_path))
+    assert data["project_settings"]["fps"] == 24.0
+    assert data["project_settings"]["fps_source"] == "ass"
+
+    assert undo_stack.undo()
+    assert data["project_settings"]["fps"] == 25.0
+    assert data["project_settings"]["fps_source"] == "default"
+    assert data["project_settings"]["fps_ass_checked"] is False
+
+    assert undo_stack.redo()
+    assert data["project_settings"]["fps"] == 24.0
+    assert data["project_settings"]["fps_source"] == "ass"
 
 
 def test_import_controller_does_not_replace_manual_project_name(tmp_path):
@@ -264,30 +387,6 @@ def test_import_controller_does_not_set_project_name_from_srt(tmp_path):
     assert data["project_name"] == "Новый проект"
 
 
-def test_settings_controller_applies_defaults_and_ports():
-    data = {"export_config": {}, "prompter_config": {"port_in": 9000}}
-    global_settings = {}
-    service = MagicMock()
-    service.get_default_export_config.return_value = {"format_html": False}
-    service.get_default_prompter_config.return_value = {"font_size": 42}
-    service.get_prompter_color_presets.return_value = [None, None]
-    service.save_settings.return_value = True
-    controller = SettingsController(data, global_settings, service)
-
-    export_config = controller.apply_default_export_config_to_project()
-    prompter_config = controller.apply_default_prompter_config_to_project()
-    ports, changed = controller.apply_prompter_reaper_ports_to_project(
-        {"port_in": 9001, "port_out": 9002}
-    )
-
-    assert export_config["format_html"] is False
-    assert data["export_config"]["format_html"] is False
-    assert prompter_config == {"font_size": 42}
-    assert changed is True
-    assert ports["port_in"] == 9001
-    assert ports["port_out"] == 9002
-
-
 def test_global_actor_controller_syncs_and_transfers():
     data = {
         "actors": {
@@ -321,7 +420,52 @@ def test_global_actor_controller_syncs_and_transfers():
     assert any(row["name"] == "Bob" and not row["exists"] for row in rows)
 
 
-def test_reaper_export_controller_delegates_preview_and_save(tmp_path):
+def test_global_actor_controller_replaces_nested_and_multiple_actor_ids():
+    data = {
+        "actors": {
+            "local": {"name": "Alice", "color": "#fff"},
+            "other": {"name": "Bob", "color": "#000"},
+        },
+        "global_map": {"Duo": ["local", "other"]},
+        "episode_actor_map": {"1": {"Duo": ["other", "local"]}},
+        "audiobook_settings": {
+            "slots": [{"character": "Duo", "actor_id": "local"}],
+        },
+        "audiobook_document": {
+            "chapters": [{
+                "blocks": [{"runs": [{"actor_id": "local"}]}],
+            }],
+        },
+        "export_config": {
+            "highlight_ids_export": ["local", "other"],
+            "highlight_negative_ids_export": ["local"],
+        },
+    }
+    service = MagicMock()
+    service.get_global_actor_base.return_value = {
+        "global-alice": {"name": "Alice", "gender": "Ж"},
+    }
+
+    assert GlobalActorController(
+        data, service
+    ).sync_project_actors_with_global_base() == 1
+
+    assert data["global_map"]["Duo"] == ["global-alice", "other"]
+    assert data["episode_actor_map"]["1"]["Duo"] == [
+        "other", "global-alice",
+    ]
+    assert data["audiobook_settings"]["slots"][0]["actor_id"] == "global-alice"
+    run = data["audiobook_document"]["chapters"][0]["blocks"][0]["runs"][0]
+    assert run["actor_id"] == "global-alice"
+    assert data["export_config"]["highlight_ids_export"] == [
+        "global-alice", "other",
+    ]
+    assert data["export_config"]["highlight_negative_ids_export"] == [
+        "global-alice",
+    ]
+
+
+def test_reaper_export_service_previews_and_saves(tmp_path):
     data = {
         "project_name": "Show",
         "video_paths": {"1": "video.mov"},
@@ -331,12 +475,14 @@ def test_reaper_export_controller_delegates_preview_and_save(tmp_path):
     }
     folder_service = MagicMock()
     folder_service.resolve_project_path.return_value = "/resolved/video.mov"
-    controller = ReaperExportController(data, folder_service)
+    controller = ReaperExportService(data, folder_service)
     lines = [{"id": 0, "s": 0.0, "e": 1.0, "char": "Hero", "text": "Hello"}]
     save_path = tmp_path / "out.rpp"
 
     assert controller.resolve_video_path("1") == "/resolved/video.mov"
     assert controller.default_filename("1") == "Show - Ep1.rpp"
+    assert controller.default_csv_filename("1") == "Show - 1.csv"
+    assert controller.default_csv_filename("1", "project_episode") == "Show - 1.csv"
 
     preview = controller.preview(
         "1",
@@ -360,3 +506,17 @@ def test_reaper_export_controller_delegates_preview_and_save(tmp_path):
     assert preview["video"] is True
     assert preview["sample_regions"]
     assert save_path.exists()
+
+
+def test_reaper_csv_filename_uses_imported_ass_name(tmp_path):
+    data = {
+        "project_name": "Show",
+        "episodes": {"1": str(tmp_path / "Fallback.ass")},
+        "episode_working_texts": {
+            "1": {"source_ass": {"filename": "Episode 01.ass"}}
+        },
+    }
+    controller = ReaperExportService(data, MagicMock())
+
+    assert controller.default_csv_filename("1") == "Episode 01.csv"
+    assert controller.default_csv_filename("1", "project_episode") == "Show - 1.csv"

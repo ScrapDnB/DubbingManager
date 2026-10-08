@@ -1,6 +1,6 @@
 """Helpers for global and per-episode actor assignments."""
 
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 
 ASSIGNMENT_SCOPE_GLOBAL = "global"
@@ -8,7 +8,7 @@ ASSIGNMENT_SCOPE_EPISODE = "episode"
 LOCAL_UNASSIGNED_ACTOR_ID = "__local_unassigned__"
 
 
-def ensure_episode_actor_map(project_data: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
+def ensure_episode_actor_map(project_data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     """Return the per-episode assignment map, creating it when needed."""
     mapping = project_data.setdefault("episode_actor_map", {})
     if not isinstance(mapping, dict):
@@ -20,7 +20,7 @@ def ensure_episode_actor_map(project_data: Dict[str, Any]) -> Dict[str, Dict[str
 def get_episode_assignments(
     project_data: Dict[str, Any],
     ep_num: Optional[str]
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     """Return local assignments for an episode."""
     if ep_num is None:
         return {}
@@ -36,7 +36,7 @@ def get_assignment_map(
     project_data: Dict[str, Any],
     scope: str,
     ep_num: Optional[str] = None
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     """Return the mutable assignment map for a selected scope."""
     if scope == ASSIGNMENT_SCOPE_EPISODE:
         return get_episode_assignments(project_data, ep_num)
@@ -47,12 +47,50 @@ def get_assignment_map(
     return mapping
 
 
-def get_actor_for_character(
+def actor_ids_from_assignment(value: Any) -> List[str]:
+    """Normalize legacy single and new multiple actor assignments."""
+    if value == LOCAL_UNASSIGNED_ACTOR_ID or value is None:
+        return []
+    raw_ids = value if isinstance(value, (list, tuple, set)) else [value]
+    result: List[str] = []
+    for actor_id in raw_ids:
+        actor_id = str(actor_id or "").strip()
+        if actor_id and actor_id != LOCAL_UNASSIGNED_ACTOR_ID and actor_id not in result:
+            result.append(actor_id)
+    return result
+
+
+def assignment_from_actor_ids(values: Iterable[Any]) -> Any:
+    """Return the canonical scalar-or-list representation for actor ids."""
+    actor_ids = actor_ids_from_assignment(list(values))
+    if not actor_ids:
+        return None
+    return actor_ids[0] if len(actor_ids) == 1 else actor_ids
+
+
+def replace_actor_id_in_assignment(
+    value: Any,
+    old_actor_id: str,
+    new_actor_id: str,
+) -> Any:
+    """Replace an actor id while preserving every co-assigned actor."""
+    if value == LOCAL_UNASSIGNED_ACTOR_ID:
+        return value
+    actor_ids = actor_ids_from_assignment(value)
+    if old_actor_id not in actor_ids:
+        return value
+    return assignment_from_actor_ids(
+        new_actor_id if actor_id == old_actor_id else actor_id
+        for actor_id in actor_ids
+    )
+
+
+def get_actor_ids_for_character(
     project_data: Dict[str, Any],
     char_name: str,
     ep_num: Optional[str] = None
-) -> Optional[str]:
-    """Resolve actor assignment, preferring episode-local overrides."""
+) -> List[str]:
+    """Resolve every actor assigned to a character, preferring local overrides."""
     local = (
         project_data.get("episode_actor_map", {}).get(str(ep_num), {})
         if ep_num is not None
@@ -61,10 +99,20 @@ def get_actor_for_character(
     if not isinstance(local, dict):
         local = {}
     if char_name in local:
-        if local.get(char_name) == LOCAL_UNASSIGNED_ACTOR_ID:
-            return None
-        return local.get(char_name)
-    return project_data.get("global_map", {}).get(char_name)
+        return actor_ids_from_assignment(local.get(char_name))
+    return actor_ids_from_assignment(
+        project_data.get("global_map", {}).get(char_name)
+    )
+
+
+def get_actor_for_character(
+    project_data: Dict[str, Any],
+    char_name: str,
+    ep_num: Optional[str] = None
+) -> Optional[str]:
+    """Return the primary actor for legacy single-actor consumers."""
+    actor_ids = get_actor_ids_for_character(project_data, char_name, ep_num)
+    return actor_ids[0] if actor_ids else None
 
 
 def get_assignment_scope(
@@ -98,18 +146,39 @@ def get_actor_roles(project_data: Dict[str, Any], actor_id: str) -> List[str]:
     """Return unique role names assigned to an actor globally or locally."""
     roles: Set[str] = set()
 
-    for char_name, aid in project_data.get("global_map", {}).items():
-        if aid == actor_id:
+    for char_name, assignment in project_data.get("global_map", {}).items():
+        if actor_id in actor_ids_from_assignment(assignment):
             roles.add(char_name)
 
     for episode_map in ensure_episode_actor_map(project_data).values():
         if not isinstance(episode_map, dict):
             continue
-        for char_name, aid in episode_map.items():
-            if aid == actor_id and aid != LOCAL_UNASSIGNED_ACTOR_ID:
+        for char_name, assignment in episode_map.items():
+            if actor_id in actor_ids_from_assignment(assignment):
                 roles.add(char_name)
 
     return sorted(roles, key=str.lower)
+
+
+def build_actor_roles_index(project_data: Dict[str, Any]) -> Dict[str, List[str]]:
+    """Return all actor-to-role relations after one assignment-map pass."""
+    roles_by_actor: Dict[str, Set[str]] = {}
+
+    def collect(assignments: Any) -> None:
+        if not isinstance(assignments, dict):
+            return
+        for char_name, assignment in assignments.items():
+            for actor_id in actor_ids_from_assignment(assignment):
+                roles_by_actor.setdefault(actor_id, set()).add(str(char_name))
+
+    collect(project_data.get("global_map", {}))
+    for episode_map in ensure_episode_actor_map(project_data).values():
+        collect(episode_map)
+
+    return {
+        actor_id: sorted(roles, key=str.lower)
+        for actor_id, roles in roles_by_actor.items()
+    }
 
 
 def rename_character_assignments(
@@ -133,14 +202,32 @@ def remove_actor_assignments(
 ) -> None:
     """Remove all assignments for an actor across global and local maps."""
     global_map = get_assignment_map(project_data, ASSIGNMENT_SCOPE_GLOBAL)
-    for char_name in [char for char, aid in global_map.items() if aid == actor_id]:
-        del global_map[char_name]
+    for char_name, assignment in list(global_map.items()):
+        remaining = [
+            assigned for assigned in actor_ids_from_assignment(assignment)
+            if assigned != actor_id
+        ]
+        if len(remaining) == len(actor_ids_from_assignment(assignment)):
+            continue
+        if not remaining:
+            del global_map[char_name]
+        else:
+            global_map[char_name] = remaining[0] if len(remaining) == 1 else remaining
 
     for episode_map in ensure_episode_actor_map(project_data).values():
         if not isinstance(episode_map, dict):
             continue
-        for char_name in [char for char, aid in episode_map.items() if aid == actor_id]:
-            del episode_map[char_name]
+        for char_name, assignment in list(episode_map.items()):
+            previous = actor_ids_from_assignment(assignment)
+            remaining = [assigned for assigned in previous if assigned != actor_id]
+            if len(remaining) == len(previous):
+                continue
+            if not remaining:
+                del episode_map[char_name]
+            else:
+                episode_map[char_name] = (
+                    remaining[0] if len(remaining) == 1 else remaining
+                )
 
 
 def move_episode_assignments(

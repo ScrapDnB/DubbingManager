@@ -1,0 +1,651 @@
+"""QML backend for the shared global actor library."""
+
+from copy import deepcopy
+import random
+from typing import Optional
+
+from PySide6.QtCore import QObject, Property, QUrl, Signal, Slot, Qt
+
+from config.constants import MY_PALETTE
+from core.commands import AddActorCommand, UpdateProjectFileStateCommand
+from services.assignment_transfer_service import AssignmentTransferService
+from services.actor_id_service import new_actor_id
+from application import GlobalActorController
+from ui.qml_backend.models import DictListModel
+from ui.qml_backend.project_session import ProjectSession
+
+
+class ActorLibraryBridge(QObject):
+    changed = Signal()
+    statusRequested = Signal(str)
+    errorRequested = Signal(str)
+    projectDataChanged = Signal(str)
+
+    def __init__(
+        self,
+        session: ProjectSession,
+        global_settings_service,
+        global_settings: dict,
+        ui_state=None,
+        parent: Optional[QObject] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._session = session
+        self._settings = global_settings_service
+        self._global_settings = global_settings
+        self._ui_state = ui_state
+        self._assignment_transfer = AssignmentTransferService()
+        self._actor_sort_key, self._actor_sort_ascending = self._restore_sort()
+        self._global_model = DictListModel({
+            "id": Qt.UserRole + 1, "name": Qt.UserRole + 2,
+            "color": Qt.UserRole + 3, "roleCount": Qt.UserRole + 4,
+            "gender": Qt.UserRole + 5, "inProject": Qt.UserRole + 6,
+            "status": Qt.UserRole + 7,
+        }, self)
+        self._transfer_model = DictListModel({
+            "actorId": Qt.UserRole + 1, "name": Qt.UserRole + 2,
+            "exists": Qt.UserRole + 3, "label": Qt.UserRole + 4,
+        }, self)
+        self._global_choice_model = DictListModel({
+            "id": Qt.UserRole + 1, "name": Qt.UserRole + 2,
+        }, self)
+        self._global_search_model = DictListModel({
+            "id": Qt.UserRole + 1, "name": Qt.UserRole + 2,
+            "gender": Qt.UserRole + 3,
+        }, self)
+        self._global_search_text = ""
+        self._merge_target_model = DictListModel({
+            "targetId": Qt.UserRole + 1, "targetKind": Qt.UserRole + 2,
+            "label": Qt.UserRole + 3,
+        }, self)
+        self.refresh()
+
+    @Property(QObject, constant=True)
+    def globalActorsModel(self) -> QObject:
+        return self._global_model
+
+    @Property(QObject, constant=True)
+    def projectActorTransferModel(self) -> QObject:
+        return self._transfer_model
+
+    @Property(QObject, constant=True)
+    def globalActorChoicesModel(self) -> QObject:
+        return self._global_choice_model
+
+    @Property(QObject, constant=True)
+    def globalActorSearchModel(self) -> QObject:
+        return self._global_search_model
+
+    @Property(QObject, constant=True)
+    def mergeTargetModel(self) -> QObject:
+        return self._merge_target_model
+
+    @Property(str, notify=changed)
+    def actorSortKey(self) -> str:
+        return self._actor_sort_key
+
+    @Property(bool, notify=changed)
+    def actorSortAscending(self) -> bool:
+        return self._actor_sort_ascending
+
+    @Slot(str)
+    def setActorSort(self, key: str) -> None:
+        if key not in {"name", "gender", "status"}:
+            return
+        if key == self._actor_sort_key:
+            self._actor_sort_ascending = not self._actor_sort_ascending
+        else:
+            self._actor_sort_key = key
+            self._actor_sort_ascending = True
+        self._save_sort()
+        self.refresh()
+
+    @Slot(str, result=int)
+    def setGlobalActorSearchText(self, text: str) -> int:
+        self._global_search_text = self._actor_search_key(text)
+        self._refresh_global_search_model()
+        return self._global_search_model.rowCount()
+
+    def _restore_sort(self) -> tuple[str, bool]:
+        if self._ui_state is None:
+            return "name", True
+        stored = str(
+            self._ui_state.stringValue("tableSort/globalActors", "") or ""
+        )
+        key, separator, direction = stored.partition("|")
+        if key not in {"name", "gender", "status"} or not separator:
+            return "name", True
+        return key, direction != "desc"
+
+    def _save_sort(self) -> None:
+        if self._ui_state is not None:
+            self._ui_state.setStringValue(
+                "tableSort/globalActors",
+                f"{self._actor_sort_key}|"
+                f"{'asc' if self._actor_sort_ascending else 'desc'}",
+            )
+
+    @Slot(str, str)
+    def addGlobalActor(self, name: str, gender: str) -> None:
+        name = (name or "").strip()
+        if not name:
+            self.errorRequested.emit("Введите имя актёра")
+            return
+        if self._settings.find_global_actor_by_name(name):
+            self.errorRequested.emit("Актёр с таким именем уже есть в глобальной базе")
+            return
+        self._settings.add_global_actor(name, gender=self._gender(gender))
+        if not self._save():
+            return
+        self.refresh()
+        self.statusRequested.emit(f"Добавлен глобальный актёр: {name}")
+
+    @Slot(str)
+    def deleteGlobalActor(self, actor_id: str) -> None:
+        self.deleteGlobalActors([actor_id])
+
+    @Slot("QVariantList")
+    def deleteGlobalActors(self, actor_ids: list) -> None:
+        actors = self._settings.get_global_actor_base()
+        ids = list(dict.fromkeys(
+            str(actor_id) for actor_id in actor_ids
+            if str(actor_id) in actors
+        ))
+        if not ids:
+            self.errorRequested.emit("Выберите хотя бы одного актёра")
+            return
+        names = [str(actors[actor_id].get("name") or actor_id) for actor_id in ids]
+        for actor_id in ids:
+            self._settings.remove_global_actor(actor_id)
+        if not self._save():
+            return
+        self.refresh()
+        if len(names) == 1:
+            self.statusRequested.emit(f"Удалён глобальный актёр: {names[0]}")
+        else:
+            self.statusRequested.emit(f"Удалено глобальных актёров: {len(names)}")
+
+    @Slot(str, str, str)
+    def updateGlobalActor(self, actor_id: str, name: str, gender: str) -> None:
+        actors = self._settings.get_global_actor_base()
+        if actor_id not in actors:
+            self.errorRequested.emit("Выберите актёра")
+            return
+        name = (name or "").strip()
+        if not name:
+            self.errorRequested.emit("Введите имя актёра")
+            return
+        duplicate = self._settings.find_global_actor_by_name(name)
+        if duplicate and duplicate != actor_id:
+            self.errorRequested.emit("Актёр с таким именем уже есть в глобальной базе")
+            return
+        actors[actor_id] = {"name": name, "gender": self._gender(gender)}
+        self._settings.set_global_actor_base(actors)
+        if not self._save():
+            return
+        self.refresh()
+        self.statusRequested.emit(f"Глобальный актёр обновлён: {name}")
+
+    @Slot(str)
+    @Slot(str, str)
+    def addGlobalActorToProject(self, actor_id: str, color: str = "") -> None:
+        actor = self._settings.get_global_actor_base().get(actor_id)
+        if not actor:
+            self.errorRequested.emit("Выберите актёра")
+            return
+        name = str(actor.get("name") or actor_id)
+        if self._project_actor_by_name(name):
+            self.errorRequested.emit(f"{name} уже добавлен в проект")
+            return
+        actors = self._session.data.setdefault("actors", {})
+        target_id = actor_id if actor_id not in actors else new_actor_id()
+        self._session.execute(AddActorCommand(
+            actors, target_id, name,
+            self._normalized_color(color) or self._next_color(),
+            self._gender(actor.get("gender", "")),
+        ), "actors")
+        self.projectDataChanged.emit("actors")
+        self.statusRequested.emit(f"Добавлен в проект: {name}")
+
+    @Slot("QVariantList")
+    def addGlobalActorsToProject(self, actor_ids: list) -> None:
+        """Copy selected global actors into the project in one undo step."""
+        global_actors = self._settings.get_global_actor_base()
+        project_actors = self._session.data.get("actors", {})
+        ids = list(dict.fromkeys(
+            str(actor_id) for actor_id in actor_ids
+            if str(actor_id) in global_actors
+        ))
+        if not ids:
+            self.errorRequested.emit("Выберите хотя бы одного актёра")
+            return
+
+        existing_names = {
+            str(actor.get("name") or "").strip().casefold()
+            for actor in project_actors.values()
+        }
+        additions = []
+        used_colors = {
+            str(actor.get("color") or "").upper()
+            for actor in project_actors.values()
+        }
+        for actor_id in ids:
+            actor = global_actors[actor_id]
+            name = str(actor.get("name") or actor_id)
+            if name.strip().casefold() in existing_names:
+                continue
+            target_id = actor_id
+            while target_id in project_actors or any(
+                row[0] == target_id for row in additions
+            ):
+                target_id = new_actor_id()
+            color = self._next_color(used_colors)
+            used_colors.add(color.upper())
+            additions.append((target_id, {
+                "name": name,
+                "color": color,
+                "gender": self._gender(actor.get("gender", "")),
+                "roles": [],
+            }))
+            existing_names.add(name.strip().casefold())
+
+        if not additions:
+            self.errorRequested.emit("Все выбранные актёры уже есть в проекте")
+            return
+
+        updated_actors = deepcopy(project_actors)
+        updated_actors.update(dict(additions))
+        self._session.execute(UpdateProjectFileStateCommand(
+            self._session.data,
+            {"actors": updated_actors},
+            f"Добавлены актёры из глобальной базы: {len(additions)}",
+        ), "actors")
+        self.projectDataChanged.emit("actors")
+        self.statusRequested.emit(
+            f"Добавлено в проект: {len(additions)} · уже было: {len(ids) - len(additions)}"
+        )
+
+    @Slot(str)
+    def addProjectActorToGlobal(self, actor_id: str) -> None:
+        actor = self._session.data.get("actors", {}).get(actor_id)
+        if not actor:
+            self.errorRequested.emit("Выберите актёра")
+            return
+        name = str(actor.get("name") or actor_id)
+        if self._settings.find_global_actor_by_name(name):
+            self.errorRequested.emit(f"{name} уже есть в глобальной базе")
+            return
+        self._settings.add_global_actor(
+            name, actor_id=actor_id, gender=self._gender(actor.get("gender", "")),
+        )
+        if not self._save():
+            return
+        self.refresh()
+        self.statusRequested.emit(f"Добавлен в глобальную базу: {name}")
+
+    @Slot()
+    def refreshProjectActorTransfer(self) -> None:
+        rows, _ = GlobalActorController(
+            self._session.data, self._settings,
+        ).project_actor_transfer_rows()
+        self._transfer_model.set_rows([{
+            "actorId": row["actor_id"], "name": row["name"],
+            "exists": row["exists"], "label": row["label"],
+        } for row in rows])
+
+    @Slot("QVariantList")
+    def addProjectActorsToGlobal(self, actor_ids: list) -> None:
+        ids = [str(value) for value in actor_ids if str(value)]
+        if not ids:
+            self.errorRequested.emit("Выберите хотя бы одного актёра")
+            return
+        stats = self._settings.add_project_actors_to_global(
+            self._session.data.get("actors", {}), ids,
+        )
+        if not self._save():
+            return
+        self.refresh()
+        self.refreshProjectActorTransfer()
+        self.statusRequested.emit(
+            f"В глобальную базу добавлено: {stats['added']} · "
+            f"уже было: {stats['skipped_existing']}"
+        )
+
+    @Slot(str, str)
+    def rememberProjectActor(self, name: str, gender: str) -> None:
+        if self._settings.find_global_actor_by_name(name):
+            return
+        self._settings.add_global_actor(name, gender=self._gender(gender))
+        if not self._save():
+            return
+        self.refresh()
+
+    @Slot(result=int)
+    def syncProjectActorsWithGlobalBase(self) -> int:
+        candidate = deepcopy(self._session.data)
+        changed = GlobalActorController(candidate, self._settings).sync_project_actors_with_global_base()
+        if not changed:
+            self.refresh()
+            return 0
+        fields = ("actors", "global_map", "episode_actor_map", "export_config")
+        updates = {field: candidate.get(field) for field in fields
+                   if candidate.get(field) != self._session.data.get(field)}
+        self._session.execute(UpdateProjectFileStateCommand(
+            self._session.data, updates, "Синхронизирована глобальная база актёров",
+        ), "actors")
+        self.projectDataChanged.emit("actors")
+        self.statusRequested.emit(f"Синхронизировано актёров: {changed}")
+        return changed
+
+    @Slot(str)
+    def prepareMergeTargets(self, source_actor_id: str) -> None:
+        source_actor_id = str(source_actor_id or "")
+        rows = []
+        for actor_id, actor in sorted(
+            self._session.data.get("actors", {}).items(),
+            key=lambda item: str(item[1].get("name", item[0])).casefold(),
+        ):
+            if actor_id != source_actor_id:
+                rows.append({
+                    "targetId": actor_id,
+                    "targetKind": "project",
+                    "label": f"Проект: {actor.get('name', actor_id)}",
+                })
+        project_ids = set(self._session.data.get("actors", {}))
+        for actor_id, actor in sorted(
+            self._settings.get_global_actor_base().items(),
+            key=lambda item: str(item[1].get("name", item[0])).casefold(),
+        ):
+            if actor_id == source_actor_id:
+                continue
+            if actor_id in project_ids:
+                continue
+            rows.append({
+                "targetId": actor_id,
+                "targetKind": "global",
+                "label": f"Глобальная: {actor.get('name', actor_id)}",
+            })
+        self._merge_target_model.set_rows(rows)
+        self.changed.emit()
+
+    @Slot(str, str, str, result=bool)
+    def mergeProjectActor(
+        self, source_actor_id: str, target_kind: str, target_actor_id: str,
+    ) -> bool:
+        source_actor_id = str(source_actor_id or "")
+        target_actor_id = str(target_actor_id or "")
+        if source_actor_id not in self._session.data.get("actors", {}):
+            self.errorRequested.emit("Выберите актёра для объединения")
+            return False
+        if not target_actor_id or target_kind not in {"project", "global"}:
+            self.errorRequested.emit("Выберите актёра, который останется")
+            return False
+        candidate = deepcopy(self._session.data)
+        controller = GlobalActorController(candidate, self._settings)
+        source_name = candidate["actors"][source_actor_id].get(
+            "name", source_actor_id
+        )
+        if target_kind == "global":
+            global_actor = self._settings.get_global_actor_base().get(
+                target_actor_id
+            )
+            if not global_actor:
+                self.errorRequested.emit("Глобальный актёр не найден")
+                return False
+            changed = controller.merge_project_actor_with_global(
+                source_actor_id, target_actor_id, global_actor
+            )
+        else:
+            actors = candidate.get("actors", {})
+            if target_actor_id == source_actor_id or target_actor_id not in actors:
+                self.errorRequested.emit("Выберите другого актёра проекта")
+                return False
+            source = actors[source_actor_id]
+            target = deepcopy(actors[target_actor_id])
+            if not target.get("gender") and source.get("gender"):
+                target["gender"] = source["gender"]
+            target["roles"] = list(dict.fromkeys(
+                list(target.get("roles", [])) + list(source.get("roles", []))
+            ))
+            actors[target_actor_id] = target
+            del actors[source_actor_id]
+            controller.replace_project_actor_references(
+                source_actor_id, target_actor_id
+            )
+            changed = True
+        if not changed:
+            return False
+        fields = ("actors", "global_map", "episode_actor_map", "export_config")
+        updates = {
+            field: candidate.get(field)
+            for field in fields
+            if candidate.get(field) != self._session.data.get(field)
+        }
+        self._session.execute(UpdateProjectFileStateCommand(
+            self._session.data, updates,
+            f"Объединён актёр {source_name}",
+        ), "actors")
+        self.projectDataChanged.emit("actors")
+        target = self._session.data.get("actors", {}).get(target_actor_id, {})
+        self.statusRequested.emit(
+            f"Актёры объединены: {source_name} → "
+            f"{target.get('name', target_actor_id)}"
+        )
+        return True
+
+    @Slot(str, result=bool)
+    def exportGlobalActorBase(self, path_or_url: str) -> bool:
+        path = self._local_path(path_or_url)
+        if not path:
+            return False
+        try:
+            self._settings.export_global_actor_base(path)
+        except Exception as exc:
+            self.errorRequested.emit(
+                f"Не удалось экспортировать глобальную базу актёров: {exc}"
+            )
+            return False
+        self.statusRequested.emit(f"Глобальная база актёров сохранена: {path}")
+        return True
+
+    @Slot(str, result=bool)
+    def importGlobalActorBase(self, path_or_url: str) -> bool:
+        path = self._local_path(path_or_url)
+        if not path:
+            return False
+        try:
+            stats = self._settings.import_global_actor_base(path)
+            if not self._save():
+                return False
+        except Exception as exc:
+            self.errorRequested.emit(
+                f"Не удалось импортировать глобальную базу актёров: {exc}"
+            )
+            return False
+        self.refresh()
+        self.statusRequested.emit(
+            f"Глобальная база импортирована · добавлено: {stats['added']} · "
+            f"уже было: {stats['matched']}"
+        )
+        return True
+
+    @Slot(str, result=bool)
+    def exportProjectAssignments(self, path_or_url: str) -> bool:
+        path = self._local_path(path_or_url)
+        if not path:
+            return False
+        try:
+            self._assignment_transfer.save_export(self._session.data, path)
+        except Exception as exc:
+            self.errorRequested.emit(
+                f"Не удалось экспортировать распределение актёров: {exc}"
+            )
+            return False
+        self.statusRequested.emit(f"Распределение актёров сохранено: {path}")
+        return True
+
+    @Slot(str, result=bool)
+    def importProjectAssignments(self, path_or_url: str) -> bool:
+        path = self._local_path(path_or_url)
+        if not path:
+            return False
+        candidate = deepcopy(self._session.data)
+        try:
+            stats = self._assignment_transfer.import_from_file(candidate, path)
+        except Exception as exc:
+            self.errorRequested.emit(
+                f"Не удалось импортировать распределение актёров: {exc}"
+            )
+            return False
+
+        fields = ("actors", "global_map", "episode_actor_map")
+        updates = {
+            field: candidate.get(field, {})
+            for field in fields
+            if candidate.get(field, {}) != self._session.data.get(field, {})
+        }
+        if updates:
+            self._session.execute(UpdateProjectFileStateCommand(
+                self._session.data,
+                updates,
+                "Импортировано распределение актёров",
+            ), "assignments")
+            self.projectDataChanged.emit("assignments")
+
+        imported_ids = list(self._session.data.get("actors", {}))
+        self._settings.add_project_actors_to_global(
+            self._session.data.get("actors", {}), imported_ids,
+        )
+        if not self._save():
+            return False
+        self.refresh()
+        self.statusRequested.emit(
+            f"Распределение импортировано · актёров добавлено: "
+            f"{stats['actors_added']} · сопоставлено: {stats['actors_matched']} · "
+            f"глобальных назначений: {stats['global_assignments']} · "
+            f"серийных: {stats['episode_assignments']} · "
+            f"пропущено: {stats['skipped_episode_assignments']}"
+        )
+        return True
+
+    @Slot()
+    def refresh(self) -> None:
+        project_names = {
+            str(actor.get("name") or "").strip().casefold()
+            for actor in self._session.data.get("actors", {}).values()
+            if isinstance(actor, dict)
+        }
+        global_rows = [{
+            "id": actor_id, "name": actor.get("name", actor_id),
+            "color": "transparent", "roleCount": "В проекте" if str(actor.get("name") or "").strip().casefold() in project_names else "",
+            "gender": actor.get("gender", ""),
+            "inProject": str(actor.get("name") or "").strip().casefold() in project_names,
+            "status": "В проекте" if str(actor.get("name") or "").strip().casefold() in project_names else "",
+        } for actor_id, actor in self._settings.get_global_actor_base().items()]
+        global_rows.sort(
+            key=self._actor_sort_value,
+            reverse=not self._actor_sort_ascending,
+        )
+        self._global_model.set_rows(global_rows)
+        available_actors = [
+            (actor_id, actor)
+            for actor_id, actor in sorted(
+                self._settings.get_global_actor_base().items(),
+                key=lambda item: str(item[1].get("name", item[0])).casefold(),
+            )
+            if not self._project_actor_by_name(
+                str(actor.get("name", actor_id))
+            )
+        ]
+        self._global_choice_model.set_rows([
+            {"id": "", "name": "Создать нового актёра"},
+            *[
+                {"id": actor_id, "name": actor.get("name", actor_id)}
+                for actor_id, actor in available_actors
+            ],
+        ])
+        self._refresh_global_search_model(available_actors)
+        self.changed.emit()
+
+    def _refresh_global_search_model(self, available_actors=None) -> None:
+        if available_actors is None:
+            available_actors = [
+                (actor_id, actor)
+                for actor_id, actor in sorted(
+                    self._settings.get_global_actor_base().items(),
+                    key=lambda item: str(item[1].get("name", item[0])).casefold(),
+                )
+                if not self._project_actor_by_name(
+                    str(actor.get("name", actor_id))
+                )
+            ]
+        search_terms = self._global_search_text.split()
+        self._global_search_model.set_rows([
+            {
+                "id": actor_id,
+                "name": actor.get("name", actor_id),
+                "gender": actor.get("gender", ""),
+            }
+            for actor_id, actor in available_actors
+            if all(
+                term in self._actor_search_key(actor.get("name", actor_id))
+                for term in search_terms
+            )
+        ])
+
+    @staticmethod
+    def _actor_search_key(value) -> str:
+        """Normalize a name or query for forgiving actor lookup."""
+        return " ".join(str(value or "").casefold().replace("ё", "е").split())
+
+    def _actor_sort_value(self, row: dict):
+        value = row.get(self._actor_sort_key)
+        return str(value or "").casefold(), str(row.get("name", "")).casefold()
+
+    def _save(self) -> bool:
+        self._global_settings["global_actor_base"] = (
+            self._settings.get_global_actor_base()
+        )
+        if self._settings.save_settings(self._global_settings):
+            return True
+        restored = self._settings.load_settings()
+        self._global_settings.clear()
+        self._global_settings.update(restored)
+        self.refresh()
+        self.errorRequested.emit(
+            "Не удалось сохранить глобальную базу актёров"
+        )
+        return False
+
+    def _project_actor_by_name(self, name: str) -> bool:
+        key = name.strip().casefold()
+        return any(str(actor.get("name") or "").strip().casefold() == key
+                   for actor in self._session.data.get("actors", {}).values())
+
+    def _next_color(self, extra_used: Optional[set[str]] = None) -> str:
+        used = {str(actor.get("color", "")).upper()
+                for actor in self._session.data.get("actors", {}).values()}
+        used.update(extra_used or set())
+        available = [color for color in MY_PALETTE if color.upper() not in used]
+        return random.choice(available or MY_PALETTE)
+
+    @staticmethod
+    def _normalized_color(color: str) -> str:
+        value = str(color or "").strip().upper()
+        if not (value.startswith("#") and len(value) == 7):
+            return ""
+        try:
+            int(value[1:], 16)
+        except ValueError:
+            return ""
+        return value
+
+    @staticmethod
+    def _gender(value: str) -> str:
+        value = str(value or "").strip().upper()
+        return "М" if value in {"M", "М"} else "Ж" if value in {"F", "Ж"} else ""
+
+    @staticmethod
+    def _local_path(path_or_url: str) -> str:
+        url = QUrl(str(path_or_url or ""))
+        return url.toLocalFile() if url.isLocalFile() else str(path_or_url or "")

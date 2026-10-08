@@ -69,6 +69,34 @@ class TestProjectFolderService:
 
         assert self.service.project_path_exists(data, "Video/Episode_01.mp4")
 
+    def test_prepare_project_paths_uses_project_file_parent(self):
+        source_path = os.path.join(self.test_dir, "Episode_01.ass")
+        with open(source_path, "w") as f:
+            f.write("test")
+        data = {
+            "project_folder": "/old/computer/Project",
+            "episodes": {"1": "Episode_01.ass"},
+        }
+
+        changed = self.service.prepare_project_paths(
+            data, os.path.join(self.test_dir, "project.dub")
+        )
+
+        assert changed is True
+        assert data["project_folder"] == os.path.realpath(self.test_dir)
+
+    def test_prepare_project_paths_resolves_relative_folder(self):
+        assets = os.path.join(self.test_dir, "Assets")
+        os.makedirs(assets)
+        data = {"project_folder": "Assets", "episodes": {}}
+
+        changed = self.service.prepare_project_paths(
+            data, os.path.join(self.test_dir, "project.dub")
+        )
+
+        assert changed is True
+        assert data["project_folder"] == os.path.realpath(assets)
+
     def test_extract_episode_number_various_formats(self):
         """Извлечение номера серии из различных форматов"""
         test_cases = [
@@ -99,6 +127,16 @@ class TestProjectFolderService:
         
         assert "1" in found["ass"]
         assert found["ass"]["1"] == ass_path
+
+    def test_find_docx_sources(self):
+        """DOCX монтажные листы участвуют в поиске исходников."""
+        docx_path = os.path.join(self.test_dir, "Episode_02.docx")
+        with open(docx_path, "w") as f:
+            f.write("test")
+
+        found = self.service.find_all_media_files(self.test_dir)
+
+        assert found["ass"]["2"] == docx_path
 
     def test_find_video_files(self):
         """Поиск видео файлов"""
@@ -265,6 +303,23 @@ class TestProjectFolderService:
         assert video_count == 3
         assert len(data["episodes"]) == 3
         assert len(data["video_paths"]) == 3
+
+    def test_batch_import_ignores_video_without_project_episode(self):
+        source_path = os.path.join(self.test_dir, "Episode_01.srt")
+        matching_video = os.path.join(self.test_dir, "Episode_01.mp4")
+        unrelated_video = os.path.join(self.test_dir, "Episode_99.mp4")
+        for path in (source_path, matching_video, unrelated_video):
+            with open(path, "w") as f:
+                f.write("test")
+
+        data = {"episodes": {}, "video_paths": {}}
+        source_count, video_count = self.service.batch_import_from_folder(
+            data, self.test_dir
+        )
+
+        assert source_count == 1
+        assert video_count == 1
+        assert data["video_paths"] == {"1": matching_video}
 
     def test_find_missing_files(self):
         """Поиск отсутствующих файлов"""

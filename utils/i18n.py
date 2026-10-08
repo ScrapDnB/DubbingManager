@@ -5,6 +5,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict
 
+from PySide6.QtCore import QTranslator
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_LANGUAGE = "ru"
@@ -127,78 +129,18 @@ def translate_source(text: str) -> str:
     return i18n.translate_source(text)
 
 
-def translate_widget_tree(root: Any) -> None:
-    """Translate static widget texts under a Qt widget tree."""
-    if get_language() == DEFAULT_LANGUAGE or root is None:
-        return
+class JsonSourceTranslator(QTranslator):
+    """Expose the existing source-string catalog to Qt and QML."""
 
-    from PySide6.QtWidgets import (
-        QAbstractButton,
-        QGroupBox,
-        QLabel,
-        QLineEdit,
-        QTabWidget,
-        QTableWidget,
-        QTreeWidget,
-        QWidget,
-    )
-
-    widgets = [root]
-    if isinstance(root, QWidget):
-        widgets.extend(root.findChildren(QWidget))
-
-    for widget in widgets:
-        if hasattr(widget, "windowTitle") and hasattr(widget, "setWindowTitle"):
-            title = widget.windowTitle()
-            translated = translate_source(title)
-            if translated != title:
-                widget.setWindowTitle(translated)
-
-        if hasattr(widget, "toolTip") and hasattr(widget, "setToolTip"):
-            tooltip = widget.toolTip()
-            translated = translate_source(tooltip)
-            if translated != tooltip:
-                widget.setToolTip(translated)
-
-        if isinstance(widget, QLabel):
-            text = widget.text()
-            translated = translate_source(text)
-            if translated != text:
-                widget.setText(translated)
-        elif isinstance(widget, QAbstractButton):
-            text = widget.text()
-            translated = translate_source(text)
-            if translated != text:
-                widget.setText(translated)
-        elif isinstance(widget, QGroupBox):
-            title = widget.title()
-            translated = translate_source(title)
-            if translated != title:
-                widget.setTitle(translated)
-        elif isinstance(widget, QLineEdit):
-            placeholder = widget.placeholderText()
-            translated = translate_source(placeholder)
-            if translated != placeholder:
-                widget.setPlaceholderText(translated)
-        elif isinstance(widget, QTabWidget):
-            for index in range(widget.count()):
-                text = widget.tabText(index)
-                translated = translate_source(text)
-                if translated != text:
-                    widget.setTabText(index, translated)
-        elif isinstance(widget, QTableWidget):
-            for index in range(widget.columnCount()):
-                item = widget.horizontalHeaderItem(index)
-                if item is not None:
-                    text = item.text()
-                    translated = translate_source(text)
-                    if translated != text:
-                        item.setText(translated)
-        elif isinstance(widget, QTreeWidget):
-            item = widget.headerItem()
-            if item is not None:
-                for index in range(widget.columnCount()):
-                    text = item.text(index)
-                    translated = translate_source(text)
-                    if translated != text:
-                        item.setText(index, translated)
+    def translate(
+        self,
+        context: str,
+        source_text: str,
+        disambiguation: str | None = None,
+        n: int = -1,
+    ) -> str:
+        del context, disambiguation, n
+        translated = translate_source(source_text)
+        # PySide treats an empty Python string as a real translation, which can
+        # break Qt's own internal strings containing %1-style placeholders.
+        return translated or source_text

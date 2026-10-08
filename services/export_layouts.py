@@ -4,7 +4,11 @@ import logging
 from html import escape
 from typing import Any, Dict, List, Optional, Tuple
 
-from services.assignment_service import get_actor_for_character
+from services.assignment_service import (
+    get_actor_for_character,
+    get_actor_ids_for_character,
+)
+from services.layout_template_service import normalize_layout_template
 from utils.helpers import (
     hex_to_rgba_string,
     format_seconds_to_full_tc,
@@ -51,6 +55,13 @@ class ExportLayoutMixin:
             return str(layout_type)
         return "Таблица"
 
+    @staticmethod
+    def _export_font_family(cfg: Dict[str, Any]) -> str:
+        """Return the selected montage-sheet font family."""
+        family = str(cfg.get('font_family', 'Segoe UI') or '').strip()
+        family = family.replace('\x00', '').replace('\r', ' ').replace('\n', ' ')
+        return family[:100] or 'Segoe UI'
+
     def _table_column_width_rem(self, cfg: Dict[str, Any], key: str) -> float:
         """Return a sane table column width in rem units."""
         defaults = {
@@ -88,6 +99,17 @@ class ExportLayoutMixin:
             value = default
         return max(7.0, min(18.0, value * 0.5))
 
+    @staticmethod
+    def _export_element_bold(cfg: Dict[str, Any], key: str) -> bool:
+        """Return the configured bold style for a montage sheet element."""
+        setting = {
+            'time': 'bold_time',
+            'char': 'bold_char',
+            'actor': 'bold_actor',
+            'text': 'bold_text',
+        }.get(key, '')
+        return bool(cfg.get(setting, key == 'char')) if setting else False
+
     def generate_html(
         self,
         ep: str,
@@ -119,6 +141,13 @@ class ExportLayoutMixin:
         )
         use_color = cfg.get('use_color', True)
         soften_colors = cfg.get('soften_colors', True)
+        custom_template = cfg.get('layout_template')
+        if isinstance(custom_template, dict):
+            custom_template = normalize_layout_template(
+                custom_template, forced_kind='montage'
+            )
+        else:
+            custom_template = None
 
         for idx, line in enumerate(processed):
             # Validate replica data
@@ -129,17 +158,17 @@ class ExportLayoutMixin:
                 logger.warning(f"Skipping line without 'text' field: {line}")
                 continue
 
-            aid = get_actor_for_character(self.project_data, line['char'], ep)
-            actor = actors.get(aid, {"name": "-", "color": "#ffffff"})
-
-            is_highlighted = (
-                effective_filter is None or
-                aid in effective_filter
+            aid, actor, is_highlighted = self._actor_display_context(
+                line['char'], ep, effective_filter
             )
             h_class = "highlighted-block" if is_highlighted else ""
 
             bg_color, border_col = self._get_colors(
-                use_color, is_highlighted, actor, soften_colors
+                use_color,
+                is_highlighted,
+                actor,
+                soften_colors,
+                cfg.get('color_softening_level', 1),
             )
             text_color = self._negative_text_color(
                 aid,
@@ -149,7 +178,19 @@ class ExportLayoutMixin:
 
             text_html = self._format_text_html(line, is_editable)
 
-            if layout_type == "Таблица":
+            if custom_template is not None:
+                html += self._build_custom_layout_row(
+                    line,
+                    actor,
+                    text_html,
+                    bg_color,
+                    border_col,
+                    text_color,
+                    h_class,
+                    cfg,
+                    custom_template['root'],
+                )
+            elif layout_type == "Таблица":
                 html += self._build_table_row(
                     line, actor, text_html, bg_color, text_color, h_class, cfg,
                     is_first=idx == 0, is_last=idx == len(processed) - 1
@@ -172,6 +213,119 @@ class ExportLayoutMixin:
 
         return html + "</body></html>"
 
+    def _build_custom_layout_row(
+        self,
+        line: Dict[str, Any],
+        actor: Dict[str, Any],
+        text_html: str,
+        bg_color: str,
+        border_color: str,
+        text_color: Optional[str],
+        h_class: str,
+        cfg: Dict[str, Any],
+        root: Dict[str, Any],
+    ) -> str:
+        """Render a validated semantic layout tree as portable flex HTML."""
+        visible = {
+            'timecode': bool(cfg.get('col_tc', True)),
+            'character': bool(cfg.get('col_char', True)),
+            'actor': bool(cfg.get('col_actor', True)),
+            'replica': bool(cfg.get('col_text', True)),
+        }
+        values = {
+            'timecode': escape(self._format_timing_text(line, cfg)),
+            'character': self._character_highlight_html(
+                escape(str(line.get('char', ''))),
+                bg_color,
+                text_color,
+                h_class,
+                cfg,
+            ),
+            'actor': escape(str(actor.get('name', '-'))),
+            'replica': text_html,
+        }
+
+        def render(node: Dict[str, Any]) -> str:
+            node_type = str(node.get('type'))
+            weight = max(1, min(10, int(node.get('weight', 1))))
+            if node_type in {'row', 'column'}:
+                children = ''.join(
+                    render(child) for child in node.get('children', [])
+                    if isinstance(child, dict)
+                )
+                if not children:
+                    return ''
+                direction = 'row' if node_type == 'row' else 'column'
+                align = 'flex-start' if node_type == 'row' else 'stretch'
+                return (
+                    "<div class='custom-layout-node' style='display:flex;"
+                    f"flex-direction:{direction};align-items:{align};"
+                    f"gap:{int(node.get('gap', 8))}px;flex:{weight} 1 0;"
+                    "min-width:0'>"
+                    f"{children}</div>"
+                )
+            if node_type == 'separator':
+                return (
+                    "<div style='height:1px;background:#b8b8b8;"
+                    "margin:4px 0;flex:1 1 auto'></div>"
+                )
+            if node_type == 'spacer':
+                return (
+                    f"<div style='min-height:{int(node.get('size', 12))}px'>"
+                    "</div>"
+                )
+            field = str(node.get('field') or 'replica')
+            if not visible.get(field, False):
+                return ''
+            style = node.get('style', {})
+            font_size = max(8, min(72, int(style.get('font_size', 24))))
+            font_weight = '700' if style.get('bold') else '400'
+            font_style = 'italic' if style.get('italic') else 'normal'
+            alignment = str(style.get('alignment', 'left'))
+            if alignment not in {'left', 'center', 'right'}:
+                alignment = 'left'
+            return (
+                f"<div class='custom-field custom-{escape(field)}' "
+                f"style='flex:{weight} 1 0;min-width:0;"
+                f"font-size:{font_size}px;font-weight:{font_weight};"
+                f"font-style:{font_style};text-align:{alignment};"
+                "white-space:pre-wrap;overflow-wrap:anywhere'>"
+                f"{values.get(field, '')}</div>"
+            )
+
+        block_bg, block_border, block_text = self._container_highlight_colors(
+            bg_color, border_color, text_color, h_class, cfg
+        )
+        return (
+            f"<div class='line-container custom-layout-container {h_class}' "
+            f"style='background-color:{block_bg};border-left-color:{block_border};"
+            f"color:{block_text or '#000000'}'>"
+            f"{render(root)}</div>"
+        )
+
+    def _actor_display_context(
+        self,
+        character: str,
+        episode: str,
+        effective_filter: Optional[set[str]],
+    ) -> Tuple[Optional[str], Dict[str, Any], bool]:
+        """Use actor color only when a role resolves to one selected actor."""
+        actors = self.project_data.get("actors", {})
+        actor_ids = get_actor_ids_for_character(
+            self.project_data, character, episode
+        )
+        selected_ids = (
+            actor_ids if effective_filter is None
+            else [actor_id for actor_id in actor_ids if actor_id in effective_filter]
+        )
+        color_actor_id = selected_ids[0] if len(selected_ids) == 1 else None
+        actor = dict(actors.get(color_actor_id, {})) if color_actor_id else {}
+        actor["name"] = " / ".join(
+            str(actors.get(actor_id, {}).get("name") or actor_id)
+            for actor_id in actor_ids
+        ) or "-"
+        return color_actor_id, actor, bool(color_actor_id)
+
     def _get_js_for_mode(self, is_editable: bool) -> str:
         """Return js for mode."""
         if is_editable:
@@ -180,12 +334,18 @@ class ExportLayoutMixin:
 
     def _get_html_header(self, js: str, cfg: Dict[str, Any]) -> str:
         """Return the HTML document header."""
+        font_family = self._export_font_family(cfg)
+        css_font_family = font_family.replace('\\', '\\\\').replace("'", "\\'")
         time_width = self._table_column_width_css(cfg, 'table_width_time')
         char_width = self._table_column_width_css(cfg, 'table_width_char')
         actor_width = self._table_column_width_css(cfg, 'table_width_actor')
+        time_weight = 700 if cfg.get('bold_time', False) else 400
+        char_weight = 700 if cfg.get('bold_char', True) else 400
+        actor_weight = 700 if cfg.get('bold_actor', False) else 400
+        text_weight = 700 if cfg.get('bold_text', False) else 400
         return f"""<html><head><meta charset='utf-8'>{js}<style>
         body {{
-            font-family: 'Segoe UI', sans-serif;
+            font-family: '{css_font_family}', sans-serif;
             padding: 36px clamp(18px, 4vw, 64px);
             background: #f6f7f8;
             color: #202124;
@@ -210,6 +370,13 @@ class ExportLayoutMixin:
             overflow-wrap: break-word;
             word-break: normal;
         }}
+        .montage-table {{
+            border-color: #000000;
+        }}
+        .montage-table td,
+        .montage-table th {{
+            border-color: #000000;
+        }}
         th {{
             background: #eef1f4;
             color: #4f5965;
@@ -231,24 +398,32 @@ class ExportLayoutMixin:
             width: auto;
         }}
         .t {{
-            font-family: monospace;
             font-size: {cfg.get('f_time', 12)}px;
+            font-weight: {time_weight};
             line-height: 1.25;
             color: inherit;
             white-space: normal;
         }}
         .c {{
-            font-weight: bold;
+            font-weight: {char_weight};
             font-size: {cfg.get('f_char', 14)}px;
             line-height: 1.25;
+        }}
+        .character-highlight {{
+            padding: 0.04em 0.22em 0.1em;
+            border-radius: 0.12em;
+            box-decoration-break: clone;
+            -webkit-box-decoration-break: clone;
         }}
         .a {{
             font-style: italic;
             font-size: {cfg.get('f_actor', 14)}px;
+            font-weight: {actor_weight};
             line-height: 1.25;
         }}
         .txt {{
             font-size: {cfg.get('f_text', 16)}px;
+            font-weight: {text_weight};
             line-height: 1.45;
         }}
         .time-sep {{
@@ -276,20 +451,20 @@ class ExportLayoutMixin:
             color: inherit;
         }}
         .script2-time {{
-            font-family: monospace;
             font-size: {cfg.get('f_time', 12)}px;
-            font-weight: 650;
+            font-weight: {time_weight};
             line-height: 1.25;
             white-space: pre-line;
             opacity: 0.78;
         }}
         .script2-char {{
             font-size: {cfg.get('f_char', 14)}px;
-            font-weight: 750;
+            font-weight: {char_weight};
             text-transform: uppercase;
         }}
         .script2-actor {{
             font-size: {cfg.get('f_actor', 14)}px;
+            font-weight: {actor_weight};
             opacity: 0.78;
         }}
         .script2-sep {{
@@ -298,6 +473,7 @@ class ExportLayoutMixin:
         }}
         .script2-text {{
             font-size: {cfg.get('f_text', 16)}px;
+            font-weight: {text_weight};
             line-height: 1.38;
         }}
         .script3-table {{
@@ -305,7 +481,11 @@ class ExportLayoutMixin:
             border-collapse: collapse;
             table-layout: fixed;
             background: white;
-            border: 1px solid #d8dde3;
+            border: 1px solid #000000;
+        }}
+        .script3-table td,
+        .script3-table th {{
+            border-color: #000000;
         }}
         .script3-meta-col {{
             width: 26%;
@@ -322,9 +502,8 @@ class ExportLayoutMixin:
             padding: 12px 14px;
         }}
         .script3-time {{
-            font-family: monospace;
             font-size: {cfg.get('f_time', 12)}px;
-            font-weight: 650;
+            font-weight: {time_weight};
             line-height: 1.25;
             white-space: pre-line;
             opacity: 0.78;
@@ -332,19 +511,21 @@ class ExportLayoutMixin:
         }}
         .script3-char {{
             font-size: {cfg.get('f_char', 14)}px;
-            font-weight: 750;
+            font-weight: {char_weight};
             line-height: 1.2;
             text-transform: uppercase;
             margin-bottom: 4px;
         }}
         .script3-actor {{
             font-size: {cfg.get('f_actor', 14)}px;
+            font-weight: {actor_weight};
             font-style: italic;
             line-height: 1.25;
             opacity: 0.78;
         }}
         .script3-text {{
             font-size: {cfg.get('f_text', 16)}px;
+            font-weight: {text_weight};
             line-height: 1.38;
         }}
         </style></head><body>
@@ -361,7 +542,10 @@ class ExportLayoutMixin:
             });
 
             function onBlur(el) {
-                if(backend) {
+                // innerText normalizes whitespace. Merely leaving the window
+                // must not turn that normalization into a working-text edit.
+                if (backend && el.dataset.edited === "true") {
+                    delete el.dataset.edited;
                     var cleanText = el.innerText;
                     cleanText = cleanText.replace(/(\\r\\n|\\n|\\r)/gm, "\\n");
                     backend.update_text(el.id, cleanText);
@@ -409,13 +593,17 @@ class ExportLayoutMixin:
         use_color: bool,
         is_highlighted: bool,
         actor: Dict[str, Any],
-        soften_colors: bool = True
+        soften_colors: bool = True,
+        softening_level: int = 1,
     ) -> tuple:
         """Return colors for an export row."""
         if use_color and is_highlighted:
             actor_color = actor.get('color', '#ffffff')
             bg_color = (
-                hex_to_rgba_string(actor_color, 0.22)
+                hex_to_rgba_string(
+                    actor_color,
+                    self._color_softening_alpha(softening_level),
+                )
                 if soften_colors
                 else actor_color
             )
@@ -424,6 +612,64 @@ class ExportLayoutMixin:
             bg_color = "#ffffff"
             border_col = "#eee"
         return bg_color, border_col
+
+    @staticmethod
+    def _color_softening_alpha(level: Any) -> float:
+        """Map five softening levels to actor-color opacity."""
+        try:
+            normalized = max(-2, min(2, int(level)))
+        except (TypeError, ValueError):
+            normalized = 1
+        return {
+            -2: 0.72,
+            -1: 0.55,
+            0: 0.38,
+            1: 0.22,
+            2: 0.12,
+        }[normalized]
+
+    def _character_only_highlight(
+        self,
+        cfg: Dict[str, Any],
+        h_class: str,
+    ) -> bool:
+        """Return whether this row should highlight only its character name."""
+        return bool(
+            cfg.get('use_color', True)
+            and cfg.get('highlight_character_only', False)
+            and h_class
+        )
+
+    def _character_highlight_html(
+        self,
+        value: str,
+        bg_color: str,
+        text_color: Optional[str],
+        h_class: str,
+        cfg: Dict[str, Any],
+    ) -> str:
+        """Wrap a character name in an actor-colored highlighter mark."""
+        if not self._character_only_highlight(cfg, h_class):
+            return value
+        color_style = f";color:{text_color}" if text_color else ""
+        return (
+            "<span class='character-highlight' "
+            f"style='background-color:{bg_color}{color_style}'>"
+            f"{value}</span>"
+        )
+
+    def _container_highlight_colors(
+        self,
+        bg_color: str,
+        border_color: str,
+        text_color: Optional[str],
+        h_class: str,
+        cfg: Dict[str, Any],
+    ) -> Tuple[str, str, Optional[str]]:
+        """Remove block coloring while character-only highlighting is active."""
+        if self._character_only_highlight(cfg, h_class):
+            return "#ffffff", "#eee", None
+        return bg_color, border_color, text_color
 
     def _negative_text_color(
         self,
@@ -459,6 +705,7 @@ class ExportLayoutMixin:
                         f"<span id='{part_id}' "
                         f"class='edit-span' "
                         f"contenteditable='true' "
+                        f"oninput='this.dataset.edited = \"true\"' "
                         f"onblur='onBlur(this)' "
                         f"onkeypress='onKeyPress(event, this)'>"
                         f"{part_text}</span>"
@@ -492,9 +739,19 @@ class ExportLayoutMixin:
         end = float(line.get('e', 0.0))
 
         if cfg.get('round_time', False):
-            return format_seconds_to_tc(start), format_seconds_to_tc(end)
+            start_tc = format_seconds_to_tc(start)
+            end_tc = format_seconds_to_tc(end)
+        else:
+            start_tc = format_seconds_to_full_tc(start)
+            end_tc = format_seconds_to_full_tc(end)
 
-        return format_seconds_to_full_tc(start), format_seconds_to_full_tc(end)
+        if cfg.get('hide_leading_timecode_zeros', False):
+            if start_tc.startswith("0:"):
+                start_tc = start_tc[2:]
+            if end_tc.startswith("0:"):
+                end_tc = end_tc[2:]
+
+        return start_tc, end_tc
 
     def _format_timing_text(self, line: Dict[str, Any], cfg: Dict[str, Any]) -> str:
         """Format timing as plain text for scenario HTML."""
@@ -532,7 +789,14 @@ class ExportLayoutMixin:
             timing = self._format_timing_html(line, cfg)
             columns.append((translate_source("Время"), "t", timing))
         if cfg.get('col_char', True):
-            columns.append((translate_source("Персонаж"), "c", escape(str(line.get('char', '')))))
+            character = self._character_highlight_html(
+                escape(str(line.get('char', ''))),
+                bg_color,
+                text_color,
+                h_class,
+                cfg,
+            )
+            columns.append((translate_source("Персонаж"), "c", character))
         if cfg.get('col_actor', True):
             actor_name = escape(str(actor.get('name', '-')))
             columns.append((translate_source("Актер"), "a", actor_name))
@@ -546,9 +810,12 @@ class ExportLayoutMixin:
             f"<td class='{css_class}'>{value}</td>"
             for _header, css_class, value in columns
         )
-        color_style = f"; color:{text_color or '#000000'}"
+        row_bg, _row_border, row_text = self._container_highlight_colors(
+            bg_color, "#eee", text_color, h_class, cfg
+        )
+        color_style = f"; color:{row_text or '#000000'}"
         row = (
-            f"<tr style='background-color:{bg_color}{color_style}' "
+            f"<tr style='background-color:{row_bg}{color_style}' "
             f"class='{h_class}'>"
             f"{cells}</tr>"
         )
@@ -563,7 +830,8 @@ class ExportLayoutMixin:
                 for header, _css_class, _value in columns
             )
             header = (
-                f"<table><colgroup>{colgroup}</colgroup><thead><tr>"
+                f"<table class='montage-table'><colgroup>{colgroup}"
+                "</colgroup><thead><tr>"
                 f"{headers}"
                 "</tr></thead><tbody>"
             )
@@ -589,6 +857,9 @@ class ExportLayoutMixin:
         meta_parts = []
         if cfg.get('col_char', True):
             char = escape(str(line.get('char', '')))
+            char = self._character_highlight_html(
+                char, bg_color, text_color, h_class, cfg
+            )
             meta_parts.append(f"<span class='c'><b>{char}</b></span>")
         if cfg.get('col_tc', True):
             timing = escape(self._format_timing_text(line, cfg))
@@ -603,11 +874,14 @@ class ExportLayoutMixin:
             if cfg.get('col_text', True)
             else ""
         )
-        color_style = f"; color:{text_color or '#000000'}"
+        block_bg, block_border, block_text = self._container_highlight_colors(
+            bg_color, border_col, text_color, h_class, cfg
+        )
+        color_style = f"; color:{block_text or '#000000'}"
         return (
             f"<div class='line-container {h_class}' "
-            f"style='background-color:{bg_color}; "
-            f"border-left-color:{border_col}{color_style}'>"
+            f"style='background-color:{block_bg}; "
+            f"border-left-color:{block_border}{color_style}'>"
             f"<div class='meta'>{meta_html}</div>"
             f"{text_block}</div>"
         )
@@ -631,6 +905,9 @@ class ExportLayoutMixin:
             )
         if cfg.get('col_char', True):
             char = escape(str(line.get('char', '')))
+            char = self._character_highlight_html(
+                char, bg_color, text_color, h_class, cfg
+            )
             meta_parts.append(
                 f"<span class='script2-char'>{char}</span>"
             )
@@ -646,10 +923,13 @@ class ExportLayoutMixin:
             if cfg.get('col_text', True)
             else ""
         )
-        color_style = f"; color:{text_color or '#000000'}"
+        block_bg, _block_border, block_text = self._container_highlight_colors(
+            bg_color, "#eee", text_color, h_class, cfg
+        )
+        color_style = f"; color:{block_text or '#000000'}"
         return (
             f"<div class='script2-container {h_class}' "
-            f"style='background-color:{bg_color}{color_style}'>"
+            f"style='background-color:{block_bg}{color_style}'>"
             f"<div class='script2-meta'>{meta_html}</div>"
             f"{text_block}</div>"
         )
@@ -673,6 +953,9 @@ class ExportLayoutMixin:
             meta_parts.append(f"<div class='script3-time'>{timing}</div>")
         if cfg.get('col_char', True):
             char = escape(str(line.get('char', '')))
+            char = self._character_highlight_html(
+                char, bg_color, text_color, h_class, cfg
+            )
             meta_parts.append(f"<div class='script3-char'>{char}</div>")
         if cfg.get('col_actor', True):
             actor_name = escape(str(actor.get('name', '-')))
@@ -685,9 +968,12 @@ class ExportLayoutMixin:
             if cfg.get('col_text', True)
             else ""
         )
-        color_style = f"; color:{text_color or '#000000'}"
+        row_bg, _row_border, row_text = self._container_highlight_colors(
+            bg_color, "#eee", text_color, h_class, cfg
+        )
+        color_style = f"; color:{row_text or '#000000'}"
         row = (
-            f"<tr class='{h_class}' style='background-color:{bg_color}{color_style}'>"
+            f"<tr class='{h_class}' style='background-color:{row_bg}{color_style}'>"
             f"<td class='script3-meta-cell'>{''.join(meta_parts)}</td>"
             f"<td class='script3-text-cell'>{text_block}</td>"
             "</tr>"
@@ -715,6 +1001,17 @@ class ExportLayoutMixin:
         if shading is None:
             shading = OxmlElement('w:shd')
             tc_pr.append(shading)
+        shading.set(qn('w:fill'), color_hex.replace('#', '').upper())
+
+    def _set_docx_run_shading(self, run: Any, color_hex: str) -> None:
+        """Apply a highlighter-style background to one DOCX text run."""
+        run_properties = run._element.get_or_add_rPr()
+        shading = run_properties.find(qn('w:shd'))
+        if shading is None:
+            shading = OxmlElement('w:shd')
+            run_properties.append(shading)
+        shading.set(qn('w:val'), 'clear')
+        shading.set(qn('w:color'), 'auto')
         shading.set(qn('w:fill'), color_hex.replace('#', '').upper())
 
     def _set_docx_cell_margins(
@@ -852,8 +1149,9 @@ class ExportLayoutMixin:
         bold: bool = False,
         align: Any = None,
         fill_color: Optional[str] = None,
-        text_color: Optional[str] = None
-    ) -> None:
+        text_color: Optional[str] = None,
+        run_fill_color: Optional[str] = None,
+    ) -> Any:
         """Fill a DOCX table cell with styled text."""
         if align is None:
             align = WD_ALIGN_PARAGRAPH.LEFT
@@ -864,16 +1162,20 @@ class ExportLayoutMixin:
         paragraph.paragraph_format.space_before = Pt(0)
         run = paragraph.add_run(str(text or ""))
         run.bold = bold
-        run.font.name = "Segoe UI"
-        run._element.rPr.rFonts.set(qn('w:eastAsia'), "Segoe UI")
+        font_family = getattr(self, '_active_export_font_family', 'Segoe UI')
+        run.font.name = font_family
+        run._element.rPr.rFonts.set(qn('w:eastAsia'), font_family)
         run.font.size = Pt(font_size)
         if text_color:
             clean_color = text_color.strip().lstrip("#")
             if len(clean_color) == 6:
                 run.font.color.rgb = RGBColor.from_string(clean_color.upper())
+        if run_fill_color:
+            self._set_docx_run_shading(run, run_fill_color)
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
         if fill_color:
             self._set_docx_cell_shading(cell, fill_color)
+        return run
 
     def _add_docx_run(
         self,
@@ -882,19 +1184,23 @@ class ExportLayoutMixin:
         font_size: float,
         bold: bool = False,
         italic: bool = False,
-        color: Optional[str] = None
+        color: Optional[str] = None,
+        highlight_fill: Optional[str] = None,
     ) -> Any:
         """Add a consistently styled DOCX run."""
         run = paragraph.add_run(str(text or ""))
         run.bold = bold
         run.italic = italic
-        run.font.name = "Segoe UI"
-        run._element.rPr.rFonts.set(qn('w:eastAsia'), "Segoe UI")
+        font_family = getattr(self, '_active_export_font_family', 'Segoe UI')
+        run.font.name = font_family
+        run._element.rPr.rFonts.set(qn('w:eastAsia'), font_family)
         run.font.size = Pt(font_size)
         if color:
             clean_color = color.strip().lstrip("#")
             if len(clean_color) == 6:
                 run.font.color.rgb = RGBColor.from_string(clean_color.upper())
+        if highlight_fill:
+            self._set_docx_run_shading(run, highlight_fill)
         return run
 
     def _create_docx_episode_table(
@@ -989,7 +1295,12 @@ class ExportLayoutMixin:
             if use_color and actor_id and is_highlighted:
                 actor_color = actor.get('color', '#FFFFFF')
                 fill_color = (
-                    self._docx_soft_fill_color(actor_color)
+                    self._docx_soft_fill_color(
+                        actor_color,
+                        self._color_softening_alpha(
+                            cfg.get('color_softening_level', 1)
+                        ),
+                    )
                     if soften_colors
                     else actor_color.replace('#', '')
                 )
@@ -997,6 +1308,9 @@ class ExportLayoutMixin:
                 actor_id,
                 cfg,
                 is_highlighted
+            )
+            character_only = bool(
+                cfg.get('highlight_character_only', False) and fill_color
             )
 
             values = {
@@ -1011,8 +1325,16 @@ class ExportLayoutMixin:
                     cell,
                     values.get(key, ''),
                     font_size=font_size,
-                    fill_color=fill_color,
-                    text_color=text_color
+                    bold=self._export_element_bold(cfg, key),
+                    fill_color=None if character_only else fill_color,
+                    text_color=(
+                        text_color
+                        if not character_only or key == 'char'
+                        else None
+                    ),
+                    run_fill_color=(
+                        fill_color if character_only and key == 'char' else None
+                    ),
                 )
 
     def _docx_episode_heading(self, document: Any, ep_num: str) -> None:
@@ -1046,7 +1368,12 @@ class ExportLayoutMixin:
         if cfg.get('use_color', True) and actor_id and is_highlighted:
             actor_color = actor.get('color', '#FFFFFF')
             fill_color = (
-                self._docx_soft_fill_color(actor_color)
+                self._docx_soft_fill_color(
+                    actor_color,
+                    self._color_softening_alpha(
+                        cfg.get('color_softening_level', 1)
+                    ),
+                )
                 if cfg.get('soften_colors', True)
                 else actor_color.replace('#', '')
             )
@@ -1090,13 +1417,16 @@ class ExportLayoutMixin:
             _actor_id, actor, _is_highlighted, fill_color, text_color = (
                 self._docx_line_actor_context(ep_num, line, cfg)
             )
+            character_only = bool(
+                cfg.get('highlight_character_only', False) and fill_color
+            )
             left_border = None
-            if fill_color:
+            if fill_color and not character_only:
                 left_border = actor.get('color', '#DADCE0').replace('#', '')
-            run_color = text_color or "#000000"
+            run_color = "#000000" if character_only else text_color or "#000000"
             cell = self._add_docx_script_block(
                 document,
-                fill_color,
+                None if character_only else fill_color,
                 left_border=left_border
             )
 
@@ -1109,8 +1439,9 @@ class ExportLayoutMixin:
                     meta,
                     line.get('char', ''),
                     self._docx_font_size_from_cfg(cfg, 'f_char', 20),
-                    bold=True,
-                    color=run_color
+                    bold=self._export_element_bold(cfg, 'char'),
+                    color=(text_color or "#000000") if character_only else run_color,
+                    highlight_fill=fill_color if character_only else None,
                 )
                 meta_parts_added += 1
             if cfg.get('col_tc', True):
@@ -1120,6 +1451,7 @@ class ExportLayoutMixin:
                     meta,
                     f"[{self._format_timing_text(line, cfg)}]",
                     self._docx_font_size_from_cfg(cfg, 'f_time', 21),
+                    bold=self._export_element_bold(cfg, 'time'),
                     color=run_color
                 )
                 meta_parts_added += 1
@@ -1131,6 +1463,7 @@ class ExportLayoutMixin:
                     meta,
                     f"({actor_name})",
                     self._docx_font_size_from_cfg(cfg, 'f_actor', 14),
+                    bold=self._export_element_bold(cfg, 'actor'),
                     italic=True,
                     color=run_color
                 )
@@ -1144,6 +1477,7 @@ class ExportLayoutMixin:
                     body,
                     line.get('text', ''),
                     self._docx_font_size_from_cfg(cfg, 'f_text', 30),
+                    bold=self._export_element_bold(cfg, 'text'),
                     color=run_color
                 )
             spacer = document.add_paragraph()
@@ -1162,9 +1496,15 @@ class ExportLayoutMixin:
             _actor_id, actor, _is_highlighted, fill_color, text_color = (
                 self._docx_line_actor_context(ep_num, line, cfg)
             )
-            run_color = text_color or "#000000"
-            muted_color = text_color or "#505050"
-            cell = self._add_docx_script_block(document, fill_color)
+            character_only = bool(
+                cfg.get('highlight_character_only', False) and fill_color
+            )
+            run_color = "#000000" if character_only else text_color or "#000000"
+            muted_color = "#505050" if character_only else text_color or "#505050"
+            cell = self._add_docx_script_block(
+                document,
+                None if character_only else fill_color,
+            )
 
             meta = cell.paragraphs[0]
             meta.paragraph_format.space_after = Pt(4)
@@ -1175,7 +1515,7 @@ class ExportLayoutMixin:
                     meta,
                     self._format_scenario2_timing_text(line, cfg),
                     self._docx_font_size_from_cfg(cfg, 'f_time', 21),
-                    bold=True,
+                    bold=self._export_element_bold(cfg, 'time'),
                     color=muted_color
                 )
                 meta_parts_added += 1
@@ -1186,8 +1526,9 @@ class ExportLayoutMixin:
                     meta,
                     str(line.get('char', '')).upper(),
                     self._docx_font_size_from_cfg(cfg, 'f_char', 20),
-                    bold=True,
-                    color=run_color
+                    bold=self._export_element_bold(cfg, 'char'),
+                    color=(text_color or "#000000") if character_only else run_color,
+                    highlight_fill=fill_color if character_only else None,
                 )
                 meta_parts_added += 1
             if cfg.get('col_actor', True):
@@ -1198,6 +1539,7 @@ class ExportLayoutMixin:
                     meta,
                     actor_name,
                     self._docx_font_size_from_cfg(cfg, 'f_actor', 14),
+                    bold=self._export_element_bold(cfg, 'actor'),
                     color=muted_color
                 )
 
@@ -1210,6 +1552,7 @@ class ExportLayoutMixin:
                     body,
                     line.get('text', ''),
                     self._docx_font_size_from_cfg(cfg, 'f_text', 30),
+                    bold=self._export_element_bold(cfg, 'text'),
                     color=run_color
                 )
             spacer = document.add_paragraph()
@@ -1238,6 +1581,8 @@ class ExportLayoutMixin:
         ):
             self._set_docx_cell_width(cell, width)
             self._set_docx_cell_margins(cell, top=85, bottom=85)
+            for side in ('top', 'right', 'bottom', 'left'):
+                self._set_docx_cell_border(cell, side, '000000', 4)
             self._set_docx_cell_text(
                 cell,
                 title,
@@ -1251,14 +1596,19 @@ class ExportLayoutMixin:
             _actor_id, actor, _is_highlighted, fill_color, text_color = (
                 self._docx_line_actor_context(ep_num, line, cfg)
             )
-            run_color = text_color or "#000000"
-            muted_color = text_color or "#505050"
+            character_only = bool(
+                cfg.get('highlight_character_only', False) and fill_color
+            )
+            run_color = "#000000" if character_only else text_color or "#000000"
+            muted_color = "#505050" if character_only else text_color or "#505050"
             row_cells = table.add_row().cells
             for cell, width in zip(row_cells, column_widths):
                 self._set_docx_cell_width(cell, width)
                 self._set_docx_cell_margins(cell)
+                for side in ('top', 'right', 'bottom', 'left'):
+                    self._set_docx_cell_border(cell, side, '000000', 4)
                 cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
-                if fill_color:
+                if fill_color and not character_only:
                     self._set_docx_cell_shading(cell, fill_color)
 
             meta_cell, text_cell = row_cells
@@ -1272,7 +1622,7 @@ class ExportLayoutMixin:
                     current_paragraph,
                     self._format_scenario2_timing_text(line, cfg),
                     self._docx_font_size_from_cfg(cfg, 'f_time', 21),
-                    bold=True,
+                    bold=self._export_element_bold(cfg, 'time'),
                     color=muted_color
                 )
                 wrote_meta = True
@@ -1287,8 +1637,9 @@ class ExportLayoutMixin:
                     current_paragraph,
                     str(line.get('char', '')).upper(),
                     self._docx_font_size_from_cfg(cfg, 'f_char', 20),
-                    bold=True,
-                    color=run_color
+                    bold=self._export_element_bold(cfg, 'char'),
+                    color=(text_color or "#000000") if character_only else run_color,
+                    highlight_fill=fill_color if character_only else None,
                 )
                 wrote_meta = True
             if cfg.get('col_actor', True):
@@ -1302,6 +1653,7 @@ class ExportLayoutMixin:
                     current_paragraph,
                     actor.get('name', '-') if actor else '-',
                     self._docx_font_size_from_cfg(cfg, 'f_actor', 14),
+                    bold=self._export_element_bold(cfg, 'actor'),
                     italic=True,
                     color=muted_color
                 )
@@ -1315,6 +1667,7 @@ class ExportLayoutMixin:
                     body,
                     line.get('text', ''),
                     self._docx_font_size_from_cfg(cfg, 'f_text', 30),
+                    bold=self._export_element_bold(cfg, 'text'),
                     color=run_color
                 )
 
@@ -1330,7 +1683,15 @@ class ExportLayoutMixin:
         if cfg is None:
             cfg = self.project_data.get("export_config", {})
 
+        self._active_export_font_family = self._export_font_family(cfg)
+
         document = Document()
+        for style_name in ('Normal', 'Title', 'Heading 1'):
+            style = document.styles[style_name]
+            style.font.name = self._active_export_font_family
+            style._element.rPr.rFonts.set(
+                qn('w:eastAsia'), self._active_export_font_family
+            )
         section = document.sections[0]
         section.orientation = WD_ORIENT.PORTRAIT
         section.left_margin = Cm(1.2)
@@ -1339,8 +1700,23 @@ class ExportLayoutMixin:
         section.bottom_margin = Cm(1.2)
 
         layout_type = self._normalize_layout_type(cfg.get('layout_type'))
+        custom_template = cfg.get('layout_template')
+        if isinstance(custom_template, dict):
+            custom_template = normalize_layout_template(
+                custom_template, forced_kind='montage'
+            )
+        else:
+            custom_template = None
         for ep_num in sorted(episodes_data.keys(), key=self._episode_sort_key):
-            if layout_type == "Сценарий 1":
+            if custom_template is not None:
+                self._create_docx_episode_custom(
+                    document,
+                    ep_num,
+                    episodes_data[ep_num],
+                    cfg,
+                    custom_template['root'],
+                )
+            elif layout_type == "Сценарий 1":
                 self._create_docx_episode_scenario1(
                     document, ep_num, episodes_data[ep_num], cfg
                 )
@@ -1361,3 +1737,99 @@ class ExportLayoutMixin:
                 )
 
         return document
+
+    def _create_docx_episode_custom(
+        self,
+        document: Any,
+        ep_num: str,
+        lines: List[Dict[str, Any]],
+        cfg: Dict[str, Any],
+        root: Dict[str, Any],
+    ) -> None:
+        """Render the semantic tree with nested Word tables and paragraphs."""
+        document.add_heading(
+            f"{self.project_data.get('project_name', 'Project')} - Серия {ep_num}",
+            level=1,
+        )
+        for line in lines:
+            _actor_id, actor, _highlighted = self._actor_display_context(
+                str(line.get('char', '')), str(ep_num), None
+            )
+            outer = document.add_table(rows=1, cols=1)
+            outer.alignment = WD_TABLE_ALIGNMENT.CENTER
+            outer.autofit = True
+            cell = outer.cell(0, 0)
+            cell.text = ""
+            self._render_docx_custom_node(cell, root, line, actor, cfg)
+            document.add_paragraph().paragraph_format.space_after = Pt(2)
+
+    def _render_docx_custom_node(
+        self,
+        cell: Any,
+        node: Dict[str, Any],
+        line: Dict[str, Any],
+        actor: Dict[str, Any],
+        cfg: Dict[str, Any],
+    ) -> None:
+        node_type = str(node.get('type'))
+        if node_type == 'row':
+            children = [
+                child for child in node.get('children', [])
+                if isinstance(child, dict)
+            ]
+            if not children:
+                return
+            table = cell.add_table(rows=1, cols=len(children))
+            table.autofit = True
+            weights = [max(1, int(child.get('weight', 1))) for child in children]
+            total_weight = max(1, sum(weights))
+            for index, child in enumerate(children):
+                child_cell = table.cell(0, index)
+                child_cell.text = ""
+                child_cell.width = Cm(17.0 * weights[index] / total_weight)
+                self._render_docx_custom_node(
+                    child_cell, child, line, actor, cfg
+                )
+            return
+        if node_type == 'column':
+            for child in node.get('children', []):
+                if isinstance(child, dict):
+                    self._render_docx_custom_node(cell, child, line, actor, cfg)
+            return
+        if node_type == 'separator':
+            paragraph = cell.add_paragraph("────────────────")
+            paragraph.paragraph_format.space_before = Pt(1)
+            paragraph.paragraph_format.space_after = Pt(1)
+            return
+        if node_type == 'spacer':
+            paragraph = cell.add_paragraph()
+            paragraph.paragraph_format.space_after = Pt(
+                max(1, min(50, int(node.get('size', 12)))) * 0.25
+            )
+            return
+
+        field = str(node.get('field') or 'replica')
+        if field == 'timecode':
+            value = self._format_timing_text(line, cfg)
+        elif field == 'character':
+            value = str(line.get('char', ''))
+        elif field == 'actor':
+            value = str(actor.get('name', '-'))
+        else:
+            value = str(line.get('text', ''))
+        style = node.get('style', {})
+        paragraph = cell.add_paragraph()
+        paragraph.paragraph_format.space_after = Pt(2)
+        alignment = str(style.get('alignment', 'left'))
+        paragraph.alignment = {
+            'left': WD_ALIGN_PARAGRAPH.LEFT,
+            'center': WD_ALIGN_PARAGRAPH.CENTER,
+            'right': WD_ALIGN_PARAGRAPH.RIGHT,
+        }.get(alignment, WD_ALIGN_PARAGRAPH.LEFT)
+        self._add_docx_run(
+            paragraph,
+            value,
+            max(7.0, min(36.0, float(style.get('font_size', 24)) * 0.5)),
+            bold=bool(style.get('bold')),
+            italic=bool(style.get('italic')),
+        )

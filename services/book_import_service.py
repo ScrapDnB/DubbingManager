@@ -6,8 +6,6 @@ import html
 import os
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from config.constants import DEFAULT_AUDIOBOOK_CONFIG
@@ -28,7 +26,6 @@ except ImportError:
     PDFPLUMBER_AVAILABLE = False
 
 
-BOOK_TEXT_FORMAT_VERSION = "1.0"
 NAMED_CHAPTER_TITLES = {
     "вступление",
     "введение",
@@ -284,33 +281,6 @@ class BookImportService:
                 )
         parts.append("</body></html>")
         return "".join(parts)
-
-    def save_chapter_text(
-        self,
-        project_data: Dict[str, Any],
-        episode: str,
-        source_path: str,
-        html_text: str,
-        lines: List[Dict[str, Any]]
-    ) -> None:
-        """Store a marked chapter in project data and working-text payloads."""
-        book_chapters = project_data.setdefault("book_chapters", {})
-        book_chapters[str(episode)] = {
-            "format_version": BOOK_TEXT_FORMAT_VERSION,
-            "source": {
-                "type": "pdf",
-                "path": source_path,
-                "imported_at": datetime.now().isoformat(),
-                "mtime": (
-                    Path(source_path).stat().st_mtime
-                    if source_path and Path(source_path).exists()
-                    else None
-                ),
-            },
-            "html": html_text,
-        }
-
-        project_data.setdefault("loaded_episodes", {})[str(episode)] = lines
 
     def build_lines_from_segments(
         self,

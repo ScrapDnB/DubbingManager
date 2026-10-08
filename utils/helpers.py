@@ -11,11 +11,10 @@ import json
 
 logger = logging.getLogger(__name__)
 
-# Import UI constants
+# Import shared timing constants.
 try:
-    from config.constants import TABLE_ROW_HEIGHT, FPS
+    from config.constants import FPS
 except ImportError:
-    TABLE_ROW_HEIGHT = 32  # Default fallback
     FPS = 25  # Default fallback
 
 
@@ -42,9 +41,12 @@ def ordered_episode_names(project_data: Dict[str, Any]) -> List[str]:
         return []
 
     if project_data.get("project_kind") == "audiobook":
-        order = project_data.get("audiobook_chapter_order", [])
-        if not isinstance(order, list):
-            order = []
+        document = project_data.get("audiobook_document", {})
+        chapters = document.get("chapters", []) if isinstance(document, dict) else []
+        order = [
+            str(chapter.get("title", ""))
+            for chapter in chapters if isinstance(chapter, dict)
+        ]
         seen = set()
         result: List[str] = []
         for name in order:
@@ -70,43 +72,28 @@ def set_project_kind(project_data: Dict[str, Any], kind: str) -> None:
     )
 
 
-def set_audiobook_chapter_order(
-    project_data: Dict[str, Any],
-    order: List[str],
-) -> None:
-    """Store audiobook chapter order without duplicates."""
-    seen = set()
-    result = []
-    for name in order:
-        title = str(name)
-        if title and title not in seen:
-            result.append(title)
-            seen.add(title)
-    project_data["audiobook_chapter_order"] = result
-
-
 def rename_episode_in_order(
     project_data: Dict[str, Any],
     old_name: str,
     new_name: str,
 ) -> None:
     """Rename an episode inside audiobook order metadata."""
-    order = project_data.get("audiobook_chapter_order")
-    if not isinstance(order, list):
+    document = project_data.get("audiobook_document")
+    if not isinstance(document, dict):
         return
-    project_data["audiobook_chapter_order"] = [
-        new_name if item == old_name else item
-        for item in order
-    ]
+    for chapter in document.get("chapters", []):
+        if str(chapter.get("title")) == old_name:
+            chapter["title"] = new_name
 
 
 def remove_episode_from_order(project_data: Dict[str, Any], name: str) -> None:
     """Remove an episode from audiobook order metadata."""
-    order = project_data.get("audiobook_chapter_order")
-    if not isinstance(order, list):
+    document = project_data.get("audiobook_document")
+    if not isinstance(document, dict):
         return
-    project_data["audiobook_chapter_order"] = [
-        item for item in order if item != name
+    document["chapters"] = [
+        chapter for chapter in document.get("chapters", [])
+        if str(chapter.get("title")) != name
     ]
 
 
@@ -166,35 +153,6 @@ def hex_to_rgba_string(hex_code: str, alpha: float) -> str:
     return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha})"
 
 
-def customize_table(table) -> None:
-    """Customize table."""
-    from PySide6.QtWidgets import QAbstractItemView, QFrame, QHeaderView
-
-    table.setShowGrid(False)
-    table.setAlternatingRowColors(True)
-    table.setSelectionBehavior(QAbstractItemView.SelectRows)
-    table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-    table.setFrameShape(QFrame.NoFrame)
-    table.verticalHeader().setVisible(False)
-    table.verticalHeader().setDefaultSectionSize(TABLE_ROW_HEIGHT)
-    table.horizontalHeader().setHighlightSections(False)
-    table.setStyleSheet("QTableWidget::item { padding-left: 10px; }")
-
-
-def wrap_widget(widget) -> 'QWidget':
-    """Wrap widget."""
-    from PySide6.QtWidgets import QWidget, QHBoxLayout
-    from PySide6.QtCore import Qt
-    
-    container = QWidget()
-    layout = QHBoxLayout(container)
-    layout.addWidget(widget)
-    layout.setContentsMargins(4, 2, 4, 2)
-    layout.setAlignment(Qt.AlignCenter)
-    container.setLayout(layout)
-    return container
-
-
 def split_merged_text(text: str, ids: list) -> list:
     """Split merged text."""
     if not text or len(ids) < 2:
@@ -214,19 +172,19 @@ def split_merged_text(text: str, ids: list) -> list:
     return []
 
 
-def get_video_fps(video_path: str) -> float:
-    """Return video fps."""
+def probe_video_fps(video_path: str) -> Optional[float]:
+    """Return detected video FPS, or ``None`` when probing fails."""
     # Reject obvious path traversal before resolving the path.
     if '..' in video_path:
         logger.warning(f"Invalid video path (path traversal detected): {video_path}")
-        return FPS
+        return None
 
     try:
         path = Path(video_path).resolve()
         
         if not path.exists() or not path.is_file():
             logger.warning(f"Video file not found: {video_path}")
-            return FPS
+            return None
 
         cmd = [
             'ffprobe',
@@ -239,7 +197,7 @@ def get_video_fps(video_path: str) -> float:
 
         if result.returncode != 0:
             logger.warning(f"ffprobe failed for {video_path}")
-            return FPS
+            return None
 
         data = json.loads(result.stdout)
 
@@ -263,17 +221,22 @@ def get_video_fps(video_path: str) -> float:
                     return float(avg_fps)
 
         logger.warning(f"Could not find video stream in {video_path}")
-        return FPS
+        return None
 
     except FileNotFoundError:
         logger.warning(f"ffprobe not found in PATH for {video_path}")
-        return FPS
+        return None
     except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
         logger.warning(f"Error getting FPS from {video_path}: {e}")
-        return FPS
+        return None
     except (json.JSONDecodeError, KeyError, ValueError, ZeroDivisionError) as e:
         logger.warning(f"Error parsing ffprobe output for {video_path}: {e}")
-        return FPS
+        return None
     except Exception as e:
         logger.warning(f"Unexpected error getting FPS from {video_path}: {e}")
-        return FPS
+        return None
+
+
+def get_video_fps(video_path: str) -> float:
+    """Return detected video FPS with the historical default fallback."""
+    return probe_video_fps(video_path) or float(FPS)

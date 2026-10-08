@@ -5,19 +5,40 @@ import os
 import logging
 import shutil
 import sys
+import tempfile
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from config.constants import (
+    DEFAULT_ASS_IMPORT_CONFIG,
     DEFAULT_AUDIOBOOK_CONFIG,
+    DEFAULT_BACKUP_CONFIG,
     DEFAULT_GLOBAL_SETTINGS,
+    DEFAULT_GLOBAL_MERGE_CONFIG,
     DEFAULT_DOCX_IMPORT_CONFIG,
     DEFAULT_EXPORT_CONFIG,
+    DEFAULT_PROMPTER_FONT_BOLD,
+    DEFAULT_PROMPTER_FONT_SIZES,
     DEFAULT_PROMPTER_CONFIG,
-    DEFAULT_REPLICA_MERGE_CONFIG,
+    DEFAULT_SRT_IMPORT_CONFIG,
+    PROMPTER_FONT_BOLD_KEYS,
+    PROMPTER_FONT_KEYS,
+    PROMPTER_FLOAT_LIMITS,
+    PROMPTER_INT_LIMITS,
+    PROMPTER_LAYOUT_TYPES,
 )
+from core.export_config_profiles import (
+    hydrate_layout_profile,
+    sync_active_layout_profile,
+)
+from services.layout_template_service import (
+    LAYOUT_KINDS,
+    builtin_layout_templates,
+    normalize_layout_library,
+)
+from services.actor_id_service import new_actor_id, normalize_actor_id
 from utils.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, translate_source
 
 logger = logging.getLogger(__name__)
@@ -57,8 +78,16 @@ class GlobalSettingsService:
             return self._get_defaults()
 
         try:
-            with open(self._settings_file, 'r', encoding='utf-8') as f:
-                loaded = json.load(f)
+            try:
+                loaded = self._read_settings_payload(self._settings_file)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                loaded = self._load_latest_settings_backup()
+                if loaded is None:
+                    raise exc
+                self._atomic_write_json(self._settings_file, loaded)
+                logger.warning(
+                    "Recovered global settings from the latest valid backup"
+                )
 
             settings = self._get_defaults()
 
@@ -67,15 +96,27 @@ class GlobalSettingsService:
                     loaded.get('recent_projects', [])
                 )
 
+            actor_ids_migrated = False
             if 'global_actor_base' in loaded:
+                raw_actor_base = loaded.get('global_actor_base', {})
                 settings['global_actor_base'] = self._normalize_actor_base(
-                    loaded.get('global_actor_base', {})
+                    raw_actor_base
                 )
+                if isinstance(raw_actor_base, dict):
+                    actor_ids_migrated = {
+                        str(actor_id) for actor_id in raw_actor_base
+                    } != set(settings['global_actor_base'])
 
             if 'default_export_config' in loaded:
                 settings['default_export_config'] = self._normalize_export_config(
                     loaded.get('default_export_config', {})
                 )
+
+            settings['quick_converter_config'] = (
+                self._normalize_quick_converter_config(
+                    loaded.get('quick_converter_config', {})
+                )
+            )
 
             if 'default_prompter_config' in loaded:
                 settings['default_prompter_config'] = (
@@ -91,8 +132,66 @@ class GlobalSettingsService:
                     )
                 )
 
+            settings['layout_templates'] = normalize_layout_library(
+                loaded.get('layout_templates', {})
+            )
+            settings['active_layout_templates'] = (
+                self._normalize_active_layout_templates(
+                    loaded.get('active_layout_templates', {})
+                )
+            )
+            if 'active_layout_templates' not in loaded:
+                export_layout = settings['default_export_config'].get(
+                    'layout_type', 'Таблица'
+                )
+                prompter_layout = settings['default_prompter_config'].get(
+                    'layout_type', 'Сценарий 3'
+                )
+                settings['active_layout_templates'] = {
+                    'montage': {
+                        'Таблица': 'builtin.montage.table',
+                        'Сценарий 1': 'builtin.montage.scenario1',
+                        'Сценарий 2': 'builtin.montage.scenario2',
+                        'Сценарий 3': 'builtin.montage.scenario3',
+                    }.get(export_layout, 'builtin.montage.table'),
+                    'teleprompter': {
+                        'Сценарий 1': 'builtin.teleprompter.scenario1',
+                        'Сценарий 2': 'builtin.teleprompter.scenario2',
+                        'Сценарий 3': 'builtin.teleprompter.scenario3',
+                    }.get(
+                        prompter_layout,
+                        'builtin.teleprompter.scenario3',
+                    ),
+                }
+
             settings['audiobook_config'] = self._normalize_audiobook_config(
                 loaded.get('audiobook_config', DEFAULT_AUDIOBOOK_CONFIG)
+            )
+            settings['backup_config'] = self._normalize_backup_config(
+                loaded.get('backup_config', DEFAULT_BACKUP_CONFIG)
+            )
+
+            settings['docx_import_config'] = self._normalize_docx_import_config(
+                loaded.get('docx_import_config', DEFAULT_DOCX_IMPORT_CONFIG)
+            )
+            settings['docx_import_presets'] = (
+                self._normalize_docx_import_presets(
+                    loaded.get('docx_import_presets', [])
+                )
+            )
+            settings['ass_import_config'] = self._normalize_ass_import_config(
+                loaded.get('ass_import_config', DEFAULT_ASS_IMPORT_CONFIG)
+            )
+            settings['srt_import_config'] = self._normalize_srt_import_config(
+                loaded.get('srt_import_config', DEFAULT_SRT_IMPORT_CONFIG)
+            )
+            settings['default_replica_merge_config'] = (
+                self._normalize_replica_merge_config(
+                    loaded.get(
+                        'default_replica_merge_config',
+                        DEFAULT_GLOBAL_MERGE_CONFIG,
+                    )
+                )
             )
 
             settings['project_summary_export_metric'] = (
@@ -106,6 +205,13 @@ class GlobalSettingsService:
             )
 
             self.settings = settings
+            if actor_ids_migrated:
+                if self.save_settings(settings):
+                    settings = self.settings
+                else:
+                    logger.warning(
+                        "Could not persist migrated global actor UUIDs"
+                    )
             logger.info(f"Global settings loaded from {self._settings_file}")
             return settings
 
@@ -130,6 +236,9 @@ class GlobalSettingsService:
                 'default_export_config': self._normalize_export_config(
                     settings.get('default_export_config', {})
                 ),
+                'quick_converter_config': self._normalize_quick_converter_config(
+                    settings.get('quick_converter_config', {})
+                ),
                 'default_prompter_config': self._normalize_prompter_config(
                     settings.get('default_prompter_config', {})
                 ),
@@ -138,8 +247,39 @@ class GlobalSettingsService:
                         settings.get('prompter_color_presets', [])
                     )
                 ),
+                'layout_templates': normalize_layout_library(
+                    settings.get('layout_templates', {})
+                ),
+                'active_layout_templates': (
+                    self._normalize_active_layout_templates(
+                        settings.get('active_layout_templates', {})
+                    )
+                ),
                 'audiobook_config': self._normalize_audiobook_config(
                     settings.get('audiobook_config', DEFAULT_AUDIOBOOK_CONFIG)
+                ),
+                'backup_config': self._normalize_backup_config(
+                    settings.get('backup_config', DEFAULT_BACKUP_CONFIG)
+                ),
+                'docx_import_config': self._normalize_docx_import_config(
+                    settings.get('docx_import_config', DEFAULT_DOCX_IMPORT_CONFIG)
+                ),
+                'docx_import_presets': self._normalize_docx_import_presets(
+                    settings.get('docx_import_presets', [])
+                ),
+                'ass_import_config': self._normalize_ass_import_config(
+                    settings.get('ass_import_config', DEFAULT_ASS_IMPORT_CONFIG)
+                ),
+                'srt_import_config': self._normalize_srt_import_config(
+                    settings.get('srt_import_config', DEFAULT_SRT_IMPORT_CONFIG)
+                ),
+                'default_replica_merge_config': (
+                    self._normalize_replica_merge_config(
+                        settings.get(
+                            'default_replica_merge_config',
+                            DEFAULT_GLOBAL_MERGE_CONFIG,
+                        )
+                    )
                 ),
                 'project_summary_export_metric': (
                     self._normalize_project_summary_export_metric(
@@ -151,8 +291,7 @@ class GlobalSettingsService:
                 ),
             }
 
-            with open(self._settings_file, 'w', encoding='utf-8') as f:
-                json.dump(data_to_save, f, ensure_ascii=False, indent=2)
+            self._atomic_write_json(self._settings_file, data_to_save)
 
             self.settings = data_to_save
             logger.info(f"Global settings saved to {self._settings_file}")
@@ -174,15 +313,72 @@ class GlobalSettingsService:
         shutil.copy2(self._settings_file, backup_path)
         return backup_path
 
+    @staticmethod
+    def _read_settings_payload(path: Path) -> Dict[str, Any]:
+        with open(path, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+        if not isinstance(payload, dict):
+            raise ValueError("Global settings must contain a JSON object")
+        return payload
+
+    def _load_latest_settings_backup(self) -> Optional[Dict[str, Any]]:
+        backup_dir = self._settings_file.parent / ".backups"
+        if not backup_dir.is_dir():
+            return None
+        backups = sorted(
+            backup_dir.glob("global_settings_*.json"),
+            key=lambda path: (path.stat().st_mtime_ns, path.name),
+            reverse=True,
+        )
+        for backup in backups:
+            try:
+                return self._read_settings_payload(backup)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+        return None
+
+    @staticmethod
+    def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary, path)
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
+
     def _get_defaults(self) -> Dict[str, Any]:
         """Return defaults."""
         return {
             'recent_projects': [],
             'global_actor_base': {},
             'default_export_config': deepcopy(DEFAULT_EXPORT_CONFIG),
+            'quick_converter_config': self._normalize_quick_converter_config({}),
             'default_prompter_config': deepcopy(DEFAULT_PROMPTER_CONFIG),
             'prompter_color_presets': [None, None, None, None],
+            'layout_templates': normalize_layout_library({}),
+            'active_layout_templates': {
+                'montage': 'builtin.montage.table',
+                'teleprompter': 'builtin.teleprompter.scenario3',
+            },
             'audiobook_config': deepcopy(DEFAULT_AUDIOBOOK_CONFIG),
+            'backup_config': deepcopy(DEFAULT_BACKUP_CONFIG),
+            'docx_import_config': deepcopy(DEFAULT_DOCX_IMPORT_CONFIG),
+            'docx_import_presets': [],
+            'ass_import_config': deepcopy(DEFAULT_ASS_IMPORT_CONFIG),
+            'srt_import_config': deepcopy(DEFAULT_SRT_IMPORT_CONFIG),
+            'default_replica_merge_config': deepcopy(
+                DEFAULT_GLOBAL_MERGE_CONFIG
+            ),
             'project_summary_export_metric': DEFAULT_PROJECT_SUMMARY_EXPORT_METRIC,
             'language': DEFAULT_GLOBAL_SETTINGS.get('language', DEFAULT_LANGUAGE),
         }
@@ -209,6 +405,18 @@ class GlobalSettingsService:
             config
         )
 
+    def get_quick_converter_config(self) -> Dict[str, Any]:
+        """Return standalone quick-converter export settings."""
+        return self._normalize_quick_converter_config(
+            self.get_settings().get('quick_converter_config', {})
+        )
+
+    def set_quick_converter_config(self, config: Dict[str, Any]) -> None:
+        """Update standalone quick-converter export settings in memory."""
+        self.settings['quick_converter_config'] = (
+            self._normalize_quick_converter_config(config)
+        )
+
     def get_prompter_config(self) -> Dict[str, Any]:
         """Return teleprompter settings."""
         return self.get_default_prompter_config()
@@ -224,6 +432,66 @@ class GlobalSettingsService:
         self.settings['default_prompter_config'] = (
             self._normalize_prompter_config(config)
         )
+
+    def get_layout_templates(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Return normalized custom templates in separate target libraries."""
+        return normalize_layout_library(
+            self.get_settings().get('layout_templates', {})
+        )
+
+    def set_layout_templates(self, value: Any) -> None:
+        """Update the in-memory custom template libraries."""
+        self.settings['layout_templates'] = normalize_layout_library(value)
+
+    def get_active_layout_template_id(self, kind: str) -> str:
+        """Return the selected built-in or custom template id."""
+        normalized = self._normalize_active_layout_templates(
+            self.get_settings().get('active_layout_templates', {})
+        )
+        return normalized['teleprompter' if kind == 'teleprompter' else 'montage']
+
+    def set_active_layout_template_id(self, kind: str, template_id: str) -> None:
+        """Select one template without allowing cross-target activation."""
+        target = 'teleprompter' if kind == 'teleprompter' else 'montage'
+        active = self._normalize_active_layout_templates(
+            self.get_settings().get('active_layout_templates', {})
+        )
+        available = {
+            item['id'] for item in self.get_layout_templates()[target]
+        } | {
+            item['id'] for item in builtin_layout_templates(target)
+        }
+        if str(template_id) in available:
+            active[target] = str(template_id)
+        self.settings['active_layout_templates'] = active
+
+    def get_active_layout_template(self, kind: str) -> Optional[Dict[str, Any]]:
+        """Resolve the selected template from its own target library."""
+        target = 'teleprompter' if kind == 'teleprompter' else 'montage'
+        template_id = self.get_active_layout_template_id(target)
+        templates = (
+            builtin_layout_templates(target)
+            + self.get_layout_templates()[target]
+        )
+        return next(
+            (deepcopy(item) for item in templates if item['id'] == template_id),
+            None,
+        )
+
+    @staticmethod
+    def _normalize_active_layout_templates(value: Any) -> Dict[str, str]:
+        defaults = {
+            'montage': 'builtin.montage.table',
+            'teleprompter': 'builtin.teleprompter.scenario3',
+        }
+        if not isinstance(value, dict):
+            return defaults
+        result = deepcopy(defaults)
+        for kind in LAYOUT_KINDS:
+            candidate = str(value.get(kind) or '').strip()
+            if candidate and len(candidate) <= 120:
+                result[kind] = candidate
+        return result
 
     def get_project_summary_export_metric(self) -> str:
         """Return the metric used by project summary spreadsheet export."""
@@ -260,16 +528,40 @@ class GlobalSettingsService:
 
     def get_replica_merge_config(self) -> Dict[str, Any]:
         """Return replica merge settings."""
-        return self.settings.get(
-            'replica_merge_config',
-            deepcopy(DEFAULT_REPLICA_MERGE_CONFIG)
+        return self._normalize_replica_merge_config(
+            self.settings.get(
+                'default_replica_merge_config',
+                self.settings.get(
+                    'replica_merge_config', DEFAULT_GLOBAL_MERGE_CONFIG
+                ),
+            )
+        )
+
+    def get_ass_import_config(self) -> Dict[str, Any]:
+        return self._normalize_ass_import_config(
+            self.settings.get('ass_import_config', DEFAULT_ASS_IMPORT_CONFIG)
+        )
+
+    def get_srt_import_config(self) -> Dict[str, Any]:
+        return self._normalize_srt_import_config(
+            self.settings.get('srt_import_config', DEFAULT_SRT_IMPORT_CONFIG)
         )
 
     def get_docx_import_config(self) -> Dict[str, Any]:
         """Return DOCX import settings."""
-        return self.settings.get(
-            'docx_import_config',
-            deepcopy(DEFAULT_DOCX_IMPORT_CONFIG)
+        return self._normalize_docx_import_config(
+            self.settings.get('docx_import_config', DEFAULT_DOCX_IMPORT_CONFIG)
+        )
+
+    def get_docx_import_presets(self) -> List[Dict[str, Any]]:
+        """Return reusable named DOCX detection presets."""
+        return self._normalize_docx_import_presets(
+            self.settings.get('docx_import_presets', [])
+        )
+
+    def set_docx_import_presets(self, presets: Any) -> None:
+        self.settings['docx_import_presets'] = (
+            self._normalize_docx_import_presets(presets)
         )
 
     def get_audiobook_config(self) -> Dict[str, Any]:
@@ -281,6 +573,34 @@ class GlobalSettingsService:
             )
         )
 
+    def get_backup_config(self) -> Dict[str, Any]:
+        """Return normalized project-backup settings."""
+        return self._normalize_backup_config(
+            self.get_settings().get('backup_config', DEFAULT_BACKUP_CONFIG)
+        )
+
+    @staticmethod
+    def _normalize_backup_config(value: Any) -> Dict[str, Any]:
+        config = deepcopy(DEFAULT_BACKUP_CONFIG)
+        if isinstance(value, dict):
+            config.update(value)
+        config["enabled"] = bool(config.get("enabled", True))
+        mode = str(config.get("path_mode", "relative") or "relative")
+        config["path_mode"] = (
+            mode if mode in {"relative", "absolute"} else "relative"
+        )
+        directory = str(config.get("directory", ".backups") or "").strip()
+        config["directory"] = directory or ".backups"
+        for key, low, high, fallback in (
+            ("interval_minutes", 1, 1440, 5),
+            ("max_backups", 1, 100, 10),
+        ):
+            try:
+                config[key] = max(low, min(high, int(config.get(key, fallback))))
+            except (TypeError, ValueError):
+                config[key] = fallback
+        return config
+
     def update_export_config(self, config: Dict[str, Any]) -> None:
         """Update export settings."""
         default_config = self.get_default_export_config()
@@ -290,20 +610,67 @@ class GlobalSettingsService:
     def update_prompter_config(self, config: Dict[str, Any]) -> None:
         """Update teleprompter settings."""
         default_config = self.get_default_prompter_config()
-        default_config.update(config)
+        font_sizes = deepcopy(default_config["layout_font_sizes"])
+        font_bold = deepcopy(default_config["layout_font_bold"])
+        incoming_profiles = config.get("layout_font_sizes")
+        if isinstance(incoming_profiles, dict):
+            for profile_name in PROMPTER_LAYOUT_TYPES:
+                incoming_profile = incoming_profiles.get(profile_name)
+                if not isinstance(incoming_profile, dict):
+                    continue
+                for key in PROMPTER_FONT_KEYS:
+                    if key in incoming_profile:
+                        font_sizes[profile_name][key] = incoming_profile[key]
+        layout_type = str(
+            config.get("layout_type", default_config["layout_type"])
+        )
+        if layout_type not in PROMPTER_LAYOUT_TYPES:
+            layout_type = default_config["layout_type"]
+        for key in PROMPTER_FONT_KEYS:
+            if key in config:
+                font_sizes[layout_type][key] = config[key]
+        incoming_bold_profiles = config.get("layout_font_bold")
+        if isinstance(incoming_bold_profiles, dict):
+            for profile_name in PROMPTER_LAYOUT_TYPES:
+                incoming_profile = incoming_bold_profiles.get(profile_name)
+                if not isinstance(incoming_profile, dict):
+                    continue
+                for key in PROMPTER_FONT_BOLD_KEYS:
+                    if key in incoming_profile:
+                        font_bold[profile_name][key] = bool(
+                            incoming_profile[key]
+                        )
+        for key in PROMPTER_FONT_BOLD_KEYS:
+            if key in config:
+                font_bold[layout_type][key] = bool(config[key])
+        default_config.update({
+            key: value
+            for key, value in config.items()
+            if key not in {"layout_font_sizes", "layout_font_bold"}
+        })
+        default_config["layout_type"] = layout_type
+        default_config["layout_font_sizes"] = font_sizes
+        default_config["layout_font_bold"] = font_bold
         self.set_default_prompter_config(default_config)
 
     def update_replica_merge_config(self, config: Dict[str, Any]) -> None:
         """Update replica merge settings."""
-        if 'replica_merge_config' not in self.settings:
-            self.settings['replica_merge_config'] = {}
-        self.settings['replica_merge_config'].update(config)
+        current = self.get_replica_merge_config()
+        current.update(config)
+        self.settings['default_replica_merge_config'] = (
+            self._normalize_replica_merge_config(current)
+        )
+        self.settings['replica_merge_config'] = deepcopy(
+            self.settings['default_replica_merge_config']
+        )
 
     def update_docx_import_config(self, config: Dict[str, Any]) -> None:
         """Update DOCX import settings."""
-        if 'docx_import_config' not in self.settings:
-            self.settings['docx_import_config'] = {}
-        self.settings['docx_import_config'].update(config)
+        current = self.get_docx_import_config()
+        current.update(deepcopy(config))
+        self.settings['docx_import_config'] = self._normalize_docx_import_config(
+            current
+        )
 
     def get_language(self) -> str:
         """Return the selected interface language."""
@@ -364,10 +731,9 @@ class GlobalSettingsService:
         if existing_id:
             return existing_id
 
-        import time
-        target_id = actor_id or f"global_{time.time()}"
+        target_id = normalize_actor_id(actor_id) if actor_id else new_actor_id()
         while target_id in actor_base:
-            target_id = f"{target_id}_copy"
+            target_id = new_actor_id()
 
         actor_base[target_id] = {
             "name": normalized_name,
@@ -413,9 +779,9 @@ class GlobalSettingsService:
                 skipped_existing += 1
                 continue
 
-            target_id = str(actor_id)
+            target_id = normalize_actor_id(actor_id)
             while target_id in actor_base:
-                target_id = f"{target_id}_imported"
+                target_id = new_actor_id()
             actor_base[target_id] = {
                 "name": name,
                 "gender": self._normalize_actor_gender(
@@ -477,7 +843,7 @@ class GlobalSettingsService:
 
             target_id = imported_id
             while target_id in current:
-                target_id = f"{target_id}_imported"
+                target_id = new_actor_id()
             current[target_id] = actor
             added += 1
 
@@ -510,13 +876,15 @@ class GlobalSettingsService:
             name = str(actor.get("name", "")).strip()
             if not name:
                 continue
-            result[str(actor_id)] = {
+            target_id = normalize_actor_id(actor_id)
+            result[target_id] = {
                 "name": name,
                 "gender": self._normalize_actor_gender(
                     str(actor.get("gender", ""))
                 ),
             }
         return result
+
 
     def _normalize_export_config(self, config: Any) -> Dict[str, Any]:
         """Return sanitized default export settings."""
@@ -525,6 +893,23 @@ class GlobalSettingsService:
             for key in DEFAULT_EXPORT_CONFIG:
                 if key in config:
                     result[key] = deepcopy(config[key])
+            if config and "layout_profiles" not in config:
+                result["layout_profiles"] = {}
+        return hydrate_layout_profile(sync_active_layout_profile(result))
+
+    def _normalize_quick_converter_config(
+        self, config: Any
+    ) -> Dict[str, Any]:
+        """Return export settings isolated from project montage settings."""
+        result = self._normalize_export_config(config)
+        result['line_by_line'] = bool(
+            config.get('line_by_line', False)
+            if isinstance(config, dict) else False
+        )
+        result['format_xls'] = False
+        result['use_color'] = False
+        result['allow_edit'] = False
+        result['open_auto'] = False
         return result
 
     def _normalize_prompter_config(self, config: Any) -> Dict[str, Any]:
@@ -532,7 +917,9 @@ class GlobalSettingsService:
         result = deepcopy(DEFAULT_PROMPTER_CONFIG)
         if isinstance(config, dict):
             for key in DEFAULT_PROMPTER_CONFIG:
-                if key == "colors":
+                if key in {
+                    "colors", "layout_font_sizes", "layout_font_bold",
+                }:
                     continue
                 if key in config:
                     result[key] = deepcopy(config[key])
@@ -541,7 +928,94 @@ class GlobalSettingsService:
             )
             if normalized_colors is not None:
                 result["colors"] = normalized_colors
+
+        has_legacy_flat_profile = bool(
+            isinstance(config, dict)
+            and "layout_type" not in config
+            and "layout_font_sizes" not in config
+            and "layout_font_bold" not in config
+            and any(
+                key in config
+                for key in PROMPTER_FONT_KEYS + PROMPTER_FONT_BOLD_KEYS
+            )
+        )
+        layout_type = (
+            "Сценарий 1"
+            if has_legacy_flat_profile
+            else str(result.get("layout_type", "Сценарий 3"))
+        )
+        if layout_type not in PROMPTER_LAYOUT_TYPES:
+            layout_type = "Сценарий 1"
+
+        profiles = deepcopy(DEFAULT_PROMPTER_FONT_SIZES)
+        source_profiles = (
+            config.get("layout_font_sizes") if isinstance(config, dict) else None
+        )
+        if isinstance(source_profiles, dict):
+            for profile_name in PROMPTER_LAYOUT_TYPES:
+                source_profile = source_profiles.get(profile_name)
+                if not isinstance(source_profile, dict):
+                    continue
+                for key in PROMPTER_FONT_KEYS:
+                    if key in source_profile:
+                        profiles[profile_name][key] = self._prompter_font_size(
+                            key, source_profile[key]
+                        )
+        elif isinstance(config, dict):
+            # Existing installations stored one flat set of font sizes.
+            for key in PROMPTER_FONT_KEYS:
+                if key in config:
+                    profiles[layout_type][key] = self._prompter_font_size(
+                        key, config[key]
+                    )
+
+        result["layout_type"] = layout_type
+        result["layout_font_sizes"] = profiles
+        result.update(profiles[layout_type])
+
+        bold_profiles = deepcopy(DEFAULT_PROMPTER_FONT_BOLD)
+        source_bold_profiles = (
+            config.get("layout_font_bold")
+            if isinstance(config, dict) else None
+        )
+        if isinstance(source_bold_profiles, dict):
+            for profile_name in PROMPTER_LAYOUT_TYPES:
+                source_profile = source_bold_profiles.get(profile_name)
+                if not isinstance(source_profile, dict):
+                    continue
+                for key in PROMPTER_FONT_BOLD_KEYS:
+                    if key in source_profile:
+                        bold_profiles[profile_name][key] = bool(
+                            source_profile[key]
+                        )
+        elif isinstance(config, dict):
+            for key in PROMPTER_FONT_BOLD_KEYS:
+                if key in config:
+                    bold_profiles[layout_type][key] = bool(config[key])
+        result["layout_font_bold"] = bold_profiles
+        result.update(bold_profiles[layout_type])
+        for key, (minimum, maximum) in PROMPTER_INT_LIMITS.items():
+            if key in PROMPTER_FONT_KEYS:
+                continue
+            try:
+                result[key] = max(minimum, min(maximum, int(result[key])))
+            except (KeyError, TypeError, ValueError):
+                result[key] = DEFAULT_PROMPTER_CONFIG[key]
+        for key, (minimum, maximum) in PROMPTER_FLOAT_LIMITS.items():
+            try:
+                result[key] = max(minimum, min(maximum, float(result[key])))
+            except (KeyError, TypeError, ValueError):
+                result[key] = DEFAULT_PROMPTER_CONFIG[key]
         return result
+
+    @staticmethod
+    def _prompter_font_size(key: str, value: Any) -> int:
+        minimum, maximum = PROMPTER_INT_LIMITS[key]
+        fallback = DEFAULT_PROMPTER_CONFIG[key]
+        try:
+            return max(minimum, min(maximum, int(value)))
+        except (TypeError, ValueError):
+            return fallback
 
     def _normalize_prompter_colors(
         self,
@@ -588,6 +1062,178 @@ class GlobalSettingsService:
                 seen.add(folded)
                 normalized.append(value)
         return {"chapter_keywords": normalized}
+
+    def _normalize_docx_import_config(self, config: Any) -> Dict[str, Any]:
+        result = deepcopy(DEFAULT_DOCX_IMPORT_CONFIG)
+        if not isinstance(config, dict):
+            return result
+
+        if config.get("header_mode") in {"auto", "first", "none"}:
+            result["header_mode"] = config["header_mode"]
+        for key, low, high in (
+            ("header_search_rows", 1, 20),
+            ("minimum_header_matches", 1, 5),
+            ("rows_to_skip", 0, 100),
+        ):
+            try:
+                result[key] = max(low, min(high, int(config.get(key, result[key]))))
+            except (TypeError, ValueError):
+                pass
+        try:
+            result["default_duration"] = max(
+                0.01, min(60.0, float(config.get("default_duration", 1.0)))
+            )
+        except (TypeError, ValueError):
+            pass
+
+        separators = config.get("time_separators")
+        if isinstance(separators, list):
+            normalized = [str(item) for item in separators if str(item)]
+            if normalized:
+                result["time_separators"] = list(dict.fromkeys(normalized))
+
+        valid_fields = set(DEFAULT_DOCX_IMPORT_CONFIG["field_priority"])
+        priority = config.get("field_priority")
+        if isinstance(priority, list):
+            normalized = [str(item) for item in priority if str(item) in valid_fields]
+            result["field_priority"] = list(dict.fromkeys(normalized))
+            result["field_priority"].extend(
+                field for field in DEFAULT_DOCX_IMPORT_CONFIG["field_priority"]
+                if field not in result["field_priority"]
+            )
+
+        aliases = config.get("aliases")
+        if isinstance(aliases, dict):
+            for field in valid_fields:
+                values = aliases.get(field)
+                if isinstance(values, list):
+                    cleaned = [" ".join(str(item).split()) for item in values]
+                    result["aliases"][field] = [item for item in cleaned if item]
+
+        for mapping_key in ("mapping", "fallback_mapping"):
+            mapping = config.get(mapping_key)
+            if isinstance(mapping, dict):
+                for field in valid_fields:
+                    value = mapping.get(field)
+                    if value is None:
+                        result[mapping_key][field] = None
+                    else:
+                        try:
+                            result[mapping_key][field] = max(0, int(value))
+                        except (TypeError, ValueError):
+                            pass
+        return result
+
+    def _normalize_docx_import_presets(self, presets: Any) -> List[Dict[str, Any]]:
+        if not isinstance(presets, list):
+            return []
+        result = []
+        seen = set()
+        for item in presets:
+            if not isinstance(item, dict):
+                continue
+            name = " ".join(str(item.get('name') or '').split())
+            folded = name.casefold()
+            if not name or folded in seen:
+                continue
+            result.append({
+                'name': name,
+                'config': self._normalize_docx_import_config(
+                    item.get('config', {})
+                ),
+            })
+            seen.add(folded)
+        return result
+
+    @staticmethod
+    def _normalize_ass_import_config(config: Any) -> Dict[str, Any]:
+        result = deepcopy(DEFAULT_ASS_IMPORT_CONFIG)
+        if not isinstance(config, dict):
+            return result
+        result['split_character_names'] = bool(
+            config.get('split_character_names', result['split_character_names'])
+        )
+        result['strip_override_tags'] = bool(
+            config.get('strip_override_tags', result['strip_override_tags'])
+        )
+        separator = str(config.get('character_separator', ';'))
+        result['character_separator'] = separator or ';'
+        return result
+
+    @staticmethod
+    def _normalize_srt_import_config(config: Any) -> Dict[str, Any]:
+        result = deepcopy(DEFAULT_SRT_IMPORT_CONFIG)
+        if not isinstance(config, dict):
+            return result
+        result['detect_character_prefix'] = bool(
+            config.get('detect_character_prefix', True)
+        )
+        result['keep_multiline'] = bool(config.get('keep_multiline', True))
+        separator = str(config.get('character_separator', ':'))
+        result['character_separator'] = separator or ':'
+        result['default_character'] = str(
+            config.get('default_character', '')
+        ).strip()
+        return result
+
+    @staticmethod
+    def _normalize_replica_merge_config(config: Any) -> Dict[str, Any]:
+        result = deepcopy(DEFAULT_GLOBAL_MERGE_CONFIG)
+        if not isinstance(config, dict):
+            return result
+        result['merge'] = bool(config.get('merge', result['merge']))
+        result['merge_parallel_replicas'] = bool(config.get(
+            'merge_parallel_replicas',
+            result['merge_parallel_replicas'],
+        ))
+        result['respect_existing_separators'] = bool(config.get(
+            'respect_existing_separators',
+            result['respect_existing_separators'],
+        ))
+        result['inline_timecodes_enabled'] = bool(config.get(
+            'inline_timecodes_enabled',
+            result['inline_timecodes_enabled'],
+        ))
+        bracket_style = str(config.get(
+            'inline_timecode_brackets',
+            result['inline_timecode_brackets'],
+        ))
+        if bracket_style in {'square', 'round', 'curly'}:
+            result['inline_timecode_brackets'] = bracket_style
+        raw_gap_seconds = config.get('merge_gap_seconds')
+        if raw_gap_seconds is None and 'merge_gap' in config:
+            try:
+                legacy_fps = max(0.001, float(config.get('fps', 25.0)))
+                raw_gap_seconds = float(config['merge_gap']) / legacy_fps
+            except (TypeError, ValueError):
+                raw_gap_seconds = None
+        if raw_gap_seconds is not None:
+            try:
+                result['merge_gap_seconds'] = max(
+                    0.0, min(480.0, float(raw_gap_seconds))
+                )
+            except (TypeError, ValueError):
+                pass
+        for key, low, high in (
+            ('p_short', 0.0, 5.0),
+            ('p_long', 0.0, 10.0),
+            ('inline_timecode_min_duration', 0.0, 86400.0),
+        ):
+            try:
+                result[key] = max(low, min(high, float(config.get(key, result[key]))))
+            except (TypeError, ValueError):
+                pass
+        try:
+            result['inline_timecode_every'] = max(1, min(
+                1000,
+                int(config.get(
+                    'inline_timecode_every',
+                    result['inline_timecode_every'],
+                )),
+            ))
+        except (TypeError, ValueError):
+            pass
+        return result
 
     def _normalize_project_summary_export_metric(self, metric: Any) -> str:
         """Return a supported project summary spreadsheet metric."""

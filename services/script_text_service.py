@@ -8,8 +8,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from config.constants import SCRIPT_TEXT_DIR_NAME
+from config.constants import (
+    DEFAULT_GLOBAL_MERGE_CONFIG,
+    DEFAULT_INLINE_TIMECODE_CONFIG,
+    SCRIPT_TEXT_DIR_NAME,
+)
 from services.export_service import ExportService
+from services.audiobook_document_service import AudiobookDocumentService
+from services.dynamic_script_storage import (
+    DynamicScriptStorage,
+    is_dynamic_script_project,
+)
+from services.project_fps_service import effective_merge_config
 
 
 SCRIPT_TEXT_FORMAT_VERSION = "1.1"
@@ -17,6 +27,126 @@ SCRIPT_TEXT_FORMAT_VERSION = "1.1"
 
 class ScriptTextService:
     """Script Text Service implementation."""
+
+    def __init__(self) -> None:
+        self._dynamic = DynamicScriptStorage()
+        self._global_merge_config = dict(DEFAULT_GLOBAL_MERGE_CONFIG)
+
+    def set_global_merge_config(self, config: Dict[str, Any]) -> None:
+        """Set application-wide merge preferences for rendered text."""
+        self._global_merge_config = self._normalize_global_merge_config(config)
+
+    def global_merge_config(self) -> Dict[str, Any]:
+        """Return application-wide merge preferences without project FPS."""
+        return dict(self._global_merge_config)
+
+    def set_inline_timecode_config(self, config: Dict[str, Any]) -> None:
+        """Set global, non-project timing cues for rendered merged text."""
+        merged = dict(self._global_merge_config)
+        if isinstance(config, dict):
+            for key in DEFAULT_INLINE_TIMECODE_CONFIG:
+                if key in config:
+                    merged[key] = config[key]
+        self.set_global_merge_config(merged)
+
+    def inline_timecode_config(self) -> Dict[str, Any]:
+        """Return the active global timing-cue settings."""
+        return {
+            key: self._global_merge_config[key]
+            for key in DEFAULT_INLINE_TIMECODE_CONFIG
+        }
+
+    @staticmethod
+    def uses_dynamic_storage(project_data: Dict[str, Any]) -> bool:
+        """Return whether a project uses source-based dynamic scripts."""
+        if project_data.get("project_kind") == "audiobook":
+            return False
+        if not is_dynamic_script_project(project_data):
+            return False
+        dynamic_episodes = project_data.get("script_storage", {}).get(
+            "episodes", {}
+        )
+        legacy_episodes = project_data.get("episode_working_texts", {})
+        legacy_paths = project_data.get("episode_texts", {})
+        # Transitional and test fixtures may attach a legacy payload to a new,
+        # still-empty project. Treat that document as legacy instead of hiding
+        # its only working text.
+        return not ((legacy_episodes or legacy_paths) and not dynamic_episodes)
+
+    def get_merge_config(self, project_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Return global merge rules combined with the project's FPS."""
+        return effective_merge_config(project_data, self._global_merge_config)
+
+    def set_merge_config(
+        self,
+        project_data: Dict[str, Any],
+        config: Dict[str, Any],
+    ) -> bool:
+        """Compatibility alias: merge rules are global, never project data."""
+        before = self.global_merge_config()
+        self.set_global_merge_config(config)
+        return before != self.global_merge_config()
+
+    @staticmethod
+    def _normalize_global_merge_config(config: Any) -> Dict[str, Any]:
+        result = dict(DEFAULT_GLOBAL_MERGE_CONFIG)
+        if not isinstance(config, dict):
+            return result
+        result["merge"] = bool(config.get("merge", result["merge"]))
+        result["merge_parallel_replicas"] = bool(config.get(
+            "merge_parallel_replicas",
+            result["merge_parallel_replicas"],
+        ))
+        result["respect_existing_separators"] = bool(config.get(
+            "respect_existing_separators",
+            result["respect_existing_separators"],
+        ))
+        raw_gap = config.get("merge_gap_seconds")
+        if raw_gap is None and "merge_gap" in config:
+            try:
+                raw_gap = float(config["merge_gap"]) / max(
+                    0.001, float(config.get("fps", 25.0))
+                )
+            except (TypeError, ValueError):
+                raw_gap = None
+        for key, raw_value, low, high in (
+            ("merge_gap_seconds", raw_gap, 0.0, 480.0),
+            ("p_short", config.get("p_short"), 0.0, 5.0),
+            ("p_long", config.get("p_long"), 0.0, 10.0),
+            (
+                "inline_timecode_min_duration",
+                config.get("inline_timecode_min_duration"),
+                0.0,
+                86400.0,
+            ),
+        ):
+            if raw_value is None:
+                continue
+            try:
+                result[key] = max(low, min(high, float(raw_value)))
+            except (TypeError, ValueError):
+                pass
+        result["inline_timecodes_enabled"] = bool(config.get(
+            "inline_timecodes_enabled",
+            result["inline_timecodes_enabled"],
+        ))
+        bracket_style = str(config.get(
+            "inline_timecode_brackets",
+            result["inline_timecode_brackets"],
+        ))
+        if bracket_style in {"square", "round", "curly"}:
+            result["inline_timecode_brackets"] = bracket_style
+        try:
+            result["inline_timecode_every"] = max(1, min(
+                1000,
+                int(config.get(
+                    "inline_timecode_every",
+                    result["inline_timecode_every"],
+                )),
+            ))
+        except (TypeError, ValueError):
+            pass
+        return result
 
     def get_texts_dir(
         self,
@@ -42,9 +172,27 @@ class ScriptTextService:
         source_path: str,
         lines: List[Dict[str, Any]],
         merge_config: Dict[str, Any],
-        project_path: Optional[str] = None
+        project_path: Optional[str] = None,
+        import_config: Optional[Dict[str, Any]] = None,
+        line_mode: Optional[str] = None,
     ) -> str:
         """Create episode text in project data."""
+        if self.uses_dynamic_storage(project_data):
+            self._dynamic.create_episode(
+                project_data,
+                str(ep_num),
+                source_path,
+                lines,
+                merge_config,
+                import_config,
+                line_mode,
+            )
+            project_data.setdefault("episode_texts", {}).pop(str(ep_num), None)
+            project_data.setdefault("episode_working_texts", {}).pop(
+                str(ep_num), None
+            )
+            return str(ep_num)
+
         normalized_lines = self._ensure_source_ids(lines)
         export_service = ExportService(project_data)
         merged_lines = export_service.process_merge_logic(
@@ -72,9 +220,20 @@ class ScriptTextService:
     def load_episode_lines(
         self,
         project_data: Dict[str, Any],
-        ep_num: str
+        ep_num: str,
+        display_config: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """Load episode lines."""
+        if self.uses_dynamic_storage(project_data):
+            merge_config = self.get_merge_config(project_data)
+            if isinstance(display_config, dict):
+                merge_config.update(display_config)
+            return self._dynamic.display_lines(
+                project_data,
+                str(ep_num),
+                merge_config,
+            )
+
         payload = self.get_episode_payload(project_data, ep_num)
         if not payload:
             text_path = project_data.get("episode_texts", {}).get(str(ep_num))
@@ -107,12 +266,45 @@ class ScriptTextService:
 
         return result
 
+    def load_atomic_episode_lines(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str,
+    ) -> List[Dict[str, Any]]:
+        """Return editable, unmerged lines for calculations and editing."""
+        if self.uses_dynamic_storage(project_data):
+            return self._dynamic.atomic_lines(project_data, str(ep_num))
+        return self.load_episode_lines(project_data, str(ep_num))
+
+    def episode_line_count(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str,
+    ) -> int:
+        """Return an episode line count without normalizing every line."""
+        if self.uses_dynamic_storage(project_data):
+            return len(self._dynamic.display_lines(
+                project_data,
+                str(ep_num),
+                self.get_merge_config(project_data),
+            ))
+        payload = self.get_episode_payload(project_data, ep_num)
+        if not payload:
+            text_path = project_data.get("episode_texts", {}).get(str(ep_num))
+            if not text_path or not os.path.exists(text_path):
+                return 0
+            payload = self.load_episode_text(text_path)
+        lines = payload.get("lines", []) if isinstance(payload, dict) else []
+        return len(lines) if isinstance(lines, list) else 0
+
     def get_source_lines(
         self,
         project_data: Dict[str, Any],
         ep_num: str
     ) -> List[Dict[str, Any]]:
         """Return original imported source lines in app line format."""
+        if self.uses_dynamic_storage(project_data):
+            return self._dynamic.source_lines(project_data, str(ep_num))
         payload = self.get_episode_payload(project_data, ep_num)
         if not payload:
             return []
@@ -145,6 +337,14 @@ class ScriptTextService:
         ep_num: str
     ) -> bool:
         """Return whether the episode stores an original ASS snapshot."""
+        if self.uses_dynamic_storage(project_data):
+            payload = self._dynamic.episode_payload(project_data, str(ep_num))
+            source = payload.get("source") if payload else None
+            return bool(
+                isinstance(source, dict)
+                and source.get("type") == "ass"
+                and source.get("raw_content")
+            )
         payload = self.get_episode_payload(project_data, ep_num)
         source_ass = payload.get("source_ass") if payload else None
         return bool(isinstance(source_ass, dict) and source_ass.get("raw_content"))
@@ -156,6 +356,15 @@ class ScriptTextService:
         save_path: str
     ) -> bool:
         """Save the original imported ASS snapshot for an episode."""
+        if self.uses_dynamic_storage(project_data):
+            payload = self._dynamic.episode_payload(project_data, str(ep_num))
+            source = payload.get("source") if payload else None
+            raw_content = source.get("raw_content") if isinstance(source, dict) else None
+            if not raw_content or source.get("type") != "ass":
+                return False
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.write(raw_content)
+            return True
         payload = self.get_episode_payload(project_data, ep_num)
         source_ass = payload.get("source_ass") if payload else None
         raw_content = (
@@ -175,6 +384,14 @@ class ScriptTextService:
         ep_num: str
     ) -> Optional[Dict[str, Any]]:
         """Return embedded working-text payload for an episode."""
+        if project_data.get("project_kind") == "audiobook":
+            document = project_data.get("audiobook_document")
+            if isinstance(document, dict):
+                return AudiobookDocumentService().episode_payload(
+                    document, str(ep_num)
+                )
+        if self.uses_dynamic_storage(project_data):
+            return self._dynamic.episode_payload(project_data, str(ep_num))
         payload = project_data.get("episode_working_texts", {}).get(str(ep_num))
         return payload if isinstance(payload, dict) else None
 
@@ -185,8 +402,52 @@ class ScriptTextService:
         payload: Dict[str, Any]
     ) -> None:
         """Store working-text payload in project data."""
+        if self.uses_dynamic_storage(project_data):
+            storage = self._dynamic.ensure_storage(project_data)
+            storage.setdefault("episodes", {})[str(ep_num)] = payload
+            return
         project_data.setdefault("episode_working_texts", {})[str(ep_num)] = payload
         project_data.setdefault("episode_texts", {}).pop(str(ep_num), None)
+
+    def has_imported_source_lines(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str,
+    ) -> bool:
+        """Return whether a working text has original, unmerged source lines."""
+        if self.uses_dynamic_storage(project_data):
+            payload = self._dynamic.episode_payload(project_data, str(ep_num))
+            return bool(payload and payload.get("source_lines"))
+        payload = self.get_episode_payload(project_data, ep_num)
+        return bool(
+            isinstance(payload, dict)
+            and isinstance(payload.get("source_lines"), list)
+            and payload.get("source_lines_origin") != "reconstructed"
+        )
+
+    def embed_source_lines_from_source(
+        self,
+        project_data: Dict[str, Any],
+        ep_num: str,
+        source_path: str,
+        source_lines: List[Dict[str, Any]],
+    ) -> bool:
+        """Attach an original source-line snapshot to an existing working text."""
+        payload = self.get_episode_payload(project_data, ep_num)
+        if not isinstance(payload, dict) or not source_lines:
+            return False
+
+        normalized_lines = self._ensure_source_ids(source_lines)
+        payload["format_version"] = SCRIPT_TEXT_FORMAT_VERSION
+        payload["source_lines"] = self._build_source_line_payload(
+            normalized_lines
+        )
+        payload["source_lines_origin"] = "imported"
+        payload["source_ass"] = self._build_source_ass_snapshot(
+            Path(source_path)
+        )
+        payload["modified_at"] = datetime.now().isoformat()
+        return True
 
     def find_existing_episode_text(
         self,
@@ -197,8 +458,11 @@ class ScriptTextService:
         """Find an existing generated working-text file for an episode."""
         ep_num = str(ep_num)
         current_path = project_data.get("episode_texts", {}).get(ep_num)
-        if current_path and os.path.exists(current_path):
-            return current_path
+        for candidate in self._path_candidates(
+            project_data, current_path, project_path
+        ):
+            if candidate.is_file():
+                return str(candidate)
 
         candidates = self._candidate_episode_text_paths(
             project_data,
@@ -249,6 +513,8 @@ class ScriptTextService:
         project_path: Optional[str] = None
     ) -> int:
         """Import already generated working texts into project data."""
+        if self.uses_dynamic_storage(project_data):
+            return 0
         found = self.find_existing_episode_texts(project_data, project_path)
         imported_count = 0
 
@@ -317,8 +583,12 @@ class ScriptTextService:
             )
 
         source_path = project_data.get("episodes", {}).get(ep_num)
-        if source_path:
-            candidates.append(Path(source_path).resolve().parent / SCRIPT_TEXT_DIR_NAME / filename)
+        for resolved_source in self._path_candidates(
+            project_data, source_path, project_path
+        ):
+            candidates.append(
+                resolved_source.parent / SCRIPT_TEXT_DIR_NAME / filename
+            )
 
         unique_candidates = []
         seen = set()
@@ -328,6 +598,28 @@ class ScriptTextService:
                 seen.add(key)
                 unique_candidates.append(candidate)
         return unique_candidates
+
+    def _path_candidates(
+        self,
+        project_data: Dict[str, Any],
+        raw_path: Optional[str],
+        project_path: Optional[str] = None,
+    ) -> List[Path]:
+        """Return absolute and portable interpretations of a stored path."""
+        if not raw_path:
+            return []
+        path = Path(str(raw_path)).expanduser()
+        if path.is_absolute():
+            return [path]
+        bases = []
+        project_folder = project_data.get("project_folder")
+        if project_folder:
+            bases.append(Path(str(project_folder)).expanduser())
+        if project_path:
+            bases.append(Path(project_path).expanduser().resolve().parent)
+        candidates = [base / path for base in bases]
+        candidates.append(path)
+        return list(dict.fromkeys(candidate.resolve() for candidate in candidates))
 
     def _looks_like_episode_text(self, path: Path, ep_num: str) -> bool:
         """Check whether a JSON file is a generated episode working text."""
@@ -352,6 +644,15 @@ class ScriptTextService:
         new_text: str
     ) -> bool:
         """Update line text."""
+        document = self._audiobook_document(project_data)
+        if document is not None:
+            return AudiobookDocumentService().update_line_text(
+                document, str(ep_num), line_id, new_text
+            )
+        if self.uses_dynamic_storage(project_data):
+            return self._dynamic.update_fragment_text(
+                project_data, str(ep_num), line_id, new_text
+            )
         payload = self.get_episode_payload(project_data, str(ep_num))
         if not payload:
             return False
@@ -376,6 +677,15 @@ class ScriptTextService:
         new_character: str
     ) -> bool:
         """Update one line display character."""
+        document = self._audiobook_document(project_data)
+        if document is not None:
+            return AudiobookDocumentService().update_line_character(
+                document, str(ep_num), line_id, new_character
+            )
+        if self.uses_dynamic_storage(project_data):
+            return self._dynamic.update_fragment_character(
+                project_data, str(ep_num), line_id, new_character
+            )
         payload = self.get_episode_payload(project_data, str(ep_num))
         if not payload:
             return False
@@ -410,6 +720,25 @@ class ScriptTextService:
         split_character: str
     ) -> bool:
         """Split selected text into a new display-character line."""
+        document = self._audiobook_document(project_data)
+        if document is not None:
+            return AudiobookDocumentService().split_line(
+                document,
+                str(ep_num),
+                line_id,
+                remaining_text,
+                split_text,
+                split_character,
+            )
+        if self.uses_dynamic_storage(project_data):
+            return self._dynamic.split_fragment(
+                project_data,
+                str(ep_num),
+                line_id,
+                remaining_text,
+                split_text,
+                split_character,
+            )
         payload = self.get_episode_payload(project_data, str(ep_num))
         if not payload:
             return False
@@ -452,6 +781,15 @@ class ScriptTextService:
         ep_num: Optional[str] = None
     ) -> int:
         """Rename character."""
+        document = self._audiobook_document(project_data)
+        if document is not None:
+            return AudiobookDocumentService().rename_character(
+                document, old_name, new_name, ep_num
+            )
+        if self.uses_dynamic_storage(project_data):
+            return self._dynamic.rename_character(
+                project_data, old_name, new_name, ep_num
+            )
         episode_texts = project_data.get("episode_working_texts", {})
         if ep_num is not None:
             items = [(str(ep_num), episode_texts.get(str(ep_num)))]
@@ -484,6 +822,15 @@ class ScriptTextService:
                 updated_files += 1
 
         return updated_files
+
+    @staticmethod
+    def _audiobook_document(
+        project_data: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        if project_data.get("project_kind") != "audiobook":
+            return None
+        document = project_data.get("audiobook_document")
+        return document if isinstance(document, dict) else None
 
     def backup_episode_text(
         self,

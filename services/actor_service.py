@@ -1,10 +1,14 @@
 """Service for managing actors."""
 
 import logging
-from typing import Dict, List, Optional, Set, Any
-from datetime import datetime
+from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from config.constants import MY_PALETTE
+from services.assignment_service import (
+    actor_ids_from_assignment,
+    assignment_from_actor_ids,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +23,11 @@ class ActorService:
         self,
         actors: Dict[str, dict],
         name: str,
-        color: Optional[str] = None
+        color: Optional[str] = None,
+        gender: str = "",
     ) -> str:
         """Add actor."""
-        actor_id = str(datetime.now().timestamp())
+        actor_id = str(uuid4())
 
         if not color:
             color = self._get_next_color(actors)
@@ -30,6 +35,7 @@ class ActorService:
         actors[actor_id] = {
             "name": name,
             "color": color,
+            "gender": self._normalize_gender(gender),
             "roles": []
         }
 
@@ -79,19 +85,22 @@ class ActorService:
 
     def assign_actor_to_character(
         self,
-        global_map: Dict[str, str],
+        global_map: Dict[str, Any],
         character_name: str,
         actor_id: Optional[str]
     ) -> None:
         """Assign actor to character."""
         if actor_id:
-            global_map[character_name] = actor_id
+            assigned = actor_ids_from_assignment(global_map.get(character_name))
+            global_map[character_name] = assignment_from_actor_ids(
+                [*assigned, actor_id]
+            )
         else:
             global_map.pop(character_name, None)
 
     def bulk_assign_actors(
         self,
-        global_map: Dict[str, str],
+        global_map: Dict[str, Any],
         characters: List[str],
         actor_id: Optional[str]
     ) -> int:
@@ -99,7 +108,10 @@ class ActorService:
         count = 0
         for char in characters:
             if actor_id:
-                global_map[char] = actor_id
+                assigned = actor_ids_from_assignment(global_map.get(char))
+                global_map[char] = assignment_from_actor_ids(
+                    [*assigned, actor_id]
+                )
             else:
                 global_map.pop(char, None)
             count += 1
@@ -107,38 +119,46 @@ class ActorService:
 
     def get_actor_roles(
         self,
-        global_map: Dict[str, str],
+        global_map: Dict[str, Any],
         actor_id: str
     ) -> List[str]:
         """Return actor roles."""
         return [
             char for char, aid in global_map.items()
-            if aid == actor_id
+            if actor_id in actor_ids_from_assignment(aid)
         ]
 
     def update_actor_roles(
         self,
-        global_map: Dict[str, str],
+        global_map: Dict[str, Any],
         actor_id: str,
         new_roles: List[str]
     ) -> None:
         """Update actor roles."""
         # Remove old mappings
-        keys_to_remove = [
-            k for k, v in global_map.items()
-            if v == actor_id
-        ]
-        for key in keys_to_remove:
-            del global_map[key]
+        for role_name, assignment in list(global_map.items()):
+            remaining = [
+                assigned_id
+                for assigned_id in actor_ids_from_assignment(assignment)
+                if assigned_id != actor_id
+            ]
+            normalized = assignment_from_actor_ids(remaining)
+            if normalized is None:
+                global_map.pop(role_name, None)
+            else:
+                global_map[role_name] = normalized
 
         # Add new mappings
         for role_name in new_roles:
-            global_map[role_name] = actor_id
+            assigned = actor_ids_from_assignment(global_map.get(role_name))
+            global_map[role_name] = assignment_from_actor_ids(
+                [*assigned, actor_id]
+            )
 
     def get_actor_statistics(
         self,
         actors: Dict[str, dict],
-        global_map: Dict[str, str],
+        global_map: Dict[str, Any],
         episode_stats: List[Dict[str, Any]]
     ) -> Dict[str, Dict[str, Any]]:
         """Return actor statistics."""
@@ -183,13 +203,22 @@ class ActorService:
         import random
         return random.choice(MY_PALETTE)
 
+    @staticmethod
+    def _normalize_gender(value: Any) -> str:
+        normalized = str(value or "").strip().upper()
+        if normalized in {"M", "М"}:
+            return "М"
+        if normalized in {"F", "Ж"}:
+            return "Ж"
+        return ""
+
     def get_unassigned_characters(
         self,
-        global_map: Dict[str, str],
+        global_map: Dict[str, Any],
         episode_stats: List[Dict[str, Any]]
     ) -> List[str]:
         """Return unassigned characters."""
         return [
             stat["name"] for stat in episode_stats
-            if stat["name"] not in global_map
+            if not actor_ids_from_assignment(global_map.get(stat["name"]))
         ]

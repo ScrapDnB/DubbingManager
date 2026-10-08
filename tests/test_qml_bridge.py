@@ -1,0 +1,4925 @@
+"""Tests for the experimental QML bridge."""
+
+from copy import deepcopy
+from time import monotonic
+import json
+import os
+from pathlib import Path
+import tempfile
+from uuid import UUID
+
+import pytest
+from PySide6.QtCore import QCoreApplication, QSettings
+
+from config.constants import MY_PALETTE
+from services.audiobook_document_service import AudiobookDocumentService
+from ui.qml_backend.app_bridge import AppBridge
+from ui.qml_backend.features.teleprompter_bridge import (
+    REAPER_ACTIVITY_TIMEOUT_SECONDS,
+    TeleprompterBridge,
+)
+from ui.qml_backend.features.ui_state_bridge import UiStateBridge
+
+
+def _app() -> QCoreApplication:
+    app = QCoreApplication.instance()
+    if app is None:
+        app = QCoreApplication([])
+    return app
+
+
+@pytest.fixture(autouse=True)
+def isolated_global_settings(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "services.global_settings_service.SETTINGS_FILE",
+        tmp_path / "global_settings.json",
+    )
+    settings_path = tmp_path / "ui-state.ini"
+
+    def isolated_ui_state(parent=None):
+        return UiStateBridge(
+            QSettings(str(settings_path), QSettings.IniFormat), parent=parent
+        )
+
+    monkeypatch.setattr(
+        "ui.qml_backend.app_bridge.UiStateBridge", isolated_ui_state
+    )
+
+
+def test_qml_bridge_starts_with_empty_project():
+    _app()
+    bridge = AppBridge()
+    project = bridge.project
+
+    assert project.name == "Новый проект"
+    assert project.currentEpisode == ""
+    assert project.episodesModel.rowCount() == 0
+    assert bridge.project.episodesModel is project.episodesModel
+    assert bridge.casting.actorsModel.rowCount() == 0
+    assert bridge.casting.charactersModel.rowCount() == 0
+
+
+def test_layout_designer_errors_are_not_promoted_to_main_modal():
+    _app()
+    bridge = AppBridge()
+    errors = []
+    bridge.errorOccurred.connect(errors.append)
+
+    bridge.layoutTemplates.errorRequested.emit(
+        "Поле «Реплика» уже добавлено"
+    )
+    assert errors == []
+
+    bridge.video.errorRequested.emit("Обычная ошибка приложения")
+    assert errors == ["Обычная ошибка приложения"]
+
+
+def _configure_audiobook_project(bridge, tmp_path):
+    source = str(tmp_path / "book.pdf")
+    document = AudiobookDocumentService().create_document(source, [
+        ("Глава 1", "<!DOCTYPE html><html><body><h1>Глава 1</h1><p>Первый текст.</p></body></html>"),
+        ("Глава 2", "<!DOCTYPE html><html><body><h1>Глава 2</h1><p>Второй текст.</p></body></html>"),
+    ])
+    bridge._session.data.update({
+        "project_kind": "audiobook",
+        "episodes": {"Глава 1": source, "Глава 2": source},
+        "audiobook_document": document,
+        "actors": {"actor-1": {"name": "Актёр", "color": "#336699"}},
+        "global_map": {},
+        "audiobook_settings": {},
+    })
+
+
+def test_qml_audiobook_saves_html_markup_through_undo_command(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    audiobook = bridge.audiobook
+    audiobook.prepare()
+
+    marked_html = (
+        "<!DOCTYPE html><html><body><h1>Глава 1</h1><p>"
+        '<span data-dm-character="Герой" data-dm-actor="actor-1">Первый</span> текст.'
+        "</p></body></html>"
+    )
+    audiobook.updateEditorState(
+        marked_html,
+        '[{"character":"Автор","text":"Глава 1"},{"character":"Герой","text":"Первый"},{"character":"Автор","text":"текст."}]',
+    )
+    audiobook.setSlot(0, "Герой", "actor-1")
+
+    assert audiobook.saveCurrent()
+    document = bridge._session.data["audiobook_document"]
+    lines = AudiobookDocumentService().lines(document, "Глава 1")
+    assert any(line["char"] == "Герой" and line["text"] == "Первый" for line in lines)
+    assert bridge._session.data["global_map"]["Герой"] == "actor-1"
+    assert "book_chapters" not in bridge._session.data
+    assert "audiobook_source" not in bridge._session.data
+    assert bridge._session.data["episode_working_texts"] == {}
+
+    bridge.project.undo()
+    restored = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert not any(line["char"] == "Герой" for line in restored)
+
+    bridge.project.redo()
+    redone = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(line["char"] == "Герой" and line["text"] == "Первый" for line in redone)
+
+
+def test_qml_character_card_updates_aliases_with_rename_and_undo(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    source = str(tmp_path / "book.pdf")
+    bridge._session.data["episodes"] = {"Глава 1": source}
+    bridge._session.data["audiobook_document"] = (
+        AudiobookDocumentService().create_document(source, [(
+            "Глава 1",
+            "<!DOCTYPE html><html><body><h1>Глава 1</h1>"
+            '<p><span data-dm-character="Герой">Реплика.</span></p>'
+            "</body></html>",
+        )])
+    )
+    bridge._session.current_episode = "Глава 1"
+    bridge.casting.refresh("project")
+
+    bridge.casting.updateCharacterProfile(
+        "Герой", "Александр", ["Саша", "капитан", "Саша"]
+    )
+
+    assert bridge._session.data["character_aliases"] == {
+        "Александр": ["Саша", "капитан"]
+    }
+    lines = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(line["char"] == "Александр" for line in lines)
+    assert bridge.casting.characterAliases("Александр") == [
+        "Саша", "капитан"
+    ]
+
+    bridge.project.undo()
+
+    assert bridge._session.data["character_aliases"] == {}
+    restored = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(line["char"] == "Герой" for line in restored)
+
+
+def test_qml_audiobook_review_queue_search_and_ignore(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    audiobook = bridge.audiobook
+    audiobook.prepare()
+    audiobook.updateEditorState(
+        "<!DOCTYPE html><html><body><h1>Глава 1</h1>"
+        "<p>— Кто здесь?</p></body></html>",
+        '[{"character":"Автор","text":"— Кто здесь?"}]',
+    )
+
+    assert audiobook.reviewCount == 1
+    row = audiobook.reviewModel.get(0)
+    assert row["kind"] == "unmarked_dialogue"
+
+    audiobook.setReviewSearch("кто здесь")
+    assert audiobook.reviewModel.rowCount() == 1
+    audiobook.ignoreReviewItem(row["itemId"])
+    assert audiobook.reviewCount == 0
+    assert row["itemId"] in bridge._session.data[
+        "audiobook_settings"
+    ]["review_ignored"]
+
+    audiobook.setReviewFilter("ignored")
+    assert audiobook.reviewModel.rowCount() == 1
+    audiobook.resetIgnoredReviewItems()
+    assert audiobook.reviewCount == 1
+
+
+
+def test_qml_audiobook_pdf_export_uses_live_selected_chapters(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    audiobook = bridge.audiobook
+    audiobook.prepare()
+    calls = []
+
+    class Exporter:
+        def export_combined(
+            self, document, project, titles, path, studio_layout
+        ):
+            calls.append((document, list(titles), path, studio_layout))
+            return Path(path)
+
+    audiobook._pdf_export_service = Exporter()
+    audiobook.updateEditorState(
+        "<!DOCTYPE html><html><body><h1>Глава 1</h1>"
+        "<p>Несохранённая правка.</p></body></html>",
+        '[{"character":"Автор","text":"Несохранённая правка."}]',
+    )
+
+    assert audiobook.exportPdf(
+        ["Глава 1"], str(tmp_path / "book.pdf"), False, True
+    )
+    document, titles, path, studio = calls[0]
+    assert titles == ["Глава 1"]
+    assert path.endswith("book.pdf") and studio is True
+    assert "Несохранённая правка" in json.dumps(
+        document, ensure_ascii=False
+    )
+
+
+def test_qml_audiobook_applies_reordered_chapter_structure(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    audiobook = bridge.audiobook
+    audiobook.prepare()
+    audiobook.prepareChapterMarkup()
+    audiobook.updateBoundaries(json.dumps({
+        "sourceHtml": AudiobookDocumentService().combined_html(
+            bridge._session.data["audiobook_document"]
+        ),
+        "chapters": [
+            {"title": "Пролог", "html": "<!DOCTYPE html><html><body><h1>Пролог</h1><p>Второй текст.</p></body></html>"},
+            {"title": "Глава 1", "html": "<!DOCTYPE html><html><body><h1>Глава 1</h1><p>Первый текст.</p></body></html>"},
+        ],
+    }, ensure_ascii=False))
+
+    assert audiobook.applyChapterMarkup()
+    assert AudiobookDocumentService().chapter_titles(
+        bridge._session.data["audiobook_document"]
+    ) == ["Пролог", "Глава 1"]
+    assert set(bridge._session.data["episodes"]) == {"Пролог", "Глава 1"}
+
+    bridge.project.undo()
+    assert AudiobookDocumentService().chapter_titles(
+        bridge._session.data["audiobook_document"]
+    ) == ["Глава 1", "Глава 2"]
+    assert set(bridge._session.data["episodes"]) == {"Глава 1", "Глава 2"}
+
+    bridge.project.redo()
+    assert AudiobookDocumentService().chapter_titles(
+        bridge._session.data["audiobook_document"]
+    ) == ["Пролог", "Глава 1"]
+
+
+def test_qml_audiobook_teleprompter_edits_canonical_document(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    bridge.project.selectEpisode("Глава 1")
+    assert bridge.projectFiles.currentEpisodeSourceMissing is False
+    bridge._session.project_service.current_project_path = str(
+        tmp_path / "book.dub"
+    )
+    assert bridge.teleprompter.prepare("Глава 1")
+    row = next(
+        item for item in bridge.teleprompter.model.rows()
+        if item["replicaText"] == "Первый текст."
+    )
+
+    assert bridge.teleprompter.editReplica(
+        row["sourceIds"], "Герой", "Исправленный текст"
+    )
+
+    lines = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(
+        line["char"] == "Герой" and line["text"] == "Исправленный текст"
+        for line in lines
+    )
+    assert bridge._session.data["episode_working_texts"] == {}
+
+    bridge.project.undo()
+    restored = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(line["text"] == "Первый текст." for line in restored)
+
+    bridge.project.redo()
+    redone = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(
+        line["char"] == "Герой" and line["text"] == "Исправленный текст"
+        for line in redone
+    )
+
+    assert bridge.teleprompter.splitReplica(
+        row["sourceIds"], "Исправленный", "текст", "Второй герой"
+    )
+    split_lines = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(line["char"] == "Второй герой" and line["text"] == "текст" for line in split_lines)
+
+    bridge.project.undo()
+    unsplit = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert not any(line["char"] == "Второй герой" for line in unsplit)
+
+    bridge.project.redo()
+    resplit = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(line["char"] == "Второй герой" for line in resplit)
+
+
+def test_qml_audiobook_montage_edits_canonical_document(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_audiobook_project(bridge, tmp_path)
+    bridge._session.project_service.current_project_path = str(
+        tmp_path / "book.dub"
+    )
+    bridge.montage.prepare("Глава 1")
+    line = next(
+        item for item in bridge._script_text_service.load_episode_lines(
+            bridge._session.data, "Глава 1"
+        )
+        if item["text"] == "Первый текст."
+    )
+
+    bridge.montage.updateText(line["working_id"], "Монтажная правка")
+
+    updated = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(item["text"] == "Монтажная правка" for item in updated)
+    assert bridge._session.data["episode_working_texts"] == {}
+
+    bridge.project.undo()
+    restored = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(item["text"] == "Первый текст." for item in restored)
+
+    bridge.project.redo()
+    redone = AudiobookDocumentService().lines(
+        bridge._session.data["audiobook_document"], "Глава 1"
+    )
+    assert any(item["text"] == "Монтажная правка" for item in redone)
+
+
+def test_qml_episode_model_uses_natural_and_audiobook_order(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = str(tmp_path / "source.ass")
+    bridge._session.data["episodes"] = {
+        "10": source,
+        "2": source,
+        "1": source,
+    }
+    bridge.project.refresh_models()
+
+    model = bridge.project.episodesModel
+    assert [model.get(index)["name"] for index in range(3)] == ["1", "2", "10"]
+
+    bridge._session.data.update({
+        "project_kind": "audiobook",
+        "episodes": {"Финал": source, "Пролог": source, "Глава 1": source},
+        "audiobook_document": {
+            "chapters": [
+                {"title": title, "blocks": []}
+                for title in ("Пролог", "Глава 1", "Финал")
+            ]
+        },
+    })
+    bridge.project.refresh_models()
+    assert [model.get(index)["name"] for index in range(3)] == [
+        "Пролог", "Глава 1", "Финал",
+    ]
+
+
+def _configure_teleprompter_project(bridge, tmp_path):
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "episode.ass")}
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Actor One", "color": "#123456"},
+        "actor-2": {"name": "Actor Two", "color": "#654321"},
+    }
+    bridge._session.data["global_map"] = {
+        "Hero": "actor-1",
+        "Villain": "actor-2",
+    }
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "characters": {"Hero": {}, "Villain": {}},
+            "lines": [
+                {
+                    "id": "line-1",
+                    "start": 1.0,
+                    "end": 2.0,
+                    "character": "Hero",
+                    "text": "First line",
+                },
+                {
+                    "id": "line-2",
+                    "start": 3.0,
+                    "end": 4.0,
+                    "character": "Villain",
+                    "text": "Second line",
+                },
+            ],
+        }
+    }
+    bridge.refresh()
+
+
+def test_qml_bridge_prepares_and_navigates_teleprompter(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+
+    prompter = bridge.teleprompter
+    assert prompter.prepare("1")
+    assert bridge.teleprompter.episode == "1"
+    assert prompter.episode == "1"
+    assert prompter.model is bridge.teleprompter.model
+    assert bridge.teleprompter.model.rowCount() == 2
+    assert bridge.teleprompter.model.rows()[0]["sourceIds"] == ["line-1"]
+    assert bridge.teleprompter.model.rows()[0]["replicaText"] == "First line"
+    assert bridge.teleprompter.model.rows()[0]["time"] == "0:00:01"
+    assert bridge.teleprompter.model.rows()[0]["endTime"] == "0:00:02"
+
+    prompter.navigate(1)
+    assert bridge.teleprompter.time == 3.0
+    assert prompter.time == 3.0
+    assert bridge.teleprompter.currentIndex == 1
+
+    prompter.setActorSelected("actor-2", False)
+    assert [row["active"] for row in bridge.teleprompter.model.rows()] == [True, False]
+    prompter.navigate(1)
+    assert bridge.teleprompter.time == 1.0
+
+    prompter.setActorSelected("actor-1", False)
+    rows = bridge.teleprompter.model.rows()
+    assert [row["active"] for row in rows] == [True, True]
+    assert [row["colorActive"] for row in rows] == [False, False]
+
+
+def test_qml_teleprompter_navigates_from_current_replica(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.data["episode_working_texts"]["1"]["lines"] = [
+        {
+            "id": "line-1",
+            "start": 10.0,
+            "end": 40.0,
+            "character": "Hero",
+            "text": "Long line",
+        },
+        {
+            "id": "line-2",
+            "start": 41.0,
+            "end": 42.0,
+            "character": "Villain",
+            "text": "Next line",
+        },
+        {
+            "id": "line-3",
+            "start": 43.0,
+            "end": 44.0,
+            "character": "Hero",
+            "text": "Following line",
+        },
+    ]
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    prompter._set_time(35.0, "reaper")
+    assert prompter.currentIndex == 0
+
+    prompter.navigate(1)
+    assert prompter.time == 41.0
+
+    prompter._set_time(35.0, "reaper")
+    prompter.navigate(-1)
+    assert prompter.time == 43.0
+
+    prompter._set_time(41.5, "reaper")
+    prompter.setActorSelected("actor-2", False)
+    assert prompter.currentIndex == 1
+
+    prompter.navigate(1)
+    assert prompter.time == 43.0
+    prompter._set_time(41.5, "reaper")
+    prompter.navigate(-1)
+    assert prompter.time == 10.0
+
+
+def test_qml_teleprompter_navigates_exactly_across_overlapping_rows(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.data["episode_working_texts"]["1"]["lines"] = [
+        {
+            "id": "overlap-1",
+            "start": 10.0,
+            "end": 20.0,
+            "character": "Hero",
+            "text": "First overlapping line",
+        },
+        {
+            "id": "overlap-2",
+            "start": 15.0,
+            "end": 16.0,
+            "character": "Villain",
+            "text": "Second overlapping line",
+        },
+        {
+            "id": "overlap-3",
+            "start": 18.0,
+            "end": 19.0,
+            "character": "Hero",
+            "text": "Third overlapping line",
+        },
+    ]
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    prompter._set_time(15.0, "reaper")
+    assert prompter.currentIndex == 1
+    prompter._set_time(18.0, "reaper")
+    assert prompter.currentIndex == 2
+
+    prompter.jumpToIndex(1)
+    assert prompter.time == 15.0
+    assert prompter.currentIndex == 1
+    assert prompter.currentIndexNow() == 1
+
+    prompter.navigate(1)
+    assert prompter.time == 18.0
+    assert prompter.currentIndex == 2
+    assert prompter.currentIndexNow() == 2
+
+    prompter.navigate(-1)
+    assert prompter.time == 15.0
+    assert prompter.currentIndex == 1
+
+
+def test_qml_teleprompter_maps_imported_source_timings_to_text_offsets():
+    guides = TeleprompterBridge._replica_timing_guides(
+        {
+            "s": 10.0,
+            "e": 20.0,
+            "text": "😀 Первая / Вторая",
+            "source_ids": ["a", "b"],
+            "source_texts": ["😀 Первая", "Вторая"],
+        },
+        {
+            "a": {"id": "a", "s": 10.0, "e": 14.0, "text": "😀 Первая"},
+            "b": {"id": "b", "s": 15.0, "e": 20.0, "text": "Вторая"},
+        },
+    )
+
+    assert guides == [
+        {
+            "sourceId": "a",
+            "start": 10.0,
+            "end": 14.0,
+            "textStart": 0,
+            "textEnd": 9,
+        },
+        {
+            "sourceId": "b",
+            "start": 15.0,
+            "end": 20.0,
+            "textStart": 12,
+            "textEnd": 18,
+        },
+    ]
+
+
+def test_qml_teleprompter_rejects_stale_source_text_offsets():
+    assert TeleprompterBridge._replica_timing_guides(
+        {
+            "s": 10.0,
+            "e": 20.0,
+            "text": "Отредактированная реплика",
+            "source_ids": [1],
+            "source_texts": ["Исходная реплика"],
+        },
+        {"1": {"id": 1, "s": 10.0, "e": 20.0, "text": "Исходная реплика"}},
+    ) == []
+
+def test_qml_teleprompter_debug_reaper_simulator(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    prompter.debugSetSimulationActive(True)
+    assert not prompter.debugSimulationActive
+
+    prompter.setConfigValue("page_debug_overlay", True)
+    prompter.debugSetSimulationActive(True)
+    assert prompter.debugSimulationActive
+
+    prompter.debugSetReaperTime(3.5)
+    assert prompter.time == 3.5
+    assert prompter.currentIndex == 1
+    assert prompter.positionOrigin == "reaper"
+
+    prompter._on_osc_time(1.5)
+    assert prompter.time == 3.5
+
+    prompter.debugSetSimulationActive(False)
+    assert not prompter.debugSimulationActive
+    assert not prompter._reaper_playing
+
+
+def test_qml_teleprompter_records_a_diagnostic_session(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    assert not prompter.diagnosticRecording
+    assert prompter.startDiagnosticRecording()
+    assert prompter.diagnosticRecording
+    session_path = Path(prompter.diagnosticSessionPath)
+
+    prompter.recordDiagnosticEvent("viewport_sample", {
+        "content_y": 10,
+        "origin_y": 0,
+        "viewport_height": 700,
+    })
+    assert prompter.markDiagnosticIssue("") == "a00001"
+    assert prompter.markDiagnosticIssue("") == ""
+    screenshot = prompter.diagnosticScreenshotPath("a00001")
+    assert Path(screenshot).parent.name == "screenshots"
+    assert Path(screenshot).suffix == ".jpg"
+    assert prompter.stopDiagnosticRecording()
+    assert not prompter.diagnosticRecording
+    assert (session_path / "manifest.json").is_file()
+    assert (session_path / "summary.json").is_file()
+
+
+def test_qml_teleprompter_defers_reaper_time_after_local_navigation(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    prompter.jumpTo(3.0)
+    assert prompter.positionOrigin == "local"
+    prompter._on_osc_transport(True)
+
+    prompter._pending_reaper_time = (3.0, float("inf"))
+    prompter._on_osc_time(1.0)
+    assert prompter.time == 3.0
+
+    prompter._on_osc_time(3.0)
+    assert prompter.time == 3.0
+    assert prompter._pending_reaper_time is None
+
+    prompter._on_osc_time(1.0)
+    assert prompter.time == 1.0
+    assert prompter.positionOrigin == "reaper"
+
+
+def test_qml_teleprompter_follows_reaper_only_while_playing(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    config = prompter.config
+    config["sync_play_only"] = True
+    bridge._global_settings_service.set_default_prompter_config(config)
+    prompter._on_osc_time(3.0)
+    assert prompter.time == 0.0
+
+    prompter._on_osc_transport(True)
+    assert prompter.time == 3.0
+
+    prompter._on_osc_transport(False)
+    prompter._on_osc_time(1.0)
+    assert prompter.time == 3.0
+
+    config = prompter.config
+    config["sync_play_only"] = False
+    bridge._global_settings_service.set_default_prompter_config(config)
+    prompter._on_osc_time(1.0)
+    assert prompter.time == 1.0
+
+
+
+def test_qml_teleprompter_refresh_marks_position_as_internal(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    prompter._on_osc_transport(True)
+    prompter._on_osc_time(3.0)
+    assert prompter.positionOrigin == "reaper"
+
+    prompter.refresh()
+    assert prompter.positionOrigin == "internal"
+
+
+def test_qml_teleprompter_does_not_offset_reaper_input(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+    config = prompter.config
+    config.update({
+        "sync_in": True,
+        "sync_out": True,
+        "reaper_offset_enabled": True,
+        "reaper_offset_seconds": -2.0,
+    })
+    bridge._global_settings_service.set_default_prompter_config(config)
+
+    assert prompter.prepare("1")
+    prompter._on_osc_transport(True)
+    prompter._set_time(60.0, "local")
+    prompter._pending_reaper_time = (58.0, float("inf"))
+
+    prompter._on_osc_time(58.0)
+    assert prompter.time == 60.0
+
+    prompter._on_osc_time(58.1)
+    assert prompter.time == 58.1
+    assert prompter.positionOrigin == "reaper"
+
+
+def test_qml_teleprompter_retries_osc_after_worker_error(tmp_path, monkeypatch):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+    config = prompter.config
+    config["osc_enabled"] = True
+    bridge._global_settings_service.set_default_prompter_config(config)
+    prompter._episode = "1"
+    worker = object()
+    prompter._osc_worker = worker
+    prompter._osc_client = object()
+    prompter._osc_runtime_config = (8000, 9000)
+
+    prompter._on_osc_error(worker, "port already in use")
+
+    assert prompter.reaperConnectionState == "error"
+    assert prompter.oscStatus == "Ошибка OSC: port already in use"
+    assert prompter._osc_client is None
+    assert prompter._osc_runtime_config is None
+
+    starts = []
+    monkeypatch.setattr(prompter, "_start_osc", lambda: starts.append(True))
+    prompter.notify_global_config_changed()
+    assert starts == [True]
+
+
+def test_qml_teleprompter_restarts_osc_without_resetting_reader_state(
+    tmp_path, monkeypatch
+):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+    config = prompter.config
+    config["osc_enabled"] = True
+    bridge._global_settings_service.set_default_prompter_config(config)
+
+    starts = []
+    monkeypatch.setattr(prompter, "_start_osc", lambda: starts.append(True))
+    assert prompter.prepare("1")
+    prompter._set_time(3.0, "local")
+    starts.clear()
+
+    prompter.restartOsc()
+
+    assert starts == [True]
+    assert prompter.time == 3.0
+    assert prompter.currentIndex == 1
+    assert prompter.positionOrigin == "local"
+
+
+def test_qml_teleprompter_restarts_osc_only_after_transport_changes(
+    tmp_path, monkeypatch
+):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+    prompter._episode = "1"
+
+    config = prompter.config
+    config["osc_enabled"] = True
+    bridge._global_settings_service.set_default_prompter_config(config)
+    prompter._osc_runtime_config = (8000, 9000)
+    starts = []
+    monkeypatch.setattr(prompter, "_start_osc", lambda: starts.append(True))
+
+    prompter.notify_global_config_changed()
+    assert starts == []
+
+    config["port_out"] = 9001
+    bridge._global_settings_service.set_default_prompter_config(config)
+    prompter.notify_global_config_changed()
+    assert starts == [True]
+
+
+def test_qml_teleprompter_keeps_replicas_active_without_actors(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.data["actors"] = {}
+
+    assert bridge.teleprompter.prepare("1")
+    rows = bridge.teleprompter.model.rows()
+    assert [row["active"] for row in rows] == [True, True]
+    assert [row["colorActive"] for row in rows] == [False, False]
+
+
+def test_qml_bridge_teleprompter_edits_and_splits_with_undo(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.project_service.current_project_path = str(
+        tmp_path / "prompter-edit.dub"
+    )
+    bridge.teleprompter.prepare("1")
+    bridge.reports.search("First line")
+    bridge.reports.prepareSummary("")
+    assert bridge.reports.searchResultCount == 1
+    assert bridge.reports.summaryModel.rows()[0]["actor"] == "Actor One"
+
+    assert bridge.teleprompter.editReplica(["line-1"], "Narrator", "Changed")
+    edited = bridge._session.data["episode_working_texts"]["1"]["lines"][0]
+    assert edited["display_character"] == "Narrator"
+    assert edited["text"] == "Changed"
+    assert bridge.reports.searchResultCount == 0
+    assert bridge.reports.summaryModel.rows()[-1]["unassigned"] is True
+    backups = list((tmp_path / ".backups").glob(
+        "prompter-edit_editing_episode_1_*.dub_backup"
+    ))
+    assert len(backups) == 1
+
+    before = deepcopy(
+        bridge._session.data["episode_working_texts"]["1"]["lines"]
+    )
+    errors = []
+    bridge.teleprompter.errorRequested.connect(errors.append)
+    assert not bridge.teleprompter.editReplica(
+        ["line-1", "line-2"], "Narrator", "Ambiguous replacement"
+    )
+    assert bridge._session.data["episode_working_texts"]["1"]["lines"] == before
+    assert "объединённой реплики" in errors[-1]
+
+    bridge.project.undo()
+    restored = bridge._session.data["episode_working_texts"]["1"]["lines"][0]
+    assert "display_character" not in restored
+    assert restored["text"] == "First line"
+
+    bridge.project.redo()
+    redone = bridge._session.data["episode_working_texts"]["1"]["lines"][0]
+    assert redone["display_character"] == "Narrator"
+    assert redone["text"] == "Changed"
+    bridge.project.undo()
+
+    assert bridge.teleprompter.splitReplica(
+        ["line-1"], "First", "line", "Narrator"
+    )
+    lines = bridge._session.data["episode_working_texts"]["1"]["lines"]
+    assert len(lines) == 3
+    assert lines[1]["display_character"] == "Narrator"
+    assert lines[1]["text"] == "line"
+
+    bridge.project.undo()
+    assert len(bridge._session.data["episode_working_texts"]["1"]["lines"]) == 2
+    bridge.project.redo()
+    assert len(bridge._session.data["episode_working_texts"]["1"]["lines"]) == 3
+    assert len(list((tmp_path / ".backups").glob(
+        "prompter-edit_editing_episode_1_*.dub_backup"
+    ))) == 1
+
+
+def test_qml_multiple_actors_render_and_undo_across_casting_tools(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.current_episode = "1"
+
+    bridge.casting.addActorToCharacter("Hero", "actor-2")
+
+    assert bridge._session.data["global_map"]["Hero"] == [
+        "actor-1", "actor-2",
+    ]
+    character = bridge.casting.charactersModel.rows()[0]
+    assert [entry["name"] for entry in character["actorEntries"]] == [
+        "Actor One", "Actor Two",
+    ]
+
+    assert bridge.teleprompter.prepare("1")
+    hero = bridge.teleprompter.model.rows()[0]
+    assert hero["active"] is True
+    assert hero["colorActive"] is False
+
+    bridge.teleprompter.setActorSelected("actor-2", False)
+    hero = bridge.teleprompter.model.rows()[0]
+    assert hero["active"] is True
+    assert hero["colorActive"] is True
+    assert hero["actorColor"] == "#123456"
+
+    bridge.montage.prepare("1")
+    assert bridge.montage.model.rows()[0]["background"] == "transparent"
+    bridge.montage.setActorHighlighted("actor-2", False)
+    assert bridge.montage.model.rows()[0]["background"] != "transparent"
+
+    bridge.project.undo()
+    assert bridge._session.data["global_map"]["Hero"] == "actor-1"
+
+
+def test_qml_new_actor_ids_survive_reopening_multi_actor_assignment(tmp_path):
+    """A project actor id must remain an opaque string through QML and JSON."""
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.current_episode = "1"
+
+    bridge.casting.addActorWithDetails("Actor Three", "#ABCDEF", "М")
+    actor_id = next(
+        row["id"]
+        for row in bridge.casting.actorsModel.rows()
+        if row["name"] == "Actor Three"
+    )
+    # Numeric timestamp identifiers can be coerced to JS numbers, which breaks
+    # an assignment after reopening. UUIDs stay exact across the boundary.
+    assert str(UUID(actor_id)) == actor_id
+
+    bridge.casting.addActorToCharacter("Hero", actor_id)
+    path = tmp_path / "multi-actor-reopen.dub"
+    assert bridge._session.project_service.save_project_as(
+        bridge._session.data, str(path)
+    )
+
+    reopened = AppBridge()
+    reopened.project._open_now(str(path))
+    hero = next(
+        row for row in reopened.casting.charactersModel.rows()
+        if row["character"] == "Hero"
+    )
+    assert {entry["name"] for entry in hero["actorEntries"]} == {
+        "Actor One", "Actor Three",
+    }
+
+
+def test_qml_reopening_migrates_legacy_numeric_multi_actor_ids(tmp_path):
+    _app()
+    source = AppBridge()
+    _configure_teleprompter_project(source, tmp_path)
+    source._session.data["actors"] = {
+        "1788437715.85358": {
+            "name": "Actor One", "color": "#123456", "gender": "М",
+        },
+        "1788437730.771291": {
+            "name": "Actor Two", "color": "#654321", "gender": "Ж",
+        },
+    }
+    source._session.data["global_map"] = {
+        "Hero": ["1788437715.85358", "1788437730.771291"],
+        "Villain": "1788437730.771291",
+    }
+    source._session.data["episode_actor_map"] = {
+        "1": {"Guest": ["1788437730.771291", "1788437715.85358"]},
+    }
+    source._global_settings_service.settings["global_actor_base"] = {
+        "1788437715.85358": {"name": "Actor One", "gender": "М"},
+        "1788437730.771291": {"name": "Actor Two", "gender": "Ж"},
+    }
+    source._global_settings["global_actor_base"] = (
+        source._global_settings_service.get_global_actor_base()
+    )
+    assert source._global_settings_service.save_settings(
+        source._global_settings
+    )
+    path = tmp_path / "legacy-numeric-multi-actor.dub"
+    # Emulate a project written by the legacy timestamp-ID implementation.
+    path.write_text(
+        json.dumps(source._session.data, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    reopened = AppBridge()
+    reopened.project._open_now(str(path))
+    actor_ids = reopened._session.data["global_map"]["Hero"]
+    assert all(actor_id in reopened._session.data["actors"] for actor_id in actor_ids)
+    assert all(str(UUID(actor_id)) == actor_id for actor_id in actor_ids)
+    assert all(
+        str(UUID(actor_id)) == actor_id
+        for actor_id in reopened._global_settings_service.get_global_actor_base()
+    )
+    episode_actor_ids = reopened._session.data["episode_actor_map"]["1"]["Guest"]
+    assert all(
+        actor_id in reopened._session.data["actors"]
+        and str(UUID(actor_id)) == actor_id
+        for actor_id in episode_actor_ids
+    )
+    assert reopened.project.dirty
+    hero = next(
+        row for row in reopened.casting.charactersModel.rows()
+        if row["character"] == "Hero"
+    )
+    assert [entry["name"] for entry in hero["actorEntries"]] == [
+        "Actor One", "Actor Two",
+    ]
+    assert reopened.teleprompter.prepare("1")
+    teleprompter_rows = reopened.teleprompter.model.rows()
+    assert teleprompter_rows[0]["actor"] == "Actor One / Actor Two"
+    assert teleprompter_rows[1]["actor"] == "Actor Two"
+    assert teleprompter_rows[1]["actorColor"] == "#654321"
+    reopened.montage.prepare("1")
+    montage_rows = reopened.montage.model.rows()
+    assert montage_rows[0]["actor"] == "Actor One / Actor Two"
+    assert montage_rows[0]["background"] == "transparent"
+    assert montage_rows[1]["actor"] == "Actor Two"
+    assert montage_rows[1]["background"] != "transparent"
+
+
+def test_qml_remove_one_actor_from_multi_cast_is_undoable(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.current_episode = "1"
+    bridge.casting.addActorToCharacter("Hero", "actor-2")
+
+    bridge.casting.removeActorFromCharacter("Hero", "actor-1")
+
+    assert bridge._session.data["global_map"]["Hero"] == "actor-2"
+    character = bridge.casting.charactersModel.rows()[0]
+    assert [entry["id"] for entry in character["actorEntries"]] == ["actor-2"]
+
+    bridge.project.undo()
+    assert bridge._session.data["global_map"]["Hero"] == [
+        "actor-1", "actor-2",
+    ]
+
+
+def test_qml_deleting_one_multi_cast_actor_keeps_the_other(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.current_episode = "1"
+    bridge.casting.addActorToCharacter("Hero", "actor-2")
+
+    bridge.casting.deleteActor("actor-1")
+
+    assert bridge._session.data["global_map"]["Hero"] == "actor-2"
+    assert "actor-1" not in bridge._session.data["actors"]
+
+    bridge.project.undo()
+    assert bridge._session.data["global_map"]["Hero"] == [
+        "actor-1", "actor-2",
+    ]
+
+
+def test_qml_deleting_multiple_actors_is_one_undoable_operation():
+    _app()
+    bridge = AppBridge()
+    bridge._session.data.update({
+        "actors": {
+            "actor-1": {"name": "One", "color": "#111111"},
+            "actor-2": {"name": "Two", "color": "#222222"},
+        },
+        "global_map": {
+            "Hero": "actor-1",
+            "Pair": ["actor-1", "actor-2"],
+        },
+        "episode_actor_map": {"1": {"Guest": "actor-2"}},
+    })
+    bridge.casting.refresh()
+
+    assert bridge.casting.actorRoleAssignments(["actor-1", "actor-2"]) == [
+        {"actorName": "One", "rolesText": "Hero, Pair"},
+        {"actorName": "Two", "rolesText": "Guest, Pair"},
+    ]
+
+    bridge.casting.deleteActors(["actor-1", "actor-2"])
+
+    assert bridge._session.data["actors"] == {}
+    assert bridge._session.data["global_map"] == {}
+    assert bridge._session.data["episode_actor_map"] == {"1": {}}
+
+    bridge.project.undo()
+    assert set(bridge._session.data["actors"]) == {"actor-1", "actor-2"}
+    assert bridge._session.data["global_map"] == {
+        "Hero": "actor-1",
+        "Pair": ["actor-1", "actor-2"],
+    }
+    assert bridge._session.data["episode_actor_map"] == {
+        "1": {"Guest": "actor-2"}
+    }
+
+
+def test_qml_bridge_teleprompter_settings_and_presets(tmp_path, monkeypatch):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge.teleprompter.prepare("1")
+
+    refresh_calls = []
+    original_refresh = bridge.refresh
+    monkeypatch.setattr(bridge, "refresh", lambda: refresh_calls.append(True))
+    bridge.teleprompter.setConfigValue("layout_type", "Сценарий 1")
+    bridge.teleprompter.setConfigValue("f_text", 52)
+    bridge.teleprompter.setConfigValue("colors.bg", "#102030")
+    assert refresh_calls == []
+    monkeypatch.setattr(bridge, "refresh", original_refresh)
+    assert bridge.teleprompter.config["f_text"] == 52
+    assert bridge.teleprompter.config["colors"]["bg"] == "#102030"
+    global_prompter = bridge._global_settings_service.get_default_prompter_config()
+    assert global_prompter["layout_font_sizes"]["Сценарий 1"]["f_text"] == 52
+    assert global_prompter["colors"]["bg"] == "#102030"
+
+    bridge.teleprompter.setConfigValue("layout_type", "Сценарий 2")
+    assert bridge.teleprompter.config["f_text"] == 36
+    assert bridge.teleprompter.config["bold_char"] is True
+    assert bridge.teleprompter.config["bold_text"] is False
+    bridge.teleprompter.setConfigValue("f_text", 64)
+    bridge.teleprompter.setConfigValue("bold_char", False)
+    bridge.teleprompter.setConfigValue("bold_text", True)
+    bridge.teleprompter.setConfigValue("layout_type", "Сценарий 1")
+    assert bridge.teleprompter.config["f_text"] == 52
+    assert bridge.teleprompter.config["bold_char"] is True
+    assert bridge.teleprompter.config["bold_text"] is False
+    profiles = bridge._global_settings_service.get_default_prompter_config()[
+        "layout_font_sizes"
+    ]
+    assert profiles["Сценарий 2"]["f_text"] == 64
+    bold_profiles = bridge._global_settings_service.get_default_prompter_config()[
+        "layout_font_bold"
+    ]
+    assert bold_profiles["Сценарий 2"]["bold_char"] is False
+    assert bold_profiles["Сценарий 2"]["bold_text"] is True
+
+    bridge.teleprompter.setConfigValue("show_actor", False)
+    bridge.teleprompter.setConfigValue("show_replica", False)
+    bridge.teleprompter.setConfigValue("show_end_timecode", False)
+    bridge.teleprompter.setConfigValue("show_block_borders", True)
+    bridge.teleprompter.setConfigValue("hide_leading_timecode_zeros", True)
+    bridge.teleprompter.setConfigValue("show_diagnostic_controls", False)
+    global_prompter = bridge._global_settings_service.get_default_prompter_config()
+    assert global_prompter["show_actor"] is False
+    assert global_prompter["show_replica"] is False
+    assert global_prompter["show_end_timecode"] is False
+    assert global_prompter["show_block_borders"] is True
+    assert global_prompter["hide_leading_timecode_zeros"] is True
+    assert global_prompter["show_diagnostic_controls"] is False
+    assert bridge.teleprompter.config["show_actor"] is False
+    assert bridge.teleprompter.config["show_replica"] is False
+    assert bridge.teleprompter.config["show_end_timecode"] is False
+    assert bridge.teleprompter.config["show_block_borders"] is True
+    assert bridge.teleprompter.config["hide_leading_timecode_zeros"] is True
+    assert bridge.teleprompter.config["show_diagnostic_controls"] is False
+
+    bridge.teleprompter.savePreset(0)
+    assert bridge.teleprompter.presetModel.rows()[0]["filled"]
+
+    bridge.teleprompter.setConfigValue("colors.bg", "#000000")
+    bridge.teleprompter.applyOrSavePreset(0)
+    assert bridge.teleprompter.config["colors"]["bg"] == "#102030"
+    assert bridge._global_settings_service.get_default_prompter_config()[
+        "colors"
+    ]["bg"] == "#102030"
+
+    bridge.teleprompter.setConfigValue("colors.bg", "#405060")
+    bridge.teleprompter.savePreset(0)
+    assert bridge._global_settings_service.get_prompter_color_presets()[0][
+        "bg"
+    ] == "#405060"
+
+
+def test_qml_teleprompter_uses_global_reaper_osc_settings(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.data["prompter_config"].update({
+        "port_in": 7100,
+        "port_out": 7101,
+        "sync_in": False,
+    })
+    global_prompter = dict(bridge.settings.globalPrompterConfig)
+    global_prompter.update({
+        "port_in": 8100,
+        "port_out": 8101,
+        "sync_in": True,
+        "osc_enabled": False,
+    })
+
+    assert bridge.settings.applyGlobalSettingsBundle(
+        "ru",
+        bridge.settings.audiobookKeywords,
+        bridge.settings.globalMontageConfig,
+        global_prompter,
+    )
+
+    assert bridge.teleprompter.config["port_in"] == 8100
+    assert bridge.teleprompter.config["port_out"] == 8101
+    assert bridge.teleprompter.config["sync_in"] is True
+    bridge.teleprompter.setConfigValue("port_in", 9100)
+    assert bridge.teleprompter.config["port_in"] == 9100
+    assert bridge._session.data["prompter_config"]["port_in"] == 7100
+
+
+def test_qml_teleprompter_sync_toggles_update_global_settings(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    bridge._session.data["prompter_config"].update({
+        "sync_in": False,
+        "sync_out": False,
+    })
+
+    assert bridge.settings.setPrompterSyncEnabled("sync_in", True)
+    assert bridge.settings.setPrompterSyncEnabled("sync_out", True)
+    assert bridge.settings.setPrompterSyncEnabled("sync_play_only", True)
+    assert bridge.settings.setPrompterPageScrollMode(True)
+
+    saved = bridge._global_settings_service.load_settings()
+    assert saved["default_prompter_config"]["sync_in"] is True
+    assert saved["default_prompter_config"]["sync_out"] is True
+    assert saved["default_prompter_config"]["sync_play_only"] is True
+    assert saved["default_prompter_config"]["page_scroll_mode"] is True
+    assert bridge.teleprompter.config["sync_in"] is True
+    assert bridge.teleprompter.config["sync_out"] is True
+    assert bridge.teleprompter.config["page_scroll_mode"] is True
+    assert bridge._session.data["prompter_config"]["sync_in"] is False
+    assert bridge._session.data["prompter_config"]["page_scroll_mode"] is False
+    assert not bridge.settings.setPrompterSyncEnabled("port_in", True)
+
+    assert bridge.settings.setPrompterScrollMode("normal")
+    saved = bridge._global_settings_service.load_settings()
+    assert saved["default_prompter_config"]["page_scroll_mode"] is False
+    assert bridge.teleprompter.config["page_scroll_mode"] is False
+    assert not bridge.settings.setPrompterScrollMode("smooth")
+    assert not bridge.settings.setPrompterScrollMode("unsupported")
+
+
+def test_qml_teleprompter_stops_accepting_reaper_time_when_sync_is_disabled(
+    tmp_path,
+):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+
+    assert prompter.prepare("1")
+    assert bridge.settings.setPrompterSyncEnabled("sync_in", True)
+    prompter._on_osc_time(2.0)
+    assert prompter.time == 2.0
+
+    assert bridge.settings.setPrompterSyncEnabled("sync_in", False)
+    prompter._on_osc_time(4.0)
+
+    assert prompter.time == 2.0
+    assert prompter.config["sync_in"] is False
+
+
+def test_qml_teleprompter_saves_page_gap_prefetch_threshold(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+
+    prompter.setConfigValue("page_gap_prefetch_seconds", 2.5)
+    assert prompter.config["page_gap_prefetch_seconds"] == 2.5
+
+    prompter.setConfigValue("page_gap_prefetch_seconds", 99.0)
+    assert prompter.config["page_gap_prefetch_seconds"] == 60.0
+
+    prompter.setConfigValue("page_gap_prefetch_delay_seconds", 1.5)
+    assert prompter.config["page_gap_prefetch_delay_seconds"] == 1.5
+
+    prompter.setConfigValue("page_gap_prefetch_delay_seconds", 99.0)
+    assert prompter.config["page_gap_prefetch_delay_seconds"] == 60.0
+
+    prompter.setConfigValue("page_target_highlight_enabled", False)
+    assert prompter.config["page_target_highlight_enabled"] is False
+
+    prompter.setConfigValue("page_timecode_highlight_enabled", True)
+    assert prompter.config["page_timecode_highlight_enabled"] is True
+    assert bridge._global_settings_service.load_settings()[
+        "default_prompter_config"
+    ]["page_timecode_highlight_enabled"] is True
+
+    prompter.setConfigValue("page_target_highlight_opacity", 0.31)
+    assert prompter.config["page_target_highlight_opacity"] == 0.31
+
+    prompter.setConfigValue("page_target_highlight_opacity", 1.0)
+    assert prompter.config["page_target_highlight_opacity"] == 0.44
+
+    prompter.setConfigValue("page_target_highlight_fade_ms", 1750)
+    assert prompter.config["page_target_highlight_fade_ms"] == 1750
+
+    prompter.setConfigValue("page_target_highlight_fade_ms", 20000)
+    assert prompter.config["page_target_highlight_fade_ms"] == 10000
+
+    prompter.setConfigValue("page_target_highlight_fade_in_ms", 750)
+    assert prompter.config["page_target_highlight_fade_in_ms"] == 750
+
+    prompter.setConfigValue("page_target_highlight_fade_in_ms", 20000)
+    assert prompter.config["page_target_highlight_fade_in_ms"] == 10000
+
+    prompter.setConfigValue("colors.page_target_highlight", "#336699")
+    assert prompter.config["colors"]["page_target_highlight"] == "#336699"
+
+
+def test_qml_teleprompter_reaper_indicator_tracks_osc_activity(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+    global_config = bridge._global_settings_service.get_default_prompter_config()
+    global_config["osc_enabled"] = True
+    bridge._global_settings_service.set_default_prompter_config(global_config)
+    prompter._osc_worker = object()
+
+    prompter._refresh_reaper_connection_state()
+    assert prompter.reaperConnectionState == "waiting"
+
+    prompter._last_osc_activity = monotonic()
+    prompter._refresh_reaper_connection_state()
+    assert prompter.reaperConnectionState == "active"
+    assert prompter.reaperConnectionText == "REAPER: синхронизация активна"
+
+    prompter._last_osc_activity = (
+        monotonic() - REAPER_ACTIVITY_TIMEOUT_SECONDS - 0.1
+    )
+    prompter._refresh_reaper_connection_state()
+    assert prompter.reaperConnectionState == "lost"
+
+
+def test_qml_bridge_normalizes_legacy_scenario_layout():
+    _app()
+    bridge = AppBridge()
+    config = bridge._global_settings_service.get_default_export_config()
+    config["layout_type"] = "Сценарий"
+    bridge._global_settings_service.set_default_export_config(config)
+
+    assert bridge.montage.config["layout_type"] == "Сценарий 1"
+
+
+def test_qml_bridge_refreshes_episode_actor_and_line_models(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["project_name"] = "Demo"
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "episode.ass")}
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Actor One", "color": "#123456"}
+    }
+    bridge._session.data["global_map"] = {"Hero": "actor-1"}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "lines": [
+                {
+                    "id": "line-1",
+                    "start": 1.5,
+                    "end": 3.0,
+                    "character": "Hero",
+                    "text": "Hello from QML",
+                }
+            ]
+        }
+    }
+
+    bridge.refresh()
+
+    assert bridge.project.currentEpisode == "1"
+    assert bridge.project.episodesModel.rowCount() == 1
+    assert bridge.casting.actorsModel.rowCount() == 1
+    assert bridge.casting.linesModel.rowCount() == 1
+    assert bridge.casting.charactersModel.rowCount() == 1
+    assert bridge.casting.charactersModel.rows()[0]["character"] == "Hero"
+    assert bridge.casting.charactersModel.rows()[0]["actor"] == "Actor One"
+    assert bridge.casting.linesModel.rows()[0]["actor"] == "Actor One"
+    assert bridge.casting.linesModel.rows()[0]["text"] == "Hello from QML"
+
+
+def test_qml_bridge_filters_character_model(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "episode.ass")}
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Actor One", "color": "#123456"},
+        "actor-2": {"name": "Actor Two", "color": "#654321"},
+    }
+    bridge._session.data["global_map"] = {
+        "Hero": "actor-1",
+        "Villain": "actor-2",
+    }
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "lines": [
+                {"id": "line-1", "start": 1.0, "end": 2.0, "character": "Hero", "text": "Alpha words"},
+                {"id": "line-2", "start": 2.0, "end": 3.0, "character": "Villain", "text": "Beta words"},
+                {"id": "line-3", "start": 3.0, "end": 4.0, "character": "Narrator", "text": "Gamma words"},
+            ]
+        }
+    }
+    bridge.refresh()
+    casting = bridge.casting
+
+    assert [row["character"] for row in casting.charactersModel.rows()] == [
+        "Hero",
+        "Narrator",
+        "Villain",
+    ]
+    assert [row["name"] for row in bridge.casting.actorFilterModel.rows()] == [
+        "Все актёры",
+        "Без актёра",
+        "Actor One",
+        "Actor Two",
+    ]
+
+    casting.setActorFilter("actor-1")
+    assert [row["character"] for row in casting.charactersModel.rows()] == ["Hero"]
+
+    casting.setActorFilter("")
+    casting.setActorFilter("__unassigned__")
+    assert [row["character"] for row in casting.charactersModel.rows()] == ["Narrator"]
+
+    casting.setShowUnassignedOnly(False)
+    casting.setSearchText("vill")
+    assert [row["character"] for row in casting.charactersModel.rows()] == ["Villain"]
+
+
+def test_qml_bridge_selected_character_stats_reset_when_filtered_out(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "episode.ass")}
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Actor One", "color": "#123456"},
+    }
+    bridge._session.data["global_map"] = {"Hero": "actor-1"}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "lines": [
+                {"id": "line-1", "start": 1.0, "end": 2.0, "character": "Hero", "text": "Alpha words"},
+                {"id": "line-2", "start": 2.0, "end": 3.0, "character": "Narrator", "text": "Beta words"},
+            ]
+        }
+    }
+    bridge.refresh()
+
+    bridge.casting.selectCharacter("Hero")
+
+    assert bridge.casting.selectedCharacter == "Hero"
+    assert "Actor One" in bridge.casting.selectedCharacterStats
+    assert "Реплик: 1" in bridge.casting.selectedCharacterStats
+
+    bridge.casting.setShowUnassignedOnly(True)
+
+    assert bridge.casting.selectedCharacter == ""
+    assert bridge.casting.selectedCharacterStats == "Выберите персонажа в таблице"
+
+
+def test_qml_bridge_actor_commands_use_undo_stack():
+    _app()
+    bridge = AppBridge()
+    casting = bridge.casting
+
+    casting.addActorWithDetails("New Actor", "#ABCDEF", "F")
+
+    actor_rows = casting.actorsModel.rows()
+    assert len(actor_rows) == 1
+    actor_id = actor_rows[0]["id"]
+    assert actor_rows[0]["name"] == "New Actor"
+    assert actor_rows[0]["color"] == "#ABCDEF"
+    assert actor_rows[0]["gender"] == "Ж"
+    assert bridge.project.canUndo
+    assert not bridge.project.canRedo
+
+    casting.renameActor(actor_id, "Renamed Actor")
+    assert bridge.casting.actorsModel.rows()[0]["name"] == "Renamed Actor"
+
+    casting.updateActorColor(actor_id, "#123456")
+    assert bridge.casting.actorsModel.rows()[0]["color"] == "#123456"
+
+    casting.updateActorGender(actor_id, "M")
+    assert bridge.casting.actorsModel.rows()[0]["gender"] == "М"
+
+    bridge.project.undo()
+    assert bridge.casting.actorsModel.rows()[0]["gender"] == "Ж"
+
+    bridge.project.redo()
+    assert bridge.casting.actorsModel.rows()[0]["gender"] == "М"
+
+    bridge.project.undo()
+    bridge.project.undo()
+    assert bridge.casting.actorsModel.rows()[0]["color"] == "#ABCDEF"
+    bridge.project.undo()
+    assert bridge.casting.actorsModel.rows()[0]["name"] == "New Actor"
+
+    casting.deleteActor(actor_id)
+    assert bridge.casting.actorsModel.rowCount() == 0
+
+    bridge.project.undo()
+    assert bridge.casting.actorsModel.rows()[0]["name"] == "New Actor"
+
+
+def test_qml_casting_sorts_project_actors_by_columns():
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["actors"] = {
+        "actor-b": {"name": "Beta", "gender": "М"},
+        "actor-a": {"name": "Alpha", "gender": "Ж"},
+    }
+    bridge._session.data["global_map"] = {
+        "Hero": "actor-b",
+        "Narrator": "actor-b",
+    }
+    bridge.casting.refresh()
+
+    assert [row["name"] for row in bridge.casting.actorsModel.rows()] == [
+        "Alpha", "Beta",
+    ]
+
+    bridge.casting.setActorSort("roleCount")
+    assert bridge.casting.actorSortKey == "roleCount"
+    assert [row["roleCount"] for row in bridge.casting.actorsModel.rows()] == [
+        0, 2,
+    ]
+
+    bridge.casting.setActorSort("roleCount")
+    assert not bridge.casting.actorSortAscending
+    assert [row["roleCount"] for row in bridge.casting.actorsModel.rows()] == [
+        2, 0,
+    ]
+
+
+def test_qml_actor_library_sorts_global_actors_independently():
+    _app()
+    bridge = AppBridge()
+    library = bridge.actorLibrary
+    library.addGlobalActor("Beta", "М")
+    library.addGlobalActor("Alpha", "Ж")
+
+    assert [row["name"] for row in library.globalActorsModel.rows()] == [
+        "Alpha", "Beta",
+    ]
+
+    library.setActorSort("gender")
+    assert library.actorSortKey == "gender"
+    assert [row["gender"] for row in library.globalActorsModel.rows()] == [
+        "Ж", "М",
+    ]
+
+    library.setActorSort("gender")
+    assert not library.actorSortAscending
+    assert [row["gender"] for row in library.globalActorsModel.rows()] == [
+        "М", "Ж",
+    ]
+
+
+def test_qml_actor_library_searches_every_name_fragment_reliably():
+    _app()
+    bridge = AppBridge()
+    library = bridge.actorLibrary
+    library.addGlobalActor("Иван Петров", "М")
+    library.addGlobalActor("Пётр Сидоров", "М")
+    library.addGlobalActor("Анна Иванова", "Ж")
+
+    assert library.setGlobalActorSearchText("иван") == 2
+    assert [row["name"] for row in library.globalActorSearchModel.rows()] == [
+        "Анна Иванова", "Иван Петров",
+    ]
+
+    assert library.setGlobalActorSearchText("пет ив") == 1
+    assert library.globalActorSearchModel.rows()[0]["name"] == "Иван Петров"
+
+    assert library.setGlobalActorSearchText("петр с") == 1
+    assert library.globalActorSearchModel.rows()[0]["name"] == "Пётр Сидоров"
+
+    assert library.setGlobalActorSearchText("  сид   пет  ") == 1
+    assert library.globalActorSearchModel.rows()[0]["name"] == "Пётр Сидоров"
+
+    assert library.setGlobalActorSearchText("нет такого") == 0
+
+
+def test_qml_table_sort_preferences_survive_a_new_bridge(tmp_path):
+    _app()
+    settings_path = tmp_path / "ui-state.ini"
+    ui_state = UiStateBridge(QSettings(str(settings_path), QSettings.IniFormat))
+    bridge = AppBridge(ui_state=ui_state)
+
+    bridge.casting.setCharacterSort("words")
+    bridge.casting.setCharacterSort("words")
+    bridge.casting.setActorSort("gender")
+    bridge.actorLibrary.setActorSort("status")
+    bridge.actorLibrary.setActorSort("status")
+
+    restored_state = UiStateBridge(
+        QSettings(str(settings_path), QSettings.IniFormat)
+    )
+    restored = AppBridge(ui_state=restored_state)
+
+    assert restored.casting.characterSortKey == "words"
+    assert not restored.casting.characterSortAscending
+    assert restored.casting.actorSortKey == "gender"
+    assert restored.casting.actorSortAscending
+    assert restored.actorLibrary.actorSortKey == "status"
+    assert not restored.actorLibrary.actorSortAscending
+
+def test_qml_bridge_project_name_uses_undo_stack():
+    _app()
+    bridge = AppBridge()
+
+    project = bridge.project
+    project.name = "QML Project"
+
+    assert project.name == "QML Project"
+    assert project.canUndo
+
+    project.undo()
+    assert project.name == "Новый проект"
+
+    project.redo()
+    assert project.name == "QML Project"
+
+
+def test_qml_project_settings_are_atomic_and_undoable():
+    _app()
+    bridge = AppBridge()
+    original_metadata = dict(bridge._session.data["metadata"])
+    assert bridge.settings.applyProjectSettingsFull("Settings Project", "Author", "Studio")
+
+    assert bridge.project.name == "Settings Project"
+    assert bridge.settings.projectAuthor == "Author"
+    assert bridge.settings.projectStudio == "Studio"
+    assert bridge.project.canUndo
+
+    bridge.project.undo()
+
+    assert bridge.project.name == "Новый проект"
+    assert bridge._session.data["metadata"] == original_metadata
+
+    bridge.project.redo()
+    assert bridge.project.name == "Settings Project"
+
+
+def test_qml_project_settings_store_fps_only_in_project():
+    _app()
+    bridge = AppBridge()
+
+    assert bridge.settings.applyProjectSettingsWithFps(
+        "FPS Project", "Author", "Studio", 23.976
+    )
+
+    assert bridge.settings.projectFps == 23.976
+    assert bridge.settings.projectFpsDisplay == "23.976"
+    assert bridge._session.data["project_settings"]["fps_source"] == "manual"
+    assert "fps" not in bridge.settings.globalMergeConfig
+    assert "merge_config" not in bridge._session.data["script_storage"]
+
+    bridge.project.undo()
+    assert bridge.settings.projectFps == 25.0
+    bridge.project.redo()
+    assert bridge.settings.projectFps == 23.976
+
+
+def test_qml_project_fps_display_is_compact_without_changing_stored_value():
+    _app()
+    bridge = AppBridge()
+    exact_fps = 24000 / 1001
+    bridge._session.data["project_settings"].update({
+        "fps": exact_fps,
+        "fps_source": "video",
+    })
+
+    assert bridge.settings.projectFps == exact_fps
+    assert bridge.settings.projectFpsDisplay == "23.976"
+
+    bridge._session.data["project_settings"]["fps"] = 25.0
+    assert bridge.settings.projectFpsDisplay == "25"
+
+    bridge._session.data["project_settings"]["fps"] = 29.97
+    assert bridge.settings.projectFpsDisplay == "29.97"
+
+
+def test_audiobook_temporary_documents_use_platform_temp_directory():
+    _app()
+    bridge = AppBridge()
+
+    temporary, url = bridge.audiobook._temporary_document(
+        "<html></html>", "dm-test-XXXXXX.html"
+    )
+
+    assert temporary.isOpen()
+    assert os.path.samefile(Path(url.toLocalFile()).parent, tempfile.gettempdir())
+
+
+def test_qml_project_settings_only_update_project_metadata():
+    _app()
+    bridge = AppBridge()
+    original_export = dict(bridge._session.data["export_config"])
+    original_prompter = dict(bridge._session.data["prompter_config"])
+    assert bridge.settings.applyProjectSettingsFull("Bundle Project", "Author", "Studio")
+
+    assert bridge._session.data["export_config"] == original_export
+    assert bridge._session.data["prompter_config"] == original_prompter
+
+    bridge.project.undo()
+
+    assert bridge.project.name == "Новый проект"
+    assert bridge._session.data["export_config"] == original_export
+    assert bridge._session.data["prompter_config"] == original_prompter
+    assert not bridge.project.canUndo
+
+
+def test_qml_project_settings_do_not_include_import_configs():
+    _app()
+    bridge = AppBridge()
+    assert bridge.settings.applyProjectSettingsFull("Import Project", "Author", "Studio")
+    assert not {
+        "replica_merge_config", "ass_import_config", "srt_import_config",
+        "docx_import_config",
+    } & bridge._session.data.keys()
+
+    bridge.project.undo()
+
+    assert bridge.project.name == "Новый проект"
+    assert not bridge.project.canUndo
+
+
+def test_qml_global_settings_keep_russian_and_normalize_keywords():
+    _app()
+    bridge = AppBridge()
+
+    assert bridge.settings.applyGlobalSettings(
+        "en",
+        "Chapter\n Глава \nchapter\nPart, Раздел",
+    )
+
+    saved = bridge._global_settings_service.load_settings()
+    assert saved["language"] == "ru"
+    assert saved["audiobook_config"] == {
+        "chapter_keywords": ["Chapter", "Глава", "Part", "Раздел"]
+    }
+    assert bridge.settings.audiobookKeywords == "Chapter\nГлава\nPart\nРаздел"
+
+
+def test_qml_global_settings_bundle_and_project_transfer(tmp_path):
+    _app()
+    bridge = AppBridge()
+    montage = dict(bridge.settings.globalMontageConfig)
+    montage.update({"layout_type": "Сценарий 2", "table_width_actor": 11.5})
+    prompter = dict(bridge.settings.globalPrompterConfig)
+    prompter.update({"f_text": 72, "show_header": True})
+
+    assert bridge.settings.applyGlobalSettingsBundle(
+        "ru", "Глава\nChapter", montage, prompter
+    )
+    saved = bridge._global_settings_service.load_settings()
+    assert saved["default_export_config"]["layout_type"] == "Сценарий 2"
+    assert saved["default_export_config"]["table_width_actor"] == 11.5
+    assert saved["default_prompter_config"]["f_text"] == 72
+    assert saved["default_prompter_config"]["show_header"] is True
+
+    assert bridge._global_settings_service.get_default_export_config()["layout_type"] == "Сценарий 2"
+
+
+def test_qml_settings_save_prefetch_without_overwriting_scroll_mode():
+    _app()
+    bridge = AppBridge()
+    draft = dict(bridge.settings.globalPrompterConfig)
+    draft["page_scroll_mode"] = True
+    draft["page_gap_prefetch_seconds"] = 2.5
+    draft["page_gap_prefetch_delay_seconds"] = 1.5
+
+    assert bridge.settings.globalPrompterConfig["page_scroll_mode"] is False
+    assert bridge.settings.applyGlobalSettingsBundle(
+        "ru",
+        bridge.settings.audiobookKeywords,
+        bridge.settings.globalMontageConfig,
+        draft,
+    )
+
+    saved = bridge._global_settings_service.load_settings()[
+        "default_prompter_config"
+    ]
+    assert saved["page_scroll_mode"] is False
+    assert saved["page_gap_prefetch_seconds"] == 2.5
+    assert saved["page_gap_prefetch_delay_seconds"] == 1.5
+
+
+def test_qml_global_settings_full_persists_unified_import_defaults():
+    _app()
+    bridge = AppBridge()
+    merge = dict(bridge.settings.globalMergeConfig)
+    merge.update({"fps": 30.0, "merge_gap": 60, "merge_gap_seconds": 2.0})
+    ass = dict(bridge.settings.globalAssImportConfig)
+    ass["character_separator"] = "/"
+    srt = dict(bridge.settings.globalSrtImportConfig)
+    srt["default_character"] = "Voice"
+    docx = dict(bridge.settings.globalDocxImportConfig)
+    docx["minimum_header_matches"] = 3
+
+    assert bridge.settings.applyGlobalSettingsFull(
+        "ru",
+        "Глава\nChapter",
+        bridge.settings.globalMontageConfig,
+        bridge.settings.globalPrompterConfig,
+        merge,
+        ass,
+        srt,
+        docx,
+    )
+
+    saved = bridge._global_settings_service.load_settings()
+    assert saved["default_replica_merge_config"]["merge_gap_seconds"] == 2.0
+    assert "fps" not in saved["default_replica_merge_config"]
+    assert "merge_gap" not in saved["default_replica_merge_config"]
+    assert saved["ass_import_config"]["character_separator"] == "/"
+    assert saved["srt_import_config"]["default_character"] == "Voice"
+    assert saved["docx_import_config"]["minimum_header_matches"] == 3
+
+
+def test_qml_settings_manage_named_docx_import_presets():
+    _app()
+    bridge = AppBridge()
+    config = dict(bridge.settings.globalDocxImportConfig)
+    config["field_priority"] = [
+        "text", "character", "time_split", "time_start", "time_end"
+    ]
+    config["fallback_mapping"] = {
+        "character": 1,
+        "time_start": None,
+        "time_end": None,
+        "time_split": 2,
+        "text": 4,
+    }
+
+    assert bridge.settings.saveDocxImportPreset("Studio", config)
+    presets = bridge.settings.globalDocxImportPresets
+    assert presets[0]["name"] == "Studio"
+    assert presets[0]["config"]["field_priority"][0] == "text"
+    assert presets[0]["config"]["fallback_mapping"]["text"] == 4
+
+    assert bridge.settings.deleteDocxImportPreset("Studio")
+    assert bridge.settings.globalDocxImportPresets == []
+
+
+def test_qml_global_backup_settings_reconfigure_project_service(tmp_path):
+    _app()
+    bridge = AppBridge()
+    backup_config = {
+        "enabled": True,
+        "path_mode": "absolute",
+        "directory": str(tmp_path / "central"),
+        "interval_minutes": 12,
+        "max_backups": 7,
+    }
+
+    assert bridge.settings.applyGlobalSettingsComplete(
+        "ru",
+        "Глава\nChapter",
+        bridge.settings.globalMontageConfig,
+        bridge.settings.globalPrompterConfig,
+        bridge.settings.globalMergeConfig,
+        bridge.settings.globalAssImportConfig,
+        bridge.settings.globalSrtImportConfig,
+        bridge.settings.globalDocxImportConfig,
+        backup_config,
+    )
+
+    assert bridge.settings.globalBackupConfig == backup_config
+    assert bridge._project_service.get_backup_config() == backup_config
+    assert bridge.project._autosave_timer.interval() == 12 * 60_000
+
+
+def test_qml_opens_backup_as_unsaved_full_project(tmp_path):
+    _app()
+    source = AppBridge()
+    project_path = tmp_path / "source.dub"
+    source.project.saveAs(str(project_path))
+    source.project.name = "Полная резервная версия"
+    source.casting.addActor("Актёр из копии")
+    source.project.autoSave()
+    backup_path = next(
+        (tmp_path / ".backups").glob("source_*.dub_backup")
+    )
+
+    restored = AppBridge()
+    restored.project.open(str(backup_path))
+
+    assert restored.project.name == "Полная резервная версия"
+    assert restored.casting.actorsModel.rowCount() == 1
+    assert restored.project.path == ""
+    assert restored.project.dirty
+    assert restored.project.recentProjectsModel.rows()[1]["path"] != str(
+        backup_path
+    )
+    assert "Сохраните её как обычный проект" in restored.statusText
+
+
+def test_qml_open_embeds_external_working_text_and_rebases_paths(tmp_path):
+    _app()
+    (tmp_path / "Episode_01.ass").write_text(
+        "[Events]\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,"
+        "Source line\n",
+        encoding="utf-8",
+    )
+    texts_dir = tmp_path / "Texts"
+    texts_dir.mkdir()
+    (texts_dir / "episode_1.json").write_text(json.dumps({
+        "episode": "1",
+        "lines": [{
+            "id": "line-1",
+            "start": 1.0,
+            "end": 2.0,
+            "character": "Hero",
+            "text": "Portable line",
+        }],
+    }), encoding="utf-8")
+
+    bridge = AppBridge()
+    project_data = bridge._project_service.create_new_project("Portable")
+    project_data.update({
+        "project_name": "Portable",
+        "project_folder": "/old/computer/Portable",
+        "episodes": {"1": "Episode_01.ass"},
+        "episode_texts": {"1": "Texts/episode_1.json"},
+    })
+    project_path = tmp_path / "portable.dub"
+    project_path.write_text(
+        json.dumps(project_data, ensure_ascii=False), encoding="utf-8"
+    )
+
+    bridge.project.open(str(project_path))
+
+    assert bridge._session.data["project_folder"] == str(tmp_path.resolve())
+    assert bridge._session.data["episode_working_texts"]["1"]["lines"][0][
+        "text"
+    ] == "Portable line"
+    assert "1" not in bridge._session.data["episode_texts"]
+    assert bridge.project.dirty is True
+    working_row = next(
+        row for row in bridge.projectFiles.filesModel.rows()
+        if row["episode"] == "1" and row["kind"] == "working"
+    )
+    assert working_row["status"] == "Нет исходных строк"
+
+    migrated_path = tmp_path / "portable.dub"
+    bridge.project.saveAs(str(migrated_path))
+
+    saved = json.loads(migrated_path.read_text(encoding="utf-8"))
+    payload = saved["episode_working_texts"]["1"]
+    assert payload["lines"][0]["text"] == "Portable line"
+    assert payload["source_lines_origin"] == "imported"
+    assert payload["source_lines"][0]["text"] == "Source line"
+    working_row = next(
+        row for row in bridge.projectFiles.filesModel.rows()
+        if row["episode"] == "1" and row["kind"] == "working"
+    )
+    assert working_row["status"] == "В проекте"
+
+
+def test_qml_project_files_creates_missing_source_lines_with_undo(tmp_path):
+    _app()
+    source = tmp_path / "Episode_01.ass"
+    source.write_text(
+        "[Events]\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,"
+        "Source line\n",
+        encoding="utf-8",
+    )
+    bridge = AppBridge()
+    bridge._session.data.update({
+        "episodes": {"1": str(source)},
+        "episode_working_texts": {
+            "1": {
+                "lines": [{
+                    "id": "line-1",
+                    "start": 1.0,
+                    "end": 2.0,
+                    "character": "Hero",
+                    "text": "Edited working line",
+                }],
+            },
+        },
+    })
+    bridge.refresh()
+
+    bridge.projectFiles.createMissingSourceLines()
+
+    payload = bridge._session.data["episode_working_texts"]["1"]
+    assert payload["lines"][0]["text"] == "Edited working line"
+    assert payload["source_lines"][0]["text"] == "Source line"
+    assert payload["source_lines_origin"] == "imported"
+
+    bridge.project.undo()
+
+    assert "source_lines" not in bridge._session.data["episode_working_texts"]["1"]
+
+
+def test_qml_global_import_profile_does_not_modify_project():
+    _app()
+    bridge = AppBridge()
+    merge = dict(bridge.settings.globalMergeConfig)
+    merge["merge"] = False
+    ass = dict(bridge.settings.globalAssImportConfig)
+    ass["strip_override_tags"] = False
+    srt = dict(bridge.settings.globalSrtImportConfig)
+    srt["keep_multiline"] = False
+    docx = dict(bridge.settings.globalDocxImportConfig)
+    docx["rows_to_skip"] = 2
+
+    assert bridge.settings.saveImportConfigAsDefault(merge, ass, srt, docx)
+    assert bridge._global_settings_service.get_replica_merge_config()["merge"] is False
+    assert bridge._global_settings_service.get_ass_import_config()["strip_override_tags"] is False
+    assert bridge._global_settings_service.get_srt_import_config()["keep_multiline"] is False
+    assert bridge._global_settings_service.get_docx_import_config()["rows_to_skip"] == 2
+    assert not bridge.project.canUndo
+
+
+def test_qml_saves_current_settings_draft_as_global_default():
+    _app()
+    bridge = AppBridge()
+    draft = dict(bridge.settings.projectPrompterConfig)
+    draft["f_text"] = 81
+
+    assert bridge.settings.saveConfigAsDefault("prompter", draft)
+
+    assert bridge._global_settings_service.get_default_prompter_config()[
+        "f_text"
+    ] == 81
+
+
+def test_qml_global_actor_base_export_import_roundtrip(tmp_path):
+    _app()
+    bridge = AppBridge()
+    library = bridge.actorLibrary
+    path = tmp_path / "global_actors.json"
+
+    library.addGlobalActor("Actor One", "Ж")
+    actor_id = library.globalActorsModel.rows()[0]["id"]
+    assert library.exportGlobalActorBase(str(path))
+
+    library.deleteGlobalActor(actor_id)
+    assert library.globalActorsModel.rowCount() == 0
+
+    assert library.importGlobalActorBase(str(path))
+    assert library.globalActorsModel.rows()[0]["name"] == "Actor One"
+    assert library.globalActorsModel.rows()[0]["gender"] == "Ж"
+
+    library.addGlobalActor("Actor Two", "М")
+    ids = [row["id"] for row in library.globalActorsModel.rows()]
+    library.deleteGlobalActors(ids)
+    assert library.globalActorsModel.rowCount() == 0
+
+
+def test_qml_assignment_transfer_import_is_one_undoable_command(tmp_path):
+    _app()
+    source = AppBridge()
+    source._session.data.update({
+        "actors": {
+            "actor-1": {
+                "name": "Actor One",
+                "color": "#123456",
+                "gender": "М",
+            },
+        },
+        "global_map": {"Hero": "actor-1"},
+        "episode_actor_map": {"1": {"Guest": "actor-1"}},
+        "episodes": {"1": "episode.ass"},
+    })
+    path = tmp_path / "assignments.json"
+    assert source.actorLibrary.exportProjectAssignments(str(path))
+
+    target = AppBridge()
+    target._session.data["episodes"] = {"1": "target.ass"}
+    assert target.actorLibrary.importProjectAssignments(str(path))
+
+    assert target._session.data["actors"]["actor-1"]["name"] == "Actor One"
+    assert target._session.data["actors"]["actor-1"]["gender"] == "М"
+    assert target._session.data["global_map"] == {"Hero": "actor-1"}
+    assert target._session.data["episode_actor_map"] == {
+        "1": {"Guest": "actor-1"}
+    }
+    assert target.project.canUndo
+
+    target.project.undo()
+
+    assert target._session.data["actors"] == {}
+    assert target._session.data["global_map"] == {}
+    assert target._session.data["episode_actor_map"] == {}
+
+
+def test_qml_bridge_save_project_as_adds_dub_suffix(tmp_path):
+    _app()
+    bridge = AppBridge()
+    target = tmp_path / "saved_project"
+
+    project = bridge.project
+    project.saveAs(str(target))
+
+    saved_path = target.with_suffix(".dub")
+    assert saved_path.exists()
+    assert project.path == str(saved_path)
+
+
+def test_qml_bridge_tracks_recent_projects(tmp_path):
+    _app()
+    bridge = AppBridge()
+    first = tmp_path / "first.dub"
+    second = tmp_path / "second.dub"
+
+    project = bridge.project
+    project.saveAs(str(first))
+    project.saveAs(str(second))
+
+    recent_rows = project.recentProjectsModel.rows()
+    assert recent_rows[0]["display"] == "Недавние проекты"
+    assert recent_rows[1]["path"] == str(second)
+    assert recent_rows[2]["path"] == str(first)
+    assert recent_rows[-1]["path"] == "__clear__"
+
+    project.openRecent(str(first))
+
+    assert project.path == str(first)
+    assert project.recentProjectsModel.rows()[1]["path"] == str(first)
+
+    project.clearRecent()
+    recent_rows = project.recentProjectsModel.rows()
+    assert [row["display"] for row in recent_rows] == [
+        "Недавние проекты",
+        "Нет недавних проектов",
+    ]
+
+
+def test_qml_bridge_imports_subtitle_file_with_undo(tmp_path):
+    _app()
+    bridge = AppBridge()
+    srt_path = tmp_path / "Episode_02.srt"
+    srt_path.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nHero: Hello from import\n",
+        encoding="utf-8",
+    )
+
+    project = bridge.project
+    project.importSubtitle(str(srt_path))
+
+    assert project.currentEpisode == "02"
+    assert project.episodesModel.rowCount() == 1
+    assert bridge.casting.linesModel.rowCount() == 1
+    assert bridge.casting.charactersModel.rows()[0]["character"] == "Hero"
+    assert bridge._session.data["episodes"]["02"] == str(srt_path)
+    assert bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "02"
+    )[0]["text"] == "Hello from import"
+    assert project.dirty
+    assert project.canUndo
+
+    project.undo()
+
+    assert project.currentEpisode == ""
+    assert project.episodesModel.rowCount() == 0
+    assert bridge.casting.linesModel.rowCount() == 0
+    assert bridge.casting.charactersModel.rowCount() == 0
+
+    project.redo()
+
+    assert project.currentEpisode == "02"
+    assert project.episodesModel.rowCount() == 1
+    assert bridge.casting.linesModel.rowCount() == 1
+
+
+def test_qml_bridge_ass_import_uses_global_merge_config(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._global_settings_service.update_replica_merge_config({
+        "merge": True,
+        "merge_gap_seconds": 4.8,
+        "p_short": 0.5,
+        "p_long": 2.0,
+        "fps": 25,
+    })
+    source = tmp_path / "Episode_03.ass"
+    source.write_text(
+        "[Script Info]\n"
+        "Video FPS: 24000/1001\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,First\n"
+        "Dialogue: 0,0:00:02.50,0:00:03.00,Default,Hero,0,0,0,,Second\n",
+        encoding="utf-8",
+    )
+
+    bridge.project.importSubtitle(str(source))
+
+    payload = bridge._session.data["script_storage"]["episodes"]["03"]
+    assert len(payload["source_lines"]) == 2
+    lines = bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "03"
+    )
+    assert len(lines) == 1
+    assert lines[0]["source_texts"] == ["First", "Second"]
+    assert "merge_config" not in bridge._session.data["script_storage"]
+    assert abs(bridge.settings.projectFps - 23.976) < 0.001
+    assert bridge._session.data["project_settings"]["fps_source"] == "ass"
+
+
+def test_qml_first_linked_video_sets_project_fps_when_ass_has_none(
+    tmp_path, monkeypatch
+):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode_07.ass"
+    source.write_text(
+        "[Script Info]\n"
+        "Title: No FPS metadata\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,Line\n",
+        encoding="utf-8",
+    )
+    bridge.project.importSubtitle(str(source))
+    assert bridge._session.data["project_settings"]["fps_source"] == "default"
+
+    video = tmp_path / "Episode_07.mp4"
+    video.write_bytes(b"video-placeholder")
+    monkeypatch.setattr(
+        "services.project_fps_service.probe_video_fps",
+        lambda _path: 29.97,
+    )
+    bridge.projectFiles.relink("07", "video", str(video))
+
+    assert abs(bridge.settings.projectFps - 29.97) < 0.000001
+    assert bridge._session.data["project_settings"]["fps_source"] == "video"
+    assert bridge._session.data["project_settings"]["fps_source_path"] == str(
+        video.resolve()
+    )
+
+
+def test_qml_dynamic_merged_edit_survives_live_unmerge(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.project_service.current_project_path = str(
+        tmp_path / "dynamic-edit.dub"
+    )
+    source = tmp_path / "Episode_04.srt"
+    source.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nHero: First\n\n"
+        "2\n00:00:02,100 --> 00:00:03,000\nHero: Second\n",
+        encoding="utf-8",
+    )
+    bridge.project.importSubtitle(str(source))
+    assert bridge.teleprompter.prepare("04")
+    row = bridge.teleprompter.model.rows()[0]
+    assert len(row["sourceIds"]) == 2
+    assert row["editText"] == "First\nSecond"
+
+    assert bridge.teleprompter.editReplica(
+        row["sourceIds"], "Hero", "Edited first\nEdited second"
+    )
+    bridge._script_text_service.set_merge_config(
+        bridge._session.data,
+        {
+            **bridge._script_text_service.get_merge_config(
+                bridge._session.data
+            ),
+            "merge": False,
+        },
+    )
+    bridge.teleprompter.refresh()
+
+    assert [
+        item["replicaText"] for item in bridge.teleprompter.model.rows()
+    ] == ["Edited first", "Edited second"]
+
+
+def test_qml_dynamic_merge_settings_are_global_not_project_data(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode_05.ass"
+    source.write_text(
+        "[Script Info]\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,First\n"
+        "Dialogue: 0,0:00:02.10,0:00:03.00,Default,Hero,0,0,0,,Second\n",
+        encoding="utf-8",
+    )
+    bridge.project.importSubtitle(str(source))
+    merge = dict(bridge.settings.activeMergeConfig)
+    merge.update({
+        "merge": False,
+        "merge_gap_seconds": 2.5,
+        "p_short": 0.75,
+        "p_long": 2.5,
+    })
+
+    assert bridge.settings.applyGlobalSettingsComplete(
+        "ru",
+        bridge.settings.audiobookKeywords,
+        bridge.settings.globalMontageConfig,
+        bridge.settings.globalPrompterConfig,
+        merge,
+        bridge.settings.globalAssImportConfig,
+        bridge.settings.globalSrtImportConfig,
+        bridge.settings.globalDocxImportConfig,
+        bridge.settings.globalBackupConfig,
+    )
+    assert "merge_config" not in bridge._session.data["script_storage"]
+    assert [
+        line["text"]
+        for line in bridge._script_text_service.load_episode_lines(
+            bridge._session.data, "05"
+        )
+    ] == ["First", "Second"]
+
+    project_path = tmp_path / "merge-settings.dub"
+    assert bridge._session.project_service.save_project_as(
+        bridge._session.data, str(project_path)
+    )
+    loaded = bridge._session.project_service.load_project(str(project_path))
+    assert "merge_config" not in loaded["script_storage"]
+    saved_global = bridge._global_settings_service.load_settings()[
+        "default_replica_merge_config"
+    ]
+    assert saved_global["merge"] is False
+    assert saved_global["merge_gap_seconds"] == 2.5
+
+    reopened = AppBridge()
+    loaded = reopened._session.project_service.load_project(str(project_path))
+    reopened._session.replace_project(loaded, "05")
+    assert [
+        line["text"]
+        for line in reopened._script_text_service.load_episode_lines(
+            reopened._session.data, "05"
+        )
+    ] == ["First", "Second"]
+
+
+def test_qml_parallel_merge_setting_updates_dynamic_project_live(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "parallel.ass"
+    source.write_text(
+        "[Script Info]\n[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+        "Dialogue: 0,0:00:00.00,0:00:04.00,Default,A,0,0,0,,A one\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,B,0,0,0,,B one\n"
+        "Dialogue: 0,0:00:03.00,0:00:04.50,Default,B,0,0,0,,B two\n"
+        "Dialogue: 0,0:00:10.00,0:00:14.00,Default,A,0,0,0,,A two\n",
+        encoding="utf-8",
+    )
+    bridge.project.importSubtitle(str(source))
+    assert [
+        line["char"]
+        for line in bridge._script_text_service.load_episode_lines(
+            bridge._session.data, "1"
+        )
+    ] == ["A", "B", "A"]
+    bridge._session.project_service.is_dirty = False
+    merge = dict(bridge.settings.activeMergeConfig)
+    merge.update({
+        "merge_parallel_replicas": True,
+        "merge_gap_seconds": 10.0,
+        "inline_timecode_brackets": "round",
+    })
+
+    assert bridge.settings.applyGlobalSettingsComplete(
+        "ru",
+        bridge.settings.audiobookKeywords,
+        bridge.settings.globalMontageConfig,
+        bridge.settings.globalPrompterConfig,
+        merge,
+        bridge.settings.globalAssImportConfig,
+        bridge.settings.globalSrtImportConfig,
+        bridge.settings.globalDocxImportConfig,
+        bridge.settings.globalBackupConfig,
+    )
+
+    rendered = bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "1"
+    )
+    assert [line["char"] for line in rendered] == ["A", "B"]
+    assert rendered[0]["text"] == "A one //  (0:00:10) A two"
+    assert rendered[1]["text"] == "B one /  B two"
+    character_rows = {
+        row["character"]: row for row in bridge.casting.charactersModel.rows()
+    }
+    assert character_rows["A"]["lines"] == 2
+    assert character_rows["A"]["rings"] == 1
+    assert character_rows["B"]["lines"] == 2
+    assert character_rows["B"]["rings"] == 1
+    bridge.casting.selectCharacter("A")
+    assert "Строк: 2" in bridge.casting.selectedCharacterStats
+    assert "Реплик: 1" in bridge.casting.selectedCharacterStats
+    bridge.montage.prepare("1")
+    assert "(00:10)" in bridge.montage.html
+    assert "(00:03)" not in bridge.montage.html
+    assert "B one" in bridge.montage.html
+    assert bridge.teleprompter.prepare("1")
+    prompter_rows = bridge.teleprompter.model.rows()
+    assert prompter_rows[0]["replicaText"].startswith("A one")
+    assert "(00:10) A two" in (
+        prompter_rows[0]["replicaText"]
+    )
+    assert prompter_rows[1]["replicaText"].startswith("B one")
+    assert "(00:03)" not in prompter_rows[1]["replicaText"]
+    assert prompter_rows[0]["parallelExpandable"] is True
+    assert prompter_rows[1]["parallelExpandable"] is True
+    assert [part["time"] for part in prompter_rows[0]["subReplicas"]] == [
+        "0:00:00", "0:00:10",
+    ]
+    assert [part["text"] for part in prompter_rows[0]["subReplicas"]] == [
+        "A one", "A two",
+    ]
+    assert prompter_rows[0]["replicaKey"]
+    assert bridge.settings.activeMergeConfig[
+        "merge_parallel_replicas"
+    ] is True
+    assert "merge_config" not in bridge._session.data["script_storage"]
+    assert not bridge._session.project_service.is_dirty
+
+
+def test_qml_inline_timecodes_are_global_and_not_stored_in_project(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode_06.ass"
+    dialogues = "".join(
+        "Dialogue: 0,0:00:{start:02d}.00,0:00:{end:02d}.90,Default,Hero,"
+        "0,0,0,,Line {number}\n".format(
+            start=index * 2,
+            end=index * 2 + 1,
+            number=index + 1,
+        )
+        for index in range(5)
+    )
+    source.write_text(
+        "[Script Info]\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+        + dialogues,
+        encoding="utf-8",
+    )
+    bridge.project.importSubtitle(str(source))
+    bridge._session.project_service.is_dirty = False
+    merge = dict(bridge.settings.activeMergeConfig)
+    merge.update({
+        "inline_timecodes_enabled": True,
+        "inline_timecode_min_duration": 5.0,
+        "inline_timecode_every": 2,
+        "inline_timecode_brackets": "round",
+    })
+
+    assert bridge.settings.applyGlobalSettingsComplete(
+        "ru",
+        bridge.settings.audiobookKeywords,
+        bridge.settings.globalMontageConfig,
+        bridge.settings.globalPrompterConfig,
+        merge,
+        bridge.settings.globalAssImportConfig,
+        bridge.settings.globalSrtImportConfig,
+        bridge.settings.globalDocxImportConfig,
+        bridge.settings.globalBackupConfig,
+    )
+
+    assert "merge_config" not in bridge._session.data["script_storage"]
+    episode_payload = bridge._session.data["script_storage"]["episodes"]["06"]
+    assert all(
+        "[0:00:" not in line["text"]
+        for line in episode_payload["source_lines"]
+    )
+    assert episode_payload["edit_blocks"] == []
+    assert not bridge._session.project_service.is_dirty
+    rendered = bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "06"
+    )
+    assert "(0:00:04)" in rendered[0]["text"]
+    assert "(0:00:08)" in rendered[0]["text"]
+    bridge.montage.prepare("06")
+    assert "(00:04)" in bridge.montage.html
+    assert "(00:08)" in bridge.montage.html
+    assert bridge.teleprompter.prepare("06")
+    assert "(00:04)" in bridge.teleprompter.model.rows()[0]["replicaText"]
+
+    bridge.montage.setOption("hide_leading_timecode_zeros", False)
+    assert "(0:00:04)" in bridge.montage.html
+    bridge.teleprompter.setConfigValue("hide_leading_timecode_zeros", False)
+    assert "(0:00:04)" in bridge.teleprompter.model.rows()[0]["replicaText"]
+    saved_global = bridge._global_settings_service.load_settings()[
+        "default_replica_merge_config"
+    ]
+    assert saved_global["inline_timecodes_enabled"] is True
+    assert saved_global["inline_timecode_min_duration"] == 5.0
+    assert saved_global["inline_timecode_every"] == 2
+    assert saved_global["inline_timecode_brackets"] == "round"
+
+    project_path = tmp_path / "global-inline-timecodes.dub"
+    assert bridge._session.project_service.save_project_as(
+        bridge._session.data, str(project_path)
+    )
+    disk = json.loads(project_path.read_text(encoding="utf-8"))
+    assert "merge_config" not in disk["script_storage"]
+
+    reopened = AppBridge()
+    loaded = reopened._session.project_service.load_project(str(project_path))
+    reopened._session.replace_project(loaded, "06")
+    assert "(0:00:04)" in reopened._script_text_service.load_episode_lines(
+        reopened._session.data, "06"
+    )[0]["text"]
+
+
+def test_qml_subtitle_import_prepares_unique_editable_episode_names(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {"02": "existing.srt"}
+    first = tmp_path / "Episode_02.srt"
+    second = tmp_path / "Alternative_02.ass"
+    first.write_text("", encoding="utf-8")
+    second.write_text("", encoding="utf-8")
+
+    importer = bridge.subtitleImport
+    assert importer.prepare([str(first), str(second)])
+
+    rows = importer.model.rows()
+    assert [row["episode"] for row in rows] == ["02 2", "02 3"]
+    assert importer.canImport
+
+    importer.setEpisode(1, "02 2")
+    assert not importer.canImport
+    assert {row["status"] for row in importer.model.rows()} == {
+        "Название повторяется"
+    }
+
+    importer.setEpisode(1, "03")
+    assert importer.canImport
+
+
+def test_qml_subtitle_import_is_atomic_and_undoable(tmp_path):
+    _app()
+    bridge = AppBridge()
+    first = tmp_path / "Episode_01.srt"
+    second = tmp_path / "Episode_02.srt"
+    first.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nHero: First\n\n"
+        "2\n00:00:02,500 --> 00:00:03,000\nHero: Continued\n",
+        encoding="utf-8",
+    )
+    second.write_text(
+        "1\n00:00:03,000 --> 00:00:04,000\nGuest: Second\n",
+        encoding="utf-8",
+    )
+
+    importer = bridge.subtitleImport
+    assert importer.prepare([str(first), str(second)])
+    assert importer.importAll()
+
+    assert bridge.project.currentEpisode == "02"
+    assert bridge._session.data["episodes"] == {
+        "01": str(first),
+        "02": str(second),
+    }
+    assert set(
+        bridge._session.data["script_storage"]["episodes"]
+    ) == {"01", "02"}
+    assert len(
+        bridge._script_text_service.load_episode_lines(
+            bridge._session.data, "01"
+        )
+    ) == 1
+    assert bridge.project.canUndo
+
+    bridge.project.undo()
+
+    assert bridge._session.data["episodes"] == {}
+    assert bridge._session.data["script_storage"]["episodes"] == {}
+    assert bridge.project.episodesModel.rowCount() == 0
+
+
+def test_qml_subtitle_import_rejects_existing_episode_name(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {"1": "existing.srt"}
+    source = tmp_path / "Episode_2.srt"
+    source.write_text("", encoding="utf-8")
+
+    importer = bridge.subtitleImport
+    assert importer.prepare([str(source)])
+    importer.setEpisode(0, "1")
+
+    assert not importer.canImport
+    assert importer.model.rows()[0]["status"] == "Уже существует"
+    assert not importer.importAll()
+
+
+def _finish_converter(converter, limit=100):
+    app = _app()
+    for _ in range(limit):
+        app.processEvents()
+        if not converter.busy:
+            return
+    pytest.fail("Converter queue did not finish")
+
+
+def test_qml_quick_converter_exports_standalone_files_without_project_mutation(
+    tmp_path,
+):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "quick_01.srt"
+    source.write_text(
+        "1\n00:00:01,000 --> 00:00:02,500\nHero: Quick line\n",
+        encoding="utf-8",
+    )
+    unsupported = tmp_path / "notes.txt"
+    unsupported.write_text("not subtitles", encoding="utf-8")
+    original_project = deepcopy(bridge._session.data)
+
+    converter = bridge.converter
+    converter.setFormat("html", True)
+    converter.setFormat("docx", False)
+    converter.setFormat("pdf", False)
+    assert converter.convert([str(source), str(unsupported)], False)
+    _finish_converter(converter)
+
+    output = tmp_path / "quick_01.html"
+    assert output.exists()
+    assert "Quick line" in output.read_text(encoding="utf-8")
+    rows = converter.model.rows()
+    assert rows[0]["statusKind"] == "success"
+    assert rows[0]["outputPath"] == str(output)
+    assert rows[1]["statusKind"] == "skipped"
+    assert bridge._session.data == original_project
+
+    assert converter.convert([str(source)], False)
+    _finish_converter(converter)
+    assert (tmp_path / "quick_01 (2).html").exists()
+
+
+def test_qml_quick_converter_previews_then_converts(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "preview.srt"
+    source.write_text(
+        "1\n00:00:01,000 --> 00:00:02,500\nHero: Preview line\n",
+        encoding="utf-8",
+    )
+    converter = bridge.converter
+    converter.setFormat("html", True)
+    converter.setFormat("docx", False)
+    converter.setFormat("pdf", False)
+    previews = []
+    converter.previewRequested.connect(lambda: previews.append(True))
+
+    assert converter.convert([str(source)], True)
+    assert previews == [True]
+    assert "Preview line" in converter.previewHtml
+    assert converter.previewTitle == "preview.srt"
+    assert not converter.busy
+
+    converter.continueAfterPreview()
+    _finish_converter(converter)
+    assert (tmp_path / "preview.html").exists()
+
+
+def test_qml_quick_converter_line_by_line_mode_updates_preview_and_export(
+    tmp_path, monkeypatch,
+):
+    from docx import Document
+
+    _app()
+    bridge = AppBridge()
+    rendered_pdf_html = []
+
+    def render_pdf(_service, html, save_path):
+        rendered_pdf_html.append(html)
+        Path(save_path).write_bytes(b"%PDF-test")
+
+    monkeypatch.setattr(
+        "services.pdf_export_service.PdfExportService.render_html_to_pdf",
+        render_pdf,
+    )
+    bridge._global_settings_service.settings[
+        "default_replica_merge_config"
+    ] = {
+        "merge": True,
+        "merge_gap": 120,
+        "p_short": 0.5,
+        "p_long": 2.0,
+        "fps": 25,
+    }
+    bridge._session.data["replica_merge_config"] = {
+        # The converter switch must be authoritative even when the open
+        # project's montage settings disable merging and use a tiny gap.
+        "merge": False,
+        "merge_gap": 1,
+        "p_short": 0.5,
+        "p_long": 2.0,
+        "fps": 25,
+    }
+    source = tmp_path / "line_by_line.ass"
+    source.write_text(
+        "[Script Info]\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,First line\n"
+        "Dialogue: 0,0:00:02.20,0:00:03.00,Default,Hero,0,0,0,,Second line\n",
+        encoding="utf-8",
+    )
+
+    converter = bridge.converter
+    converter.setFormat("html", True)
+    converter.setFormat("docx", True)
+    converter.setFormat("pdf", True)
+    converter.setLineByLine(False)
+    assert converter.convert([str(source)], True)
+    merged_preview = converter.previewHtml
+    assert merged_preview.count("<tr style=") == 1
+
+    converter.setLineByLine(True)
+    assert converter.lineByLine
+    assert converter.previewConfig["line_by_line"] is True
+    assert converter.previewHtml != merged_preview
+    assert converter.previewHtml.count("<tr style=") == 2
+
+    converter.continueAfterPreview()
+    _finish_converter(converter)
+    exported = (tmp_path / "line_by_line.html").read_text(encoding="utf-8")
+    assert exported.count("<tr style=") == 2
+    document = Document(tmp_path / "line_by_line.docx")
+    cells = [
+        cell.text
+        for table in document.tables
+        for row in table.rows
+        for cell in row.cells
+    ]
+    assert any("First line" in cell for cell in cells)
+    assert any("Second line" in cell for cell in cells)
+    assert not any(
+        "First line" in cell and "Second line" in cell
+        for cell in cells
+    )
+    assert (tmp_path / "line_by_line.pdf").exists()
+    assert rendered_pdf_html[0].count("<tr style=") == 2
+
+
+def test_qml_quick_converter_line_mode_persists_and_notifies_all_views(
+    tmp_path,
+):
+    _app()
+    bridge = AppBridge()
+    mode_changes = []
+    bridge.converter.lineByLineChanged.connect(
+        lambda: mode_changes.append(bridge.converter.lineByLine)
+    )
+
+    bridge.converter.setLineByLine(True)
+
+    assert mode_changes == [True]
+    saved = bridge._global_settings_service.load_settings()
+    assert saved["quick_converter_config"]["line_by_line"] is True
+
+    reopened = AppBridge()
+    assert reopened.converter.lineByLine is True
+    reopened.converter.setLineByLine(False)
+    assert reopened._global_settings_service.load_settings()[
+        "quick_converter_config"
+    ]["line_by_line"] is False
+
+
+def test_qml_quick_converter_inline_timecodes_follow_hide_zeros(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._global_settings_service.update_replica_merge_config({
+        "merge": True,
+        "merge_gap_seconds": 1.0,
+        "inline_timecodes_enabled": True,
+        "inline_timecode_min_duration": 5.0,
+        "inline_timecode_every": 2,
+        "inline_timecode_brackets": "round",
+    })
+    source = tmp_path / "quick-inline.ass"
+    dialogues = "".join(
+        "Dialogue: 0,0:00:{start:02d}.00,0:00:{end:02d}.90,Default,Hero,"
+        "0,0,0,,Line {number}\n".format(
+            start=index * 2,
+            end=index * 2 + 1,
+            number=index + 1,
+        )
+        for index in range(5)
+    )
+    source.write_text(
+        "[Script Info]\n[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n" + dialogues,
+        encoding="utf-8",
+    )
+    converter = bridge.converter
+    converter.setFormat("html", True)
+    converter.setFormat("docx", False)
+    converter.setFormat("pdf", False)
+    converter.setLineByLine(False)
+
+    assert converter.convert([str(source)], True)
+    assert "(00:04)" in converter.previewHtml
+
+    converter.setPreviewOption("hide_leading_timecode_zeros", False)
+    assert "(0:00:04)" in converter.previewHtml
+
+
+def test_qml_quick_converter_demo_settings_are_project_independent(
+    tmp_path, monkeypatch,
+):
+    _app()
+    settings_path = tmp_path / "global_settings.json"
+    monkeypatch.setattr(
+        "services.global_settings_service.SETTINGS_FILE", settings_path
+    )
+    bridge = AppBridge()
+    converter = bridge.converter
+    project_before = deepcopy(bridge._session.data)
+    previews = []
+    converter.previewRequested.connect(lambda: previews.append(True))
+
+    assert converter.openSettingsPreview()
+    assert converter.previewSettingsMode
+    assert previews == [True]
+    assert "Демонстрационная реплика" in converter.previewHtml
+
+    converter.setPreviewOption("layout_type", "Сценарий 2")
+    converter.setPreviewOption("f_text", 41)
+    converter.setLineByLine(True)
+    assert converter.savePreviewSettings()
+    assert not converter.previewSettingsMode
+    assert bridge._session.data == project_before
+
+    saved = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert saved["quick_converter_config"]["layout_type"] == "Сценарий 2"
+    assert saved["quick_converter_config"]["f_text"] == 41
+    assert saved["quick_converter_config"]["line_by_line"] is True
+    assert saved["default_export_config"] == project_before["export_config"]
+
+
+def test_qml_quick_converter_applies_preview_settings_to_all_files(tmp_path):
+    _app()
+    bridge = AppBridge()
+    paths = []
+    for index in range(2):
+        source = tmp_path / f"styled_{index}.srt"
+        source.write_text(
+            "1\n00:00:01,000 --> 00:00:02,500\nHero: Styled line\n",
+            encoding="utf-8",
+        )
+        paths.append(str(source))
+
+    converter = bridge.converter
+    converter.setFormat("html", True)
+    converter.setFormat("docx", False)
+    converter.setFormat("pdf", False)
+    assert converter.convert(paths, True)
+
+    original_preview = converter.previewHtml
+    converter.setPreviewOption("layout_type", "Сценарий 2")
+    converter.setPreviewOption("f_text", 42)
+
+    assert converter.previewConfig["layout_type"] == "Сценарий 2"
+    assert converter.previewConfig["f_text"] == 42
+    assert converter.previewHtml != original_preview
+
+    converter.continueAfterPreview()
+    _finish_converter(converter)
+
+    for index in range(2):
+        exported = tmp_path / f"styled_{index}.html"
+        assert exported.exists()
+        html = exported.read_text(encoding="utf-8")
+        assert "Styled line" in html
+        assert "42" in html
+
+
+def test_qml_quick_converter_can_cancel_from_preview(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "cancel_preview.srt"
+    source.write_text(
+        "1\n00:00:01,000 --> 00:00:02,500\nHero: Cancelled line\n",
+        encoding="utf-8",
+    )
+    converter = bridge.converter
+    converter.setFormat("html", True)
+
+    assert converter.convert([str(source)], True)
+    converter.cancelPreview()
+
+    assert not converter.busy
+    assert converter.model.rows()[0]["status"] == "Отменено"
+    assert not (tmp_path / "cancel_preview.html").exists()
+
+
+def test_qml_quick_converter_cancels_before_next_file(tmp_path):
+    _app()
+    bridge = AppBridge()
+    paths = []
+    for index in range(2):
+        path = tmp_path / f"cancel_{index}.srt"
+        path.write_text(
+            "1\n00:00:01,000 --> 00:00:02,500\nHero: Line\n",
+            encoding="utf-8",
+        )
+        paths.append(str(path))
+
+    converter = bridge.converter
+    converter.setFormat("html", True)
+    converter.setFormat("docx", False)
+    converter.setFormat("pdf", False)
+    assert converter.convert(paths, False)
+    converter.cancel()
+    _finish_converter(converter)
+
+    assert [row["status"] for row in converter.model.rows()] == [
+        "Отменено", "Отменено"
+    ]
+    assert not list(tmp_path.glob("cancel_*.html"))
+
+
+def test_qml_bridge_imports_docx_with_preview_and_atomic_undo(tmp_path):
+    from docx import Document
+
+    _app()
+    bridge = AppBridge()
+    path = tmp_path / "Episode_03.docx"
+    document = Document()
+    table = document.add_table(rows=3, cols=3)
+    for column, value in enumerate(("Персонаж", "Тайминг", "Текст")):
+        table.cell(0, column).text = value
+    for row, values in enumerate((
+        ("Hero", "00:00:01,000 - 00:00:02,000", "First line"),
+        ("Guest", "00:00:03,000 - 00:00:04,000", "Second line"),
+    ), start=1):
+        for column, value in enumerate(values):
+            table.cell(row, column).text = value
+    document.save(path)
+
+    importer = bridge.docxImport
+    assert importer.load(str(path))
+    assert importer.suggestedEpisode == "03"
+    assert importer.mapping["character"] == 0
+    assert importer.mapping["time_split"] == 1
+    assert importer.mapping["text"] == 2
+    assert importer.previewModel.rowCount() == 2
+    assert importer.importEpisode("03", False)
+
+    assert bridge.project.currentEpisode == "03"
+    assert bridge._session.data["episodes"]["03"] == str(path)
+    assert bridge._script_text_service.load_atomic_episode_lines(
+        bridge._session.data, "03"
+    )[0]["text"] == "First line"
+    payload = bridge._session.data["script_storage"]["episodes"]["03"]
+    assert payload["source"]["line_mode"] == "premerged"
+    assert payload["source"]["import_config"]["mapping"]["text"] == 2
+    assert payload["source"]["import_config"]["table_selection"] == {
+        "mode": "single",
+        "index": 0,
+        "table_count": 1,
+    }
+    assert [
+        line["text"]
+        for line in bridge._script_text_service.load_episode_lines(
+            bridge._session.data, "03"
+        )
+    ] == ["First line", "Second line"]
+    assert bridge._global_settings_service.get_docx_import_config()["mapping"]["text"] == 2
+
+    bridge.project.undo()
+
+    assert "03" not in bridge._session.data["episodes"]
+    assert "03" not in bridge._session.data["script_storage"]["episodes"]
+
+
+def test_qml_bridge_exposes_actor_palette():
+    _app()
+    bridge = AppBridge()
+
+    assert bridge.casting.actorPalette == list(MY_PALETTE)
+
+
+def test_qml_bridge_global_search_and_result_navigation(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {
+        "1": str(tmp_path / "one.ass"),
+        "2": str(tmp_path / "two.ass"),
+    }
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "lines": [
+                {
+                    "id": "line-1",
+                    "start": 1.0,
+                    "end": 2.0,
+                    "character": "Hero",
+                    "text": "First phrase",
+                },
+            ],
+        },
+        "2": {
+            "lines": [
+                {
+                    "id": "line-2",
+                    "start": 3.0,
+                    "end": 4.0,
+                    "character": "Narrator",
+                    "text": "Hero returns here",
+                },
+            ],
+        },
+    }
+    bridge.refresh()
+
+    reports = bridge.reports
+    count = reports.search("hero")
+
+    assert count == 2
+    assert reports.searchResultCount == 2
+    assert [row["episode"] for row in reports.searchModel.rows()] == ["1", "2"]
+    reports.setSearchSort("episode")
+    assert reports.searchSortAscending is False
+    assert [row["episode"] for row in reports.searchModel.rows()] == ["2", "1"]
+    reports.setSearchSort("character")
+    assert reports.searchSortKey == "character"
+    assert [row["character"] for row in reports.searchModel.rows()] == [
+        "Hero", "Narrator",
+    ]
+
+    bridge.casting.setSearchText("missing")
+    reports.openResult("2", "Narrator")
+
+    assert bridge.project.currentEpisode == "2"
+    assert bridge.casting.searchText == ""
+    assert bridge.casting.selectedCharacter == "Narrator"
+
+
+def test_qml_bridge_prepares_and_exports_project_summary(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["project_name"] = "Demo"
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "one.ass")}
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Actor One", "color": "#123456"},
+    }
+    bridge._session.data["global_map"] = {"Hero": "actor-1"}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "lines": [
+                {
+                    "id": "line-1",
+                    "start": 1.0,
+                    "end": 2.0,
+                    "character": "Hero",
+                    "text": "Alpha beta",
+                },
+            ],
+        },
+    }
+    bridge.refresh()
+
+    reports = bridge.reports
+    reports.prepareSummary("")
+
+    assert reports.summaryTarget == ""
+    assert reports.summaryModel.rows()[0]["actor"] == "Actor One"
+    assert reports.summaryModel.rows()[0]["rings"] == 1
+    assert reports.summaryModel.rows()[0]["words"] == 2
+    assert reports.summaryModel.rows()[0]["roles"] == "Hero"
+    reports.setSummarySort("words")
+    assert reports.summarySortKey == "words"
+    reports.setSummarySort("words")
+    assert reports.summarySortAscending is False
+
+    export_path = tmp_path / "project-summary"
+    reports.exportProjectSummaryXlsx(str(export_path), "words")
+
+    assert export_path.with_suffix(".xlsx").exists()
+    assert reports.projectSummaryMetric == "words"
+
+
+def test_qml_casting_moves_global_actor_to_project_with_undo():
+    _app()
+    bridge = AppBridge()
+    casting = bridge.casting
+    actor_library = bridge.actorLibrary
+
+    actor_library.addGlobalActor("Global Voice", "Ж")
+    global_row = actor_library.globalActorsModel.rows()[0]
+
+    assert global_row["name"] == "Global Voice"
+    assert global_row["gender"] == "Ж"
+    assert global_row["color"] == "transparent"
+
+    actor_library.addGlobalActorToProject(global_row["id"], "#4F81BD")
+
+    project_actor = bridge._session.data["actors"][global_row["id"]]
+    assert project_actor["name"] == "Global Voice"
+    assert project_actor["gender"] == "Ж"
+    assert project_actor["color"] == "#4F81BD"
+    assert actor_library.globalActorsModel.rows()[0]["inProject"]
+
+    bridge.project.undo()
+
+    assert bridge._session.data["actors"] == {}
+    assert not actor_library.globalActorsModel.rows()[0]["inProject"]
+
+
+def test_qml_casting_moves_multiple_global_actors_to_project_with_undo():
+    _app()
+    bridge = AppBridge()
+    actor_library = bridge.actorLibrary
+
+    actor_library.addGlobalActor("Global Voice One", "Ж")
+    actor_library.addGlobalActor("Global Voice Two", "М")
+    rows = actor_library.globalActorsModel.rows()
+
+    actor_library.addGlobalActorsToProject([row["id"] for row in rows])
+
+    project_actors = bridge._session.data["actors"]
+    assert len(project_actors) == 2
+    colors = [actor["color"] for actor in project_actors.values()]
+    assert all(color in MY_PALETTE for color in colors)
+    assert len(set(colors)) == 2
+
+    bridge.project.undo()
+
+    assert bridge._session.data["actors"] == {}
+
+
+def test_qml_actor_merge_replaces_every_project_reference_and_undoes():
+    _app()
+    bridge = AppBridge()
+    library = bridge.actorLibrary
+    bridge._session.data["actors"] = {
+        "source": {"name": "Duplicate", "color": "#111111", "gender": "Ж"},
+        "target": {"name": "Keeper", "color": "#222222", "gender": ""},
+    }
+    bridge._session.data["global_map"] = {"Hero": "source"}
+    bridge._session.data["episode_actor_map"] = {
+        "1": {"Guest": "source"},
+    }
+    bridge._session.data["export_config"]["highlight_ids_export"] = [
+        "source", "target",
+    ]
+    bridge.refresh()
+
+    assert library.mergeProjectActor("source", "project", "target")
+    assert set(bridge._session.data["actors"]) == {"target"}
+    assert bridge._session.data["actors"]["target"]["gender"] == "Ж"
+    assert bridge._session.data["global_map"] == {"Hero": "target"}
+    assert bridge._session.data["episode_actor_map"] == {
+        "1": {"Guest": "target"},
+    }
+    assert bridge._session.data["export_config"]["highlight_ids_export"] == [
+        "target",
+    ]
+
+    bridge.project.undo()
+    assert set(bridge._session.data["actors"]) == {"source", "target"}
+    assert bridge._session.data["global_map"] == {"Hero": "source"}
+
+
+def test_qml_character_stats_cover_every_episode_and_sorting(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {
+        "2": str(tmp_path / "two.ass"),
+        "1": str(tmp_path / "one.ass"),
+    }
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Яна", "color": "#123456"},
+    }
+    bridge._session.data["global_map"] = {"Hero": "actor-1"}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {"lines": [
+            {"character": "Hero", "text": "one two", "start": 1.0, "end": 3.0},
+            {"character": "Other", "text": "one", "start": 4.0, "end": 5.0},
+        ]},
+        "2": {"lines": [
+            {"character": "Hero", "text": "three four five", "start": 2.0, "end": 6.0},
+        ]},
+    }
+    bridge.refresh()
+    bridge.project.selectEpisode("1")
+    casting = bridge.casting
+    casting.selectCharacter("Hero")
+
+    assert casting.characterEpisodeStatsModel.rows() == [
+        {"episode": "1", "lines": 1, "rings": 1, "words": 2,
+         "actor": "Яна", "scope": "Проект"},
+        {"episode": "2", "lines": 1, "rings": 1, "words": 3,
+         "actor": "Яна", "scope": "Проект"},
+    ]
+    assert "Реплик: 2" in casting.selectedCharacterStats
+    assert casting.timelineDuration == 5.0
+    assert casting.timelineActorsModel.rows() == [
+        {"id": "actor-1", "name": "Яна", "actorColor": "#123456", "lane": 0},
+        {"id": "", "name": "Без актёра", "actorColor": "#9A9A9A", "lane": 1},
+    ]
+    assert casting.timelineModel.rows() == [
+        {
+            "start": 1.0, "end": 3.0, "character": "Hero", "actor": "Яна",
+            "actorId": "actor-1", "actorColor": "#123456", "lane": 0, "selected": True,
+        },
+        {
+            "start": 4.0, "end": 5.0, "character": "Other", "actor": "Без актёра",
+            "actorId": "", "actorColor": "#9A9A9A", "lane": 1, "selected": False,
+        },
+    ]
+    casting.setTimelineSortMode("words")
+    assert casting.timelineSortMode == "words"
+    assert [row["name"] for row in casting.timelineActorsModel.rows()] == [
+        "Яна", "Без актёра",
+    ]
+    casting.setTimelineSortMode("name")
+    assert [row["name"] for row in casting.timelineActorsModel.rows()] == [
+        "Без актёра", "Яна",
+    ]
+    casting.setTimelineSortMode("invalid")
+    assert casting.timelineSortMode == "appearance"
+    casting.setCharacterSort("words")
+    assert [row["character"] for row in casting.charactersModel.rows()] == [
+        "Other", "Hero",
+    ]
+    casting.setCharacterSort("words")
+    assert [row["character"] for row in casting.charactersModel.rows()] == [
+        "Hero", "Other",
+    ]
+
+
+def test_qml_episode_timeline_uses_dynamic_merged_replicas(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "one.ass"
+    source.write_text("[Events]\n", encoding="utf-8")
+    bridge._session.data["episodes"] = {"1": str(source)}
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Яна", "color": "#123456"},
+        "actor-2": {"name": "Пётр", "color": "#654321"},
+    }
+    bridge._session.data["global_map"] = {
+        "Hero": "actor-1",
+        "Other": "actor-2",
+    }
+    bridge._script_text_service.create_episode_text(
+        bridge._session.data,
+        "1",
+        str(source),
+        [
+            {"id": 0, "s": 1.0, "e": 2.0, "char": "Hero", "text": "One"},
+            {"id": 1, "s": 2.1, "e": 3.0, "char": "Hero", "text": "Two"},
+            {"id": 2, "s": 4.0, "e": 5.0, "char": "Other", "text": "Three"},
+        ],
+        bridge._script_text_service.get_merge_config(bridge._session.data),
+    )
+    bridge._session.current_episode = "1"
+
+    bridge.refresh()
+
+    assert bridge.casting.linesModel.rowCount() == 3
+    assert bridge.casting.timelineModel.rows() == [
+        {
+            "start": 1.0,
+            "end": 3.0,
+            "character": "Hero",
+            "actor": "Яна",
+            "actorId": "actor-1",
+            "actorColor": "#123456",
+            "lane": 0,
+            "selected": False,
+        },
+        {
+            "start": 4.0,
+            "end": 5.0,
+            "character": "Other",
+            "actor": "Пётр",
+            "actorId": "actor-2",
+            "actorColor": "#654321",
+            "lane": 1,
+            "selected": False,
+        },
+    ]
+    character_rows = {
+        row["character"]: row for row in bridge.casting.charactersModel.rows()
+    }
+    assert character_rows["Hero"]["lines"] == 2
+    assert character_rows["Hero"]["rings"] == 1
+    bridge.casting.selectCharacter("Hero")
+    assert "Строк: 2" in bridge.casting.selectedCharacterStats
+    assert "Реплик: 1" in bridge.casting.selectedCharacterStats
+
+
+def test_qml_casting_assigns_project_roles_atomically_with_undo(tmp_path):
+    _app()
+    bridge = AppBridge()
+    roles = bridge.roles
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "One", "color": "#123456"},
+        "actor-2": {"name": "Two", "color": "#654321"},
+    }
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "one.ass")}
+    bridge._session.data["global_map"] = {"Hero": "actor-1"}
+    bridge._session.data["episode_actor_map"] = {
+        "1": {"Hero": "actor-1", "Guest": "actor-1"},
+    }
+    bridge._session.data["episode_working_texts"] = {
+        "1": {"lines": [
+            {"character": "Hero", "text": "Hello"},
+            {"character": "Guest", "text": "Hi"},
+        ]},
+    }
+    bridge.refresh()
+
+    roles.assign(["Hero", "Guest"], "actor-2")
+
+    assert bridge._session.data["global_map"] == {
+        "Hero": "actor-2",
+        "Guest": "actor-2",
+    }
+    assert bridge._session.data["episode_actor_map"]["1"] == {}
+
+    bridge.project.undo()
+
+    assert bridge._session.data["global_map"] == {"Hero": "actor-1"}
+    assert bridge._session.data["episode_actor_map"] == {
+        "1": {"Hero": "actor-1", "Guest": "actor-1"},
+    }
+
+
+def test_qml_casting_syncs_global_actor_ids_and_preserves_project_color():
+    _app()
+    bridge = AppBridge()
+    actor_library = bridge.actorLibrary
+    actor_library.addGlobalActor("Shared Voice", "М")
+    global_id = actor_library.globalActorsModel.rows()[0]["id"]
+    bridge._session.data["actors"] = {
+        "local-id": {
+            "name": "Shared Voice", "color": "#ABCDEF", "gender": "",
+        },
+    }
+    bridge._session.data["global_map"] = {"Hero": "local-id"}
+
+    assert actor_library.syncProjectActorsWithGlobalBase() == 1
+    assert bridge._session.data["actors"][global_id]["color"] == "#ABCDEF"
+    assert bridge._session.data["actors"][global_id]["gender"] == "М"
+    assert bridge._session.data["global_map"]["Hero"] == global_id
+
+    bridge.project.undo()
+    assert "local-id" in bridge._session.data["actors"]
+    assert bridge._session.data["global_map"]["Hero"] == "local-id"
+
+
+def test_qml_casting_builds_actor_role_stats_and_bulk_global_transfer(tmp_path):
+    _app()
+    bridge = AppBridge()
+    roles = bridge.roles
+    actor_library = bridge.actorLibrary
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "One", "color": "#123456", "gender": "Ж"},
+        "actor-2": {"name": "Two", "color": "#654321", "gender": "М"},
+    }
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "one.ass")}
+    bridge._session.data["global_map"] = {"Hero": "actor-1"}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {"lines": [
+            {"character": "Hero", "text": "Alpha beta"},
+            {"character": "Hero", "text": "Gamma"},
+        ]},
+    }
+    bridge._session.data["replica_merge_config"] = {"merge": False}
+    bridge.refresh()
+
+    roles.prepareActorStats("actor-1")
+    assert roles.actorStatsTitle == "One"
+    assert roles.actorStatsModel.rows() == [
+        {"name": "Hero", "rings": 2, "words": 3},
+    ]
+
+    actor_library.refreshProjectActorTransfer()
+    assert len(actor_library.projectActorTransferModel.rows()) == 2
+    actor_library.addProjectActorsToGlobal(["actor-1", "actor-2"])
+    assert {
+        actor["name"]
+        for actor in bridge._global_settings_service.get_global_actor_base().values()
+    } == {"One", "Two"}
+
+
+def test_qml_bridge_previews_montage_and_saves_global_export_settings(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "one.ass")}
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Actor One", "color": "#123456"},
+    }
+    bridge._session.data["global_map"] = {"Hero": "actor-1"}
+    bridge._session.data["replica_merge_config"] = {"merge": False}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "lines": [
+                {
+                    "id": "line-1",
+                    "start": 1.0,
+                    "end": 2.0,
+                    "character": "Hero",
+                    "text": "Montage preview",
+                },
+            ],
+        },
+    }
+    bridge.refresh()
+
+    montage = bridge.montage
+    montage.prepare("1")
+
+    assert montage.episode == "1"
+    assert montage.model.rowCount() == 1
+    preview_row = montage.model.rows()[0]
+    assert preview_row["character"] == "Hero"
+    assert preview_row["actor"] == "Actor One"
+    assert preview_row["text"] == "Montage preview"
+    assert montage.count == 1
+    assert "<table class='montage-table'>" in montage.html
+    assert "qrc:///qtwebchannel/qwebchannel.js" in montage.html
+    assert "contenteditable='true'" in montage.html
+
+    montage.setOption("layout_type", "Сценарий 2")
+    montage.setOption("font_family", "Georgia")
+    montage.setOption("round_time", True)
+    montage.setOption("hide_leading_timecode_zeros", True)
+    montage.setOption("color_softening_level", -2)
+    montage.setOption("bold_time", True)
+    montage.setOption("bold_char", False)
+    montage.setOption("bold_actor", True)
+    montage.setOption("bold_text", True)
+    montage.setOption("highlight_character_only", True)
+
+    assert montage.config["layout_type"] == "Сценарий 2"
+    assert montage.config["font_family"] == "Georgia"
+    assert montage.config["round_time"] is True
+    assert montage.config["hide_leading_timecode_zeros"] is True
+    assert montage.config["color_softening_level"] == -2
+    assert montage.config["bold_time"] is True
+    assert montage.config["bold_char"] is False
+    assert montage.config["bold_actor"] is True
+    assert montage.config["bold_text"] is True
+    assert montage.config["highlight_character_only"] is True
+    assert "script2-container" in montage.html
+    assert "font-family: 'Georgia', sans-serif" in montage.html
+    assert "character-highlight" in montage.html
+    assert "rgba(18, 52, 86, 0.72)" in montage.html
+    assert "00:01" in montage.html
+    assert "0:00:01" not in montage.html
+    assert not bridge.project.canUndo
+    saved = bridge._global_settings_service.load_settings()[
+        "default_export_config"
+    ]
+    assert saved["layout_type"] == "Сценарий 2"
+    assert saved["font_family"] == "Georgia"
+    assert saved["round_time"] is True
+    assert saved["hide_leading_timecode_zeros"] is True
+    assert saved["color_softening_level"] == -2
+    assert saved["bold_time"] is True
+    assert saved["bold_char"] is False
+    assert saved["bold_actor"] is True
+    assert saved["bold_text"] is True
+    assert saved["highlight_character_only"] is True
+
+
+def test_qml_montage_accepts_table_column_width_changes():
+    _app()
+    bridge = AppBridge()
+
+    bridge.montage.setOption("table_width_time", 6.5)
+    bridge.montage.setOption("table_width_char", 12.0)
+    bridge.montage.setOption("table_width_actor", 9.5)
+
+    saved = bridge._global_settings_service.load_settings()[
+        "default_export_config"
+    ]
+    assert saved["table_width_time"] == 6.5
+    assert saved["table_width_char"] == 12.0
+    assert saved["table_width_actor"] == 9.5
+
+
+def test_qml_montage_keeps_appearance_settings_per_layout():
+    _app()
+    bridge = AppBridge()
+    montage = bridge.montage
+
+    montage.setOption("layout_type", "Таблица")
+    montage.setOption("font_family", "Georgia")
+    montage.setOption("col_actor", False)
+    montage.setOption("time_display", "start")
+    montage.setOption("color_softening_level", -2)
+    montage.setOption("f_text", 44)
+    montage.setOption("bold_text", True)
+
+    montage.setOption("layout_type", "Сценарий 2")
+    assert montage.config["font_family"] == "Segoe UI"
+    assert montage.config["col_actor"] is False
+    assert montage.config["time_display"] == "range"
+    assert montage.config["color_softening_level"] == -1
+    assert montage.config["f_char"] == 19
+    assert montage.config["f_text"] == 20
+    assert montage.config["bold_text"] is False
+
+    montage.setOption("font_family", "Arial")
+    montage.setOption("f_text", 52)
+    montage.setOption("layout_type", "Таблица")
+
+    assert montage.config["font_family"] == "Georgia"
+    assert montage.config["col_actor"] is False
+    assert montage.config["time_display"] == "start"
+    assert montage.config["color_softening_level"] == -2
+    assert montage.config["f_text"] == 44
+    assert montage.config["bold_text"] is True
+
+    saved = bridge._global_settings_service.load_settings()[
+        "default_export_config"
+    ]
+    assert saved["layout_profiles"]["Таблица"]["font_family"] == "Georgia"
+    scenario_profile = saved["layout_profiles"]["Сценарий 2"]
+    assert scenario_profile["font_family"] == "Arial"
+    assert scenario_profile["f_text"] == 52
+
+
+def test_qml_bridge_edits_montage_text_through_undo_stack(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.project_service.current_project_path = str(
+        tmp_path / "editing.dub"
+    )
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "one.ass")}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "modified_at": "before",
+            "lines": [{
+                "id": "stable-id",
+                "start": 1.0,
+                "end": 2.0,
+                "character": "Hero",
+                "text": "Original preview text",
+            }],
+        },
+    }
+    bridge.refresh()
+    montage = bridge.montage
+    montage.prepare("1")
+
+    montage.updateText("0", "Edited in WebEngine")
+
+    backups = list((tmp_path / ".backups").glob(
+        "editing_editing_episode_1_*.dub_backup"
+    ))
+    assert len(backups) == 1
+    line = bridge._session.data["episode_working_texts"]["1"]["lines"][0]
+    assert line["text"] == "Edited in WebEngine"
+    assert "Edited in WebEngine" in montage.html
+    assert bridge.project.canUndo
+
+    bridge.project.undo()
+    assert line["text"] == "Original preview text"
+    assert "Original preview text" in montage.html
+
+    bridge.project.redo()
+    assert line["text"] == "Edited in WebEngine"
+
+
+def test_qml_bridge_keeps_actor_highlights_in_runtime_only():
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "One", "color": "#112233"},
+        "actor-2": {"name": "Two", "color": "#445566"},
+    }
+    bridge.refresh()
+
+    montage = bridge.montage
+    montage.setAllActorsHighlighted(False)
+    montage.setActorHighlighted("actor-1", True)
+    montage.setActorNegative("actor-1", True)
+    rows = {row["actorId"]: row for row in montage.highlightModel.rows()}
+    assert rows["actor-1"]["selected"] is True
+    assert rows["actor-1"]["negative"] is True
+    assert rows["actor-2"]["selected"] is False
+    assert montage.highlightSummary == "1 из 2"
+
+    montage.setActorHighlighted("actor-2", True)
+    assert montage.config["highlight_ids_export"] is None
+    assert montage.highlightSummary == "Все актёры"
+
+    montage.setAllActorsHighlighted(False)
+    assert montage.config["highlight_ids_export"] == []
+    assert montage.highlightSummary == "Подсветка отключена"
+
+    montage.setActorNegative("actor-2", True)
+    assert montage.config["highlight_negative_ids_export"] == [
+        "actor-1",
+        "actor-2",
+    ]
+    assert not bridge.project.canUndo
+    saved = bridge._global_settings_service.load_settings()[
+        "default_export_config"
+    ]
+    assert "highlight_ids_export" not in saved
+    assert "highlight_negative_ids_export" not in saved
+
+    montage.reset()
+    assert montage.config["highlight_ids_export"] is None
+    assert montage.config["highlight_negative_ids_export"] == []
+
+
+def test_qml_bridge_exports_montage_files_and_current_episode_batch(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["project_name"] = "Demo"
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "one.ass")}
+    bridge._session.data["replica_merge_config"] = {"merge": False}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "lines": [
+                {
+                    "id": "line-1",
+                    "start": 1.0,
+                    "end": 2.0,
+                    "character": "Hero",
+                    "text": "Export me",
+                },
+            ],
+        },
+    }
+    bridge._session.data["export_config"]["open_auto"] = False
+    bridge.refresh()
+    montage = bridge.montage
+    montage.prepare("1")
+
+    html_path = tmp_path / "single"
+    montage.exportFile("html", str(html_path))
+
+    saved_html = html_path.with_suffix(".html")
+    assert saved_html.exists()
+    assert "Export me" in saved_html.read_text(encoding="utf-8")
+
+    output_folder = tmp_path / "batch"
+    montage.exportBatch(
+        str(output_folder),
+        True,
+        False,
+        True,
+        False,
+        False,
+    )
+
+    app = _app()
+    for _ in range(100):
+        app.processEvents()
+        if not montage.batchBusy:
+            break
+    else:
+        pytest.fail("Montage batch queue did not finish")
+
+    assert (output_folder / "Demo - Ep1.html").exists()
+    assert (output_folder / "Demo - Ep1.docx").exists()
+    assert montage.batchCompleted == 2
+    assert montage.batchResultModel.rowCount() == 2
+
+
+def test_qml_montage_exports_all_episodes_to_one_xlsx_workbook(tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["project_name"] = "Demo"
+    bridge._session.data["episodes"] = {
+        "1": str(tmp_path / "one.ass"),
+        "2": str(tmp_path / "two.ass"),
+    }
+    bridge._session.data["replica_merge_config"] = {"merge": False}
+    bridge._session.data["episode_working_texts"] = {
+        episode: {"lines": [{
+            "id": f"line-{episode}",
+            "start": 1.0,
+            "end": 2.0,
+            "character": "Hero",
+            "text": f"Episode {episode}",
+        }]}
+        for episode in ("1", "2")
+    }
+    bridge.refresh()
+    montage = bridge.montage
+    montage.prepare("1")
+
+    output_folder = tmp_path / "xlsx-all"
+    montage.exportBatch(
+        str(output_folder), False, True, False, False, True
+    )
+    for _ in range(100):
+        _app().processEvents()
+        if not montage.batchBusy:
+            break
+    else:
+        pytest.fail("Montage XLSX batch did not finish")
+
+    workbook_path = output_folder / "Demo - Все серии.xlsx"
+    assert workbook_path.exists()
+    assert not list(output_folder.glob("Demo - Ep*.xlsx"))
+    workbook = openpyxl.load_workbook(workbook_path, read_only=True)
+    assert workbook.sheetnames == ["Сводка", "серия (1)", "серия (2)"]
+    assert montage.batchTotal == 1
+    assert montage.batchCompleted == 1
+    assert montage.batchResultModel.rowCount() == 1
+
+
+def test_qml_montage_batch_reports_partial_failures_and_can_cancel(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["project_name"] = "Batch"
+    bridge._session.data["episodes"] = {
+        "1": str(tmp_path / "one.ass"),
+        "2": str(tmp_path / "two.ass"),
+    }
+    bridge._session.data["episode_working_texts"] = {
+        "1": {"lines": [{
+            "id": "line-1", "start": 1.0, "end": 2.0,
+            "character": "Hero", "text": "Available",
+        }]},
+    }
+    bridge._session.data["export_config"]["open_auto"] = False
+    bridge.refresh()
+    montage = bridge.montage
+    montage.prepare("1")
+
+    output_folder = tmp_path / "partial"
+    montage.exportBatch(
+        str(output_folder), True, False, False, False, True
+    )
+    for _ in range(100):
+        _app().processEvents()
+        if not montage.batchBusy:
+            break
+
+    rows = montage.batchResultModel.rows()
+    assert [row["statusKind"] for row in rows] == ["success", "error"]
+    assert "ошибок: 1" in montage.batchSummary
+
+    cancelled_folder = tmp_path / "cancelled"
+    montage.exportBatch(
+        str(cancelled_folder), True, False, True, False, True
+    )
+    montage.cancelBatch()
+    for _ in range(100):
+        _app().processEvents()
+        if not montage.batchBusy:
+            break
+    assert montage.batchCompleted == 0
+    assert not list(cancelled_folder.iterdir())
+
+
+def test_qml_bridge_previews_and_exports_reaper_files(tmp_path):
+    _app()
+    bridge = AppBridge()
+    video_path = tmp_path / "episode.mov"
+    video_path.write_bytes(b"video")
+    bridge._session.data["project_name"] = "Demo"
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "one.ass")}
+    bridge._session.data["video_paths"] = {"1": str(video_path)}
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Actor One", "color": "#123456"},
+    }
+    bridge._session.data["global_map"] = {"Hero": "actor-1"}
+    bridge._session.data["replica_merge_config"] = {"merge": False}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "source": {"type": "srt"},
+            "source_lines": [
+                {
+                    "id": "source-1",
+                    "start": 1.0,
+                    "end": 2.0,
+                    "character": "Hero",
+                    "text": "Source marker one",
+                },
+                {
+                    "id": "source-2",
+                    "start": 2.5,
+                    "end": 3.5,
+                    "character": "Hero",
+                    "text": "Source marker two",
+                },
+            ],
+            "lines": [
+                {
+                    "id": "line-1",
+                    "start": 1.0,
+                    "end": 3.5,
+                    "character": "Hero",
+                    "text": "Working replica",
+                },
+            ],
+        },
+    }
+    bridge.refresh()
+
+    reaper = bridge.reaper
+    assert reaper.prepare() is True
+    assert reaper.episode == "1"
+    assert bridge.reaper.videoAvailable is True
+    assert reaper.videoAvailable is True
+    assert bridge.reaper.videoName == "episode.mov"
+    assert bridge.reaper.sourceMarkersAvailable is True
+    assert bridge.reaper.preview["regions"] == 1
+    assert bridge.reaper.preview["tracks"] == 1
+    assert bridge.reaper.preview["video"] is True
+
+    source_preview = reaper.updatePreview(False, True, False, "source")
+    assert source_preview["video"] is False
+    assert source_preview["regions"] == 2
+    assert bridge.reaper.preview["regions"] == 2
+    assert "Source marker one" in bridge.reaper.preview["sample_regions"][0]
+
+    rpp_path = tmp_path / "episode-project"
+    assert reaper.export(
+        "rpp", str(rpp_path), True, True, False, "source"
+    ) is True
+    saved_rpp = rpp_path.with_suffix(".rpp")
+    assert saved_rpp.exists()
+    assert "Source marker two" in saved_rpp.read_text(encoding="utf-8-sig")
+    assert bridge.reaper.lastExportPath == str(saved_rpp)
+
+    csv_path = tmp_path / "episode-markers"
+    assert reaper.export(
+        "csv", str(csv_path), False, True, False, "source"
+    ) is True
+    saved_csv = csv_path.with_suffix(".csv")
+    assert saved_csv.exists()
+    assert "Source marker one" in saved_csv.read_text(encoding="utf-8-sig")
+
+
+def test_qml_bridge_reaper_export_requires_working_text(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "one.ass")}
+    bridge.refresh()
+
+    assert bridge.reaper.prepare() is False
+    assert bridge.reaper.preview == {}
+
+
+def test_qml_bridge_exports_reaper_for_all_episodes(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["project_name"] = "Demo"
+    bridge._session.data["episodes"] = {
+        "1": str(tmp_path / "one.ass"),
+        "2": str(tmp_path / "two.ass"),
+    }
+    bridge._session.data["video_paths"] = {}
+    bridge._session.data["replica_merge_config"] = {"merge": False}
+    bridge._session.data["episode_working_texts"] = {
+        episode: {
+            "source": {"type": "srt"},
+            "source_lines": [{
+                "id": f"source-{episode}",
+                "start": 1.0,
+                "end": 2.0,
+                "character": "Hero",
+                "text": f"Source episode {episode}",
+            }],
+            "lines": [{
+                "id": f"line-{episode}",
+                "start": 1.0,
+                "end": 2.0,
+                "character": "Hero",
+                "text": f"Working episode {episode}",
+            }],
+        }
+        for episode in ("1", "2")
+    }
+    bridge.refresh()
+
+    reaper = bridge.reaper
+    assert reaper.prepare()
+    assert reaper.exportableEpisodeCount == 2
+    assert reaper.allSourceMarkersAvailable
+    assert not reaper.anyVideoAvailable
+
+    rpp_folder = tmp_path / "rpp"
+    assert reaper.exportAll(
+        "rpp", str(rpp_folder), False, True, False, "source", "source_ass"
+    )
+    assert reaper.lastExportCount == 2
+    assert reaper.lastExportPath == str(rpp_folder)
+    assert "Source episode 1" in (
+        rpp_folder / "Demo - Ep1.rpp"
+    ).read_text(encoding="utf-8-sig")
+    assert "Source episode 2" in (
+        rpp_folder / "Demo - Ep2.rpp"
+    ).read_text(encoding="utf-8-sig")
+
+    csv_folder = tmp_path / "csv"
+    assert reaper.exportAll(
+        "csv", str(csv_folder), False, True, False, "merged", "project_episode"
+    )
+    assert (csv_folder / "Demo - 1.csv").exists()
+    assert (csv_folder / "Demo - 2.csv").exists()
+
+
+def test_qml_reaper_batch_rejects_partial_source_marker_mode(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {
+        "1": str(tmp_path / "one.ass"),
+        "2": str(tmp_path / "two.ass"),
+    }
+    bridge._session.data["video_paths"] = {}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "source": {"type": "srt"},
+            "source_lines": [{
+                "id": "source-1", "start": 1.0, "end": 2.0,
+                "character": "Hero", "text": "Source",
+            }],
+            "lines": [{
+                "id": "line-1", "start": 1.0, "end": 2.0,
+                "character": "Hero", "text": "One",
+            }],
+        },
+        "2": {"lines": [{
+            "id": "line-2", "start": 2.0, "end": 3.0,
+            "character": "Hero", "text": "Two",
+        }]},
+    }
+    bridge.refresh()
+
+    assert bridge.reaper.prepare()
+    assert not bridge.reaper.allSourceMarkersAvailable
+    assert not bridge.reaper.exportAll(
+        "csv", str(tmp_path / "csv"), False, True, False, "source"
+    )
+    assert not (tmp_path / "csv").exists()
+
+
+def test_qml_bridge_prepares_video_preview_and_filters_characters(tmp_path):
+    _app()
+    bridge = AppBridge()
+    video_path = tmp_path / "episode.mp4"
+    video_path.write_bytes(b"video")
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "one.ass")}
+    bridge._session.data["video_paths"] = {"1": str(video_path)}
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Actor One", "color": "#123456"},
+    }
+    bridge._session.data["global_map"] = {"Hero": "actor-1"}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "lines": [
+                {
+                    "id": "line-1",
+                    "start": 1.25,
+                    "end": 2.5,
+                    "character": "Hero",
+                    "text": "Hero line",
+                },
+                {
+                    "id": "line-2",
+                    "start": 3.0,
+                    "end": 4.0,
+                    "character": "Villain",
+                    "text": "Villain line",
+                },
+            ],
+        },
+    }
+    bridge.refresh()
+
+    video = bridge.video
+    assert video.prepare("Hero") is True
+    assert video.episode == "1"
+    assert video.character == "Hero"
+    assert video.hasVideo is True
+    assert video.videoName == "episode.mp4"
+    assert Path(video.videoUrl.toLocalFile()) == video_path
+    assert video.count == 1
+    assert [row["value"] for row in video.characterModel.rows()] == [
+        "",
+        "Hero",
+        "Villain",
+    ]
+    preview_row = video.model.rows()[0]
+    assert preview_row["startMs"] == 1250
+    assert preview_row["endMs"] == 2500
+    assert preview_row["actor"] == "Actor One"
+    assert preview_row["actorColor"] == "#123456"
+
+    video.setCharacter("")
+
+    assert video.character == ""
+    assert video.count == 2
+    assert bridge.video.count == 2
+
+
+def test_qml_bridge_video_preview_marks_multiple_assigned_actors(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "one.ass")}
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Actor One", "color": "#123456"},
+        "actor-2": {"name": "Actor Two", "color": "#654321"},
+    }
+    bridge._session.data["global_map"] = {"Hero": ["actor-1", "actor-2"]}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {"lines": [{
+            "id": "line-1", "start": 1.25, "end": 2.5,
+            "character": "Hero", "text": "Hero line",
+        }]},
+    }
+    bridge.refresh()
+
+    assert bridge.video.prepare("Hero") is True
+    preview_row = bridge.video.model.rows()[0]
+
+    assert preview_row["actor"] == "Несколько актёров"
+    assert preview_row["actorColor"] == "transparent"
+
+
+def test_qml_bridge_video_preview_keeps_replica_list_without_video(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "one.ass")}
+    bridge._session.data["video_paths"] = {"1": str(tmp_path / "missing.mp4")}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "lines": [{
+                "id": "line-1",
+                "start": 1.0,
+                "end": 2.0,
+                "character": "Hero",
+                "text": "Replica only",
+            }],
+        },
+    }
+    bridge.refresh()
+
+    video = bridge.video
+    assert video.prepare("") is True
+    assert video.hasVideo is False
+    assert video.videoUrl.isEmpty()
+    assert video.count == 1
+    assert video.model.rows()[0]["text"] == "Replica only"
+
+
+def test_qml_bridge_renames_episode_with_related_data(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "episode.ass")}
+    bridge._session.data["episode_actor_map"] = {"1": {"Hero": "actor-1"}}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "lines": [
+                {"id": "line-1", "start": 1.0, "end": 2.0, "character": "Hero", "text": "Alpha"},
+            ]
+        }
+    }
+    bridge.refresh()
+
+    bridge.project.renameCurrentEpisode("Pilot")
+
+    assert bridge.project.currentEpisode == "Pilot"
+    assert "Pilot" in bridge._session.data["episodes"]
+    assert "1" not in bridge._session.data["episodes"]
+    assert bridge._session.data["episode_actor_map"]["Pilot"]["Hero"] == "actor-1"
+    assert bridge._session.data["episode_working_texts"]["Pilot"]["lines"][0]["text"] == "Alpha"
+    assert bridge.casting.charactersModel.rows()[0]["character"] == "Hero"
+
+    bridge.project.undo()
+
+    assert bridge.project.currentEpisode == "1"
+    assert "1" in bridge._session.data["episodes"]
+    assert "Pilot" not in bridge._session.data["episode_working_texts"]
+    assert bridge._session.data["episode_working_texts"]["1"]["lines"][0]["text"] == "Alpha"
+
+
+def test_qml_bridge_deletes_episode_with_undo(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "episode.ass")}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "lines": [
+                {"id": "line-1", "start": 1.0, "end": 2.0, "character": "Hero", "text": "Alpha"},
+            ]
+        }
+    }
+    bridge.refresh()
+
+    bridge.project.deleteCurrentEpisode()
+
+    assert bridge.project.currentEpisode == ""
+    assert bridge.project.episodesModel.rowCount() == 0
+    assert "1" not in bridge._session.data["episodes"]
+    assert "1" not in bridge._session.data["episode_working_texts"]
+
+    bridge.project.undo()
+
+    assert bridge.project.currentEpisode == "1"
+    assert bridge.project.episodesModel.rowCount() == 1
+    assert bridge.casting.charactersModel.rows()[0]["character"] == "Hero"
+
+
+def test_qml_bridge_renames_character_with_undo(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "episode.ass")}
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Actor One", "color": "#123456"},
+        "actor-2": {"name": "Actor Two", "color": "#654321"},
+    }
+    bridge._session.data["global_map"] = {"Hero": "actor-1"}
+    bridge._session.data["episode_actor_map"] = {"1": {"Hero": "actor-2"}}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "characters": {"Hero": {"display_name": "Hero"}},
+            "lines": [
+                {
+                    "id": "line-1",
+                    "start": 1.0,
+                    "end": 2.0,
+                    "character": "Hero",
+                    "display_character": "Hero",
+                    "text": "Alpha words",
+                },
+            ],
+        }
+    }
+    bridge.refresh()
+
+    bridge.casting.renameCharacter("Hero", "Lead")
+
+    payload = bridge._session.data["episode_working_texts"]["1"]
+    assert bridge.casting.selectedCharacter == "Lead"
+    assert bridge.casting.charactersModel.rows()[0]["character"] == "Lead"
+    assert bridge._session.data["global_map"]["Lead"] == "actor-1"
+    assert bridge._session.data["episode_actor_map"]["1"]["Lead"] == "actor-2"
+    assert "Hero" not in bridge._session.data["global_map"]
+    assert "Hero" not in bridge._session.data["episode_actor_map"]["1"]
+    assert payload["lines"][0]["character"] == "Hero"
+    assert payload["lines"][0]["display_character"] == "Lead"
+
+    bridge.project.undo()
+
+    payload = bridge._session.data["episode_working_texts"]["1"]
+    assert bridge.casting.charactersModel.rows()[0]["character"] == "Hero"
+    assert bridge._session.data["global_map"]["Hero"] == "actor-1"
+    assert bridge._session.data["episode_actor_map"]["1"]["Hero"] == "actor-2"
+    assert payload["lines"][0]["display_character"] == "Hero"
+
+
+def test_qml_bridge_assign_actor_to_character_uses_undo_stack(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "episode.ass")}
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Actor One", "color": "#123456"},
+    }
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "lines": [
+                {"id": "line-1", "start": 1.0, "end": 2.0, "character": "Hero", "text": "Alpha words"},
+            ]
+        }
+    }
+    bridge.refresh()
+
+    bridge.casting.assignActor("Hero", "actor-1")
+
+    assert bridge._session.data["global_map"]["Hero"] == "actor-1"
+    assert bridge.casting.charactersModel.rows()[0]["actor"] == "Actor One"
+    assert bridge.casting.charactersModel.rows()[0]["actorId"] == "actor-1"
+
+    bridge.project.undo()
+    assert "Hero" not in bridge._session.data["global_map"]
+    assert bridge.casting.charactersModel.rows()[0]["actor"] == "-"
+
+    bridge.project.redo()
+    assert bridge._session.data["global_map"]["Hero"] == "actor-1"
+
+    bridge.casting.assignActor("Hero", "")
+    assert "Hero" not in bridge._session.data["global_map"]
+
+
+def test_qml_bridge_assignment_scope_uses_episode_overrides(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "episode.ass")}
+    bridge._session.data["actors"] = {
+        "actor-1": {"name": "Actor One", "color": "#123456"},
+        "actor-2": {"name": "Actor Two", "color": "#654321"},
+    }
+    bridge._session.data["global_map"] = {"Hero": "actor-1"}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "lines": [
+                {"id": "line-1", "start": 1.0, "end": 2.0, "character": "Hero", "text": "Alpha words"},
+            ]
+        }
+    }
+    bridge.refresh()
+
+    assert bridge.casting.charactersModel.rows()[0]["scopeId"] == "global"
+    assert bridge.casting.charactersModel.rows()[0]["actorId"] == "actor-1"
+
+    bridge.casting.setAssignmentScope("Hero", "episode")
+
+    assert bridge._session.data["episode_actor_map"]["1"]["Hero"] == "actor-1"
+    assert bridge.casting.charactersModel.rows()[0]["scopeId"] == "episode"
+
+    bridge.casting.assignActor("Hero", "actor-2")
+
+    assert bridge._session.data["global_map"]["Hero"] == "actor-1"
+    assert bridge._session.data["episode_actor_map"]["1"]["Hero"] == "actor-2"
+    assert bridge.casting.charactersModel.rows()[0]["actorId"] == "actor-2"
+
+    bridge.casting.setAssignmentScope("Hero", "global")
+
+    assert "Hero" not in bridge._session.data["episode_actor_map"]["1"]
+    assert bridge.casting.charactersModel.rows()[0]["scopeId"] == "global"
+    assert bridge.casting.charactersModel.rows()[0]["actorId"] == "actor-1"
+
+
+def test_qml_bridge_defers_destructive_action_until_user_decides():
+    _app()
+    bridge = AppBridge()
+    project = bridge.project
+    requested = []
+    project.saveChangesRequested.connect(requested.append)
+    project.name = "Unsaved work"
+
+    project.create()
+
+    assert project.name == "Unsaved work"
+    assert requested == ["Сохранить изменения перед созданием нового проекта?"]
+
+    project.resolvePendingChanges("cancel")
+    assert project.name == "Unsaved work"
+
+    project.create()
+    project.resolvePendingChanges("discard")
+
+    assert project.name == "Новый проект"
+    assert not project.dirty
+
+
+def test_qml_bridge_saves_unsaved_project_before_pending_action(tmp_path):
+    _app()
+    bridge = AppBridge()
+    project = bridge.project
+    save_path_requests = []
+    project.savePathRequested.connect(lambda: save_path_requests.append(True))
+    bridge.casting.addActor("Actor before reset")
+
+    project.create()
+    project.resolvePendingChanges("save")
+
+    assert save_path_requests == [True]
+    assert bridge.casting.actorsModel.rowCount() == 1
+
+    saved_path = tmp_path / "before-reset.dub"
+    project.saveAs(str(saved_path))
+
+    assert saved_path.exists()
+    assert project.name == "Новый проект"
+    assert project.path == ""
+    assert bridge.casting.actorsModel.rowCount() == 0
+
+
+def test_qml_bridge_autosaves_dirty_saved_project(tmp_path):
+    _app()
+    bridge = AppBridge()
+    project = bridge.project
+    project_path = tmp_path / "autosave.dub"
+    project.saveAs(str(project_path))
+    project.name = "Changed"
+
+    project.autoSave()
+
+    backups = list((tmp_path / ".backups").glob("autosave_*.dub_backup"))
+    assert len(backups) == 1
+    assert project.dirty
+    assert bridge.statusText == "Создана автокопия проекта"
+
+
+def test_qml_ui_state_remembers_dialog_folders_and_window_values(tmp_path):
+    _app()
+    settings_path = tmp_path / "ui.ini"
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    source_file = source_dir / "episode.ass"
+    source_file.write_text("", encoding="utf-8")
+
+    settings = QSettings(
+        str(settings_path),
+        QSettings.Format.IniFormat,
+    )
+    state = UiStateBridge(settings)
+    assert state.hasValue("main.width") is False
+    state.rememberFile("sourceFiles", str(source_file))
+    state.setIntValue("main.width", 1440)
+    state.setIntValue("teleprompterFloat.width", 428)
+    state.setIntValue("teleprompterFloat.height", 516)
+    state.setBoolValue("main.maximized", True)
+    state.setBoolValue("actorColorCellFill", True)
+    state.setStringValue("main.characterColumnsOrder", '["actor", "character"]')
+    state.setIntValue("main.episodeTimelineColorMuteLevel", 1)
+    state.setStringValue("main.episodeTimelineSortMode", "words")
+    settings.sync()
+
+    restored_settings = QSettings(
+        str(settings_path),
+        QSettings.Format.IniFormat,
+    )
+    restored = UiStateBridge(restored_settings)
+
+    assert Path(restored.folderUrl("sourceFiles").toLocalFile()) == source_dir
+    assert restored.intValue("main.width", 1000) == 1440
+    assert restored.hasValue("main.width") is True
+    assert restored.intValue("teleprompterFloat.width", 300) == 428
+    assert restored.intValue("teleprompterFloat.height", 440) == 516
+    assert restored.boolValue("main.maximized", False) is True
+    assert restored.boolValue("actorColorCellFill", False) is True
+    assert restored.stringValue("main.characterColumnsOrder", "") == '["actor", "character"]'
+    assert restored.intValue("main.episodeTimelineColorMuteLevel", 2) == 1
+    assert restored.stringValue("main.episodeTimelineSortMode", "") == "words"
+
+
+def test_qml_bridge_restores_backup_after_unsaved_decision(tmp_path):
+    _app()
+    bridge = AppBridge()
+    project = bridge.project
+    project_path = tmp_path / "restorable.dub"
+    requested = []
+    project.saveChangesRequested.connect(requested.append)
+    project.saveAs(str(project_path))
+    project.name = "Версия из копии"
+    project.autoSave()
+    project.name = "Текущие несохранённые изменения"
+    project.refreshBackups()
+
+    rows = project.backupsModel.rows()
+    assert len(rows) == 1
+    assert rows[0]["modified"]
+    assert rows[0]["size"].endswith("КБ")
+
+    project.restoreBackup(rows[0]["path"])
+
+    assert requested == [
+        "Сохранить изменения перед восстановлением резервной копии?"
+    ]
+    assert project.name == "Текущие несохранённые изменения"
+
+    project.resolvePendingChanges("discard")
+
+    assert project.name == "Версия из копии"
+    assert not project.dirty
+    assert "Восстановлена резервная копия" in bridge.statusText
+    assert list(
+        (tmp_path / ".backups").glob(
+            "restorable_before_restore_*.dub_backup"
+        )
+    )
+
+
+def test_qml_bridge_builds_project_file_and_health_models(tmp_path):
+    _app()
+    bridge = AppBridge()
+    missing_source = tmp_path / "missing.srt"
+    bridge._session.data["episodes"] = {"1": str(missing_source)}
+    bridge._session.data["episode_working_texts"] = {
+        "1": {
+            "lines": [
+                {
+                    "id": "1_0001",
+                    "start": 1.0,
+                    "end": 2.0,
+                    "character": "Hero",
+                    "text": "Hello",
+                }
+            ]
+        }
+    }
+
+    bridge.refresh()
+
+    project_files = bridge.projectFiles
+    rows = project_files.filesModel.rows()
+    assert [row["kind"] for row in rows] == ["source", "working", "video"]
+    assert rows[0]["status"] == "Не найден"
+    assert rows[1]["status"] == "Нет исходных строк"
+    assert project_files.currentEpisodeSourceMissing
+    assert "предупреждения: 1" in project_files.healthSummary
+    assert any(
+        row["message"] == "Исходный файл серии не найден."
+        for row in project_files.healthModel.rows()
+    )
+
+
+def test_qml_bridge_sets_folder_scans_links_and_undoes_atomically(tmp_path):
+    _app()
+    bridge = AppBridge()
+    old_source = str(tmp_path / "elsewhere" / "Episode 1.srt")
+    source = tmp_path / "Episode 1.srt"
+    source.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nHero: Hello\n",
+        encoding="utf-8",
+    )
+    bridge._session.data["episodes"] = {"1": old_source}
+    bridge.refresh()
+
+    project_files = bridge.projectFiles
+    project_files.setFolder(str(tmp_path))
+
+    assert project_files.folder == str(tmp_path)
+    assert bridge._session.data["episodes"]["1"] == str(source)
+    assert bridge.project.canUndo
+
+    bridge.project.undo()
+
+    assert project_files.folder == ""
+    assert bridge._session.data["episodes"]["1"] == old_source
+
+
+def test_qml_bridge_batch_imports_folder_sources_videos_and_texts(tmp_path):
+    from docx import Document
+
+    _app()
+    bridge = AppBridge()
+    srt_source = tmp_path / "Episode_01.srt"
+    srt_source.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nHero: Subtitle\n",
+        encoding="utf-8",
+    )
+    docx_source = tmp_path / "Episode_02.docx"
+    document = Document()
+    table = document.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "Персонаж"
+    table.cell(0, 1).text = "Текст"
+    table.cell(1, 0).text = "Guest"
+    table.cell(1, 1).text = "Document"
+    document.save(docx_source)
+    for name in ("Episode_01.mp4", "Episode_02.mov", "Episode_99.mp4"):
+        (tmp_path / name).write_bytes(b"video")
+
+    project_files = bridge.projectFiles
+    project_files.setFolder(str(tmp_path))
+    project_files.batchImportFolder()
+
+    assert set(bridge._session.data["episodes"]) == {"1", "2"}
+    assert set(bridge._session.data["video_paths"]) == {"1", "2"}
+    assert set(bridge._session.data["script_storage"]["episodes"]) == {"1", "2"}
+    assert bridge._session.data["project_kind"] == "subtitle"
+
+    bridge.project.undo()
+
+    assert bridge._session.data["episodes"] == {}
+    assert bridge._session.data["video_paths"] == {}
+    assert bridge._session.data["script_storage"]["episodes"] == {}
+    assert project_files.folder == str(tmp_path)
+
+
+def test_qml_bridge_removes_video_link_with_undo(tmp_path):
+    _app()
+    bridge = AppBridge()
+    video = tmp_path / "Episode_01.mp4"
+    video.write_bytes(b"video")
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "Episode_01.srt")}
+    bridge._session.data["video_paths"] = {"1": str(video)}
+    bridge.refresh()
+
+    bridge.projectFiles.removeVideo("1")
+
+    assert "1" not in bridge._session.data["video_paths"]
+    assert bridge.project.canUndo
+
+    bridge.project.undo()
+
+    assert bridge._session.data["video_paths"]["1"] == str(video)
+
+
+def test_qml_bridge_deletes_multiple_episodes_with_one_undo(tmp_path):
+    _app()
+    bridge = AppBridge()
+    bridge._session.data["episodes"] = {
+        "1": str(tmp_path / "Episode 1.srt"),
+        "2": str(tmp_path / "Episode 2.srt"),
+        "3": str(tmp_path / "Episode 3.srt"),
+    }
+    bridge._session.data["video_paths"] = {
+        "1": str(tmp_path / "Episode 1.mp4"),
+        "2": str(tmp_path / "Episode 2.mp4"),
+    }
+    bridge.project.selectEpisode("2")
+
+    bridge.projectFiles.deleteEpisodes(["1", "2"])
+
+    assert set(bridge._session.data["episodes"]) == {"3"}
+    assert bridge._session.data["video_paths"] == {}
+    assert bridge.project.currentEpisode == "3"
+
+    bridge.project.undo()
+
+    assert set(bridge._session.data["episodes"]) == {"1", "2", "3"}
+    assert set(bridge._session.data["video_paths"]) == {"1", "2"}
+
+
+def test_qml_bridge_relinks_source_and_undoes(tmp_path):
+    _app()
+    bridge = AppBridge()
+    old_source = str(tmp_path / "missing.srt")
+    new_source = tmp_path / "replacement.srt"
+    new_source.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nHero: Hello\n",
+        encoding="utf-8",
+    )
+    bridge._session.data["episodes"] = {"1": old_source}
+    bridge.refresh()
+
+    project_files = bridge.projectFiles
+    project_files.relink("1", "source", str(new_source))
+
+    assert bridge._session.data["episodes"]["1"] == str(new_source)
+    assert not project_files.currentEpisodeSourceMissing
+
+    bridge.project.undo()
+    assert bridge._session.data["episodes"]["1"] == old_source
+
+
+def test_qml_bridge_links_current_episode_video_and_undoes(tmp_path):
+    _app()
+    bridge = AppBridge()
+    video = tmp_path / "Episode_01.mp4"
+    video.write_bytes(b"video")
+    bridge._session.data["episodes"] = {"1": str(tmp_path / "Episode_01.srt")}
+    bridge.project.selectEpisode("1")
+
+    bridge.projectFiles.relink("1", "video", str(video))
+
+    assert bridge._session.data["video_paths"]["1"] == str(video)
+    assert bridge.project.canUndo
+
+    bridge.project.undo()
+    assert "1" not in bridge._session.data["video_paths"]
+
+
+def test_qml_video_link_refreshes_fps_source_in_project_settings(
+    tmp_path, monkeypatch
+):
+    _app()
+    bridge = AppBridge()
+    video = tmp_path / "Episode_01.mp4"
+    video.write_bytes(b"video")
+    bridge._session.data["episodes"] = {
+        "1": str(tmp_path / "Episode_01.ass")
+    }
+    assert bridge.settings.projectFpsSource == "Значение по умолчанию"
+    settings_refreshes = []
+    bridge.settings.changed.connect(lambda: settings_refreshes.append(True))
+    monkeypatch.setattr(
+        "services.project_fps_service.probe_video_fps",
+        lambda _path: 24000 / 1001,
+    )
+
+    bridge.projectFiles.relink("1", "video", str(video))
+
+    assert bridge.settings.projectFpsDisplay == "23.976"
+    assert bridge.settings.projectFpsSource.endswith("Episode_01.mp4")
+    assert bridge._session.data["project_settings"]["fps_source"] == "video"
+    assert settings_refreshes
+
+
+def test_qml_folder_scan_detects_fps_from_resolved_video(tmp_path, monkeypatch):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode_01.ass"
+    source.write_text("[Script Info]\n[Events]\n", encoding="utf-8")
+    video = tmp_path / "Episode_01.mp4"
+    video.write_bytes(b"video")
+    bridge._session.data["episodes"] = {"1": str(source)}
+    bridge._session.data["video_paths"] = {"1": "missing/Episode_01.mp4"}
+    bridge._session.data["project_settings"]["fps_ass_checked"] = True
+    monkeypatch.setattr(
+        "services.project_fps_service.probe_video_fps",
+        lambda _path: 24000 / 1001,
+    )
+
+    bridge.projectFiles.setFolder(str(tmp_path))
+
+    assert bridge.settings.projectFpsDisplay == "23.976"
+    assert bridge._session.data["project_settings"]["fps_source"] == "video"
+    assert bridge.settings.projectFpsSource.endswith("Episode_01.mp4")
+
+
+def test_qml_bridge_regenerates_working_text_with_undo(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode 1.srt"
+    source.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nHero: Hello again\n",
+        encoding="utf-8",
+    )
+    bridge._session.data["episodes"] = {"1": str(source)}
+    bridge.refresh()
+
+    bridge.projectFiles.regenerateWorkingText("1")
+
+    assert bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "1"
+    )[0]["text"] == "Hello again"
+    assert bridge.casting.charactersModel.rows()[0]["character"] == "Hero"
+
+    bridge.project.undo()
+
+    assert "1" not in bridge._session.data["script_storage"]["episodes"]
+    assert bridge.casting.charactersModel.rowCount() == 0
+
+
+def test_qml_project_files_converts_legacy_merged_project_from_ass(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode 1.ass"
+    source.write_text(
+        "[Events]\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,First\n"
+        "Dialogue: 0,0:00:02.20,0:00:03.00,Default,Hero,0,0,0,,Second\n",
+        encoding="utf-8",
+    )
+    data = bridge._project_service.create_new_project("Legacy")
+    data.pop("script_storage")
+    data.update({
+        "episodes": {"1": str(source)},
+        "episode_working_texts": {
+            "1": {
+                "lines": [{
+                    "id": "1_0001",
+                    "source_ids": [0, 1],
+                    "source_texts": ["First", "Second"],
+                    "start": 1.0,
+                    "end": 3.0,
+                    "character": "Hero",
+                    "display_character": "Hero",
+                    "text": "Edited merged line",
+                    "dirty": True,
+                }],
+                "merge_config": {
+                    "merge": True,
+                    "merge_gap": 120,
+                    "fps": 25,
+                    "p_short": 0.5,
+                    "p_long": 2.0,
+                },
+            }
+        },
+        "_project_format": {
+            "storage_model": "legacy_merged",
+            "original_version": "1.3",
+            "preserved_fields": {},
+        },
+    })
+    bridge._session.replace_project(data, "1")
+    bridge.refresh()
+    errors = []
+    bridge.errorOccurred.connect(errors.append)
+
+    assert bridge.projectFiles.legacyMergedProject is True
+    assert bridge.projectFiles.canConvertToNewFormat is True
+    assert "Все ASS найдены" in bridge.projectFiles.conversionStatus
+
+    bridge.projectFiles.convertToNewFormat()
+
+    assert errors == []
+    assert bridge.projectFiles.legacyMergedProject is False
+    assert bridge.settings.dynamicTextStorage is True
+    assert bridge._session.data["episode_working_texts"] == {}
+    payload = bridge._session.data["script_storage"]["episodes"]["1"]
+    assert len(payload["source_lines"]) == 2
+    assert len(payload["edit_blocks"]) == 1
+    assert bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "1"
+    )[0]["text"] == "Edited merged line"
+
+    saved_path = tmp_path / "converted.dub"
+    bridge.project.saveAs(str(saved_path))
+    stored = json.loads(saved_path.read_text(encoding="utf-8"))
+    assert stored["metadata"]["format_version"] == "2.0"
+    assert stored["script_storage"]["model"] == "dynamic_source"
+    assert "episode_working_texts" not in stored
+
+    bridge.project.undo()
+
+    assert bridge.projectFiles.legacyMergedProject is True
+    assert bridge._session.data["episode_working_texts"]["1"]["lines"][0][
+        "text"
+    ] == "Edited merged line"
+
+
+def test_qml_project_files_conversion_preserves_external_legacy_edits(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode 1.ass"
+    source.write_text(
+        "[Events]\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,First\n",
+        encoding="utf-8",
+    )
+    working_text = tmp_path / "Episode 1.json"
+    working_text.write_text(json.dumps({
+        "lines": [{
+            "id": "1_0001",
+            "source_ids": [0],
+            "source_texts": ["First"],
+            "start": 1.0,
+            "end": 2.0,
+            "character": "Hero",
+            "display_character": "Hero",
+            "text": "Edited external line",
+            "dirty": True,
+        }],
+        "merge_config": {"merge": True, "merge_gap": 120, "fps": 25},
+    }), encoding="utf-8")
+    data = bridge._project_service.create_new_project("Legacy")
+    data.pop("script_storage")
+    data.update({
+        "episodes": {"1": str(source)},
+        "episode_texts": {"1": str(working_text)},
+        "episode_working_texts": {},
+        "_project_format": {
+            "storage_model": "legacy_merged",
+            "original_version": "1.3",
+            "preserved_fields": {},
+        },
+    })
+    bridge._session.replace_project(data, "1")
+
+    bridge.projectFiles.convertToNewFormat()
+
+    assert bridge._session.data["episode_texts"] == {}
+    assert bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "1"
+    )[0]["text"] == "Edited external line"
+
+
+def test_qml_legacy_conversion_requires_ass_for_every_episode(tmp_path):
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode 1.ass"
+    source.write_text(
+        "[Events]\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,Hero,0,0,0,,Line\n",
+        encoding="utf-8",
+    )
+    data = bridge._project_service.create_new_project("Legacy")
+    data.pop("script_storage")
+    data.update({
+        "episodes": {
+            "1": str(source),
+            "2": str(tmp_path / "missing.ass"),
+        },
+        "episode_working_texts": {},
+        "_project_format": {
+            "storage_model": "legacy_merged",
+            "original_version": "1.3",
+            "preserved_fields": {},
+        },
+    })
+    bridge._session.replace_project(data, "1")
+    bridge.refresh()
+    errors = []
+    bridge.errorOccurred.connect(errors.append)
+
+    assert bridge.projectFiles.legacyMergedProject is True
+    assert bridge.projectFiles.canConvertToNewFormat is False
+    assert "Не найдены: 2" in bridge.projectFiles.conversionStatus
+
+    bridge.projectFiles.convertToNewFormat()
+
+    assert "script_storage" not in bridge._session.data
+    assert errors and "ASS всех серий" in errors[-1]
+
+
+def test_qml_bridge_regenerates_docx_using_saved_mapping_without_merging(tmp_path):
+    from docx import Document
+
+    _app()
+    bridge = AppBridge()
+    source = tmp_path / "Episode 2.docx"
+    document = Document()
+    table = document.add_table(rows=3, cols=2)
+    table.cell(0, 0).text = "Реплика"
+    table.cell(0, 1).text = "Кто"
+    table.cell(1, 0).text = "First"
+    table.cell(1, 1).text = "Hero"
+    table.cell(2, 0).text = "Second"
+    table.cell(2, 1).text = "Hero"
+    document.save(source)
+    bridge._session.data["episodes"] = {"2": str(source)}
+    bridge._global_settings_service.update_docx_import_config({
+        "header_mode": "first",
+        "minimum_header_matches": 1,
+        "mapping": {
+            "character": 1,
+            "time_start": None,
+            "time_end": None,
+            "time_split": None,
+            "text": 0,
+        },
+    })
+    bridge.refresh()
+
+    bridge.projectFiles.regenerateWorkingText("2")
+
+    payload = bridge._session.data["script_storage"]["episodes"]["2"]
+    assert [line["text"] for line in payload["source_lines"]] == ["First", "Second"]
+    assert [line["character"] for line in payload["source_lines"]] == ["Hero", "Hero"]
+    assert payload["source"]["line_mode"] == "premerged"
+    assert [
+        line["text"]
+        for line in bridge._script_text_service.load_episode_lines(
+            bridge._session.data, "2"
+        )
+    ] == ["First", "Second"]
+    assert any(
+        row["kind"] == "working" and row["canRegenerate"]
+        for row in bridge.projectFiles.filesModel.rows()
+    )
+
+    bridge.project.undo()
+
+    assert "2" not in bridge._session.data["script_storage"]["episodes"]
+
+
+def test_qml_bridge_creates_missing_srt_and_docx_texts_with_one_undo(tmp_path):
+    from docx import Document
+
+    _app()
+    bridge = AppBridge()
+    srt_source = tmp_path / "Episode 1.srt"
+    srt_source.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nHero: Subtitle\n\n"
+        "2\n00:00:02,500 --> 00:00:03,000\nHero: Continued\n",
+        encoding="utf-8",
+    )
+    docx_source = tmp_path / "Episode 2.docx"
+    document = Document()
+    table = document.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "Персонаж"
+    table.cell(0, 1).text = "Текст"
+    table.cell(1, 0).text = "Guest"
+    table.cell(1, 1).text = "Document line"
+    document.save(docx_source)
+    bridge._session.data["episodes"] = {
+        "1": str(srt_source),
+        "2": str(docx_source),
+    }
+    bridge._global_settings_service.update_docx_import_config({"header_mode": "first"})
+    bridge.refresh()
+
+    bridge.projectFiles.createMissingWorkingTexts()
+
+    assert set(bridge._session.data["script_storage"]["episodes"]) == {"1", "2"}
+    assert len(
+        bridge._script_text_service.load_episode_lines(
+            bridge._session.data, "1"
+        )
+    ) == 1
+    assert bridge._script_text_service.load_episode_lines(
+        bridge._session.data, "2"
+    )[0]["text"] == "Document line"
+    assert bridge.project.canUndo
+
+    bridge.project.undo()
+
+    assert bridge._session.data["script_storage"]["episodes"] == {}
+    assert not bridge.project.canUndo

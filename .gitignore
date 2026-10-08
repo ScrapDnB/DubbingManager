@@ -8,6 +8,7 @@ __pycache__/
 .ruff_cache/
 .tox/
 .hypothesis/
+logs/
 
 # Виртуальное окружение
 venv/
@@ -17,6 +18,11 @@ env/
 build/
 dist/
 test_files
+/docs/
+
+# Локальные проекты Dubbing Manager
+*.dub
+*.dub_backup
 
 # Coverage
 .coverage
