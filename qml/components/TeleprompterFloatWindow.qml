@@ -126,12 +126,27 @@ Window {
                 font.bold: true
             }
 
-            HoverHandler {
-                cursorShape: Qt.OpenHandCursor
-            }
-            DragHandler {
-                target: null
-                onActiveChanged: if (active) floatWindow.startSystemMove()
+            MouseArea {
+                objectName: "teleprompterFloatTitleDragArea"
+                anchors.fill: parent
+                acceptedButtons: Qt.LeftButton
+                preventStealing: true
+                cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                property point pressPosition
+                property real initialWindowX: 0
+                property real initialWindowY: 0
+
+                onPressed: function(mouse) {
+                    pressPosition = mapToGlobal(mouse.x, mouse.y)
+                    initialWindowX = floatWindow.x
+                    initialWindowY = floatWindow.y
+                }
+                onPositionChanged: function(mouse) {
+                    if (!pressed) return
+                    var position = mapToGlobal(mouse.x, mouse.y)
+                    floatWindow.x = Math.round(initialWindowX + position.x - pressPosition.x)
+                    floatWindow.y = Math.round(initialWindowY + position.y - pressPosition.y)
+                }
             }
         }
 

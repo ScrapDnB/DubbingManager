@@ -166,7 +166,6 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "id: headerResizeHandler" in source
     assert "readonly property bool hideLeadingTimecodeZeros:" in source
     assert 'text.replace(/^0+:/, "")' in source
-    assert "parent.height * 0.72" in source
     assert '"teleprompter.headerHeight"' in source
     assert "teleprompterSurface.height - 160" in source
     assert "initialHeight + translation.y" in source

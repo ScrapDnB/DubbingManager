@@ -125,6 +125,20 @@ def in_bounds(win, name):
     item = wrapInstance(getCppPointer(obj)[0], QQuickItem)
     pos = item.mapToScene(item.boundingRect().topLeft())
     return pos.x() >= 0 and pos.y() >= 0 and pos.x()+item.width() <= win.width()+1 and pos.y()+item.height() <= win.height()+1
+def reading_font_sizes(win):
+    root = wrapInstance(getCppPointer(win.findChild(QObject, 'teleprompterReplicaView'))[0], QQuickItem)
+    # ListView delegates belong to its visual tree, not the window's QObject tree.
+    pending, reading_items = [root], []
+    while pending:
+        item = pending.pop()
+        reading_items.append(item)
+        pending.extend(item.childItems())
+    result = {}
+    for name in ('Timecode', 'Character', 'Actor', 'Text'):
+        items = [item for item in reading_items if item.objectName() == 'teleprompterReplica' + name]
+        check(bool(items), 'reading ' + name.lower() + ' is instantiated')
+        result[name] = {evaluate(item, 'fontInfo.pixelSize') for item in items}
+    return result
 output=ROOT/'output'/'tools-window-redesign'
 output.mkdir(parents=True, exist_ok=True)
 prefix=('fluent-emulated' if fluent else 'macos')+('-dark' if dark else '')
@@ -141,6 +155,13 @@ try:
     check(font_family == 'Chakra Petch', 'bundled timecode font loads')
     timer=tele.findChild(QObject,'teleprompterTimecode')
     check(timer.property('text') == '00:10.000', 'timer keeps millisecond precision')
+    timer_font_size = evaluate(timer, 'fontInfo.pixelSize')
+    for key, value in {'f_tc': 40, 'f_char': 34, 'f_actor': 26, 'f_text': 44,
+                       'show_end_timecode': True}.items():
+        bridge.teleprompter.setConfigValue(key, value)
+    settle()
+    expected_font_sizes = {'Timecode': {40}, 'Character': {34}, 'Actor': {26}, 'Text': {44}}
+    check(reading_font_sizes(tele) == expected_font_sizes, 'reading fonts use configured sizes in a large window')
     tele.grabWindow().save(str(output/(prefix+'-teleprompter.png')))
     check(bridge.teleprompter.config['page_scroll_mode'], 'page mode restored from settings')
     click(tele, 'teleprompterContinuousMode')
@@ -160,6 +181,21 @@ try:
     check(evaluate(tele,'actorFilterWindow.visible'), 'actor filter opens')
     evaluate(tele,'actorFilterWindow.close(); floatWindow.openNearOwner()'); settle()
     check(evaluate(tele,'floatWindow.visible'), 'floating controller opens')
+    controller = wrapInstance(getCppPointer(tele.findChild(QObject, 'teleprompterFloatWindow'))[0], QQuickWindow)
+    controller.setPosition(300, 180); settle()
+    drag_area = wrapInstance(getCppPointer(controller.findChild(QObject, 'teleprompterFloatTitleDragArea'))[0], QQuickItem)
+    drag_center = drag_area.mapToScene(drag_area.boundingRect().center())
+    drag_point = QPoint(round(drag_center.x()), round(drag_center.y()))
+    original_position = controller.position()
+    original_size = controller.size()
+    QTest.mousePress(controller, Qt.LeftButton, Qt.NoModifier, drag_point)
+    QTest.mouseMove(controller, drag_point + QPoint(48, 30), 20)
+    QTest.mouseRelease(controller, Qt.LeftButton, Qt.NoModifier, drag_point)
+    settle()
+    displacement = controller.position() - original_position
+    check(abs(displacement.x() - 48) <= 2 and abs(displacement.y() - 30) <= 2,
+          'dragging the controller title moves its window')
+    check(controller.size() == original_size, 'dragging the controller title preserves its size')
     evaluate(tele,'floatWindow.close(); sidePanelVisible = false'); settle()
     check(not tele.property('sidePanelVisible'), 'reading area can hide settings')
     evaluate(tele,'sidePanelVisible = true; openReplicaEditor(["1"], "НАВИГАТОР", "Проверка редактора")'); settle()
@@ -172,8 +208,11 @@ try:
     tele.setProperty('headerHeight', original_header + 12)
     settle()
     check(evaluate(tele,'teleprompterHeader.height') == original_header + 12, 'timer header remains resizable')
+    check(evaluate(timer, 'fontInfo.pixelSize') == timer_font_size, 'resizing the header preserves the timer font size')
     tele.setProperty('headerHeight', original_header)
     tele.resize(760,520); settle()
+    check(reading_font_sizes(tele) == expected_font_sizes, 'reading fonts keep configured sizes in a small window')
+    check(evaluate(timer, 'fontInfo.pixelSize') == timer_font_size, 'resizing the window preserves the timer font size')
     check(in_bounds(tele,'teleprompterNextReplica') and in_bounds(tele,'teleprompterTimecode'), 'teleprompter controls fit minimum window size')
     tele.grabWindow().save(str(output/(prefix+'-teleprompter-small.png')))
     tele.close(); settle()

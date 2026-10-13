@@ -2101,14 +2101,12 @@ NativeDialogWindow {
                         width: Math.max(80, parent.width - anchors.leftMargin * 2
                             - (headerSyncStatus.visible ? headerSyncStatus.width + 16 : 0))
                         verticalAlignment: Text.AlignVCenter
-                        fontSizeMode: Text.Fit
-                        minimumPixelSize: 20
                         font.family: window.timecodeFontFamily
                         text: window.displayedTimecode(
                             window.teleprompter.timecode
                         )
                         color: window.colors.header_text
-                        font.pixelSize: Math.max(24, parent.height * 0.72)
+                        font.pixelSize: 62
                         font.bold: true
                     }
 
@@ -5056,17 +5054,18 @@ NativeDialogWindow {
                                     Layout.maximumWidth: replicaDelegate.scenario3MetadataWidth
                                     spacing: 3
                                     Text {
+                                        objectName: "teleprompterReplicaTimecode"
                                         visible: window.config.show_timecode
-                                        text: replicaDelegate.timeRangeText(false, true).replace(/\n/g, " ")
+                                        text: replicaDelegate.timeRangeText(false, true)
                                         font.family: window.metadataFontFamily
                                         Layout.fillWidth: true
-                                        fontSizeMode: Text.Fit
-                                        minimumPixelSize: Math.min(16, window.config.f_tc)
+                                        wrapMode: Text.Wrap
                                         color: replicaDelegate.active ? window.colors.tc : window.colors.inactive_text
                                         font.pixelSize: window.config.f_tc
                                         font.bold: window.config.bold_tc
                                     }
                                     Text {
+                                        objectName: "teleprompterReplicaCharacter"
                                         visible: window.config.show_character
                                         text: replicaDelegate.character
                                         color: replicaDelegate.colorActive ? replicaDelegate.actorColor : (replicaDelegate.active ? window.colors.active_text : window.colors.inactive_text)
@@ -5084,6 +5083,7 @@ NativeDialogWindow {
                                         }
                                     }
                                     Text {
+                                        objectName: "teleprompterReplicaActor"
                                         visible: window.config.show_actor
                                         text: replicaDelegate.actor
                                         color: replicaDelegate.active ? window.colors.actor : window.colors.inactive_text
@@ -5096,6 +5096,7 @@ NativeDialogWindow {
                                 }
                                 Text {
                                     id: scenario3ReplicaBody
+                                    objectName: "teleprompterReplicaText"
                                     visible: window.config.show_replica
                                     text: window.highlightedReplicaText(
                                         replicaDelegate.replicaText,
