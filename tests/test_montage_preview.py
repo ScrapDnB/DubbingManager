@@ -46,6 +46,20 @@ def test_preview_blur_only_submits_user_edits(app):
     assert 'oninput=\'this.dataset.edited = "true"\'' in html
 
 
+def test_preview_presentation_preserves_edit_targets_and_export_layout():
+    service = ExportService({'project_name': '<Проект>'})
+    rows = [{'s': 1.0, 'e': 2.0, 'char': 'Герой', 'text': 'Реплика',
+             'parts': [{'id': 'stable-id', 'text': 'Реплика', 'sep': ''}]}]
+    preview = service.generate_html('1', rows, {}, layout_type='Сценарий 3', preview=True)
+    exported = service.generate_html('1', rows, {}, layout_type='Сценарий 3')
+    assert "<main class='montage-preview-document'>" in preview
+    assert "id='stable-id'" in preview
+    assert '&lt;Проект&gt;' in preview
+    assert "<main class='montage-preview-document'>" not in exported
+    assert 'outline-offset: 3px' not in exported
+    assert "id='stable-id'" in exported
+
+
 def test_reaper_transport_and_time_do_not_refresh_montage(app, monkeypatch, tmp_path):
     monkeypatch.setattr(
         'services.global_settings_service.SETTINGS_FILE',

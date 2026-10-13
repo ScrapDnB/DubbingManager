@@ -19,6 +19,7 @@ from core.commands import (
     UpdateProjectNameCommand,
 )
 from application import ImportController
+from application.import_controller import SUBTITLE_IMPORT_UNAVAILABLE
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
 from utils.helpers import ordered_episode_names
@@ -48,6 +49,7 @@ class ProjectBridge(QObject):
     closeApproved = Signal()
     resetRequested = Signal()
     refreshRequested = Signal()
+    audiobookAvailabilityChanged = Signal()
 
     def __init__(
         self,
@@ -68,6 +70,7 @@ class ProjectBridge(QObject):
         self._global_settings = global_settings
         self._save_preparer: Optional[Callable[[], int]] = None
         self._pending_action: Optional[tuple[str, str]] = None
+        self._fresh_project = True
         self._episodes_model = DictListModel({
             "name": Qt.UserRole + 1,
             "subtitle": Qt.UserRole + 2,
@@ -90,6 +93,9 @@ class ProjectBridge(QObject):
         )
         self._session.dirtyChanged.connect(self.dirtyChanged)
         self._session.undoStateChanged.connect(self.undoStateChanged)
+        self._session.domainChanged.connect(self.audiobookAvailabilityChanged)
+        self._session.projectReplaced.connect(self.audiobookAvailabilityChanged)
+        self.pathChanged.connect(self.audiobookAvailabilityChanged)
         self.refresh_models()
         self._refresh_recent_projects()
         self._autosave_timer = QTimer(self)
@@ -116,6 +122,14 @@ class ProjectBridge(QObject):
     @Property(str, notify=pathChanged)
     def path(self) -> str:
         return self._session.project_service.current_project_path or ""
+
+    @Property(bool, notify=audiobookAvailabilityChanged)
+    def canOpenAudiobook(self) -> bool:
+        return self._session.data.get("project_kind") == "audiobook" or (
+            self._fresh_project
+            and not self.path
+            and not self._session.data.get("episodes")
+        )
 
     @Property(str, notify=currentEpisodeChanged)
     def currentEpisode(self) -> str:
@@ -178,6 +192,8 @@ class ProjectBridge(QObject):
         if not path:
             return
         materialized = self._prepare_for_save()
+        if materialized < 0:
+            return
         if self._session.project_service.save_project_as(
             self._session.data,
             path,
@@ -317,6 +333,11 @@ class ProjectBridge(QObject):
 
     @Slot(str)
     def importSubtitle(self, path_or_url: str) -> None:
+        if self._session.data.get("project_kind") == "audiobook":
+            self.errorRequested.emit(SUBTITLE_IMPORT_UNAVAILABLE)
+            return
+        if not self._flush_pending_edits():
+            return
         path = _display_path(path_or_url)
         if not path:
             return
@@ -361,11 +382,15 @@ class ProjectBridge(QObject):
         episode = str(episode or "")
         if episode == self._session.current_episode:
             return
+        if episode not in self._session.data.get("episodes", {}) or not self._flush_pending_edits():
+            return
         self._session.current_episode = episode
         self.refreshRequested.emit()
 
     @Slot(str)
     def renameCurrentEpisode(self, new_name: str) -> None:
+        if not self._flush_pending_edits():
+            return
         old_name = self._session.current_episode
         new_name = (new_name or "").strip()
         if not old_name:
@@ -435,6 +460,8 @@ class ProjectBridge(QObject):
 
     @Slot(list)
     def deleteEpisodes(self, episodes: list) -> None:
+        if not self._flush_pending_edits():
+            return
         episode_names = list(dict.fromkeys(
             str(episode) for episode in episodes if str(episode)
         ))
@@ -503,7 +530,8 @@ class ProjectBridge(QObject):
 
     @Slot()
     def undo(self) -> None:
-        self._session.pendingEditsRequested.emit()
+        if not self._flush_pending_edits():
+            return
         if not self._session.undo_stack.undo():
             return
         self._session.mark_dirty()
@@ -515,7 +543,8 @@ class ProjectBridge(QObject):
 
     @Slot()
     def redo(self) -> None:
-        self._session.pendingEditsRequested.emit()
+        if not self._flush_pending_edits():
+            return
         if not self._session.undo_stack.redo():
             return
         self._session.mark_dirty()
@@ -555,6 +584,7 @@ class ProjectBridge(QObject):
             self._session.current_episode = str(rows[0]["name"]) if rows else ""
         elif not current and rows:
             self._session.current_episode = str(rows[0]["name"])
+        self.audiobookAvailabilityChanged.emit()
 
     def _create_now(self) -> None:
         service = self._session.project_service
@@ -565,6 +595,7 @@ class ProjectBridge(QObject):
         })
         service.current_project_path = None
         service.is_dirty = False
+        self._fresh_project = True
         self._session.undo_stack.clear()
         self._session.replace_project(data, "")
         self.resetRequested.emit()
@@ -590,6 +621,7 @@ class ProjectBridge(QObject):
             data, path
         )
         self._session.undo_stack.clear()
+        self._fresh_project = False
         self._session.replace_project(data, self._first_episode(data))
         self.resetRequested.emit()
         self._emit_project_changed()
@@ -635,6 +667,8 @@ class ProjectBridge(QObject):
 
     def _save_now(self) -> bool:
         materialized = self._prepare_for_save()
+        if materialized < 0:
+            return False
         if self._session.project_service.save_project(self._session.data):
             self.statusRequested.emit(
                 self._save_status("Проект сохранён", materialized)
@@ -649,8 +683,15 @@ class ProjectBridge(QObject):
         """Set the project-files migration run immediately before saves."""
         self._save_preparer = preparer
 
+    def set_pending_edit_guard(self, guard: Callable[[], bool]) -> None:
+        self._session.set_pending_edit_guard(guard)
+
+    def _flush_pending_edits(self) -> bool:
+        return self._session.flush_pending_edits()
+
     def _prepare_for_save(self) -> int:
-        self._session.pendingEditsRequested.emit()
+        if not self._flush_pending_edits():
+            return -1
         if self._save_preparer is None:
             return 0
         materialized = self._save_preparer()
@@ -738,7 +779,8 @@ class ProjectBridge(QObject):
         return rows
 
     def _defer_for_unsaved_changes(self, action: str, payload: str) -> bool:
-        self._session.pendingEditsRequested.emit()
+        if not self._flush_pending_edits():
+            return True
         if not self._session.project_service.is_dirty:
             return False
         self._pending_action = (action, payload)

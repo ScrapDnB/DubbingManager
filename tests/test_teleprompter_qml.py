@@ -28,7 +28,9 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert 'text: qsTr("Обычный")' in source
     assert 'text: qsTr("Постраничный")' in source
     assert "id: scrollModeSelector" in source
-    assert "systemPalette.button" in source
+    assert 'objectName: "teleprompterContinuousMode"' in source
+    assert 'objectName: "teleprompterPageMode"' in source
+    assert 'ButtonGroup.group: scrollModeGroup' in source
     assert 'Accessible.name: qsTr("Постраничный режим прокрутки")' in source
     assert 'text: qsTr("Подсвечивать каждую реплику")' in source
     assert 'visible: scrollModeSelector.pageSelected' in source
@@ -39,9 +41,9 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "lastTimecodeHighlightIndex === index" in source
     assert "longReplicaTargetY(targetIndex, pageScrollMode)" in source
     assert "replicaView.highlightCurrentReplicaAtTimecode(" in source
-    assert 'text: qsTr("Смещение REAPER")' in source
+    assert 'text: qsTr("Смещение времени")' in source
     assert '"reaper_offset_enabled", checked' in source
-    assert '"reaper_offset_seconds", value / 10' in source
+    assert '"nuendo_offset_seconds" : "reaper_offset_seconds", value / 10' in source
     assert "followCurrentReplicaByPage" in source
     assert "ListView.NoHighlightRange" in source
     assert "pageScrollAnimation" in source
@@ -51,7 +53,7 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "window.behavior.scrollDurationMaxMs" in source
     assert "pausePageFollowAtVisibleBoundary" in source
     assert "function resumePageFollowForReaperPosition()" in source
-    assert "Ручная пауза отменена: seek REAPER" in source
+    assert "Ручная пауза отменена: seek DAW" in source
     assert "forceLayout();" in source
     assert "function queuePageFollow()" in source
     assert "function queueContinuousFollow()" in source
@@ -80,7 +82,7 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "function ensureReplicaItem(index)" in source
     assert "function replicaInsideCurrentPage(index)" in source
     assert "if (!replicaInsideCurrentPage(currentIndex))" in source
-    assert '"Seek REAPER внутри текущей страницы"' in source
+    assert '"Seek DAW внутри текущей страницы"' in source
     assert "var sourceY = clampedContentY(contentY);" in source
     assert "function longReplicaTargetY(index, pageMode)" in source
     assert "function pageFragmentStep()" in source
@@ -127,8 +129,8 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert '"scroll_retarget_prevented"' in source
     assert "function deferReaperFollowDuringPageTurn()" in source
     assert "function finishDeferredReaperPageFollow()" in source
-    assert '"Seek REAPER отложен до конца перелистывания"' in source
-    assert '"Перелистывание завершено перед seek REAPER"' in source
+    assert '"Seek DAW отложен до конца перелистывания"' in source
+    assert '"Перелистывание завершено перед seek DAW"' in source
     assert "animateDeferredReaperPageFollow =" in source
     assert "if (!animateDeferredSeek)" in source
     assert "timeDelta >= Math.max(0.5, elapsed * 4)" in source
@@ -227,23 +229,23 @@ def test_teleprompter_has_a_page_scroll_mode():
     assert "pausePageFollowAtVisibleBoundary();" in source
     assert "longReplicaScrollAnimation.stop();" in source
     assert "function capturePageDebug(" in source
-    assert 'text: qsTr("Mock REAPER")' in source
+    assert 'text: qsTr("Mock DAW")' in source
     assert "debugSetSimulationActive" in source
     assert "debugSetReaperTime" in source
     assert "debugSimulationSpeed" in source
     assert "pageDebugTrace" in source
     assert "pageDebugRenderedHeight" in source
-    assert 'toolTipText: qsTr("Переподключить REAPER")' in source
-    assert "window.teleprompter.restartOsc()" in source
+    assert 'toolTipText: qsTr("Переподключить %1")' in source
+    assert "window.teleprompter.restartSync()" in source
     assert "pageDebugButton" not in source
     assert "readonly property bool pageDebugVisible" in source
     assert "visible: window.pageDebugVisible" in source
     assert "Следовать только во время Play" in source
     assert '"sync_play_only", checked' in source
-    assert 'text: qsTr("Смещение REAPER")' in source
-    assert '"reaper_offset_seconds", value / 10' in source
+    assert 'text: qsTr("Смещение времени")' in source
+    assert '"nuendo_offset_seconds" : "reaper_offset_seconds", value / 10' in source
 
-    osc_settings = (ROOT / "qml" / "components" / "ReaperOscSettingsPane.qml").read_text(
+    osc_settings = (ROOT / "qml" / "components" / "DawSyncSettingsPane.qml").read_text(
         encoding="utf-8"
     )
     assert "Следовать только во время Play" not in osc_settings
@@ -468,7 +470,7 @@ def test_teleprompter_has_delayed_follow_and_optional_deadline_catch_up():
     ).read_text(encoding="utf-8")
 
     delay_index = source.index('text: qsTr("Задержка перелистывания")')
-    offset_index = source.index('text: qsTr("Смещение REAPER")')
+    offset_index = source.index('text: qsTr("Смещение времени")')
     assert delay_index < offset_index
     assert '"scroll_delay_seconds", value / 10' in source
     assert "id: scrollDelayTimer" in source

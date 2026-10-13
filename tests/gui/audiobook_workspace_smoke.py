@@ -226,6 +226,9 @@ def recording():
 
 def capture_recording():
     from PySide6.QtTest import QTest
+    reader.raise_()
+    reader.requestActivate()
+    ensure(QTest.qWaitForWindowActive(reader, 1500), 'Teleprompter receives keyboard focus')
     QTest.keyClick(reader, Qt.Key.Key_F8)
     QTimer.singleShot(200, finish)
 

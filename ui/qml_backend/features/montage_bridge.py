@@ -527,6 +527,7 @@ class MontageBridge(QObject):
                 config.get("highlight_ids_export"),
                 layout_type=config.get("layout_type", "Таблица"),
                 is_editable=bool(config.get("allow_edit", True)),
+                preview=True,
             )
             if processed
             else self._empty_html("Для серии нет рабочего текста")

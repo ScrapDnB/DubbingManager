@@ -21,10 +21,13 @@ def resolve_role_actor(
         for episode in episodes
         for actor_id in get_actor_ids_for_character(project_data, role, episode)
     }
-    if not actor_ids:
+    if not episodes:
         actor_ids.update(get_actor_ids_for_character(project_data, role))
 
-    actor_id = next(iter(actor_ids)) if len(actor_ids) == 1 else ROLE_MIXED_ACTOR
+    actor_id = (
+        next(iter(actor_ids)) if len(actor_ids) == 1
+        else ROLE_MIXED_ACTOR if actor_ids else ""
+    )
     actors = project_data.get("actors", {})
     if actor_id == ROLE_MIXED_ACTOR:
         actor_name = " / ".join(

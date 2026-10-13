@@ -26,6 +26,8 @@ from services import ExportService, get_actor_ids_for_character
 from services.episode_service import EpisodeService
 from services.global_settings_service import GlobalSettingsService
 from services.osc_worker import OSC_AVAILABLE, OscWorker
+from services.midi_sync_worker import MIDI_AVAILABLE, MidiSyncWorker, midi_ports
+from services.midi_timecode_service import FRAME_RATES, timecode_origin_seconds
 from services.script_text_service import ScriptTextService
 from services.teleprompter_navigation_service import TeleprompterNavigationService
 from services.teleprompter_diagnostic_service import (
@@ -98,16 +100,19 @@ class TeleprompterBridge(QObject):
         self._current_index = -1
         self._start_times: List[float] = []
         self._position_origin = "internal"
-        self._osc_status = "OSC выключен"
+        self._osc_status = "Синхронизация выключена"
         self._osc_worker: Optional[OscWorker] = None
         self._osc_client = None
+        self._midi_worker: Optional[MidiSyncWorker] = None
+        self._midi_ready = False
+        self._midi_ports = {"inputs": [], "outputs": [], "error": ""}
         self._last_osc_activity: Optional[float] = None
         self._last_reaper_time: Optional[float] = None
         self._reaper_playing = False
         self._last_diagnostic_osc_sample = 0.0
         self._debug_simulation_active = False
         self._pending_reaper_time: Optional[tuple[float, float]] = None
-        self._osc_runtime_config: Optional[tuple[int, int]] = None
+        self._osc_runtime_config: Optional[tuple] = None
         self._reaper_connection_state = "disabled"
         self._osc_activity_timer = QTimer(self)
         self._osc_activity_timer.setInterval(
@@ -197,6 +202,16 @@ class TeleprompterBridge(QObject):
 
     @Property(str, notify=oscChanged)
     def reaperConnectionText(self) -> str:
+        if self.config.get("sync_daw") == "nuendo":
+            labels = {
+                "active": "Nuendo: MIDI активен",
+                "waiting": "Nuendo: ожидание таймкода",
+                "lost": "Nuendo: сигнал потерян",
+                "error": "Nuendo: ошибка MIDI",
+                "unavailable": "Nuendo: MIDI недоступен",
+                "disabled": "Nuendo: синхронизация выключена",
+            }
+            return labels[self._reaper_connection_state]
         labels = {
             "active": "REAPER: синхронизация активна",
             "waiting": "REAPER: ожидание сигнала",
@@ -210,6 +225,51 @@ class TeleprompterBridge(QObject):
     @Property(bool, constant=True)
     def oscAvailable(self) -> bool:
         return OSC_AVAILABLE
+
+    @Property(str, notify=configChanged)
+    def dawName(self) -> str:
+        return "Nuendo" if self.config.get("sync_daw") == "nuendo" else "REAPER"
+
+    @Property(bool, notify=configChanged)
+    def syncAvailable(self) -> bool:
+        return MIDI_AVAILABLE if self.config.get("sync_daw") == "nuendo" else OSC_AVAILABLE
+
+    @Property(bool, constant=True)
+    def midiAvailable(self) -> bool:
+        return MIDI_AVAILABLE
+
+    @Property(bool, constant=True)
+    def midiSupportsVirtual(self) -> bool:
+        return sys.platform != "win32"
+
+    @Property("QVariantMap", notify=oscChanged)
+    def midiPorts(self) -> dict:
+        return deepcopy(self._midi_ports)
+
+    @Property(str, notify=oscChanged)
+    def syncConnectionState(self) -> str:
+        return self._reaper_connection_state
+
+    @Property(str, notify=oscChanged)
+    def syncConnectionText(self) -> str:
+        return self.reaperConnectionText
+
+    @Property(str, notify=oscChanged)
+    def syncStatus(self) -> str:
+        return self._osc_status
+
+    @Property(bool, notify=oscChanged)
+    def dawPlaying(self) -> bool:
+        return self._reaper_playing
+
+    @Slot()
+    def refreshMidiPorts(self) -> None:
+        self._midi_ports = midi_ports()
+        self.oscChanged.emit()
+
+    @Slot()
+    def restartSync(self) -> None:
+        self.restartOsc()
 
     @Property(bool, notify=diagnosticChanged)
     def diagnosticRecording(self) -> bool:
@@ -507,9 +567,7 @@ class TeleprompterBridge(QObject):
             self._global_settings_service.settings = previous
             self.errorRequested.emit(error_message)
             return False
-        self.configChanged.emit()
-        if self._episode:
-            self.refresh()
+        self.notify_global_config_changed()
         return True
 
     def _set_global_layout_value(self, key: str, value: Any) -> None:
@@ -614,31 +672,41 @@ class TeleprompterBridge(QObject):
             send_sync
             and config.get("osc_enabled")
             and config.get("sync_out")
-            and self._osc_client
+            and (self._osc_client or (self._midi_worker and self._midi_ready))
         ):
             return
         send_time = self._reaper_time(self._time, config)
         try:
-            self._osc_client.send_message("/time", send_time)
-            self._osc_client.send_message("/track/0/pos", send_time)
+            if config.get("sync_daw") == "nuendo":
+                self._midi_worker.send_locate(
+                    send_time + timecode_origin_seconds(
+                        config["midi_timecode_origin_seconds"], config["midi_frame_rate"]
+                    )
+                )
+            else:
+                self._osc_client.send_message("/time", send_time)
+                self._osc_client.send_message("/track/0/pos", send_time)
             self._pending_reaper_time = (
                 send_time,
                 monotonic() + LOCAL_REAPER_SETTLE_SECONDS,
             )
         except Exception as exc:
-            self._osc_status = f"Ошибка отправки OSC: {exc}"
+            protocol = "MIDI" if config.get("sync_daw") == "nuendo" else "OSC"
+            self._osc_status = f"Ошибка отправки {protocol}: {exc}"
             self.oscChanged.emit()
 
     @staticmethod
     def _uses_reaper_output_offset(config: Dict[str, Any]) -> bool:
+        offset_key = "nuendo_offset_enabled" if config.get("sync_daw") == "nuendo" else "reaper_offset_enabled"
         return bool(
-            config.get("reaper_offset_enabled") and config.get("sync_out")
+            config.get(offset_key) and config.get("sync_out")
         )
 
     def _reaper_time(self, seconds: float, config: Dict[str, Any]) -> float:
         if not self._uses_reaper_output_offset(config):
             return seconds
-        return seconds + float(config.get("reaper_offset_seconds", -2.0))
+        offset_key = "nuendo_offset_seconds" if config.get("sync_daw") == "nuendo" else "reaper_offset_seconds"
+        return seconds + float(config.get(offset_key, -2.0))
 
     def _navigate(
         self,
@@ -674,10 +742,14 @@ class TeleprompterBridge(QObject):
             self._pending_reaper_time = None
         return False
 
-    def _osc_config_signature(self) -> Optional[tuple[int, int]]:
+    def _osc_config_signature(self) -> Optional[tuple]:
         config = self.config
         if not config.get("osc_enabled"):
             return None
+        if config.get("sync_daw") == "nuendo":
+            return ("nuendo", config["midi_input_port"], config["midi_output_port"],
+                    config["midi_frame_rate"], config["midi_device_id"],
+                    config["midi_timecode_origin_seconds"], bool(config["sync_out"]))
         return int(config["port_in"]), int(config["port_out"])
 
     @Slot("QVariantList", str, str, result=bool)
@@ -853,7 +925,7 @@ class TeleprompterBridge(QObject):
         self.refresh()
         signature = self._osc_config_signature()
         if signature is None:
-            if self._osc_worker is not None or self._osc_client is not None:
+            if self._osc_worker is not None or self._osc_client is not None or self._midi_worker is not None:
                 self._stop_osc()
         elif signature != self._osc_runtime_config:
             self._start_osc()
@@ -1144,7 +1216,7 @@ class TeleprompterBridge(QObject):
             "show_end_timecode",
             "show_character", "show_actor", "show_replica",
             "show_block_borders", "hide_leading_timecode_zeros", "osc_enabled",
-            "sync_in", "sync_out", "sync_play_only", "reaper_offset_enabled",
+            "sync_in", "sync_out", "sync_play_only", "reaper_offset_enabled", "nuendo_offset_enabled",
             "page_scroll_mode",
             "scroll_deadline_enabled",
             "page_debug_overlay", "page_target_highlight_enabled",
@@ -1172,6 +1244,12 @@ class TeleprompterBridge(QObject):
             color = str(value or "").strip()
             return color if color else None
         if key in {"key_prev", "key_next"}:
+            return str(value or "")
+        if key == "sync_daw":
+            return value if value in ("reaper", "nuendo") else None
+        if key == "midi_frame_rate":
+            return value if value in FRAME_RATES else None
+        if key in {"midi_input_port", "midi_output_port"}:
             return str(value or "")
         return None
 
@@ -1281,8 +1359,70 @@ class TeleprompterBridge(QObject):
                 return (1, str(value).lower())
         return str(sorted(episodes, key=sort_key)[0])
 
+    def _start_midi(self) -> None:
+        config = self.config
+        if not MIDI_AVAILABLE:
+            self._osc_status = "MIDI недоступен: установите python-rtmidi"
+        else:
+            worker = MidiSyncWorker(
+                config["midi_input_port"], config["midi_output_port"],
+                config["midi_frame_rate"], int(config["midi_device_id"]),
+                bool(config["sync_out"]), self,
+            )
+            worker.ready.connect(self._on_midi_ready)
+            worker.time_changed.connect(self._on_midi_time)
+            worker.transport_playing_changed.connect(self._on_midi_transport)
+            worker.error_occurred.connect(self._on_midi_error)
+            self._midi_worker = worker
+            self._osc_runtime_config = self._osc_config_signature()
+            self._osc_status = "MIDI: открытие портов"
+            worker.start()
+        self._refresh_reaper_connection_state()
+        self.oscChanged.emit()
+
+    @Slot(object)
+    def _on_midi_ready(self, worker: object) -> None:
+        if worker is not self._midi_worker:
+            return
+        self._midi_ready = True
+        self._osc_status = "MIDI: порты открыты, ожидание MTC"
+        self._refresh_reaper_connection_state()
+        self.oscChanged.emit()
+
+    @Slot(object, float)
+    def _on_midi_time(self, worker: object, seconds: float) -> None:
+        if worker is not self._midi_worker or self.config["sync_daw"] != "nuendo":
+            return
+        origin = timecode_origin_seconds(
+            self.config["midi_timecode_origin_seconds"], self.config["midi_frame_rate"]
+        )
+        self._on_daw_time(max(0.0, seconds - origin))
+
+    @Slot(object, bool)
+    def _on_midi_transport(self, worker: object, playing: bool) -> None:
+        if worker is not self._midi_worker or self.config["sync_daw"] != "nuendo":
+            return
+        self._on_daw_transport(playing)
+
+    @Slot(object, str)
+    def _on_midi_error(self, worker: object, message: str) -> None:
+        if worker is not self._midi_worker:
+            return
+        self._midi_ready = False
+        self._last_osc_activity = None
+        self._last_reaper_time = None
+        self._reaper_playing = False
+        self._pending_reaper_time = None
+        self._osc_runtime_config = None
+        self._osc_status = f"Ошибка MIDI: {message}"
+        self._refresh_reaper_connection_state()
+        self.oscChanged.emit()
+
     def _start_osc(self) -> None:
         self._stop_osc()
+        if self.config.get("sync_daw") == "nuendo":
+            self._start_midi()
+            return
         self._last_osc_activity = None
         self._last_reaper_time = None
         self._reaper_playing = False
@@ -1320,6 +1460,14 @@ class TeleprompterBridge(QObject):
 
     def _stop_osc(self) -> None:
         self._osc_activity_timer.stop()
+        if self._midi_worker is not None:
+            worker = self._midi_worker
+            # Invalidate first: already queued packets from the previous DAW
+            # must never move the reader after switching or closing the window.
+            self._midi_worker = None
+            worker.stop()
+            worker.deleteLater()
+        self._midi_ready = False
         if self._osc_worker is not None:
             self._osc_worker.stop()
             self._osc_worker.deleteLater()
@@ -1330,13 +1478,24 @@ class TeleprompterBridge(QObject):
         self._reaper_playing = False
         self._pending_reaper_time = None
         self._osc_runtime_config = None
-        self._osc_status = "OSC выключен"
+        self._osc_status = "Синхронизация выключена"
         self._refresh_reaper_connection_state()
         self.oscChanged.emit()
 
     def _refresh_reaper_connection_state(self) -> None:
         if not self.config.get("osc_enabled"):
             state = "disabled"
+        elif self.config.get("sync_daw") == "nuendo":
+            if not MIDI_AVAILABLE:
+                state = "unavailable"
+            elif self._osc_status.startswith("Ошибка MIDI:"):
+                state = "error"
+            elif self._midi_ready and self._last_osc_activity is not None:
+                # MTC intentionally stops in Stop mode. Silence alone cannot
+                # distinguish paused Nuendo from a disconnected timecode source.
+                state = "active"
+            else:
+                state = "waiting"
         elif self._osc_status.startswith("Ошибка OSC:"):
             state = "error"
         elif self._osc_worker is None:
@@ -1375,6 +1534,14 @@ class TeleprompterBridge(QObject):
 
     @Slot(float)
     def _on_osc_time(self, seconds: float) -> None:
+        # Reaper's queued packets can arrive after its socket was stopped.
+        sender = self.sender()
+        if (self.config.get("sync_daw") != "reaper"
+                or (sender is not None and sender is not self._osc_worker)):
+            return
+        self._on_daw_time(seconds)
+
+    def _on_daw_time(self, seconds: float) -> None:
         previous_reaper_time = self._last_reaper_time
         self._last_reaper_time = float(seconds)
         self._mark_osc_activity()
@@ -1390,6 +1557,7 @@ class TeleprompterBridge(QObject):
             self._last_diagnostic_osc_sample = sampled_at
             self._diagnostics.record("osc_time", {
                 "reaper_time": float(seconds),
+                "daw": self.config["sync_daw"],
                 "playing": self._reaper_playing,
                 "follow_enabled": self._should_follow_reaper_time(self.config),
                 "discontinuity": discontinuity,
@@ -1417,10 +1585,19 @@ class TeleprompterBridge(QObject):
 
     @Slot(bool)
     def _on_osc_transport(self, playing: bool) -> None:
+        sender = self.sender()
+        if (self.config.get("sync_daw") != "reaper"
+                or (sender is not None and sender is not self._osc_worker)):
+            return
+        self._on_daw_transport(playing)
+
+    def _on_daw_transport(self, playing: bool) -> None:
         if self._debug_simulation_active:
             return
         playing = bool(playing)
-        self._diagnostics.record("osc_transport", {"playing": playing})
+        self._diagnostics.record("osc_transport", {
+            "playing": playing, "daw": self.config["sync_daw"],
+        })
         if self._reaper_playing != playing:
             self._reaper_playing = playing
             self.oscChanged.emit()
@@ -1428,6 +1605,7 @@ class TeleprompterBridge(QObject):
         if (
             self._reaper_playing
             and self.config.get("sync_play_only")
+            and self.config.get("sync_in")
             and self._last_reaper_time is not None
         ):
             self._apply_reaper_time(self._last_reaper_time)

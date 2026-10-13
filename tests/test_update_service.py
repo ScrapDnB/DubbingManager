@@ -149,6 +149,8 @@ def test_install_source_update_runs_git_pull_when_clean(tmp_path):
     assert output == "Already up to date."
     assert run.call_args_list[0].args[0] == ["git", "status", "--porcelain"]
     assert run.call_args_list[1].args[0] == ["git", "pull", "--ff-only"]
+    assert run.call_args_list[0].kwargs["timeout"] == 8.0
+    assert run.call_args_list[1].kwargs["timeout"] == 60.0
 
 
 def test_create_macos_update_script_contains_expected_paths(tmp_path):

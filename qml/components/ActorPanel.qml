@@ -4,6 +4,7 @@ import QtQuick.Layouts
 
 Item {
     id: panel
+    clip: true
 
     required property var appBridge
     readonly property var castingBackend: appBridge ? appBridge.casting : null
@@ -45,7 +46,8 @@ Item {
         panel.actorMarkerSize === 2 ? 24 : 16,
         panelFontMetrics.height + 2
     )
-    readonly property int genderColumnWidth: Math.max(
+    readonly property bool showGenderColumn: width >= 360
+    readonly property int genderColumnWidth: !showGenderColumn ? 0 : Math.max(
         42, Math.ceil(genderHeaderMetrics.width + tablePadding)
     )
     readonly property int trailingColumnWidth: Math.max(
@@ -838,6 +840,7 @@ Item {
                     Accessible.name: qsTr("Сортировать актёров по имени")
                 }
                 TableHeaderButton {
+                    visible: panel.showGenderColumn
                     x: panel.genderColumnX
                     width: panel.genderColumnWidth
                     height: parent.height
@@ -949,6 +952,7 @@ Item {
                     }
 
                     Label {
+                        visible: panel.showGenderColumn
                         x: panel.genderColumnX
                         width: panel.genderColumnWidth
                         height: parent.height
@@ -1051,7 +1055,7 @@ Item {
             }
         }
 
-        RowLayout {
+        Flow {
             Layout.fillWidth: true
             spacing: 8
             AdaptiveButton {

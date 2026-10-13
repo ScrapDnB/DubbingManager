@@ -5,7 +5,6 @@ from html import escape
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.assignment_service import (
-    get_actor_for_character,
     get_actor_ids_for_character,
 )
 from services.layout_template_service import normalize_layout_template
@@ -117,16 +116,26 @@ class ExportLayoutMixin:
         cfg: Dict[str, Any],
         highlight_ids: Optional[List[str]] = None,
         layout_type: str = "Таблица",
-        is_editable: bool = True
+        is_editable: bool = True,
+        *,
+        preview: bool = False,
     ) -> str:
         """Generate HTML export content."""
         layout_type = self._normalize_layout_type(layout_type)
         js = self._get_js_for_mode(is_editable)
         html = self._get_html_header(js, cfg)
+        if preview:
+            html += self._get_preview_style() + "<main class='montage-preview-document'>"
 
         project_name = escape(str(self.project_data.get('project_name', 'Project')))
         ep_label = escape(str(ep))
-        html += f"<h1>{project_name} - Серия {ep_label}</h1>"
+        if preview:
+            html += (
+                f"<header class='montage-preview-heading'><h1>{project_name}</h1>"
+                f"<p>Серия {ep_label}</p></header>"
+            )
+        else:
+            html += f"<h1>{project_name} - Серия {ep_label}</h1>"
 
         actors = self.project_data.get("actors", {})
         all_actor_ids = set(actors.keys())
@@ -211,7 +220,40 @@ class ExportLayoutMixin:
                     h_class, cfg
                 )
 
-        return html + "</body></html>"
+        return html + ("</main>" if preview else "") + "</body></html>"
+
+    @staticmethod
+    def _get_preview_style() -> str:
+        """Style the editor canvas without changing exported document layouts."""
+        return """<style>
+        html { background: #e9eaec; }
+        body { margin: 0; padding: 24px; background: transparent; }
+        .montage-preview-document {
+            box-sizing: border-box; width: 100%; max-width: 1400px;
+            margin: 0 auto; padding: clamp(20px, 4vw, 48px);
+            background: white; border: 1px solid #d5d8dc;
+        }
+        .montage-preview-heading { margin-bottom: 24px; border-bottom: 1px solid #dfe2e6; }
+        .montage-preview-heading h1 { font-size: 28px; margin: 0 0 6px; }
+        .montage-preview-heading p { font-size: 20px; color: #68717d; margin: 0 0 24px; }
+        .montage-preview-document table { border: 0; }
+        .montage-preview-document td, .montage-preview-document th {
+            border: 0; border-bottom: 1px solid #dfe2e6; padding: 14px 16px;
+        }
+        .montage-preview-document th { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+        .montage-preview-document .script3-meta-cell { border-right: 1px solid #e5e7eb; }
+        .montage-preview-document .script3-actor { font-style: normal; margin-top: 5px; }
+        .montage-preview-document .line-container { border-left-width: 3px; }
+        .montage-preview-document .script2-container { border: 0; border-bottom: 1px solid #dfe2e6; }
+        .montage-preview-document [contenteditable=true]:focus { outline: 2px solid #0067c0; outline-offset: 3px; }
+        @media (max-width: 600px) {
+            body { padding: 12px; }
+            .montage-preview-document { padding: 16px; }
+            .montage-preview-document td, .montage-preview-document th { padding: 10px 8px; }
+            .montage-preview-document .script3-meta-col { width: 32%; }
+            .montage-preview-document .script3-text-col { width: 68%; }
+        }
+        </style>"""
 
     def _build_custom_layout_row(
         self,
@@ -1211,7 +1253,6 @@ class ExportLayoutMixin:
         cfg: Dict[str, Any]
     ) -> None:
         """Create a DOCX table for one episode."""
-        actors = self.project_data.get('actors', {})
         use_color = cfg.get('use_color', True)
         soften_colors = cfg.get('soften_colors', True)
         effective_filter = self._get_effective_highlight_filter(cfg)
@@ -1281,16 +1322,11 @@ class ExportLayoutMixin:
         for line in processed:
             row_cells = table.add_row().cells
             char_name = line.get('char', '')
-            actor_id = get_actor_for_character(
-                self.project_data, char_name, ep_num
+            actor_id, actor, is_highlighted = self._actor_display_context(
+                char_name, ep_num, effective_filter
             )
-            actor = actors.get(actor_id, {}) if actor_id else {}
             actor_name = actor.get('name', '-') if actor else '-'
 
-            is_highlighted = (
-                effective_filter is None or
-                actor_id in effective_filter
-            )
             fill_color = None
             if use_color and actor_id and is_highlighted:
                 actor_color = actor.get('color', '#FFFFFF')
@@ -1355,14 +1391,10 @@ class ExportLayoutMixin:
         cfg: Dict[str, Any]
     ) -> Tuple[str, Dict[str, Any], bool, Optional[str], Optional[str]]:
         """Return actor context and colors for one DOCX line."""
-        actors = self.project_data.get('actors', {})
         effective_filter = self._get_effective_highlight_filter(cfg)
         char_name = line.get('char', '')
-        actor_id = get_actor_for_character(self.project_data, char_name, ep_num)
-        actor = actors.get(actor_id, {}) if actor_id else {}
-        is_highlighted = (
-            effective_filter is None or
-            actor_id in effective_filter
+        actor_id, actor, is_highlighted = self._actor_display_context(
+            char_name, ep_num, effective_filter
         )
         fill_color = None
         if cfg.get('use_color', True) and actor_id and is_highlighted:

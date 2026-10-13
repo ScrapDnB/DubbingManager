@@ -153,7 +153,7 @@ NativeDialogWindow {
         title: qsTr("Выберите исходный файл серии")
         currentFolder: dialog.appBridge.uiState.folderUrl("sourceFiles")
         onVisibleChanged: if (visible) currentFolder = dialog.appBridge.uiState.folderUrl("sourceFiles")
-        nameFilters: ["Тексты серий (*.ass *.srt *.docx)", "Все файлы (*)"]
+        nameFilters: ["Тексты серий (*.ass *.srt *.docx *.xls *.xlsx *.csv)", "Все файлы (*)"]
         onAccepted: {
             dialog.appBridge.uiState.rememberFile("sourceFiles", selectedFile.toString())
             dialog.projectFilesBackend.relink(

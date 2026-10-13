@@ -12,6 +12,9 @@ ApplicationWindow {
     property var macOSIntegration: null
     readonly property var projectBackend: appBridge.project
     readonly property var uiState: appBridge.uiState
+    readonly property var workspaceBackend: appBridge.workspace
+    readonly property bool inlineEpisodes: width >= 1080
+    readonly property bool inlineInspector: width >= 1280
 
     width: uiState.intValue("main.width", 1350)
     height: uiState.intValue("main.height", 850)
@@ -81,6 +84,10 @@ ApplicationWindow {
     property bool quickConverterVisible: uiState.boolValue(
         "main.quickConverterVisible", true
     )
+    readonly property bool converterShown: (inlineInspector && workspaceBackend.workflow === 0)
+        ? quickConverterVisible : converterWindow.visible
+    onConverterShownChanged: if (macOSIntegration)
+        macOSIntegration.setQuickConverterVisible(converterShown)
     readonly property bool shouldShowInterfaceOnboarding:
         uiState.intValue("onboarding.interfaceVersion", 0) < 1
         && !uiState.hasValue("main.width")
@@ -88,8 +95,31 @@ ApplicationWindow {
     function setQuickConverterVisible(visible, syncNative) {
         quickConverterVisible = visible
         uiState.setBoolValue("main.quickConverterVisible", visible)
-        if (syncNative && macOSStyle)
-            macOSIntegration.setQuickConverterVisible(visible)
+        if (!inlineInspector || workspaceBackend.workflow === 1) {
+            if (visible)
+                converterWindow.open()
+            else
+                converterWindow.close()
+        }
+        if (syncNative && macOSIntegration)
+            macOSIntegration.setQuickConverterVisible(converterShown)
+    }
+
+    function setWorkflow(index) {
+        workspaceBackend.setWorkflow(index)
+        if (macOSIntegration)
+            macOSIntegration.setWorkspace(workspaceBackend.workflow)
+    }
+
+    function openText(character) {
+        workspaceBackend.openCharacter(character)
+    }
+
+    function toggleInspector() {
+        if (inspectorDrawer.visible)
+            inspectorDrawer.close()
+        else
+            inspectorDrawer.open()
     }
 
     function jsonArray(value, fallback) {
@@ -131,9 +161,9 @@ ApplicationWindow {
                     ))
             )
         }
-        if (actorPanel.width > 0)
+        if (actorPanel.visible && actorPanel.width > 0)
             uiState.setIntValue("main.actorPanelWidth", actorPanel.width)
-        if (toolsSidebar.width > 0)
+        if (toolsSidebar.visible && toolsSidebar.width > 0)
             uiState.setIntValue("main.toolsPanelWidth", toolsSidebar.width)
     }
 
@@ -266,6 +296,7 @@ ApplicationWindow {
         var projects = []
         var subtitles = []
         var documents = []
+        var spreadsheets = []
         for (var i = 0; i < urls.length; i++) {
             var value = urls[i].toString()
             var lower = value.toLowerCase()
@@ -273,12 +304,14 @@ ApplicationWindow {
                     || lower.endsWith(".json")) projects.push(value)
             else if (lower.endsWith(".ass") || lower.endsWith(".srt")) subtitles.push(value)
             else if (lower.endsWith(".docx")) documents.push(value)
+            else if (lower.endsWith(".xls") || lower.endsWith(".xlsx") || lower.endsWith(".csv")) spreadsheets.push(value)
         }
         if (projects.length > 0) root.projectBackend.open(projects[0])
         else if (subtitles.length > 0) subtitleImportWindow.openForFiles(subtitles)
         else if (documents.length > 0) docxImportWindow.openForFile(documents[0])
+        else if (spreadsheets.length > 0) spreadsheetImportWindow.openForFile(spreadsheets[0])
         else {
-            errorDialog.message = "Перетащите проект, ASS, SRT или DOCX"
+            errorDialog.message = "Перетащите проект, ASS, SRT, DOCX, XLS, XLSX или CSV"
             errorDialog.open()
         }
     }
@@ -351,7 +384,7 @@ ApplicationWindow {
         title: qsTr("Перепривязать исходный файл серии")
         currentFolder: root.uiState.folderUrl("sourceFiles")
         onVisibleChanged: if (visible) currentFolder = root.uiState.folderUrl("sourceFiles")
-        nameFilters: ["Тексты серий (*.ass *.srt *.docx)", "Все файлы (*)"]
+        nameFilters: ["Тексты серий (*.ass *.srt *.docx *.xls *.xlsx *.csv)", "Все файлы (*)"]
         onAccepted: {
             root.uiState.rememberFile("sourceFiles", selectedFile.toString())
             root.appBridge.projectFiles.relink(
@@ -394,6 +427,18 @@ ApplicationWindow {
         onAccepted: {
             root.uiState.rememberFile("documents", selectedFile.toString())
             docxImportWindow.openForFile(selectedFile.toString())
+        }
+    }
+
+    FileDialog {
+        id: importSpreadsheetDialog
+        title: qsTr("Выберите таблицу")
+        currentFolder: root.uiState.folderUrl("documents")
+        onVisibleChanged: if (visible) currentFolder = root.uiState.folderUrl("documents")
+        nameFilters: ["Таблицы (*.xls *.xlsx *.csv)", "Excel (*.xls *.xlsx)", "CSV (*.csv)"]
+        onAccepted: {
+            root.uiState.rememberFile("documents", selectedFile.toString())
+            spreadsheetImportWindow.openForFile(selectedFile.toString())
         }
     }
 
@@ -674,6 +719,19 @@ ApplicationWindow {
 
     DocxImportDialog {
         id: docxImportWindow
+        objectName: "docxImportWindow"
+        ownerWindow: root
+        appBridge: root.appBridge
+        softBorder: root.softBorder
+        softHeader: root.softHeader
+        softRow: root.softRow
+        softAltRow: root.softAltRow
+        softMuted: root.softMuted
+    }
+
+    SpreadsheetImportDialog {
+        id: spreadsheetImportWindow
+        objectName: "spreadsheetImportWindow"
         ownerWindow: root
         appBridge: root.appBridge
         softBorder: root.softBorder
@@ -785,6 +843,7 @@ ApplicationWindow {
         actorMarkerShape: root.actorMarkerShape
         actorMarkerSize: root.actorMarkerSize
         uiScalePercent: root.uiScalePercent
+        onUiScalePercentAccepted: function(percent) { root.uiScalePercent = percent }
         characterColumnsOrder: root.characterColumnsOrderJson
         characterColumnsHidden: root.characterColumnsHiddenJson
         characterColumnWidths: root.characterColumnWidthsJson
@@ -917,11 +976,12 @@ ApplicationWindow {
         target: root.macOSIntegration
         ignoreUnknownSignals: true
         function onNativeToolbarActiveChanged() {
-            if (root.macOSIntegration.nativeToolbarActive)
-                root.macOSIntegration.setQuickConverterVisible(
-                    root.quickConverterVisible
-                )
+            if (root.macOSIntegration.nativeToolbarActive) {
+                root.macOSIntegration.setQuickConverterVisible(root.converterShown)
+                root.macOSIntegration.setWorkspace(root.workspaceBackend.workflow)
+            }
         }
+        function onWorkspaceRequested(index) { root.setWorkflow(index) }
         function onOpenProjectRequested() { openDialog.open() }
         function onSaveProjectAsRequested() { saveAsDialog.open() }
         function onGlobalSettingsRequested() { globalSettingsDialog.openSettings() }
@@ -937,13 +997,25 @@ ApplicationWindow {
         function onReaperExportRequested() {
             reaperExportDialog.openForCurrentEpisode()
         }
-        function onAudiobookRequested() { audiobookWindow.openWorkspace() }
+        function onAudiobookRequested() {
+            if (root.projectBackend.canOpenAudiobook)
+                audiobookWindow.openWorkspace()
+        }
         function onEpisodeSummaryRequested() {
             summaryDialog.openFor(root.projectBackend.currentEpisode)
         }
         function onRolesRequested() { rolesDialog.openForProject() }
         function onQuickConverterVisibilityRequested(visible) {
             root.setQuickConverterVisible(visible, false)
+        }
+    }
+
+    Connections {
+        target: root.workspaceBackend
+        function onWorkflowChanged() {
+            inspectorDrawer.close()
+            if (root.macOSIntegration)
+                root.macOSIntegration.setWorkspace(root.workspaceBackend.workflow)
         }
     }
 
@@ -1053,7 +1125,7 @@ ApplicationWindow {
             }
             Action {
                 text: qsTr("Аудиокнига")
-                enabled: root.appBridge !== null
+                enabled: root.projectBackend.canOpenAudiobook
                 onTriggered: audiobookWindow.openWorkspace()
             }
             Action {
@@ -1104,7 +1176,9 @@ ApplicationWindow {
             appBridge: root.appBridge
             softMuted: root.softMuted
             rootWidth: root.width
-            quickConverterVisible: root.quickConverterVisible
+            workflow: root.workspaceBackend.workflow
+            onWorkflowRequested: function(index) { root.setWorkflow(index) }
+            quickConverterVisible: root.converterShown
             onOpenProjectRequested: openDialog.open()
             onSaveProjectAsRequested: saveAsDialog.open()
             onGlobalSettingsRequested: globalSettingsDialog.openSettings()
@@ -1151,33 +1225,58 @@ ApplicationWindow {
         anchors.margins: root.macOSStyle ? 0 : 6
         spacing: root.macOSStyle ? 0 : 6
 
+        ToolBar {
+            visible: !root.inlineEpisodes || (!root.inlineInspector && root.workspaceBackend.workflow === 0)
+            Layout.fillWidth: true
+            padding: 6
+            contentItem: RowLayout {
+                AdaptiveButton {
+                    visible: !root.inlineEpisodes
+                    text: qsTr("Серии…")
+                    onClicked: seriesDrawer.open()
+                }
+                Label {
+                    visible: !root.inlineEpisodes
+                    text: root.projectBackend.currentEpisode || qsTr("Выберите серию")
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                }
+                Item {
+                    Layout.fillWidth: true
+                    visible: root.inlineEpisodes
+                }
+                AdaptiveButton {
+                    visible: !root.inlineInspector && root.workspaceBackend.workflow === 0
+                    text: qsTr("Персонаж…")
+                    onClicked: root.toggleInspector()
+                }
+            }
+        }
         NavigationTabBar {
             id: compactSections
             objectName: "compactSections"
-            visible: root.compactLayout
+            visible: root.compactLayout && root.workspaceBackend.workflow === 0
             Layout.fillWidth: true
-            Layout.preferredHeight: implicitHeight
-            model: [qsTr("Актёры"), qsTr("Реплики")]
-            tabWidth: width / Math.max(1, model.length)
+            model: [qsTr("Актёры"), qsTr("Персонажи")]
+            tabWidth: width / 2
+            managedSelection: true
             currentIndex: root.compactSection === "actors" ? 0 : 1
-
-            onActivated: function(index) {
-                root.compactSection = index === 0 ? "actors" : "workspace"
+            onActivated: function (index) {
+                root.compactSection = index === 0 ? "actors" : "workspace";
             }
         }
-
         SplitView {
             Layout.fillWidth: true
             Layout.fillHeight: true
             orientation: Qt.Horizontal
-
             ActorPanel {
                 id: actorPanel
                 appBridge: root.appBridge
-                visible: !root.compactLayout || root.compactSection === "actors"
+                visible: root.workspaceBackend.workflow === 0 && (!root.compactLayout || root.compactSection === "actors")
                 SplitView.fillWidth: root.compactLayout
-                SplitView.preferredWidth: root.uiState.intValue("main.actorPanelWidth", 330)
-                onWidthChanged: if (root.uiReady) panelStateTimer.restart()
+                SplitView.preferredWidth: root.uiState.intValue("main.actorPanelWidth", 260)
+                onWidthChanged: if (root.uiReady)
+                    panelStateTimer.restart()
                 softBorder: root.softBorder
                 softHeader: root.softHeader
                 softRow: root.softRow
@@ -1189,8 +1288,8 @@ ApplicationWindow {
                 actorMarkerSize: root.actorMarkerSize
                 compactRows: root.characterCompactRows
                 onProjectSummaryRequested: summaryDialog.openFor("")
-                onActorRolesRequested: function(actorId) {
-                    actorRolesDialog.openFor(actorId)
+                onActorRolesRequested: function (actorId) {
+                    actorRolesDialog.openFor(actorId);
                 }
                 onBulkTransferRequested: actorTransferDialog.openForProject()
                 onGlobalBulkTransferRequested: globalActorTransferDialog.openForProject()
@@ -1198,141 +1297,314 @@ ApplicationWindow {
                 onGlobalActorBaseImportRequested: importGlobalActorsDialog.open()
             }
 
-            SplitView {
-                visible: !root.compactLayout || root.compactSection !== "actors"
+            EpisodeSidebar {
+                id: episodeSidebar
+                objectName: "inlineEpisodeSidebar"
+                visible: root.inlineEpisodes
+                appBridge: root.appBridge
+                softBorder: root.softBorder
+                softMuted: root.softMuted
+                SplitView.preferredWidth: 180
+                onImportRequested: importOptions.open()
+                onFilesRequested: projectFilesDialog.openFor("files")
+                onSettingsRequested: projectSettingsDialog.openFor(0)
+            }
+            Rectangle {
+                color: root.panelSurface
+                clip: true
+                visible: root.workspaceBackend.workflow === 1 || !root.compactLayout || root.compactSection === "workspace"
                 SplitView.fillWidth: true
-                orientation: Qt.Horizontal
+                SplitView.minimumWidth: 320
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 6
+                    StackLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        currentIndex: root.workspaceBackend.workflow
+                        ColumnLayout {
+                            spacing: 6
+                            CastingFilters {
+                                onGlobalSearchRequested: globalSearchDialog.open()
+                                Layout.fillWidth: true
+                                Layout.margins: 8
+                                appBridge: root.appBridge
+                                softMuted: root.softMuted
+                            }
+                            CharacterTable {
+                                id: characterTable
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                Layout.minimumWidth: 0
+                                Layout.maximumWidth: parent.width
+                                framed: false
+                                appBridge: root.appBridge
+                                actorColorDisplayMode: root.actorColorDisplayMode
+                                actorColorMuteLevel: root.actorColorMuteLevel
+                                actorCellFillFullHeight: root.actorColorCellFillFullHeight
+                                actorMarkerShape: root.actorMarkerShape
+                                actorMarkerSize: root.actorMarkerSize
+                                columnOrder: root.jsonArray(root.characterColumnsOrderJson, ["character", "lines", "rings", "words", "scope", "actor", "preview"])
+                                hiddenColumns: root.jsonArray(root.characterColumnsHiddenJson, [])
+                                columnWidthModes: root.jsonObject(root.characterColumnWidthsJson, {})
+                                compactRows: root.characterCompactRows
+                                softBorder: root.softBorder
+                                softHeader: root.softHeader
+                                softRow: root.softRow
+                                softAltRow: root.softAltRow
+                                softHover: root.softHover
+                                softMuted: root.softMuted
+                                onRelinkSourceRequested: function (episode) {
+                                    root.pendingRelinkEpisode = episode;
+                                    relinkSourceDialog.open();
+                                }
+                                onVideoPreviewRequested: function (character) {
+                                    videoPreviewDialog.openFor(character);
+                                }
+                                onFilesDropped: function (urls) {
+                                    root.routeDroppedFiles(urls);
+                                }
+                            }
 
-                Item {
-                    visible: !root.compactLayout || root.compactSection === "workspace"
-                    SplitView.fillWidth: true
-                    SplitView.minimumWidth: 0
-                    clip: true
-
-                    Rectangle {
-                        anchors.fill: parent
-                        color: root.panelSurface
-                        border.color: root.macOSStyle
-                            ? "transparent" : root.softBorder
+                            EpisodeTimeline {
+                                Layout.fillWidth: true
+                                visible: root.episodeTimelineVisible && root.episodeTimelinePlacement !== "bottom"
+                                timelineHeight: root.episodeTimelineHeight
+                                useActorColors: root.episodeTimelineActorColors
+                                timelineColorMuteLevel: root.episodeTimelineColorMuteLevel
+                                castingBackend: root.appBridge ? root.appBridge.casting : null
+                                softBorder: root.softBorder
+                                softHeader: root.softHeader
+                                softRow: root.softRow
+                                softAltRow: root.softAltRow
+                                softMuted: root.softMuted
+                                onCharacterRequested: function (character) {
+                                    if (root.appBridge && root.appBridge.casting)
+                                        root.appBridge.casting.selectCharacter(character);
+                                }
+                                onHeightAdjustmentRequested: function (height) {
+                                    root.episodeTimelineHeight = height;
+                                    root.uiState.setIntValue("main.episodeTimelineHeight", height);
+                                }
+                            }
+                        }
+                        ScriptWorkspace {
+                            id: scriptWorkspace
+                            appBridge: root.appBridge
+                            softBorder: root.softBorder
+                            softMuted: root.softMuted
+                            panelSurface: root.panelSurface
+                            active: root.workspaceBackend.workflow === 1
+                            onVideoLinkRequested: projectFilesDialog.openFor("files")
+                            onAudiobookRequested: audiobookWindow.openWorkspace()
+                            onTeleprompterRequested: teleprompterWindow.openFor(root.projectBackend.currentEpisode)
+                            onCastingRequested: function (character) {
+                                root.setWorkflow(0);
+                                if (root.workspaceBackend.workflow === 0) {
+                                    root.appBridge.casting.resetFilters();
+                                    root.appBridge.casting.selectCharacter(character);
+                                }
+                            }
+                        }
                     }
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: root.macOSStyle ? 8 : 6
-                        spacing: root.macOSStyle ? 5 : 6
-
-                        EpisodeControls {
-                            Layout.minimumWidth: 0
-                            Layout.maximumWidth: parent.width
-                            appBridge: root.appBridge
-                            onImportRequested: importSubtitleDialog.open()
-                            onImportDocxRequested: importDocxDialog.open()
-                            onGlobalSearchRequested: globalSearchDialog.open()
+                    EpisodeTimeline {
+                        Layout.fillWidth: true
+                        objectName: "workspaceTimeline"
+                        activeCharacter: root.workspaceBackend.selected.character || ""
+                        activeLineStart: root.workspaceBackend.selected.lineId ? root.workspaceBackend.selected.start : -1
+                        positionNavigation: root.workspaceBackend.workflow === 1
+                        playheadPosition: root.workspaceBackend.workflow === 1 ? scriptWorkspace.playbackPosition : -1
+                        onPositionRequested: function (seconds, character) {
+                            root.workspaceBackend.openAtTime(seconds, character);
                         }
-
-                        CharacterTable {
-                            id: characterTable
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            Layout.minimumWidth: 0
-                            Layout.maximumWidth: parent.width
-                            framed: false
-                            appBridge: root.appBridge
-                            actorColorDisplayMode: root.actorColorDisplayMode
-                            actorColorMuteLevel: root.actorColorMuteLevel
-                            actorCellFillFullHeight: root.actorColorCellFillFullHeight
-                            actorMarkerShape: root.actorMarkerShape
-                            actorMarkerSize: root.actorMarkerSize
-                            columnOrder: root.jsonArray(root.characterColumnsOrderJson, [
-                                "character", "lines", "rings", "words",
-                                "scope", "actor", "preview"
-                            ])
-                            hiddenColumns: root.jsonArray(root.characterColumnsHiddenJson, [])
-                            columnWidthModes: root.jsonObject(root.characterColumnWidthsJson, {})
-                            compactRows: root.characterCompactRows
-                            softBorder: root.softBorder
-                            softHeader: root.softHeader
-                            softRow: root.softRow
-                            softAltRow: root.softAltRow
-                            softHover: root.softHover
-                            softMuted: root.softMuted
-                            onRelinkSourceRequested: function(episode) {
-                                root.pendingRelinkEpisode = episode
-                                relinkSourceDialog.open()
-                            }
-                            onVideoPreviewRequested: function(character) {
-                                videoPreviewDialog.openFor(character)
-                            }
-                            onFilesDropped: function(urls) {
-                                root.routeDroppedFiles(urls)
-                            }
+                        visible: root.episodeTimelineVisible && root.workspaceBackend.workflow === 1
+                        timelineHeight: root.episodeTimelineHeight
+                        useActorColors: root.episodeTimelineActorColors
+                        timelineColorMuteLevel: root.episodeTimelineColorMuteLevel
+                        castingBackend: root.appBridge ? root.appBridge.casting : null
+                        softBorder: root.softBorder
+                        softHeader: root.softHeader
+                        softRow: root.softRow
+                        softAltRow: root.softAltRow
+                        softMuted: root.softMuted
+                        onCharacterRequested: function (character) {
+                            if (root.appBridge && root.appBridge.casting)
+                                root.appBridge.casting.selectCharacter(character);
                         }
-
-                        EpisodeTimeline {
-                            Layout.fillWidth: true
-                            visible: root.episodeTimelineVisible
-                                && root.episodeTimelinePlacement !== "bottom"
-                            timelineHeight: root.episodeTimelineHeight
-                            useActorColors: root.episodeTimelineActorColors
-                            timelineColorMuteLevel: root.episodeTimelineColorMuteLevel
-                            castingBackend: root.appBridge ? root.appBridge.casting : null
-                            softBorder: root.softBorder
-                            softHeader: root.softHeader
-                            softRow: root.softRow
-                            softAltRow: root.softAltRow
-                            softMuted: root.softMuted
-                            onCharacterRequested: function(character) {
-                                if (root.appBridge && root.appBridge.casting)
-                                    root.appBridge.casting.selectCharacter(character)
-                            }
-                            onHeightAdjustmentRequested: function(height) {
-                                root.episodeTimelineHeight = height
-                                root.uiState.setIntValue("main.episodeTimelineHeight", height)
-                            }
+                        onHeightAdjustmentRequested: function (height) {
+                            root.episodeTimelineHeight = height;
+                            root.uiState.setIntValue("main.episodeTimelineHeight", height);
                         }
                     }
                 }
-
-                ToolsSidebar {
-                    id: toolsSidebar
-                    appBridge: root.appBridge
-                    visible: !root.compactLayout
-                    quickConverterVisible: root.quickConverterVisible
-                    SplitView.preferredWidth: root.uiState.intValue("main.toolsPanelWidth", 235)
-                    onWidthChanged: if (root.uiReady) panelStateTimer.restart()
-                    softBorder: root.softBorder
-                    softHeader: root.softHeader
-                    softMuted: root.softMuted
-                    panelSurface: root.panelSurface
-                    onConverterResultsRequested: quickConverterResultsDialog.open()
-                    onCharacterPreviewRequested: characterTable.previewSelectedCharacter()
-                    onCharacterRenameRequested: characterTable.renameSelectedCharacter()
-                    onCharacterSelectionCleared: characterTable.clearCharacterSelection()
+            }
+            Rectangle {
+                id: toolsSidebar
+                color: root.panelSurface
+                visible: root.inlineInspector && root.workspaceBackend.workflow === 0
+                SplitView.minimumWidth: 235
+                SplitView.preferredWidth: root.uiState.intValue("main.toolsPanelWidth", 260)
+                onWidthChanged: if (root.uiReady)
+                    panelStateTimer.restart()
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 6
+                    CharacterInspector {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        appBridge: root.appBridge
+                        softBorder: root.softBorder
+                        softMuted: root.softMuted
+                        panelSurface: root.panelSurface
+                        onOpenTextRequested: function (character) {
+                            root.openText(character);
+                        }
+                        onRenameRequested: characterTable.renameSelectedCharacter()
+                    }
+                    QuickConverterPanel {
+                        visible: root.quickConverterVisible
+                        Layout.fillWidth: true
+                        Layout.margins: 6
+                        appBridge: root.appBridge
+                        softBorder: root.softBorder
+                        softHeader: root.softHeader
+                        softMuted: root.softMuted
+                        onResultsRequested: quickConverterResultsDialog.open()
+                    }
                 }
             }
         }
-
         EpisodeTimeline {
+            objectName: "castingBottomTimeline"
             Layout.fillWidth: true
-            visible: root.episodeTimelineVisible
+            visible: root.workspaceBackend.workflow === 0 && root.episodeTimelineVisible
                 && root.episodeTimelinePlacement === "bottom"
             timelineHeight: root.episodeTimelineHeight
             useActorColors: root.episodeTimelineActorColors
             timelineColorMuteLevel: root.episodeTimelineColorMuteLevel
-            castingBackend: root.appBridge ? root.appBridge.casting : null
+            castingBackend: root.appBridge.casting
             softBorder: root.softBorder
             softHeader: root.softHeader
             softRow: root.softRow
             softAltRow: root.softAltRow
             softMuted: root.softMuted
             onCharacterRequested: function(character) {
-                if (root.appBridge && root.appBridge.casting)
-                    root.appBridge.casting.selectCharacter(character)
+                root.appBridge.casting.selectCharacter(character)
             }
             onHeightAdjustmentRequested: function(height) {
                 root.episodeTimelineHeight = height
                 root.uiState.setIntValue("main.episodeTimelineHeight", height)
             }
         }
+    }
+    Drawer {
+        id: seriesDrawer
+        width: Math.min(300, root.width - 40)
+        height: root.height
+        edge: Qt.LeftEdge
+        EpisodeSidebar {
+            anchors.fill: parent
+            appBridge: root.appBridge
+            softBorder: root.softBorder
+            softMuted: root.softMuted
+            onEpisodeActivated: seriesDrawer.close()
+            onImportRequested: {
+                seriesDrawer.close();
+                importOptions.open();
+            }
+            onFilesRequested: {
+                seriesDrawer.close();
+                projectFilesDialog.openFor("files");
+            }
+            onSettingsRequested: {
+                seriesDrawer.close();
+                projectSettingsDialog.openFor(0);
+            }
+        }
+    }
+    Drawer {
+        id: inspectorDrawer
+        width: Math.min(340, root.width - 40)
+        height: root.height
+        edge: Qt.RightEdge
+        CharacterInspector {
+            anchors.fill: parent
+            appBridge: root.appBridge
+            softBorder: root.softBorder
+            softMuted: root.softMuted
+            panelSurface: root.panelSurface
+            onOpenTextRequested: function (character) {
+                inspectorDrawer.close();
+                root.openText(character);
+            }
+            onRenameRequested: {
+                inspectorDrawer.close();
+                characterTable.renameSelectedCharacter();
+            }
+        }
+    }
+    NativeDialogWindow {
+        id: importOptions
+        ownerWindow: root
+        title: qsTr("Импорт серии")
+        modal: true
+        width: 400
+        height: 250
+        standardButtons: Dialog.Cancel
+        content: ColumnLayout {
+            anchors.fill: parent
+            AdaptiveButton {
+                Layout.fillWidth: true
+                text: qsTr("Субтитры ASS / SRT…")
+                onClicked: {
+                    importOptions.close();
+                    importSubtitleDialog.open();
+                }
+            }
+            AdaptiveButton {
+                Layout.fillWidth: true
+                text: qsTr("Сценарий DOCX…")
+                onClicked: {
+                    importOptions.close();
+                    importDocxDialog.open();
+                }
+            }
+            AdaptiveButton {
+                Layout.fillWidth: true
+                text: qsTr("Таблица XLS / XLSX / CSV…")
+                onClicked: {
+                    importOptions.close();
+                    importSpreadsheetDialog.open();
+                }
+            }
+        }
+    }
+    NativeDialogWindow {
+        id: converterWindow
+        ownerWindow: root
+        title: qsTr("Быстрый конвертер")
+        width: 520
+        height: 420
+        standardButtons: Dialog.Close
+        onClosed: {
+            root.quickConverterVisible = false;
+            root.uiState.setBoolValue("main.quickConverterVisible", false);
+        }
+        content: QuickConverterPanel {
+            anchors.fill: parent
+            appBridge: root.appBridge
+            softBorder: root.softBorder
+            softHeader: root.softHeader
+            softMuted: root.softMuted
+            onResultsRequested: quickConverterResultsDialog.open()
+        }
+    }
+    Shortcut {
+        sequence: "Ctrl+1"
+        onActivated: root.setWorkflow(0)
+    }
+    Shortcut {
+        sequence: "Ctrl+2"
+        onActivated: root.setWorkflow(1)
     }
 }

@@ -203,9 +203,9 @@ class DynamicScriptStorage:
                         character = str(fragment.get("character", "") or "")
                         result.append({
                             "id": str(fragment.get("id") or self._new_id("frag")),
-                            "s": start,
-                            "e": end,
-                            "s_raw": s_raw,
+                            "s": float(fragment.get("start", start)),
+                            "e": float(fragment.get("end", end)),
+                            "s_raw": str(fragment.get("s_raw", s_raw)),
                             "char": aliases.get(character, character),
                             "source_char": character,
                             "text": str(fragment.get("text", "") or ""),
@@ -307,6 +307,22 @@ class DynamicScriptStorage:
         self._touch(project_data, episode)
         return True
 
+    def update_fragment_timing(
+        self, project_data: Dict[str, Any], episode: str,
+        fragment_id: Any, start: float, end: float,
+    ) -> bool:
+        """Override one editable fragment without altering imported sources."""
+        current = next((line for line in self.atomic_lines(project_data, episode)
+                        if str(line["id"]) == str(fragment_id)), None)
+        if current is None or (current["s"] == start and current["e"] == end):
+            return False
+        target = self._ensure_editable_fragment(project_data, episode, str(fragment_id))
+        if target is None:
+            return False
+        target.update({"start": start, "end": end, "s_raw": "", "e_raw": ""})
+        self._touch(project_data, episode)
+        return True
+
     def split_fragment(
         self,
         project_data: Dict[str, Any],
@@ -331,6 +347,8 @@ class DynamicScriptStorage:
             position = fragments.index(target)
             target["text"] = remaining_text
             fragments.insert(position + 1, {
+                **{key: target[key] for key in ("start", "end", "s_raw", "e_raw")
+                   if key in target},
                 "id": self._new_id("frag"),
                 "text": split_text.strip(),
                 "character": split_character.strip(),
@@ -377,6 +395,7 @@ class DynamicScriptStorage:
             if not isinstance(payload, dict):
                 continue
             aliases = payload.setdefault("character_aliases", {})
+            source_name_matches = aliases.get(old_name, old_name) == old_name
             changed = False
             for source_character, displayed in list(aliases.items()):
                 if str(displayed) != old_name:
@@ -386,23 +405,22 @@ class DynamicScriptStorage:
                 else:
                     aliases[source_character] = new_name
                 changed = True
-            if any(
+            # Fragments resolve the same aliases as imported source lines.
+            # Renaming their raw character would bypass an existing alias and
+            # could change replicas that currently belong to another character.
+            role_lines = list(payload.get("source_lines", [])) + [
+                fragment
+                for block in payload.get("edit_blocks", [])
+                if isinstance(block, dict)
+                for fragment in block.get("fragments", [])
+            ]
+            if source_name_matches and any(
                 str(line.get("character", "")) == old_name
-                for line in payload.get("source_lines", [])
+                for line in role_lines
                 if isinstance(line, dict)
             ) and aliases.get(old_name) != new_name:
                 aliases[old_name] = new_name
                 changed = True
-            for block in payload.get("edit_blocks", []):
-                if not isinstance(block, dict):
-                    continue
-                for fragment in block.get("fragments", []):
-                    if (
-                        isinstance(fragment, dict)
-                        and str(fragment.get("character", "")) == old_name
-                    ):
-                        fragment["character"] = new_name
-                        changed = True
             if changed:
                 payload["modified_at"] = datetime.now().isoformat()
                 changed_count += 1
@@ -496,7 +514,7 @@ class DynamicScriptStorage:
         if normalized in SOURCE_LINE_MODES:
             return normalized
         normalized_type = str(source_type or "").strip().lower().lstrip(".")
-        if normalized_type == "docx":
+        if normalized_type in {"docx", "xls", "xlsx", "csv"}:
             return SOURCE_LINE_MODE_PREMERGED
         return SOURCE_LINE_MODE_ATOMIC
 

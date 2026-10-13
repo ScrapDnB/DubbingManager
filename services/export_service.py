@@ -7,7 +7,7 @@ import re
 import subprocess
 from typing import Dict, List, Any, Optional, Set, Tuple, Callable
 
-from services.assignment_service import get_actor_for_character
+from services.assignment_service import get_actor_ids_for_character
 from services.export_layouts import ExportLayoutMixin
 from services.pdf_export_service import PdfExportService
 from services.replica_merge_service import ReplicaMergeService
@@ -220,19 +220,20 @@ class ExportService(ExportLayoutMixin):
             lines = episodes_data[ep_key]
             for line in lines:
                 char_name = line.get('char', '')
-                actor_id = get_actor_for_character(
+                actor_ids = get_actor_ids_for_character(
                     self.project_data, char_name, ep_key
                 )
-                if actor_id and actor_id in actor_stats:
-                    if char_name not in actor_stats[actor_id]['roles']:
-                        actor_stats[actor_id]['roles'].append(char_name)
-                    if ep_key not in actor_stats[actor_id]['episode_words']:
-                        actor_stats[actor_id]['episode_words'][ep_key] = 0
-                    actor_stats[actor_id]['episode_words'][ep_key] += (
-                        self._count_words(
-                            line.get('content_text', line.get('text', ''))
+                for actor_id in actor_ids:
+                    if actor_id in actor_stats:
+                        if char_name not in actor_stats[actor_id]['roles']:
+                            actor_stats[actor_id]['roles'].append(char_name)
+                        if ep_key not in actor_stats[actor_id]['episode_words']:
+                            actor_stats[actor_id]['episode_words'][ep_key] = 0
+                        actor_stats[actor_id]['episode_words'][ep_key] += (
+                            self._count_words(
+                                line.get('content_text', line.get('text', ''))
+                            )
                         )
-                    )
 
         # Dynamic headers with real episode numbers
         headers = ['Актёр', 'Персонаж']
@@ -360,8 +361,6 @@ class ExportService(ExportLayoutMixin):
         """Create one episode sheet."""
         sheet_name = f'серия ({ep_num})'
         ws = wb.create_sheet(title=sheet_name)
-
-        actors = self.project_data.get('actors', {})
         use_color = cfg.get('use_color', True)
         soften_colors = cfg.get('soften_colors', True)
         effective_filter = self._get_effective_highlight_filter(cfg)
@@ -419,17 +418,12 @@ class ExportService(ExportLayoutMixin):
         # Fill data
         for row_idx, line in enumerate(processed, 2):
             char_name = line.get('char', '')
-            actor_id = get_actor_for_character(
-                self.project_data, char_name, ep_num
+            actor_id, actor, is_highlighted = self._actor_display_context(
+                char_name, ep_num, effective_filter
             )
-            actor = actors.get(actor_id, {}) if actor_id else {}
             actor_name = actor.get('name', '-') if actor else '-'
 
             # Determine the color
-            is_highlighted = (
-                effective_filter is None or
-                actor_id in effective_filter
-            )
             if use_color and actor_id and is_highlighted:
                 actor_color = actor.get('color', '#FFFFFF')
                 color_hex = (

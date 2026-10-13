@@ -1,6 +1,7 @@
 """QML backend for actors, characters, filters, and assignments."""
 
 import random
+from copy import deepcopy
 from typing import Any, Dict, Optional
 
 from PySide6.QtCore import QObject, Property, Signal, Slot, Qt
@@ -13,8 +14,7 @@ from core.commands import (
     DeleteActorCommand,
     DeleteActorsCommand,
     RenameActorCommand,
-    RenameCharacterCommand,
-    UpdateCharacterProfileCommand,
+    UpdateCharacterProfileStateCommand,
     UpdateActorColorCommand,
     UpdateActorGenderCommand,
 )
@@ -28,7 +28,6 @@ from services import (
     get_actor_for_character,
     get_actor_ids_for_character,
     get_actor_roles,
-    rename_character_assignments,
 )
 from services.actor_id_service import new_actor_id
 from services.role_service import collect_project_roles
@@ -59,6 +58,7 @@ class CastingBridge(QObject):
     errorRequested = Signal(str)
     actorCreated = Signal(str, str)
     projectDataChanged = Signal(str)
+    characterProfileConfirmationRequested = Signal(str, str, str)
 
     def __init__(
         self,
@@ -77,6 +77,7 @@ class CastingBridge(QObject):
         self._show_unassigned_only = False
         self._search_text = ""
         self._selected_character = ""
+        self._pending_character_profile: Optional[Dict[str, Any]] = None
         self._selected_character_stats = "Выберите персонажа в таблице"
         self._episode_lines_cache: Dict[str, list[Dict[str, Any]]] = {}
         self._timeline_lines_cache: Dict[str, list[Dict[str, Any]]] = {}
@@ -132,6 +133,7 @@ class CastingBridge(QObject):
             "actor": Qt.UserRole + 5, "scope": Qt.UserRole + 6,
         }, self)
         self._session.currentEpisodeChanged.connect(self._episode_changed)
+        self._session.projectReplaced.connect(self.cancelCharacterProfileUpdate)
         self.refresh()
 
     @Property(str, notify=actorFilterChanged)
@@ -583,6 +585,7 @@ class CastingBridge(QObject):
     def updateCharacterProfile(
         self, old_name: str, new_name: str, aliases: list
     ) -> None:
+        self.cancelCharacterProfileUpdate()
         old_name, new_name = (old_name or "").strip(), (new_name or "").strip()
         episode = self._session.current_episode
         if not episode:
@@ -593,18 +596,19 @@ class CastingBridge(QObject):
             return
         if not new_name:
             return
-        current_names = {
-            str(row["name"])
-            for row in collect_project_roles(
-                self._session.data,
-                lambda ep: self._script_text_service.load_episode_lines(
-                    self._session.data, ep
-                ),
-            )
-        }
-        if new_name != old_name and new_name in current_names:
-            self.errorRequested.emit("Персонаж с таким именем уже есть в проекте")
+        if not self._session.flush_pending_edits():
             return
+        roles = collect_project_roles(
+            self._session.data,
+            lambda ep: self._script_text_service.load_atomic_episode_lines(
+                self._session.data, ep
+            ),
+        )
+        current_names = {str(row["name"]) for row in roles}
+        if old_name not in current_names:
+            self.errorRequested.emit("Персонаж больше не найден в проекте")
+            return
+        merging = new_name != old_name and new_name in current_names
         normalized_aliases = []
         seen = set()
         for value in aliases:
@@ -614,10 +618,13 @@ class CastingBridge(QObject):
                 continue
             seen.add(folded)
             normalized_aliases.append(alias)
-        alias_mapping = self._session.data.setdefault("character_aliases", {})
-        occupied = {name.casefold() for name in current_names if name != old_name}
+        alias_mapping = self._session.data.get("character_aliases", {})
+        editable_names = {old_name, new_name}
+        occupied = {
+            name.casefold() for name in current_names if name not in editable_names
+        }
         for character, values in alias_mapping.items():
-            if character == old_name or not isinstance(values, list):
+            if character in editable_names or not isinstance(values, list):
                 continue
             occupied.update(str(value).casefold() for value in values)
         conflict = next(
@@ -632,31 +639,122 @@ class CastingBridge(QObject):
         old_aliases = self.characterAliases(old_name)
         if new_name == old_name and normalized_aliases == old_aliases:
             return
-        rename_command = None
-        if new_name != old_name:
-            rename_command = RenameCharacterCommand(
-                self._session.data.setdefault("global_map", {}),
-                self._session.data.setdefault("loaded_episodes", {}),
-                self._characters_model.rows(), episode, old_name, new_name,
-                lambda source, target: (
-                    rename_character_assignments(
-                        self._session.data, source, target
-                    ),
-                    self._script_text_service.rename_character(
-                        self._session.data, source, target, episode
-                    ),
-                ),
-            )
-        command = UpdateCharacterProfileCommand(
-            alias_mapping,
-            old_name,
-            new_name,
-            normalized_aliases,
-            rename_command,
+        source_episodes = next(
+            (row["episodes"] for row in roles if row["name"] == old_name), []
         )
-        self._execute(command, "working_text")
-        if new_name != old_name:
-            self._episode_service.invalidate_episode(episode)
+        request = {
+            "old_name": old_name, "new_name": new_name,
+            "aliases": normalized_aliases, "episode": episode,
+            "source_episodes": source_episodes, "merging": merging,
+            "other_episodes": any(ep != episode for ep in source_episodes),
+        }
+        if new_name != old_name and (merging or request["other_episodes"]):
+            request["stage"] = "merge" if merging else "scope"
+            self._pending_character_profile = request
+            self.characterProfileConfirmationRequested.emit(
+                request["stage"], old_name, new_name
+            )
+            return
+        self._apply_character_profile(request, False)
+
+    @Slot()
+    def cancelCharacterProfileUpdate(self) -> None:
+        self._pending_character_profile = None
+
+    @Slot(bool)
+    def confirmCharacterProfileUpdate(self, accepted: bool) -> None:
+        request = self._pending_character_profile
+        if request is None:
+            return
+        if request["stage"] == "merge":
+            if not accepted:
+                self.cancelCharacterProfileUpdate()
+                return
+            if request["other_episodes"]:
+                request["stage"] = "scope"
+                self.characterProfileConfirmationRequested.emit(
+                    "scope", request["old_name"], request["new_name"]
+                )
+                return
+            all_episodes = False
+        else:
+            all_episodes = accepted
+        self.cancelCharacterProfileUpdate()
+        self._apply_character_profile(request, all_episodes)
+
+    def _apply_character_profile(self, request: Dict[str, Any], all_episodes: bool) -> None:
+        if not self._session.flush_pending_edits():
+            return
+        data = self._session.data
+        old_name, new_name = request["old_name"], request["new_name"]
+        renaming = old_name != new_name
+        episodes = (
+            list(request["source_episodes"])
+            if all_episodes else [request["episode"]]
+        )
+        source_remains = renaming and any(
+            ep not in episodes for ep in request["source_episodes"]
+        )
+        # Capture the edited fields, including text, instead of reversing a rename:
+        # a reverse rename would also rename the destination's original replicas.
+        keys = {"character_aliases"}
+        if renaming:
+            keys.update({"global_map", "episode_actor_map"})
+            keys.update(key for key in (
+                "script_storage", "episode_working_texts", "audiobook_document",
+                "loaded_episodes",
+            ) if key in data)
+        updates = {key: deepcopy(data.get(key, {})) for key in keys}
+        edited = {**data, **updates}
+        if renaming:
+            global_map = updates["global_map"]
+            if not request["merging"] and old_name in global_map:
+                global_map[new_name] = deepcopy(global_map[old_name])
+            if not source_remains:
+                global_map.pop(old_name, None)
+            for ep in episodes:
+                local_map = updates["episode_actor_map"].get(ep, {})
+                if old_name in local_map:
+                    assignment = local_map.pop(old_name)
+                    if not request["merging"]:
+                        local_map[new_name] = assignment
+                for line in updates.get("loaded_episodes", {}).get(ep, []):
+                    if line.get("char") == old_name:
+                        line["char"] = new_name
+                self._script_text_service.rename_character(
+                    edited, old_name, new_name, ep
+                )
+        aliases = updates["character_aliases"]
+        if not source_remains:
+            aliases.pop(old_name, None)
+        values = list(request["aliases"])
+        if source_remains:
+            # Aliases are project-wide: keep those still owned by the source
+            # out of the destination's card when only one episode changes.
+            retained_aliases = {
+                value.casefold() for value in aliases.get(old_name, [])
+            }
+            values = [value for value in values if value.casefold() not in retained_aliases]
+        if request["merging"]:
+            values = list(aliases.get(new_name, [])) + values
+        seen = {new_name.casefold()}
+        merged_aliases = []
+        for value in values:
+            folded = value.casefold()
+            if folded not in seen:
+                seen.add(folded)
+                merged_aliases.append(value)
+        if merged_aliases:
+            aliases[new_name] = merged_aliases
+        else:
+            aliases.pop(new_name, None)
+        for ep in episodes:
+            self._episode_service.invalidate_episode(ep)
+        self._execute(UpdateCharacterProfileStateCommand(
+            data, updates,
+            f"Обновлена карточка персонажа: {old_name} -> {new_name}"
+            if renaming else f"Обновлены алиасы персонажа: {new_name}",
+        ), "working_text")
         self._set_selected_character(new_name)
         self.statusRequested.emit(f"Карточка персонажа обновлена: {new_name}")
 
@@ -1052,6 +1150,7 @@ class CastingBridge(QObject):
 
     @Slot()
     def _episode_changed(self) -> None:
+        self.cancelCharacterProfileUpdate()
         self._set_selected_character("")
         self._refresh_lines()
         self._refresh_characters()

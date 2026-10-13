@@ -37,6 +37,7 @@ Item {
         + palette.base.b * 0.0722
     ) < 0.5
     property color selectedRow: Qt.rgba(palette.highlight.r, palette.highlight.g, palette.highlight.b, 0.22)
+    readonly property color actorTextColor: palette.text
 
     function actorCellFillColor(actorColor) {
         if (actorColorMuteLevel <= 0)
@@ -240,6 +241,24 @@ Item {
     property var collapsedActorCells: ({})
     property var dismissedSourceWarnings: ({})
     property string renameCharacterSource: ""
+    property string profileSourceName: ""
+    property string profileTargetName: ""
+
+    Connections {
+        target: table.castingBackend
+
+        function onCharacterProfileConfirmationRequested(stage, oldName, newName) {
+            table.profileSourceName = oldName
+            table.profileTargetName = newName
+            // The card/previous sheet closes after its accepted signal.
+            Qt.callLater(function() {
+                if (stage === "merge")
+                    mergeCharacterDialog.open()
+                else
+                    renameCharacterScopeDialog.open()
+            })
+        }
+    }
 
     readonly property string sourceWarningKey: {
         if (!appBridge || !appBridge.projectFiles)
@@ -413,6 +432,7 @@ Item {
 
     NativeDialogWindow {
         id: renameCharacterDialog
+        objectName: "renameCharacterDialog"
         ownerWindow: table.Window.window
         modal: true
         title: qsTr("Карточка персонажа")
@@ -446,6 +466,7 @@ Item {
 
             TextField {
                 id: renameCharacterField
+                objectName: "renameCharacterField"
                 Layout.fillWidth: true
                 placeholderText: qsTr("Имя персонажа")
                 selectByMouse: true
@@ -468,6 +489,119 @@ Item {
                 color: table.softMuted
                 wrapMode: Text.Wrap
                 Layout.fillWidth: true
+            }
+        }
+    }
+
+    NativeDialogWindow {
+        id: mergeCharacterDialog
+        objectName: "mergeCharacterDialog"
+        ownerWindow: table.Window.window
+        modal: true
+        title: qsTr("Объединить персонажей")
+        width: 480
+        height: 240
+        property bool proceeding: false
+        onOpened: proceeding = false
+        onAccepted: {
+            proceeding = true
+            if (table.castingBackend)
+                table.castingBackend.confirmCharacterProfileUpdate(true)
+        }
+        onRejected: if (table.castingBackend)
+            table.castingBackend.cancelCharacterProfileUpdate()
+        onClosed: if (!proceeding && table.castingBackend)
+            table.castingBackend.cancelCharacterProfileUpdate()
+
+        content: ColumnLayout {
+            anchors.fill: parent
+            spacing: 12
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Реплики персонажа «%1» станут репликами персонажа «%2». Объединить персонажей?")
+                    .arg(table.profileSourceName).arg(table.profileTargetName)
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+            }
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Назначения актёров персонажа «%1» сохранятся. Операцию можно отменить через Undo.")
+                    .arg(table.profileTargetName)
+                textFormat: Text.PlainText
+                color: table.softMuted
+                wrapMode: Text.WordWrap
+            }
+            Item { Layout.fillHeight: true }
+        }
+        footer: RowLayout {
+            anchors.fill: parent
+            Item { Layout.fillWidth: true }
+            AdaptiveButton {
+                text: qsTr("Отмена")
+                onClicked: mergeCharacterDialog.reject()
+            }
+            AdaptiveButton {
+                objectName: "confirmCharacterMerge"
+                text: qsTr("Объединить")
+                highlighted: true
+                onClicked: mergeCharacterDialog.accept()
+            }
+        }
+    }
+
+    NativeDialogWindow {
+        id: renameCharacterScopeDialog
+        objectName: "renameCharacterScopeDialog"
+        ownerWindow: table.Window.window
+        modal: true
+        title: qsTr("Применить ко всему сериалу?")
+        width: 520
+        height: 240
+        onAccepted: if (table.castingBackend)
+            table.castingBackend.confirmCharacterProfileUpdate(true)
+        onRejected: if (table.castingBackend)
+            table.castingBackend.cancelCharacterProfileUpdate()
+        onClosed: if (table.castingBackend)
+            table.castingBackend.cancelCharacterProfileUpdate()
+
+        content: ColumnLayout {
+            anchors.fill: parent
+            spacing: 12
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Персонаж «%1» найден и в других сериях. Хотите переименовать его в «%2» по всему сериалу?")
+                    .arg(table.profileSourceName).arg(table.profileTargetName)
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+            }
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Все изменения можно отменить одной операцией Undo.")
+                color: table.softMuted
+                wrapMode: Text.WordWrap
+            }
+            Item { Layout.fillHeight: true }
+        }
+        footer: RowLayout {
+            anchors.fill: parent
+            AdaptiveButton {
+                text: qsTr("Отмена")
+                onClicked: renameCharacterScopeDialog.reject()
+            }
+            Item { Layout.fillWidth: true }
+            AdaptiveButton {
+                objectName: "renameCharacterCurrentEpisode"
+                text: qsTr("Только эту серию")
+                onClicked: {
+                    table.castingBackend.confirmCharacterProfileUpdate(false)
+                    renameCharacterScopeDialog.close()
+                }
+            }
+            AdaptiveButton {
+                objectName: "renameCharacterAllEpisodes"
+                text: qsTr("Весь сериал")
+                highlighted: true
+                onClicked: renameCharacterScopeDialog.accept()
             }
         }
     }
@@ -831,8 +965,9 @@ Item {
                                             text: modelData.name
                                             elide: Text.ElideRight
                                             verticalAlignment: Text.AlignVCenter
-                                            color: table.actorCellColorFill
-                                                && table.actorCellNeedsLightText(
+                                            color: !table.actorCellColorFill
+                                                ? table.actorTextColor
+                                                : table.actorCellNeedsLightText(
                                                     actorEntry.actorDisplayFillColor
                                                 )
                                                 ? "white" : "#151515"

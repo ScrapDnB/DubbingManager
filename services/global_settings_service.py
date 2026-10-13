@@ -1006,6 +1006,12 @@ class GlobalSettingsService:
                 result[key] = max(minimum, min(maximum, float(result[key])))
             except (KeyError, TypeError, ValueError):
                 result[key] = DEFAULT_PROMPTER_CONFIG[key]
+        if result["sync_daw"] not in ("reaper", "nuendo"):
+            result["sync_daw"] = "reaper"
+        if result["midi_frame_rate"] not in ("24", "25", "29.97df", "30", "23.976", "29.97"):
+            result["midi_frame_rate"] = "25"
+        for key in ("midi_input_port", "midi_output_port"):
+            result[key] = str(result[key] or "")
         return result
 
     @staticmethod

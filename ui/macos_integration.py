@@ -37,6 +37,7 @@ if sys.platform == "darwin":
         NSMenuItem,
         NSPanel,
         NSPopUpButton,
+        NSSegmentedControl,
         NSScreen,
         NSTextField,
         NSToolbar,
@@ -92,10 +93,32 @@ if sys.platform == "darwin":
             key = str(identifier)
             if key == self.owner.RECENT:
                 item = self._make_recent_item(identifier)
+            elif key == self.owner.WORKSPACE:
+                item = self._make_workspace_item(identifier)
             else:
                 item = self._make_action_item(identifier, key)
             self.items[key] = item
             return item
+
+        def _make_workspace_item(self, identifier):
+            item = NSToolbarItem.alloc().initWithItemIdentifier_(identifier)
+            item.setLabel_("Рабочее пространство")
+            item.setPaletteLabel_("Рабочее пространство")
+            item.setVisibilityPriority_(1000)
+            control = NSSegmentedControl.alloc().initWithFrame_(NSMakeRect(0, 0, 170, 28))
+            control.setSegmentCount_(2)
+            for index, label in enumerate(("Кастинг", "Текст")):
+                control.setLabel_forSegment_(label, index)
+                control.setWidth_forSegment_(85, index)
+            control.setSelectedSegment_(self.owner._workspace_index)
+            control.setTarget_(self)
+            control.setAction_("workspaceChanged:")
+            item.setView_(control)
+            self.workspace_control = control
+            return item
+
+        def workspaceChanged_(self, sender):
+            self.owner.workspaceRequested.emit(int(sender.selectedSegment()))
 
         def _make_action_item(self, identifier, key):
             definition = self.owner.ACTIONS[key]
@@ -147,6 +170,8 @@ if sys.platform == "darwin":
 
         def validateToolbarItem_(self, item):
             key = str(item.itemIdentifier())
+            if key == self.owner.AUDIOBOOK:
+                return bool(self.project.canOpenAudiobook)
             if key == self.owner.SAVE:
                 return bool(self.project.path)
             if key == self.owner.UNDO:
@@ -211,6 +236,9 @@ class MacOSIntegration(QObject):
     quickConverterVisibilityRequested = Signal(bool)
     comboMenuSelected = Signal(str, int)
 
+    workspaceRequested = Signal(int)
+
+    WORKSPACE = "dm.workspace"
     RECENT = "dm.recent"
     NEW = "dm.new"
     OPEN = "dm.open"
@@ -312,6 +340,14 @@ class MacOSIntegration(QObject):
         self._combo_menu_target = None
         self._combo_token = 0
         self._quick_converter_visible = True
+        self._workspace_index = 0
+
+    @Slot(int)
+    def setWorkspace(self, index: int) -> None:
+        self._workspace_index = max(0, min(1, index))
+        control = getattr(self._delegate, "workspace_control", None)
+        if control is not None:
+            control.setSelectedSegment_(self._workspace_index)
 
     @Property(bool, constant=True)
     def available(self) -> bool:
@@ -364,6 +400,7 @@ class MacOSIntegration(QObject):
             return list(self.ACTIONS)
         return [
             self.RECENT,
+            self.WORKSPACE,
             self.NEW,
             self.OPEN,
             self.SAVE,
@@ -403,6 +440,8 @@ class MacOSIntegration(QObject):
             self.UNDO,
             self.REDO,
             NSToolbarSpaceItemIdentifier,
+            self.WORKSPACE,
+            NSToolbarSpaceItemIdentifier,
             self.TELEPROMPTER,
             self.MONTAGE,
             self.REAPER,
@@ -423,7 +462,7 @@ class MacOSIntegration(QObject):
             ns_window = native_view.window()
             self._install_visual_effect(native_view, ns_window)
             toolbar = NSToolbar.alloc().initWithIdentifier_(
-                "com.yuriromanov.dubbingmanager.main-toolbar.v2"
+                "com.yuriromanov.dubbingmanager.main-toolbar.v2-workspace"
             )
             delegate = _ToolbarDelegate.alloc().initWithOwner_project_(
                 self, project
@@ -449,11 +488,13 @@ class MacOSIntegration(QObject):
             project.recentProjectsChanged.connect(self.refresh_recent_projects)
             project.pathChanged.connect(self._validate_toolbar)
             project.undoStateChanged.connect(self._validate_toolbar)
+            project.audiobookAvailabilityChanged.connect(self._validate_toolbar)
             self._ns_window = ns_window
             self._main_window_number = int(ns_window.windowNumber())
             self._toolbar = toolbar
             self._delegate = delegate
             self._native_toolbar_active = True
+            self._validate_toolbar()
             self._sync_converter_toolbar_state()
             self.nativeToolbarActiveChanged.emit()
         except Exception:
@@ -768,6 +809,12 @@ class MacOSIntegration(QObject):
 
     def _validate_toolbar(self) -> None:
         if self._toolbar is not None:
+            # AppKit validates visible items only. Keep the overflow action in
+            # sync too when a project changes while the window is narrow.
+            if self._delegate is not None:
+                item = self._delegate.items.get(self.AUDIOBOOK)
+                if item is not None:
+                    item.setEnabled_(bool(self._delegate.project.canOpenAudiobook))
             self._toolbar.validateVisibleItems()
 
     @Slot(bool)

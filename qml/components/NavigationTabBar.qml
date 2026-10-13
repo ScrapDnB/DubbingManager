@@ -8,6 +8,8 @@ FocusScope {
 
     property var model: []
     property int currentIndex: 0
+    // Keep a backend binding intact when activation can be rejected.
+    property bool managedSelection: false
     property real tabWidth: 120
     property color softMuted: tabPalette.placeholderText
     readonly property bool macOSStyle: Qt.platform.os === "osx"
@@ -23,7 +25,8 @@ FocusScope {
         if (bounded === currentIndex) {
             return
         }
-        currentIndex = bounded
+        if (!managedSelection)
+            currentIndex = bounded
         activated(bounded)
     }
 

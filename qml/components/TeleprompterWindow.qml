@@ -21,12 +21,14 @@ NativeDialogWindow {
     readonly property var teleprompter: appBridge.teleprompter
 
     modal: false
-    title: qsTr("Телесуфлёр - серия ") + teleprompter.episode
+    title: qsTr("Телесуфлёр — серия ") + teleprompter.episode
     width: 1240
     height: 820
     minimumWidth: 760
     minimumHeight: 520
     standardButtons: Dialog.NoButton
+    contentMargin: 0
+    color: macOSStyle ? "transparent" : systemPalette.window
     // The teleprompter must remain a fully independent top-level window.
     // ownerWindow is used only to choose a sensible initial screen and position.
     transientParent: null
@@ -118,6 +120,18 @@ NativeDialogWindow {
             ? true : config.scroll_deadline_enabled
     )
     readonly property int toolbarControlHeight: Math.max(macOSStyle ? 28 : 40, Math.ceil(interfaceFontMetrics.height + (macOSStyle ? 10 : 18)))
+
+    FontLoader {
+        id: timecodeFont
+        source: Qt.resolvedUrl("../../resources/fonts/ChakraPetch-Bold.ttf")
+    }
+    readonly property string timecodeFontFamily: timecodeFont.status === FontLoader.Ready
+        ? timecodeFont.name : (windowsStyle ? "Consolas" : "Menlo")
+    readonly property string metadataFontFamily: windowsStyle
+        && Qt.fontFamilies().indexOf("Consolas") >= 0 ? "Consolas" : "Menlo"
+    readonly property color syncStateColor: teleprompter.syncConnectionState === "active"
+        ? "#73D991" : ["lost", "error", "unavailable"].indexOf(
+            teleprompter.syncConnectionState) >= 0 ? "#E77968" : softMuted
 
     FontMetrics {
         id: interfaceFontMetrics
@@ -1160,209 +1174,224 @@ NativeDialogWindow {
 
     content: ColumnLayout {
         anchors.fill: parent
-        spacing: 8
+        spacing: 0
 
-        RowLayout {
+        ToolBar {
             Layout.fillWidth: true
-            Layout.preferredHeight: window.toolbarControlHeight
-            Layout.leftMargin: window.macOSStyle ? 12 : 0
-            Layout.rightMargin: window.macOSStyle ? 12 : 0
-            spacing: window.macOSStyle ? 10 : 8
+            implicitHeight: toolbarFlow.implicitHeight + 20
 
-            CompactToolButton {
-                Layout.alignment: Qt.AlignVCenter
-                iconSource: Qt.resolvedUrl("../icons/settings.svg")
-                toolTipText: window.sidePanelVisible ? qsTr("Скрыть настройки") : qsTr("Показать настройки")
-                checkable: true
-                checked: window.sidePanelVisible
-                onClicked: window.sidePanelVisible = !window.sidePanelVisible
-            }
-            Label {
-                text: qsTr("Серия:")
-            }
-            PlatformComboBox {
-                id: episodeBox
-                Layout.preferredWidth: 150
-                Layout.minimumHeight: window.toolbarControlHeight
-                Layout.preferredHeight: window.toolbarControlHeight
-                Layout.maximumHeight: window.toolbarControlHeight
-                Layout.alignment: Qt.AlignVCenter
-                textRole: "name"
-                valueRole: "name"
-                model: window.teleprompter.episodesModel
-                Component.onCompleted: currentIndex = indexOfValue(window.teleprompter.episode)
-                onActivated: window.setEpisode(currentValue)
-            }
-            AdaptiveButton {
-                text: qsTr("Обновить каст")
-                Layout.preferredHeight: window.toolbarControlHeight
-                Layout.alignment: Qt.AlignVCenter
-                onClicked: window.teleprompter.refreshCast()
-            }
-            CompactToolButton {
-                id: searchMenuButton
-                iconSource: Qt.resolvedUrl("../icons/search.svg")
-                toolTipText: qsTr("Поиск")
-                Layout.alignment: Qt.AlignVCenter
-                onClicked: searchScopeMenu.open()
+            Flow {
+                id: toolbarFlow
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 10
+                spacing: 8
 
-                Menu {
-                    id: searchScopeMenu
-                    y: searchMenuButton.height
-                    MenuItem {
-                        text: qsTr("Поиск в текущей серии")
-                        onTriggered: {
-                            quickSearchField.forceActiveFocus();
-                            quickSearchField.selectAll();
+                RowLayout {
+                    spacing: 8
+
+                    CompactToolButton {
+                        Layout.alignment: Qt.AlignVCenter
+                        iconSource: Qt.resolvedUrl("../icons/settings.svg")
+                        toolTipText: window.sidePanelVisible ? qsTr("Скрыть настройки") : qsTr("Показать настройки")
+                        checkable: true
+                        checked: window.sidePanelVisible
+                        onClicked: window.sidePanelVisible = !window.sidePanelVisible
+                    }
+                    Label {
+                        text: qsTr("Серия:")
+                    }
+                    PlatformComboBox {
+                        id: episodeBox
+                        Layout.preferredWidth: 150
+                        Layout.minimumHeight: window.toolbarControlHeight
+                        Layout.preferredHeight: window.toolbarControlHeight
+                        Layout.maximumHeight: window.toolbarControlHeight
+                        Layout.alignment: Qt.AlignVCenter
+                        textRole: "name"
+                        valueRole: "name"
+                        model: window.teleprompter.episodesModel
+                        Component.onCompleted: currentIndex = indexOfValue(window.teleprompter.episode)
+                        onActivated: window.setEpisode(currentValue)
+                    }
+                    AdaptiveButton {
+                        text: qsTr("Обновить каст")
+                        Layout.preferredHeight: window.toolbarControlHeight
+                        Layout.alignment: Qt.AlignVCenter
+                        onClicked: window.teleprompter.refreshCast()
+                    }
+                }
+                RowLayout {
+                    spacing: 6
+                    CompactToolButton {
+                        id: searchMenuButton
+                        iconSource: Qt.resolvedUrl("../icons/search.svg")
+                        toolTipText: qsTr("Поиск")
+                        Layout.alignment: Qt.AlignVCenter
+                        onClicked: searchScopeMenu.open()
+
+                        Menu {
+                            id: searchScopeMenu
+                            y: searchMenuButton.height
+                            MenuItem {
+                                text: qsTr("Поиск в текущей серии")
+                                onTriggered: {
+                                    quickSearchField.forceActiveFocus();
+                                    quickSearchField.selectAll();
+                                }
+                            }
+                            MenuItem {
+                                text: qsTr("Глобальный поиск по проекту")
+                                onTriggered: teleprompterGlobalSearchDialog.open()
+                            }
                         }
                     }
-                    MenuItem {
-                        text: qsTr("Глобальный поиск по проекту")
-                        onTriggered: teleprompterGlobalSearchDialog.open()
-                    }
-                }
-            }
-            TextField {
-                id: quickSearchField
-                Layout.preferredWidth: 190
-                Layout.minimumWidth: 120
-                Layout.minimumHeight: window.toolbarControlHeight
-                Layout.preferredHeight: window.toolbarControlHeight
-                Layout.maximumHeight: window.toolbarControlHeight
-                Layout.alignment: Qt.AlignVCenter
-                placeholderText: qsTr("Быстрый поиск")
-                selectByMouse: true
-                rightPadding: 32
-                onTextEdited: {
-                    window.quickSearchText = text;
-                    quickSearchRevealTimer.restart();
-                }
-                onAccepted: window.navigateQuickSearch(1)
+                    TextField {
+                        id: quickSearchField
+                        Layout.preferredWidth: Math.max(150, Math.min(300, window.width - 860))
+                        Layout.minimumWidth: 150
+                        Layout.minimumHeight: window.toolbarControlHeight
+                        Layout.preferredHeight: window.toolbarControlHeight
+                        Layout.maximumHeight: window.toolbarControlHeight
+                        Layout.alignment: Qt.AlignVCenter
+                        placeholderText: qsTr("Быстрый поиск")
+                        selectByMouse: true
+                        rightPadding: 32
+                        onTextEdited: {
+                            window.quickSearchText = text;
+                            quickSearchRevealTimer.restart();
+                        }
+                        onAccepted: window.navigateQuickSearch(1)
 
-                ToolButton {
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: quickSearchField.text.length > 0
-                    text: "×"
-                    flat: true
-                    onClicked: {
-                        quickSearchField.clear();
-                        window.quickSearchText = "";
-                        window.refreshQuickSearch(false);
-                        quickSearchField.forceActiveFocus();
+                        ToolButton {
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: quickSearchField.text.length > 0
+                            text: "×"
+                            flat: true
+                            onClicked: {
+                                quickSearchField.clear();
+                                window.quickSearchText = "";
+                                window.refreshQuickSearch(false);
+                                quickSearchField.forceActiveFocus();
+                            }
+                            Accessible.name: qsTr("Очистить быстрый поиск")
+                        }
                     }
-                    Accessible.name: qsTr("Очистить быстрый поиск")
+                    Label {
+                        visible: window.quickSearchText.trim().length > 0
+                        text: window.quickSearchMatches.length > 0
+                            ? qsTr("%1/%2").arg(
+                                window.quickSearchPosition + 1
+                            ).arg(window.quickSearchMatches.length)
+                            : qsTr("0/0")
+                        color: window.softMuted
+                    }
+                    CompactToolButton {
+                        visible: window.quickSearchText.trim().length > 0
+                        enabled: window.quickSearchMatches.length > 0
+                        iconSource: Qt.resolvedUrl("../icons/chevron-left.svg")
+                        toolTipText: qsTr("Предыдущее совпадение")
+                        Layout.alignment: Qt.AlignVCenter
+                        onClicked: window.navigateQuickSearch(-1)
+                    }
+                    CompactToolButton {
+                        visible: window.quickSearchText.trim().length > 0
+                        enabled: window.quickSearchMatches.length > 0
+                        iconSource: Qt.resolvedUrl("../icons/chevron-right.svg")
+                        toolTipText: qsTr("Следующее совпадение")
+                        Layout.alignment: Qt.AlignVCenter
+                        onClicked: window.navigateQuickSearch(1)
+                    }
                 }
-            }
-            Label {
-                visible: window.quickSearchText.trim().length > 0
-                text: window.quickSearchMatches.length > 0
-                    ? qsTr("%1/%2").arg(
-                        window.quickSearchPosition + 1
-                    ).arg(window.quickSearchMatches.length)
-                    : qsTr("0/0")
-                color: window.softMuted
-            }
-            CompactToolButton {
-                visible: window.quickSearchText.trim().length > 0
-                enabled: window.quickSearchMatches.length > 0
-                iconSource: Qt.resolvedUrl("../icons/chevron-left.svg")
-                toolTipText: qsTr("Предыдущее совпадение")
-                Layout.alignment: Qt.AlignVCenter
-                onClicked: window.navigateQuickSearch(-1)
-            }
-            CompactToolButton {
-                visible: window.quickSearchText.trim().length > 0
-                enabled: window.quickSearchMatches.length > 0
-                iconSource: Qt.resolvedUrl("../icons/chevron-right.svg")
-                toolTipText: qsTr("Следующее совпадение")
-                Layout.alignment: Qt.AlignVCenter
-                onClicked: window.navigateQuickSearch(1)
-            }
-            CompactToolButton {
-                id: diagnosticMenuButton
-                visible: window.teleprompter.diagnosticRecording || Boolean(
-                    window.config.show_diagnostic_controls === undefined
-                        ? true
-                        : window.config.show_diagnostic_controls
-                )
-                iconSource: Qt.resolvedUrl("../icons/report.svg")
-                toolTipText: window.teleprompter.diagnosticRecording
-                    ? qsTr("Диагностическая запись идёт")
-                    : qsTr("Диагностическая запись")
-                Layout.alignment: Qt.AlignVCenter
-                onClicked: diagnosticMenu.open()
+                RowLayout {
+                    spacing: 6
+                    CompactToolButton {
+                        id: diagnosticMenuButton
+                        visible: window.teleprompter.diagnosticRecording || Boolean(
+                            window.config.show_diagnostic_controls === undefined
+                                ? true
+                                : window.config.show_diagnostic_controls
+                        )
+                        iconSource: Qt.resolvedUrl("../icons/report.svg")
+                        toolTipText: window.teleprompter.diagnosticRecording
+                            ? qsTr("Диагностическая запись идёт")
+                            : qsTr("Диагностическая запись")
+                        Layout.alignment: Qt.AlignVCenter
+                        onClicked: diagnosticMenu.open()
 
-                Menu {
-                    id: diagnosticMenu
-                    y: diagnosticMenuButton.height
-                    width: 300
-                    MenuItem {
-                        text: qsTr("Начать запись лога")
-                        enabled: !window.teleprompter.diagnosticRecording
-                        onTriggered: window.toggleDiagnosticRecording()
+                        Menu {
+                            id: diagnosticMenu
+                            y: diagnosticMenuButton.height
+                            width: 300
+                            MenuItem {
+                                text: qsTr("Начать запись лога")
+                                enabled: !window.teleprompter.diagnosticRecording
+                                onTriggered: window.toggleDiagnosticRecording()
+                            }
+                            MenuItem {
+                                text: qsTr("Завершить и сформировать отчёт")
+                                enabled: window.teleprompter.diagnosticRecording
+                                onTriggered: window.toggleDiagnosticRecording()
+                            }
+                            MenuItem {
+                                text: qsTr("Отметить проблему")
+                                enabled: window.teleprompter.diagnosticRecording
+                                onTriggered: window.markDiagnosticIssue()
+                            }
+                            MenuSeparator { }
+                            MenuItem {
+                                text: qsTr("Открыть папку логов")
+                                onTriggered: window.teleprompter.openDiagnosticDirectory()
+                            }
+                        }
                     }
-                    MenuItem {
-                        text: qsTr("Завершить и сформировать отчёт")
-                        enabled: window.teleprompter.diagnosticRecording
-                        onTriggered: window.toggleDiagnosticRecording()
+                    AdaptiveButton {
+                        visible: diagnosticMenuButton.visible
+                            && window.teleprompter.diagnosticRecording
+                        text: qsTr("Метка")
+                        Layout.preferredHeight: window.toolbarControlHeight
+                        Layout.alignment: Qt.AlignVCenter
+                        onClicked: window.markDiagnosticIssue()
                     }
-                    MenuItem {
-                        text: qsTr("Отметить проблему")
-                        enabled: window.teleprompter.diagnosticRecording
-                        onTriggered: window.markDiagnosticIssue()
+                    CompactToolButton {
+                        objectName: "teleprompterPreviousReplica"
+                        iconSource: Qt.resolvedUrl("../icons/chevron-left.svg")
+                        toolTipText: qsTr("Предыдущая реплика")
+                        Layout.alignment: Qt.AlignVCenter
+                        onClicked: window.navigate(-1)
                     }
-                    MenuSeparator { }
-                    MenuItem {
-                        text: qsTr("Открыть папку логов")
-                        onTriggered: window.teleprompter.openDiagnosticDirectory()
+                    CompactToolButton {
+                        objectName: "teleprompterNextReplica"
+                        iconSource: Qt.resolvedUrl("../icons/chevron-right.svg")
+                        toolTipText: qsTr("Следующая реплика")
+                        Layout.alignment: Qt.AlignVCenter
+                        onClicked: window.navigate(1)
                     }
-                }
-            }
-            AdaptiveButton {
-                visible: diagnosticMenuButton.visible
-                    && window.teleprompter.diagnosticRecording
-                text: qsTr("Метка")
-                Layout.preferredHeight: window.toolbarControlHeight
-                Layout.alignment: Qt.AlignVCenter
-                onClicked: window.markDiagnosticIssue()
-            }
-            Item {
-                Layout.fillWidth: true
-            }
-            CompactToolButton {
-                iconSource: Qt.resolvedUrl("../icons/chevron-left.svg")
-                toolTipText: qsTr("Предыдущая реплика")
-                Layout.alignment: Qt.AlignVCenter
-                onClicked: window.navigate(-1)
-            }
-            CompactToolButton {
-                iconSource: Qt.resolvedUrl("../icons/chevron-right.svg")
-                toolTipText: qsTr("Следующая реплика")
-                Layout.alignment: Qt.AlignVCenter
-                onClicked: window.navigate(1)
-            }
-            CompactToolButton {
-                id: floatButton
-                visible: true
-                iconSource: Qt.resolvedUrl("../icons/remote-control.svg")
-                toolTipText: qsTr("Плавающий контроллер")
-                Layout.alignment: Qt.AlignVCenter
-                enabled: true
-                checkable: true
-                checked: floatWindow.visible
-                onToggled: checked ? floatWindow.openNearOwner() : floatWindow.close()
-            }
-            CompactToolButton {
-                visible: Boolean(window.config.osc_enabled)
-                enabled: window.teleprompter.oscAvailable
-                iconSource: Qt.resolvedUrl("../icons/refresh.svg")
-                toolTipText: qsTr("Переподключить REAPER")
-                Layout.alignment: Qt.AlignVCenter
-                onClicked: window.teleprompter.restartOsc()
-                PlatformToolTip {
-                    target: parent
-                    text: qsTr("Перезапустить подключение OSC без сброса позиции")
+                    CompactToolButton {
+                        id: floatButton
+                        visible: true
+                        iconSource: Qt.resolvedUrl("../icons/remote-control.svg")
+                        toolTipText: qsTr("Плавающий контроллер")
+                        Layout.alignment: Qt.AlignVCenter
+                        enabled: true
+                        checkable: true
+                        checked: floatWindow.visible
+                        onToggled: checked ? floatWindow.openNearOwner() : floatWindow.close()
+                    }
+                    CompactToolButton {
+                        visible: Boolean(window.config.osc_enabled)
+                        enabled: window.teleprompter.syncAvailable
+                        iconSource: Qt.resolvedUrl("../icons/refresh.svg")
+                        toolTipText: qsTr("Переподключить %1").arg(window.teleprompter.dawName)
+                        Layout.alignment: Qt.AlignVCenter
+                        onClicked: window.teleprompter.restartSync()
+                        PlatformToolTip {
+                            target: parent
+                            text: qsTr("Перезапустить синхронизацию без сброса позиции")
+                        }
+                    }
                 }
             }
         }
@@ -1381,19 +1410,16 @@ NativeDialogWindow {
 
             Rectangle {
                 visible: window.sidePanelVisible
-                Layout.preferredWidth: visible ? (window.macOSStyle ? 336 : 350) : 0
+                Layout.preferredWidth: visible ? (window.macOSStyle ? 320 : 330) : 0
                 Layout.fillHeight: true
                 color: systemPalette.window
-                border.width: window.macOSStyle ? 0 : 1
+                border.width: 0
                 border.color: window.softBorder
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: window.macOSStyle ? 12 : 8
-                    anchors.rightMargin: window.macOSStyle ? 12 : 8
-                    anchors.topMargin: window.macOSStyle ? 10 : 8
-                    anchors.bottomMargin: window.macOSStyle ? 10 : 8
-                    spacing: window.macOSStyle ? 10 : 8
+                    anchors.margins: 16
+                    spacing: 12
 
                     PersistentScrollView {
                         id: settingsScroll
@@ -1407,7 +1433,7 @@ NativeDialogWindow {
                         ColumnLayout {
                             id: settingsColumn
                             width: settingsScroll.availableWidth
-                            spacing: window.macOSStyle ? 9 : 5
+                            spacing: 12
 
                             AudiobookSessionTools {
                                 id: audiobookSessionTools
@@ -1417,46 +1443,9 @@ NativeDialogWindow {
                                 Layout.fillWidth: true
                             }
 
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    id: oscStatusLabel
-                                    text: qsTr("Просмотр")
-                                    font.weight: window.macOSStyle ? Font.DemiBold : Font.Bold
-                                    font.pixelSize: window.macOSStyle ? 11 : font.pixelSize
-                                    font.capitalization: window.macOSStyle ? Font.AllUppercase : Font.MixedCase
-                                    color: window.macOSStyle ? window.softMuted : systemPalette.text
-                                    Layout.fillWidth: true
-                                }
-                                RowLayout {
-                                    visible: window.macOSStyle && window.config.osc_enabled
-                                    spacing: 5
-                                    Layout.maximumWidth: 190
-
-                                    Rectangle {
-                                        implicitWidth: 8
-                                        implicitHeight: 8
-                                        Layout.preferredWidth: implicitWidth
-                                        Layout.preferredHeight: implicitHeight
-                                        radius: 4
-                                        color: window.teleprompter.reaperConnectionState === "active" ? "#2E9E5B" : window.teleprompter.reaperConnectionState === "lost" || window.teleprompter.reaperConnectionState === "error" || window.teleprompter.reaperConnectionState === "unavailable" ? "#D65D4A" : window.softMuted
-                                    }
-                                    Label {
-                                        text: window.teleprompter.reaperConnectionText
-                                        color: window.softMuted
-                                        font.pixelSize: 11
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-                                    HoverHandler {
-                                        id: oscStatusHover
-                                    }
-                                    PlatformToolTip {
-                                        target: parent
-                                        active: oscStatusHover.hovered
-                                        text: window.teleprompter.reaperConnectionText + "\n" + window.teleprompter.oscStatus
-                                    }
-                                }
+                            Label {
+                                text: qsTr("Просмотр")
+                                font.weight: Font.DemiBold
                             }
 
                             Label {
@@ -1468,35 +1457,6 @@ NativeDialogWindow {
                                 )
                                 color: window.softMuted
                                 wrapMode: Text.WordWrap
-                            }
-
-                            RowLayout {
-                                visible: !window.macOSStyle && window.config.osc_enabled
-                                Layout.fillWidth: true
-                                spacing: 6
-
-                                Rectangle {
-                                    implicitWidth: 8
-                                    implicitHeight: 8
-                                    Layout.preferredWidth: implicitWidth
-                                    Layout.preferredHeight: implicitHeight
-                                    radius: 4
-                                    color: window.teleprompter.reaperConnectionState === "active" ? "#2E9E5B" : window.teleprompter.reaperConnectionState === "lost" || window.teleprompter.reaperConnectionState === "error" || window.teleprompter.reaperConnectionState === "unavailable" ? "#D65D4A" : window.softMuted
-                                }
-                                Label {
-                                    text: window.teleprompter.reaperConnectionText
-                                    color: window.softMuted
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
-                                HoverHandler {
-                                    id: windowsOscStatusHover
-                                }
-                                PlatformToolTip {
-                                    target: parent
-                                    active: windowsOscStatusHover.hovered
-                                    text: window.teleprompter.reaperConnectionText + "\n" + window.teleprompter.oscStatus
-                                }
                             }
 
                             RowLayout {
@@ -1553,7 +1513,9 @@ NativeDialogWindow {
 
                             CollapsibleSection {
                                 title: qsTr("Элементы")
-                                sidebarStyle: window.macOSStyle
+                                sidebarStyle: true
+                                toolStyle: true
+                                trailingIndicator: !window.macOSStyle
                                 Layout.fillWidth: true
 
                                 CheckBox {
@@ -1598,7 +1560,9 @@ NativeDialogWindow {
 
                             CollapsibleSection {
                                 title: qsTr("Размер текста")
-                                sidebarStyle: window.macOSStyle
+                                sidebarStyle: true
+                                toolStyle: true
+                                trailingIndicator: !window.macOSStyle
                                 Layout.fillWidth: true
 
                                 Repeater {
@@ -1671,7 +1635,9 @@ NativeDialogWindow {
 
                             CollapsibleSection {
                                 title: qsTr("Цвета и пресеты")
-                                sidebarStyle: window.macOSStyle
+                                sidebarStyle: true
+                                toolStyle: true
+                                trailingIndicator: !window.macOSStyle
                                 Layout.fillWidth: true
 
                                 ColumnLayout {
@@ -1824,173 +1790,43 @@ NativeDialogWindow {
                             CollapsibleSection {
                                 title: qsTr("Прокрутка")
                                 expanded: true
-                                sidebarStyle: window.macOSStyle
+                                sidebarStyle: true
+                                toolStyle: true
+                                trailingIndicator: !window.macOSStyle
                                 Layout.fillWidth: true
 
                                 Label {
                                     text: qsTr("Режим прокрутки")
                                     color: window.softMuted
                                 }
-                                Rectangle {
+                                RowLayout {
                                     id: scrollModeSelector
                                     readonly property bool pageSelected:
                                         Boolean(window.config.page_scroll_mode)
-                                    readonly property bool normalSelected:
-                                        !pageSelected
-
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: Math.max(
-                                        34, window.toolbarControlHeight
-                                    )
-                                    radius: window.macOSStyle ? 7 : 4
-                                    color: Qt.rgba(
-                                        systemPalette.text.r,
-                                        systemPalette.text.g,
-                                        systemPalette.text.b,
-                                        0.055
-                                    )
-                                    border.width: 1
-                                    border.color: window.softBorder
-
+                                    spacing: 6
                                     function setMode(mode) {
-                                        window.appBridge.settings.setPrompterScrollMode(
-                                            mode
-                                        );
+                                        window.appBridge.settings.setPrompterScrollMode(mode);
                                     }
-
                                     function setPageMode(enabled) {
                                         setMode(enabled ? "page" : "normal");
                                     }
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.margins: 2
-                                        spacing: 2
-
-                                        Rectangle {
-                                            id: continuousModeSegment
-                                            readonly property bool selected:
-                                                scrollModeSelector.normalSelected
-
-                                            Layout.fillWidth: true
-                                            Layout.fillHeight: true
-                                            radius: window.macOSStyle ? 5 : 3
-                                            color: selected
-                                                ? systemPalette.button
-                                                : continuousModeMouse.containsMouse
-                                                    ? Qt.rgba(
-                                                        systemPalette.text.r,
-                                                        systemPalette.text.g,
-                                                        systemPalette.text.b,
-                                                        0.07
-                                                    )
-                                                    : "transparent"
-                                            border.width: selected || activeFocus ? 1 : 0
-                                            border.color: window.softBorder
-                                            activeFocusOnTab: true
-                                            Accessible.role: Accessible.RadioButton
-                                            Accessible.name: qsTr("Обычный режим прокрутки")
-                                            Accessible.checked: selected
-                                            Accessible.onPressAction:
-                                                scrollModeSelector.setMode("normal")
-                                            Keys.onPressed: function(event) {
-                                                if (event.key === Qt.Key_Space
-                                                        || event.key === Qt.Key_Return
-                                                        || event.key === Qt.Key_Enter) {
-                                                    scrollModeSelector.setMode("normal");
-                                                    event.accepted = true;
-                                                }
-                                            }
-
-                                            MouseArea {
-                                                id: continuousModeMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: scrollModeSelector.setMode("normal")
-                                            }
-
-                                            Text {
-                                                anchors.fill: parent
-                                                anchors.leftMargin: 8
-                                                anchors.rightMargin: 8
-                                                text: qsTr("Обычный")
-                                                color: continuousModeSegment.selected
-                                                    ? systemPalette.buttonText
-                                                    : window.softMuted
-                                                font.weight: continuousModeSegment.selected
-                                                    ? Font.DemiBold : Font.Normal
-                                                horizontalAlignment: Text.AlignHCenter
-                                                verticalAlignment: Text.AlignVCenter
-                                                elide: Text.ElideRight
-                                            }
-                                        }
-
-                                        Rectangle {
-                                            id: pageModeSegment
-                                            readonly property bool selected:
-                                                scrollModeSelector.pageSelected
-
-                                            Layout.fillWidth: true
-                                            Layout.fillHeight: true
-                                            radius: window.macOSStyle ? 5 : 3
-                                            color: selected
-                                                ? systemPalette.button
-                                                : pageModeMouse.containsMouse
-                                                    ? Qt.rgba(
-                                                        systemPalette.text.r,
-                                                        systemPalette.text.g,
-                                                        systemPalette.text.b,
-                                                        0.07
-                                                    )
-                                                    : "transparent"
-                                            border.width: selected || activeFocus ? 1 : 0
-                                            border.color: window.softBorder
-                                            activeFocusOnTab: true
-                                            Accessible.role: Accessible.RadioButton
-                                            Accessible.name: qsTr("Постраничный режим прокрутки")
-                                            Accessible.checked: selected
-                                            Accessible.onPressAction:
-                                                scrollModeSelector.setPageMode(true)
-                                            Keys.onPressed: function(event) {
-                                                if (event.key === Qt.Key_Space
-                                                        || event.key === Qt.Key_Return
-                                                        || event.key === Qt.Key_Enter) {
-                                                    scrollModeSelector.setPageMode(true);
-                                                    event.accepted = true;
-                                                }
-                                            }
-
-                                            MouseArea {
-                                                id: pageModeMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: scrollModeSelector.setPageMode(true)
-                                            }
-
-                                            Text {
-                                                anchors.fill: parent
-                                                anchors.leftMargin: 8
-                                                anchors.rightMargin: 8
-                                                text: qsTr("Постраничный")
-                                                color: pageModeSegment.selected
-                                                    ? systemPalette.buttonText
-                                                    : window.softMuted
-                                                font.weight: pageModeSegment.selected
-                                                    ? Font.DemiBold : Font.Normal
-                                                horizontalAlignment: Text.AlignHCenter
-                                                verticalAlignment: Text.AlignVCenter
-                                                elide: Text.ElideRight
-                                            }
-                                        }
+                                    ButtonGroup { id: scrollModeGroup }
+                                    RadioButton {
+                                        objectName: "teleprompterContinuousMode"
+                                        text: qsTr("Обычный")
+                                        checked: !scrollModeSelector.pageSelected
+                                        ButtonGroup.group: scrollModeGroup
+                                        onClicked: scrollModeSelector.setMode("normal")
+                                        Accessible.name: qsTr("Обычный режим прокрутки")
                                     }
-
-                                    PlatformToolTip {
-                                        target: parent
-                                        text: scrollModeSelector.pageSelected
-                                            ? qsTr("Прокрутка экранными фрагментами")
-                                            : qsTr("Плавное следование по окончании реплик")
+                                    RadioButton {
+                                        objectName: "teleprompterPageMode"
+                                        text: qsTr("Постраничный")
+                                        checked: scrollModeSelector.pageSelected
+                                        ButtonGroup.group: scrollModeGroup
+                                        onClicked: scrollModeSelector.setPageMode(true)
+                                        Accessible.name: qsTr("Постраничный режим прокрутки")
                                     }
                                 }
 
@@ -2008,12 +1844,32 @@ NativeDialogWindow {
                                     )
                                 }
 
-                                Label {
-                                    text: qsTr("Синхронизация REAPER")
-                                    color: window.softMuted
+                            }
+                            CollapsibleSection {
+                                title: qsTr("Синхронизация · %1").arg(window.teleprompter.dawName)
+                                expanded: true
+                                sidebarStyle: true
+                                toolStyle: true
+                                trailingIndicator: !window.macOSStyle
+                                Layout.fillWidth: true
+                                RowLayout {
+                                    visible: !window.config.show_header && window.config.osc_enabled
+                                    Layout.fillWidth: true
+                                    Rectangle {
+                                        implicitWidth: 8
+                                        implicitHeight: 8
+                                        radius: 4
+                                        color: window.syncStateColor
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: window.teleprompter.syncConnectionText
+                                        color: window.softMuted
+                                        wrapMode: Text.WordWrap
+                                    }
                                 }
                                 CheckBox {
-                                    text: qsTr("Телесуфлёр следует за REAPER")
+                                    text: qsTr("Телесуфлёр следует за DAW")
                                     checked: window.config.sync_in
                                     onToggled: window.appBridge.settings.setPrompterSyncEnabled("sync_in", checked)
                                 }
@@ -2026,10 +1882,17 @@ NativeDialogWindow {
                                     )
                                 }
                                 CheckBox {
-                                    text: qsTr("REAPER следует за навигацией")
+                                    text: qsTr("DAW следует за навигацией")
                                     checked: window.config.sync_out
                                     onToggled: window.appBridge.settings.setPrompterSyncEnabled("sync_out", checked)
                                 }
+                            }
+                            CollapsibleSection {
+                                title: qsTr("Задержка и плавность")
+                                sidebarStyle: true
+                                toolStyle: true
+                                trailingIndicator: !window.macOSStyle
+                                Layout.fillWidth: true
                                 RowLayout {
                                     Layout.fillWidth: true
                                     Label {
@@ -2066,12 +1929,12 @@ NativeDialogWindow {
                                     CheckBox {
                                         id: reaperOffsetEnabledCheck
                                         Layout.fillWidth: true
-                                        text: qsTr("Смещение REAPER")
+                                        text: qsTr("Смещение времени")
                                         checked: Boolean(
-                                            window.config.reaper_offset_enabled
+                                            window.config[window.config.sync_daw === "nuendo" ? "nuendo_offset_enabled" : "reaper_offset_enabled"]
                                         )
                                         onToggled: window.teleprompter.setConfigValue(
-                                            "reaper_offset_enabled", checked
+                                            window.config.sync_daw === "nuendo" ? "nuendo_offset_enabled" : "reaper_offset_enabled", checked
                                         )
                                     }
                                     SpinBox {
@@ -2082,10 +1945,10 @@ NativeDialogWindow {
                                         stepSize: 1
                                         editable: true
                                         value: Math.round(Number(
-                                            window.config.reaper_offset_seconds
+                                            window.config[window.config.sync_daw === "nuendo" ? "nuendo_offset_seconds" : "reaper_offset_seconds"]
                                                 === undefined
                                                 ? -2
-                                                : window.config.reaper_offset_seconds
+                                                : window.config[window.config.sync_daw === "nuendo" ? "nuendo_offset_seconds" : "reaper_offset_seconds"]
                                         ) * 10)
                                         textFromValue: function(value) {
                                             return (value / 10).toFixed(1) + " с"
@@ -2097,9 +1960,9 @@ NativeDialogWindow {
                                             ) * 10)
                                         }
                                         onValueModified: window.teleprompter.setConfigValue(
-                                            "reaper_offset_seconds", value / 10
+                                            window.config.sync_daw === "nuendo" ? "nuendo_offset_seconds" : "reaper_offset_seconds", value / 10
                                         )
-                                        Accessible.name: qsTr("Смещение REAPER, секунд")
+                                        Accessible.name: qsTr("Смещение времени, секунд")
                                     }
                                 }
                                 Label {
@@ -2124,9 +1987,7 @@ NativeDialogWindow {
                         Label {
                             text: qsTr("Реплики")
                             font.weight: window.macOSStyle ? Font.DemiBold : Font.Bold
-                            font.pixelSize: window.macOSStyle ? 11 : font.pixelSize
-                            font.capitalization: window.macOSStyle ? Font.AllUppercase : Font.MixedCase
-                            color: window.macOSStyle ? window.softMuted : systemPalette.text
+                            color: systemPalette.text
                             Layout.fillWidth: true
                         }
                         AdaptiveButton {
@@ -2200,7 +2061,6 @@ NativeDialogWindow {
                 }
 
                 Rectangle {
-                    visible: window.macOSStyle
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
                     anchors.right: parent.right
@@ -2232,13 +2092,54 @@ NativeDialogWindow {
                     color: window.colors.bg
 
                     Label {
-                        anchors.centerIn: parent
+                        id: headerTimecode
+                        objectName: "teleprompterTimecode"
+                        anchors.left: parent.left
+                        anchors.leftMargin: Math.max(24, parent.width * 0.025)
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: Math.max(80, parent.width - anchors.leftMargin * 2
+                            - (headerSyncStatus.visible ? headerSyncStatus.width + 16 : 0))
+                        verticalAlignment: Text.AlignVCenter
+                        fontSizeMode: Text.Fit
+                        minimumPixelSize: 20
+                        font.family: window.timecodeFontFamily
                         text: window.displayedTimecode(
                             window.teleprompter.timecode
                         )
                         color: window.colors.header_text
                         font.pixelSize: Math.max(24, parent.height * 0.72)
                         font.bold: true
+                    }
+
+                    RowLayout {
+                        id: headerSyncStatus
+                        visible: Boolean(window.config.osc_enabled)
+                        anchors.right: parent.right
+                        anchors.rightMargin: 20
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Math.min(210, parent.width * 0.3)
+                        spacing: 6
+                        Rectangle {
+                            implicitWidth: 8
+                            implicitHeight: 8
+                            radius: 4
+                            color: window.syncStateColor
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: window.teleprompter.syncConnectionText
+                            color: window.syncStateColor
+                            font.pixelSize: 12
+                            elide: Text.ElideRight
+                        }
+                        HoverHandler { id: headerSyncHover }
+                        PlatformToolTip {
+                            target: headerSyncStatus
+                            active: headerSyncHover.hovered
+                            text: window.teleprompter.syncConnectionText + "\n"
+                                + window.teleprompter.syncStatus
+                        }
                     }
 
                     Item {
@@ -3746,7 +3647,7 @@ NativeDialogWindow {
                         }
                         deferredReaperPageFollow = true;
                         capturePageDebug(
-                            "Seek REAPER отложен до конца перелистывания",
+                            "Seek DAW отложен до конца перелистывания",
                             contentY, pageScrollAnimation.to, -1, -1
                         );
                         return true;
@@ -3764,7 +3665,7 @@ NativeDialogWindow {
                         capturePageDebug(
                             pageGapPrefetchIndex >= 0
                                 ? "Отложенный seek принят, Prefetch сохранён"
-                                : "Отложенный seek REAPER принят",
+                                : "Отложенный seek DAW принят",
                             contentY, contentY, -1, -1
                         );
                         queuePageFollow();
@@ -3821,7 +3722,7 @@ NativeDialogWindow {
                             // with the new time/index here would expose the
                             // deferred seek as a one-frame jump.
                             capturePageDebug(
-                                "Перелистывание завершено перед seek REAPER",
+                                "Перелистывание завершено перед seek DAW",
                                 contentY, contentY, -1, -1
                             );
                             return;
@@ -3867,7 +3768,7 @@ NativeDialogWindow {
                         if (deferredReaperPageFollow
                                 && pageScrollAnimation.running) {
                             capturePageDebug(
-                                "Ожидание конца перелистывания после seek REAPER",
+                                "Ожидание конца перелистывания после seek DAW",
                                 contentY, pageScrollAnimation.to, -1, -1
                             );
                             return;
@@ -4332,7 +4233,7 @@ NativeDialogWindow {
                         deferredReaperPageFollow = false;
                         animateDeferredReaperPageFollow = false;
                         capturePageDebug(
-                            "Следование за REAPER отключено",
+                            "Следование за DAW отключено",
                             contentY, contentY, -1, -1
                         );
                     }
@@ -4490,11 +4391,11 @@ NativeDialogWindow {
                             // already visible; following resumes only once
                             // the playhead leaves that page.
                             if (replicaInsideCurrentPage(currentIndex)) {
-                                capturePageDebug("Seek REAPER внутри текущей страницы", contentY, contentY, -1, -1);
+                                capturePageDebug("Seek DAW внутри текущей страницы", contentY, contentY, -1, -1);
                                 return;
                             }
                             cancelPageHold();
-                            capturePageDebug("Ручная пауза отменена: seek REAPER", contentY, contentY, -1, -1);
+                            capturePageDebug("Ручная пауза отменена: seek DAW", contentY, contentY, -1, -1);
                             queuePageFollow();
                             return;
                         }
@@ -4887,6 +4788,24 @@ NativeDialogWindow {
                         }
 
                         Rectangle {
+                            anchors.fill: parent
+                            visible: replicaDelegate.index === replicaView.playbackIndex
+                                && Boolean(window.config.page_target_highlight_enabled)
+                            color: systemPalette.highlight
+                            opacity: 0.14
+                            radius: 3
+                        }
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: 3
+                            visible: replicaDelegate.index === replicaView.playbackIndex
+                                && Boolean(window.config.page_target_highlight_enabled)
+                            color: systemPalette.highlight
+                        }
+
+                        Rectangle {
                             x: replicaView.pageTargetHighlightLineOnly
                                 ? replicaView.pageTargetHighlightX : 0
                             y: replicaView.pageTargetHighlightLineOnly
@@ -4906,9 +4825,13 @@ NativeDialogWindow {
                             anchors.fill: parent
                             visible: window.config.show_block_borders
                             color: "transparent"
-                            radius: window.macOSStyle ? 5 : 3
-                            border.width: 1
-                            border.color: replicaDelegate.blockBorderColor
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                height: 1
+                                color: replicaDelegate.blockBorderColor
+                            }
                         }
 
                         Repeater {
@@ -5134,7 +5057,11 @@ NativeDialogWindow {
                                     spacing: 3
                                     Text {
                                         visible: window.config.show_timecode
-                                        text: replicaDelegate.timeRangeText(false, true)
+                                        text: replicaDelegate.timeRangeText(false, true).replace(/\n/g, " ")
+                                        font.family: window.metadataFontFamily
+                                        Layout.fillWidth: true
+                                        fontSizeMode: Text.Fit
+                                        minimumPixelSize: Math.min(16, window.config.f_tc)
                                         color: replicaDelegate.active ? window.colors.tc : window.colors.inactive_text
                                         font.pixelSize: window.config.f_tc
                                         font.bold: window.config.bold_tc
@@ -5162,7 +5089,7 @@ NativeDialogWindow {
                                         color: replicaDelegate.active ? window.colors.actor : window.colors.inactive_text
                                         font.pixelSize: window.config.f_actor
                                         font.bold: window.config.bold_actor
-                                        font.italic: true
+                                        font.italic: false
                                         Layout.fillWidth: true
                                         elide: Text.ElideRight
                                     }
@@ -5463,7 +5390,7 @@ NativeDialogWindow {
                             spacing: 5
                             CheckBox {
                                 id: debugSimulatorToggle
-                                text: qsTr("Mock REAPER")
+                                text: qsTr("Mock DAW")
                                 checked: window.teleprompter.debugSimulationActive
                                 onToggled: {
                                     window.debugSimulationRunning = false;

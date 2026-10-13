@@ -100,10 +100,11 @@ hidden_imports = [
 hidden_imports += [
     'application', 'services', 'ui', 'utils', 'config',
     'certifi', 'charset_normalizer', 'idna', 'requests', 'urllib3',
-    'openpyxl', 'docx', 'pythonosc', 'lxml',
+    'openpyxl', 'xlrd', 'docx', 'pythonosc', 'rtmidi', 'rtmidi._rtmidi', 'lxml',
+    'services.midi_sync_worker', 'services.midi_timecode_service',
     'services.episode_service', 'services.actor_service',
     'services.export_service', 'services.project_service',
-    'services.docx_import_service', 'services.osc_worker',
+    'services.spreadsheet_import_service', 'services.docx_import_service', 'services.osc_worker',
     'application.import_controller',
     'application.global_actor_controller',
     'utils.helpers',
@@ -123,6 +124,7 @@ data_files = [
 data_files += [
     ('qml', 'qml'),
     ('resources/icons', 'resources/icons'),
+    ('resources/fonts', 'resources/fonts'),
 ]
 
 a = Analysis(

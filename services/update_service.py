@@ -157,6 +157,7 @@ class UpdateService:
             text=True,
             capture_output=True,
             check=True,
+            timeout=self.timeout,
         )
         if status.stdout.strip():
             raise RuntimeError(
@@ -170,6 +171,7 @@ class UpdateService:
             text=True,
             capture_output=True,
             check=True,
+            timeout=max(60.0, self.timeout),
         )
         return (result.stdout or result.stderr).strip()
 

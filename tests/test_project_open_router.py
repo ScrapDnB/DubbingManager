@@ -68,7 +68,9 @@ def test_project_path_is_forwarded_to_primary_instance(tmp_path):
         assert primary.start_listener()
         secondary_thread = Thread(target=forward_from_secondary_thread)
         secondary_thread.start()
-        _drain_until(lambda: bool(received) or not secondary_thread.is_alive())
+        # Finishing the sender does not imply Qt has delivered the server's
+        # queued readyRead event. Wait for the receiver, with the bounded timeout.
+        _drain_until(lambda: bool(received))
         secondary_thread.join(timeout=1)
         assert not secondary_thread.is_alive()
         assert forwarded == [True]

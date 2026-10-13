@@ -17,7 +17,13 @@ Item {
     property int timelineHeight: macOSStyle ? 172 : 192
     property bool useActorColors: true
     property int timelineColorMuteLevel: 2
+    property string activeCharacter: ""
+    property real activeLineStart: -1
+    property real playheadPosition: -1
+    property bool positionNavigation: false
+    objectName: "episodeTimeline"
     signal characterRequested(string character)
+    signal positionRequested(real seconds, string character)
     signal heightAdjustmentRequested(int height)
 
     readonly property bool macOSStyle: Qt.platform.os === "osx"
@@ -244,6 +250,7 @@ Item {
             )
 
             Rectangle {
+                objectName: "timelineRuler"
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
@@ -259,6 +266,17 @@ Item {
                     width: timelineContent.availableWidth
                     height: 1
                     color: timeline.frameColor
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: timeline.positionNavigation
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: function(mouse) {
+                        if (mouse.x >= timelineContent.timelineStartX && mouse.x <= timelineContent.timelineEndX)
+                            timeline.positionRequested((mouse.x - timelineContent.timelineStartX)
+                                / timelineContent.availableWidth * timelineContent.duration, "")
+                    }
                 }
 
                 Repeater {
@@ -369,12 +387,25 @@ Item {
                     }
                 }
 
+                MouseArea {
+                    x: timeline.labelWidth
+                    width: Math.max(1, timelineFlick.width - timeline.labelWidth - 8)
+                    height: timelineFlick.contentHeight
+                    enabled: timeline.positionNavigation
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: function(mouse) {
+                        timeline.positionRequested(mouse.x / width
+                            * timelineContent.duration, "")
+                    }
+                }
+
                 Repeater {
                     id: segments
                     model: timeline.castingBackend ? timeline.castingBackend.timelineModel : null
 
                     delegate: Rectangle {
                         id: segment
+                        objectName: "timelineSegment"
                         required property real start
                         required property real end
                         required property string character
@@ -391,18 +422,37 @@ Item {
                         radius: timeline.macOSStyle ? 4 : 2
                         color: timeline.mutedActorColor(actorColor)
                         opacity: 1
-                        border.width: selected ? 2 : 0
+                        border.width: (timeline.positionNavigation
+                            ? timeline.activeCharacter === character && timeline.activeLineStart >= start && timeline.activeLineStart < end
+                            : selected) ? 2 : 0
                         border.color: segment.palette.highlight
                         clip: true
 
                         TapHandler {
-                            onTapped: timeline.characterRequested(segment.character)
+                            onTapped: function(eventPoint) {
+                                if (timeline.positionNavigation)
+                                    timeline.positionRequested(Math.min(segment.end, Math.max(segment.start,
+                                        (segment.x + eventPoint.position.x - timeline.labelWidth)
+                                        / segment.availableWidth * segment.duration)), segment.character)
+                                else timeline.characterRequested(segment.character)
+                            }
                         }
                         PlatformToolTip {
                             target: segment
                             text: segment.character + " · " + segment.actor
                         }
                     }
+                }
+
+                Rectangle {
+                    enabled: false
+                    visible: timeline.playheadPosition >= 0 && timeline.castingBackend && timeline.castingBackend.timelineDuration > 0
+                    x: timeline.labelWidth + Math.max(1, timelineFlick.width - timeline.labelWidth - 8)
+                        * Math.min(1, Math.max(0, timeline.playheadPosition / Math.max(1, timeline.castingBackend ? timeline.castingBackend.timelineDuration : 1)))
+                    y: 0
+                    width: 2
+                    height: Math.max(parent.height, lanes.count * timeline.laneHeight)
+                    color: palette.highlight
                 }
 
                 Label {

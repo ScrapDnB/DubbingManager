@@ -13,9 +13,11 @@ ColumnLayout {
     // Used by the inspector-style sidebars in the macOS tools windows.
     // Other uses keep their existing, platform-neutral presentation.
     property bool sidebarStyle: false
+    property bool trailingIndicator: false
+    property bool toolStyle: false
     readonly property bool macOSStyle: Qt.platform.os === "osx"
 
-    spacing: macOSStyle && sidebarStyle ? 4 : macOSStyle ? 2 : 4
+    spacing: toolStyle ? 8 : macOSStyle && sidebarStyle ? 4 : macOSStyle ? 2 : 4
 
     AbstractButton {
         id: headerButton
@@ -26,6 +28,8 @@ ColumnLayout {
         rightPadding: section.macOSStyle && section.sidebarStyle ? 6 : 0
         text: section.title
         font.weight: Font.DemiBold
+        Accessible.name: section.title
+        Accessible.description: section.expanded ? qsTr("Развёрнуто") : qsTr("Свёрнуто")
         onClicked: section.expanded = !section.expanded
 
         background: Rectangle {
@@ -41,6 +45,7 @@ ColumnLayout {
         }
 
         contentItem: RowLayout {
+            layoutDirection: section.trailingIndicator ? Qt.RightToLeft : Qt.LeftToRight
             spacing: section.macOSStyle && section.sidebarStyle
                 ? 6 : section.macOSStyle ? 5 : 7
 
@@ -52,11 +57,12 @@ ColumnLayout {
                 Label {
                     id: arrow
                     anchors.centerIn: parent
-                    text: section.macOSStyle && section.sidebarStyle ? "›" : "▶"
-                    font.pixelSize: section.macOSStyle && section.sidebarStyle
+                    text: section.trailingIndicator ? "⌄" : section.sidebarStyle ? "›" : "▶"
+                    font.pixelSize: section.sidebarStyle
                         ? 14 : section.macOSStyle ? 9 : 11
                     color: headerButton.palette.buttonText
-                    rotation: section.expanded ? 90 : 0
+                    rotation: section.trailingIndicator
+                        ? section.expanded ? 180 : 0 : section.expanded ? 90 : 0
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                     Behavior on rotation {
@@ -82,9 +88,9 @@ ColumnLayout {
         visible: section.expanded
         Layout.fillWidth: true
         Layout.leftMargin: section.macOSStyle && section.sidebarStyle
-            ? 16 : section.macOSStyle ? 18 : 8
+            ? 16 : section.sidebarStyle ? 0 : section.macOSStyle ? 18 : 8
         Layout.rightMargin: section.macOSStyle && section.sidebarStyle
-            ? 8 : section.macOSStyle ? 6 : 4
+            ? 8 : section.sidebarStyle ? 0 : section.macOSStyle ? 6 : 4
         spacing: section.macOSStyle && section.sidebarStyle
             ? 9 : section.macOSStyle ? 8 : 6
     }

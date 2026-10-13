@@ -304,7 +304,8 @@ class TestProjectService:
         assert result == True
         
         # Проверка, что бэкап создан
-        backup_dir = tmp_path / ".backups"
+        backup_dir = service.get_backup_directory()
+        assert backup_dir.parent == tmp_path / ".backups"
         assert backup_dir.exists()
         backups = list(backup_dir.glob("*.dub_backup"))
         assert len(backups) >= 1
@@ -322,9 +323,8 @@ class TestProjectService:
         service.is_dirty = True
 
         assert service.auto_save(sample_project_data)
-        assert len(list(
-            (tmp_path / "state" / "backups").glob("*.dub_backup")
-        )) == 1
+        assert service.get_backup_directory().parent == tmp_path / "state" / "backups"
+        assert len(service.list_backups()) == 1
 
         service.set_backup_config({"enabled": False})
         service.current_project_path = str(tmp_path / "disabled.dub")
@@ -399,9 +399,9 @@ class TestProjectService:
         service.current_project_path = str(tmp_path / "project.json")
         
         # Создаём бэкапы
-        backup_dir = tmp_path / ".backups"
-        backup_dir.mkdir()
-        
+        backup_dir = service.get_backup_directory()
+        backup_dir.mkdir(parents=True)
+
         for i in range(3):
             backup_file = backup_dir / f"project_{i}.dub_backup"
             backup_file.write_text("{}")
@@ -441,7 +441,7 @@ class TestProjectService:
         
         assert restored_data["project_name"] == "Тестовый проект"
         safety_backups = list(
-            backup_dir.glob("restored_before_restore_*.dub_backup")
+            service._backup_directory_for(str(target_path)).glob("restored_before_restore_*.dub_backup")
         )
         assert len(safety_backups) == 1
         assert json.loads(safety_backups[0].read_text(encoding="utf-8"))[

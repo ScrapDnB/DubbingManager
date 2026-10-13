@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 import PySide6
-from PySide6.QtCore import QObject, Property, QThread, QUrl, Signal, Slot, qVersion
+from PySide6.QtCore import QObject, Property, QThread, QUrl, Signal, Slot, Qt, qVersion
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 
 from config import APP_VERSION
@@ -29,8 +29,13 @@ class _UpdateWorker(QObject):
     @Slot()
     def run(self) -> None:
         try:
+            if self._cancelled:
+                self.cancelled.emit()
+                return
             result = self._operation(self._report_progress)
-            if not self._cancelled:
+            if self._cancelled:
+                self.cancelled.emit()
+            else:
                 self.completed.emit(result)
         except Exception as exc:
             if self._cancelled:
@@ -69,6 +74,9 @@ class UpdateBridge(QObject):
         self._status = "Обновления ещё не проверялись"
         self._thread: Optional[QThread] = None
         self._worker: Optional[_UpdateWorker] = None
+        self._shutting_down = False
+        self._cancel_requested = False
+        self._completion_handler: Optional[Callable[[Any], None]] = None
         self._source_root = str(Path(__file__).resolve().parents[3])
 
     @Property(str, constant=True)
@@ -182,9 +190,24 @@ class UpdateBridge(QObject):
     @Slot()
     def cancel(self) -> None:
         if self._worker is not None:
+            self._cancel_requested = True
             self._worker.cancel()
             self._status = "Отменяю операцию..."
             self.changed.emit()
+
+    @Slot()
+    def shutdown(self) -> None:
+        """Finish the running worker before Qt destroys its thread."""
+        self._shutting_down = True
+        self._cancel_requested = True
+        thread = self._thread
+        if self._worker is not None:
+            self._worker.cancel()
+        if thread is not None:
+            thread.requestInterruption()
+            thread.quit()
+            thread.wait()
+        self._task_finished()
 
     @Slot()
     def openReleasePage(self) -> None:
@@ -200,6 +223,10 @@ class UpdateBridge(QObject):
         operation: Callable[[Callable[[int, int], None]], Any],
         completed: Callable[[Any], None],
     ) -> bool:
+        if self._busy or self._shutting_down:
+            return False
+        self._cancel_requested = False
+        self._completion_handler = completed
         self._busy = True
         self.changed.emit()
         thread = QThread(self)
@@ -207,16 +234,24 @@ class UpdateBridge(QObject):
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.progress.connect(self._on_progress)
-        worker.completed.connect(completed)
+        worker.completed.connect(self._task_completed)
         worker.cancelled.connect(self._task_cancelled)
         worker.failed.connect(self._task_failed)
-        worker.finished.connect(thread.quit)
+        worker.finished.connect(thread.quit, Qt.DirectConnection)
         worker.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._task_finished)
         self._thread, self._worker = thread, worker
         thread.start()
         return True
+
+    @Slot(object)
+    def _task_completed(self, result: Any) -> None:
+        if not self._shutting_down and not self._cancel_requested:
+            if self._completion_handler is not None:
+                self._completion_handler(result)
+        elif not self._shutting_down:
+            self._task_cancelled()
 
     @Slot(object)
     def _check_completed(self, info: UpdateInfo) -> None:
@@ -252,18 +287,24 @@ class UpdateBridge(QObject):
 
     @Slot(int, int)
     def _on_progress(self, current: int, total: int) -> None:
+        if self._shutting_down or self._cancel_requested:
+            return
         self._progress = current
         self._progress_total = total
         self.changed.emit()
 
     @Slot(str)
     def _task_failed(self, message: str) -> None:
+        if self._shutting_down:
+            return
         self._status = f"Ошибка обновления: {message}"
         self.errorRequested.emit(self._status)
         self.changed.emit()
 
     @Slot()
     def _task_cancelled(self) -> None:
+        if self._shutting_down:
+            return
         self._status = "Операция отменена"
         self.changed.emit()
 
@@ -272,4 +313,5 @@ class UpdateBridge(QObject):
         self._busy = False
         self._thread = None
         self._worker = None
+        self._completion_handler = None
         self.changed.emit()

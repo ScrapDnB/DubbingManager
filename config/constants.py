@@ -276,6 +276,15 @@ DEFAULT_PROMPTER_CONFIG = {
     "port_in": 8000,
     "port_out": 9000,
     "osc_enabled": False,
+    # osc_enabled remains the persisted master switch for existing installs.
+    "sync_daw": "reaper",
+    "midi_input_port": "__virtual__",
+    "midi_output_port": "__virtual__",
+    "midi_frame_rate": "25",
+    "midi_device_id": 127,
+    "midi_timecode_origin_seconds": 0.0,
+    "nuendo_offset_enabled": False,
+    "nuendo_offset_seconds": -2.0,
     "sync_in": True,
     "sync_out": False,
     "sync_play_only": False,
@@ -310,6 +319,7 @@ DEFAULT_PROMPTER_CONFIG = {
 }
 
 PROMPTER_INT_LIMITS = {
+    "midi_device_id": (0, 127),
     "f_tc": (PROMPTER_FONT_MIN_SIZE, PROMPTER_FONT_TC_MAX),
     "f_char": (PROMPTER_FONT_MIN_SIZE, PROMPTER_FONT_CHAR_MAX),
     "f_actor": (PROMPTER_FONT_MIN_SIZE, PROMPTER_FONT_ACTOR_MAX),
@@ -331,6 +341,11 @@ PROMPTER_INT_LIMITS = {
 }
 
 PROMPTER_FLOAT_LIMITS = {
+    "midi_timecode_origin_seconds": (0.0, 86399.0),
+    "nuendo_offset_seconds": (
+        PROMPTER_REAPER_OFFSET_MIN_SECONDS,
+        PROMPTER_REAPER_OFFSET_MAX_SECONDS,
+    ),
     "focus_ratio": (PROMPTER_FOCUS_RATIO_MIN, PROMPTER_FOCUS_RATIO_MAX),
     "reaper_offset_seconds": (
         PROMPTER_REAPER_OFFSET_MIN_SECONDS,

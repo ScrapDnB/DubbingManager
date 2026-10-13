@@ -18,7 +18,7 @@ NativeDialogWindow {
     required property color softMuted
     property string singleFormat: "html"
     property bool settingsVisible: true
-    property real settingsWidth: 350
+    property real settingsWidth: 320
     property int actorMarkerShape: 0
     property int actorMarkerSize: 0
     readonly property var montageBackend: appBridge ? appBridge.montage : null
@@ -27,7 +27,17 @@ NativeDialogWindow {
     modal: true
     macOSDocumentWindow: true
     title: qsTr("Монтажный лист: серия ") + (montageBackend ? montageBackend.episode : "")
-    standardButtons: macOSStyle ? Dialog.NoButton : Dialog.Close
+    standardButtons: Dialog.NoButton
+    contentMargin: 0
+    color: macOSStyle ? "transparent" : palette.window
+    minimumWidth: 760
+    minimumHeight: 520
+
+    Shortcut {
+        sequence: "Esc"
+        context: Qt.WindowShortcut
+        onActivated: dialog.close()
+    }
     width: boundedWidth(1160, 28)
     height: boundedHeight(760, 28)
 
@@ -37,12 +47,6 @@ NativeDialogWindow {
         ListElement { label: "Сценарий 1"; value: "Сценарий 1" }
         ListElement { label: "Сценарий 2"; value: "Сценарий 2" }
         ListElement { label: "Сценарий 3"; value: "Сценарий 3" }
-    }
-
-    ListModel {
-        id: timeModeModel
-        ListElement { label: "Диапазон"; value: "range" }
-        ListElement { label: "Только начало"; value: "start" }
     }
 
     QtObject {
@@ -115,7 +119,6 @@ NativeDialogWindow {
         montageBackend.prepare(episode)
         layoutCombo.syncValue()
         fontCombo.syncValue()
-        timeModeCombo.syncValue()
         open()
     }
 
@@ -158,54 +161,63 @@ NativeDialogWindow {
 
     content: ColumnLayout {
         anchors.fill: parent
-        spacing: 8
+        spacing: 0
 
-        RowLayout {
+        ToolBar {
             Layout.fillWidth: true
-            Layout.leftMargin: dialog.macOSStyle ? 12 : 0
-            Layout.rightMargin: dialog.macOSStyle ? 12 : 0
-            spacing: dialog.macOSStyle ? 10 : 8
+            implicitHeight: episodeToolbar.implicitHeight + 20
+            RowLayout {
+                id: episodeToolbar
+                anchors.fill: parent
+                anchors.margins: 10
+                Layout.fillWidth: true
+                spacing: dialog.macOSStyle ? 10 : 8
 
-            CompactToolButton {
-                iconSource: Qt.resolvedUrl("../icons/settings.svg")
-                toolTipText: dialog.settingsVisible
-                    ? qsTr("Скрыть настройки") : qsTr("Показать настройки")
-                checkable: true
-                checked: dialog.settingsVisible
-                onClicked: dialog.settingsVisible = !dialog.settingsVisible
-            }
+                CompactToolButton {
+                    iconSource: Qt.resolvedUrl("../icons/settings.svg")
+                    toolTipText: dialog.settingsVisible
+                        ? qsTr("Скрыть настройки") : qsTr("Показать настройки")
+                    checkable: true
+                    checked: dialog.settingsVisible
+                    onClicked: dialog.settingsVisible = !dialog.settingsVisible
+                }
 
-            Label { text: qsTr("Серия:") }
+                Label { text: qsTr("Серия:") }
 
-            PlatformComboBox {
-                id: episodeCombo
-                Layout.preferredWidth: 150
-                model: dialog.montageBackend ? dialog.montageBackend.episodesModel : null
-                textRole: "name"
-                valueRole: "name"
-                onActivated: dialog.montageBackend.prepare(currentValue)
+                PlatformComboBox {
+                    id: episodeCombo
+                    Layout.preferredWidth: 150
+                    model: dialog.montageBackend ? dialog.montageBackend.episodesModel : null
+                    textRole: "name"
+                    valueRole: "name"
+                    onActivated: dialog.montageBackend.prepare(currentValue)
 
-                function syncEpisode() {
-                    if (!dialog.montageBackend) {
-                        return
+                    function syncEpisode() {
+                        if (!dialog.montageBackend) {
+                            return
+                        }
+                        var episodeIndex = indexOfValue(dialog.montageBackend.episode)
+                        currentIndex = episodeIndex >= 0 ? episodeIndex : 0
                     }
-                    var episodeIndex = indexOfValue(dialog.montageBackend.episode)
-                    currentIndex = episodeIndex >= 0 ? episodeIndex : 0
+
+                    Connections {
+                        target: dialog.montageBackend
+                        function onEpisodeChanged() { episodeCombo.syncEpisode() }
+                    }
                 }
 
-                Connections {
-                    target: dialog.montageBackend
-                    function onEpisodeChanged() { episodeCombo.syncEpisode() }
+                Label {
+                    text: (dialog.montageBackend ? dialog.montageBackend.count : 0)
+                        + " реплик"
+                    color: dialog.softMuted
+                }
+
+                Item { Layout.fillWidth: true }
+                Label {
+                    text: qsTr("Предпросмотр")
+                    color: dialog.softMuted
                 }
             }
-
-            Label {
-                text: (dialog.montageBackend ? dialog.montageBackend.count : 0)
-                    + " реплик"
-                color: dialog.softMuted
-            }
-
-            Item { Layout.fillWidth: true }
         }
 
         SplitView {
@@ -218,7 +230,7 @@ NativeDialogWindow {
                 SplitView.preferredWidth: dialog.settingsWidth
                 SplitView.minimumWidth: 300
                 color: palette.window
-                border.width: dialog.macOSStyle ? 0 : 1
+                border.width: 0
                 border.color: dialog.softBorder
                 clip: true
                 onWidthChanged: {
@@ -229,10 +241,7 @@ NativeDialogWindow {
                 PersistentScrollView {
                     id: settingsPane
                     anchors.fill: parent
-                    anchors.leftMargin: dialog.macOSStyle ? 12 : 8
-                    anchors.rightMargin: dialog.macOSStyle ? 12 : 8
-                    anchors.topMargin: dialog.macOSStyle ? 10 : 8
-                    anchors.bottomMargin: dialog.macOSStyle ? 10 : 8
+                    anchors.margins: 16
                     clip: true
                     contentWidth: availableWidth
                     contentHeight: settingsColumn.implicitHeight
@@ -240,16 +249,11 @@ NativeDialogWindow {
                     ColumnLayout {
                         id: settingsColumn
                         width: settingsPane.availableWidth
-                        spacing: dialog.macOSStyle ? 9 : 5
+                        spacing: 12
 
                         Label {
-                            text: qsTr("Просмотр")
-                            font.weight: dialog.macOSStyle
-                                ? Font.DemiBold : Font.Bold
-                            font.pixelSize: dialog.macOSStyle ? 11 : font.pixelSize
-                            font.capitalization: dialog.macOSStyle
-                                ? Font.AllUppercase : Font.MixedCase
-                            color: dialog.macOSStyle ? dialog.softMuted : palette.text
+                            text: qsTr("Оформление")
+                            font.weight: Font.DemiBold
                         }
 
                         Label {
@@ -323,7 +327,9 @@ NativeDialogWindow {
                         CollapsibleSection {
                             title: qsTr("Элементы")
                             expanded: true
-                            sidebarStyle: dialog.macOSStyle
+                            sidebarStyle: true
+                            toolStyle: true
+                            trailingIndicator: !dialog.macOSStyle
                             Layout.fillWidth: true
 
                             CheckBox {
@@ -359,32 +365,28 @@ NativeDialogWindow {
                         CollapsibleSection {
                             title: qsTr("Таймкод")
                             expanded: true
-                            sidebarStyle: dialog.macOSStyle
+                            sidebarStyle: true
+                            toolStyle: true
+                            trailingIndicator: !dialog.macOSStyle
                             Layout.fillWidth: true
 
-                            PlatformComboBox {
-                                id: timeModeCombo
+                            RowLayout {
                                 Layout.fillWidth: true
-                                model: timeModeModel
-                                textRole: "label"
-                                valueRole: "value"
-                                onActivated: dialog.montageBackend.setOption(
-                                    "time_display", currentValue
-                                )
-
-                                function syncValue() {
-                                    var modeIndex = indexOfValue(
-                                        dialog.config.time_display
-                                    )
-                                    currentIndex = modeIndex >= 0
-                                        ? modeIndex : 0
+                                spacing: 6
+                                ButtonGroup { id: timeDisplayGroup }
+                                RadioButton {
+                                    objectName: "montageTimeRange"
+                                    text: qsTr("Диапазон")
+                                    checked: dialog.config.time_display !== "start"
+                                    ButtonGroup.group: timeDisplayGroup
+                                    onClicked: dialog.montageBackend.setOption("time_display", "range")
                                 }
-
-                                Connections {
-                                    target: dialog.montageBackend
-                                    function onConfigChanged() {
-                                        timeModeCombo.syncValue()
-                                    }
+                                RadioButton {
+                                    objectName: "montageTimeStart"
+                                    text: qsTr("Только начало")
+                                    checked: dialog.config.time_display === "start"
+                                    ButtonGroup.group: timeDisplayGroup
+                                    onClicked: dialog.montageBackend.setOption("time_display", "start")
                                 }
                             }
 
@@ -409,7 +411,10 @@ NativeDialogWindow {
 
                         CollapsibleSection {
                             title: qsTr("Цвета и подсветка")
-                            sidebarStyle: dialog.macOSStyle
+                            expanded: true
+                            sidebarStyle: true
+                            toolStyle: true
+                            trailingIndicator: !dialog.macOSStyle
                             Layout.fillWidth: true
 
                             CheckBox {
@@ -469,7 +474,9 @@ NativeDialogWindow {
 
                         CollapsibleSection {
                             title: qsTr("Размер текста")
-                            sidebarStyle: dialog.macOSStyle
+                            sidebarStyle: true
+                            toolStyle: true
+                            trailingIndicator: !dialog.macOSStyle
                             Layout.fillWidth: true
 
                             Repeater {
@@ -518,7 +525,9 @@ NativeDialogWindow {
                             title: qsTr("Ширина колонок таблицы")
                             visible: dialog.config.layout_type === "Таблица"
                             expanded: true
-                            sidebarStyle: dialog.macOSStyle
+                            sidebarStyle: true
+                            toolStyle: true
+                            trailingIndicator: !dialog.macOSStyle
                             Layout.fillWidth: true
 
                             Repeater {
@@ -571,7 +580,9 @@ NativeDialogWindow {
                         CollapsibleSection {
                             title: qsTr("Экспорт")
                             expanded: true
-                            sidebarStyle: dialog.macOSStyle
+                            sidebarStyle: true
+                            toolStyle: true
+                            trailingIndicator: !dialog.macOSStyle
                             Layout.fillWidth: true
 
                             CheckBox {
@@ -594,7 +605,6 @@ NativeDialogWindow {
                 }
 
                 Rectangle {
-                    visible: dialog.macOSStyle
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
                     anchors.right: parent.right
@@ -687,61 +697,80 @@ NativeDialogWindow {
             }
         }
 
-        RowLayout {
+        ToolBar {
             Layout.fillWidth: true
-            spacing: 8
+            implicitHeight: exportFlow.implicitHeight + 24
+            Flow {
+                id: exportFlow
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 12
+                spacing: 12
 
-            Label { text: qsTr("Форматы:") }
-            CheckBox {
-                id: formatHtml
-                text: qsTr("HTML")
-                checked: Boolean(dialog.config.format_html)
-                onToggled: dialog.montageBackend.setOption("format_html", checked)
-            }
-            CheckBox {
-                id: formatXlsx
-                text: qsTr("XLSX")
-                checked: Boolean(dialog.config.format_xls)
-                onToggled: dialog.montageBackend.setOption("format_xls", checked)
-            }
-            CheckBox {
-                id: formatDocx
-                text: qsTr("DOCX")
-                checked: Boolean(dialog.config.format_docx)
-                onToggled: dialog.montageBackend.setOption("format_docx", checked)
-            }
-            CheckBox {
-                id: formatPdf
-                text: qsTr("PDF")
-                checked: Boolean(dialog.config.format_pdf)
-                onToggled: dialog.montageBackend.setOption("format_pdf", checked)
-            }
-
-            ToolSeparator {}
-
-            RadioButton {
-                id: currentEpisode
-                text: qsTr("Текущая серия")
-                checked: true
-                ButtonGroup.group: exportScopeGroup
-            }
-            RadioButton {
-                id: allEpisodes
-                text: qsTr("Все серии")
-                ButtonGroup.group: exportScopeGroup
-            }
-
-            ButtonGroup { id: exportScopeGroup }
-
-            Item { Layout.fillWidth: true }
-
-            AdaptiveButton {
-                text: qsTr("Экспортировать")
-                highlighted: true
-                Layout.preferredWidth: 120
-                enabled: dialog.selectedFormatCount() > 0
-                    && !dialog.montageBackend.batchBusy
-                onClicked: dialog.runExport()
+                RowLayout {
+                    height: Math.max(36, implicitHeight)
+                    spacing: 6
+                    Label { text: qsTr("Форматы:") }
+                    CheckBox {
+                        id: formatHtml
+                        objectName: "montageFormatHtml"
+                        text: qsTr("HTML")
+                        checked: Boolean(dialog.config.format_html)
+                        onToggled: dialog.montageBackend.setOption("format_html", checked)
+                    }
+                    CheckBox {
+                        id: formatXlsx
+                        objectName: "montageFormatXlsx"
+                        text: qsTr("XLSX")
+                        checked: Boolean(dialog.config.format_xls)
+                        onToggled: dialog.montageBackend.setOption("format_xls", checked)
+                    }
+                    CheckBox {
+                        id: formatDocx
+                        objectName: "montageFormatDocx"
+                        text: qsTr("DOCX")
+                        checked: Boolean(dialog.config.format_docx)
+                        onToggled: dialog.montageBackend.setOption("format_docx", checked)
+                    }
+                    CheckBox {
+                        id: formatPdf
+                        objectName: "montageFormatPdf"
+                        text: qsTr("PDF")
+                        checked: Boolean(dialog.config.format_pdf)
+                        onToggled: dialog.montageBackend.setOption("format_pdf", checked)
+                    }
+                }
+                RowLayout {
+                    height: Math.max(36, implicitHeight)
+                    spacing: 8
+                    RadioButton {
+                        id: currentEpisode
+                        text: qsTr("Текущая серия")
+                        checked: true
+                        ButtonGroup.group: exportScopeGroup
+                    }
+                    RadioButton {
+                        id: allEpisodes
+                        objectName: "montageAllEpisodes"
+                        text: qsTr("Все серии")
+                        ButtonGroup.group: exportScopeGroup
+                    }
+                    ButtonGroup { id: exportScopeGroup }
+                }
+                RowLayout {
+                    width: Math.max(160, exportFlow.width - 720)
+                    height: Math.max(36, implicitHeight)
+                    Item { Layout.fillWidth: true }
+                    AdaptiveButton {
+                        objectName: "montageExportButton"
+                        text: qsTr("Экспортировать")
+                        highlighted: true
+                        enabled: dialog.selectedFormatCount() > 0
+                            && !dialog.montageBackend.batchBusy
+                        onClicked: dialog.runExport()
+                    }
+                }
             }
         }
     }

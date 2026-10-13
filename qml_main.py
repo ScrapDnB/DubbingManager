@@ -120,6 +120,7 @@ from PySide6.QtWebEngineQuick import QtWebEngineQuick
 
 from app_startup import initial_project_path, setup_logging
 from ui.macos_integration import MacOSIntegration
+from ui.windows_integration import WindowsIntegration
 from ui.project_open_router import ProjectOpenRouter
 from ui.qml_backend.app_bridge import AppBridge
 from utils.i18n import JsonSourceTranslator
@@ -246,7 +247,14 @@ def main() -> int:
     if start_project:
         app.open_project_path(start_project)
     macos_integration.configure_main_window(root_window, bridge.project)
+    windows_integration = WindowsIntegration(app)
+    windows_integration.configure_main_window(root_window)
+    if sys.platform == "win32":
+        app.focusWindowChanged.connect(windows_integration.configure_window)
+        for window in app.allWindows():
+            windows_integration.configure_window(window)
     app.aboutToQuit.connect(bridge.audiobook.shutdown)
+    app.aboutToQuit.connect(bridge.updates.shutdown)
     if sys.platform == "darwin":
         app.focusWindowChanged.connect(macos_integration.configure_window)
         for window in app.allWindows():

@@ -10,6 +10,47 @@ import os
 logger = logging.getLogger(__name__)
 
 
+def _restore_value(target: Any, value: Any) -> Any:
+    """Apply a value while retaining containers referenced by earlier commands."""
+    if isinstance(target, dict) and isinstance(value, dict):
+        for key in list(target):
+            if key not in value:
+                del target[key]
+        for key, item in value.items():
+            target[key] = _restore_value(target.get(key), item)
+        return target
+    if isinstance(target, list) and isinstance(value, list):
+        target[:] = [
+            _restore_value(target[index] if index < len(target) else None, item)
+            for index, item in enumerate(value)
+        ]
+        return target
+    return deepcopy(value)
+
+
+class _ValueSnapshot:
+    """An immutable value snapshot retaining the original container graph."""
+
+    def __init__(self, value: Any) -> None:
+        self.original = value
+        if isinstance(value, dict):
+            self.items = {key: _ValueSnapshot(item) for key, item in value.items()}
+        elif isinstance(value, list):
+            self.items = [_ValueSnapshot(item) for item in value]
+        else:
+            self.items = deepcopy(value)
+
+    def restore(self) -> Any:
+        if isinstance(self.original, dict):
+            self.original.clear()
+            self.original.update({key: item.restore() for key, item in self.items.items()})
+        elif isinstance(self.original, list):
+            self.original[:] = [item.restore() for item in self.items]
+        else:
+            return deepcopy(self.items)
+        return self.original
+
+
 class Command(ABC):
     """Undoable command for ."""
 
@@ -429,13 +470,13 @@ class AssignProjectRolesCommand(Command):
         self.data = data
         self.roles = [str(role) for role in roles if str(role)]
         self.actor_id = actor_id
-        self._old_global_map: Optional[Dict[str, Any]] = None
-        self._old_episode_maps: Optional[Dict[str, Any]] = None
+        self._old_global_map: Optional[_ValueSnapshot] = None
+        self._old_episode_maps: Optional[_ValueSnapshot] = None
 
     def execute(self) -> None:
         if self._old_global_map is None:
-            self._old_global_map = deepcopy(self.data.get("global_map", {}))
-            self._old_episode_maps = deepcopy(
+            self._old_global_map = _ValueSnapshot(self.data.get("global_map", {}))
+            self._old_episode_maps = _ValueSnapshot(
                 self.data.get("episode_actor_map", {})
             )
         global_map = self.data.setdefault("global_map", {})
@@ -450,10 +491,9 @@ class AssignProjectRolesCommand(Command):
                     assignment_map.pop(role, None)
 
     def undo(self) -> None:
-        self.data["global_map"] = deepcopy(self._old_global_map or {})
-        self.data["episode_actor_map"] = deepcopy(
-            self._old_episode_maps or {}
-        )
+        if self._old_global_map is not None:
+            self.data["global_map"] = self._old_global_map.restore()
+            self.data["episode_actor_map"] = self._old_episode_maps.restore()
 
     def get_description(self) -> str:
         return f"Назначены роли: {len(self.roles)}"
@@ -635,14 +675,14 @@ class RenameEpisodeCommand(Command):
 
     def execute(self) -> None:
         self._old_data = self.episodes.get(self.old_name)
-        if self._old_data:
+        if self._old_data is not None:
             del self.episodes[self.old_name]
             self.episodes[self.new_name] = self._old_data
         self._rename_related(self.old_name, self.new_name)
         logger.debug(f"RenameEpisodeCommand executed: {self.old_name} -> {self.new_name}")
 
     def undo(self) -> None:
-        if self._old_data:
+        if self._old_data is not None:
             del self.episodes[self.new_name]
             self.episodes[self.old_name] = self._old_data
         self._rename_related(self.new_name, self.old_name)
@@ -738,17 +778,17 @@ class DeleteEpisodeCommand(Command):
         logger.debug(f"DeleteEpisodeCommand executed: {self.episode_num}")
 
     def undo(self) -> None:
-        if self._deleted_episode:
+        if self._deleted_episode is not None:
             self.episodes[self.episode_num] = self._deleted_episode
-        if self._deleted_video:
+        if self._deleted_video is not None:
             self.video_paths[self.episode_num] = self._deleted_video
-        if self._deleted_loaded_data:
+        if self._deleted_loaded_data is not None:
             self.loaded_episodes[self.episode_num] = self._deleted_loaded_data
-        if self._deleted_text and self.episode_texts is not None:
+        if self._deleted_text is not None and self.episode_texts is not None:
             self.episode_texts[self.episode_num] = self._deleted_text
-        if self._deleted_working_text and self.episode_working_texts is not None:
+        if self._deleted_working_text is not None and self.episode_working_texts is not None:
             self.episode_working_texts[self.episode_num] = self._deleted_working_text
-        if self._deleted_actor_map and self.episode_actor_map is not None:
+        if self._deleted_actor_map is not None and self.episode_actor_map is not None:
             self.episode_actor_map[self.episode_num] = self._deleted_actor_map
         if self._old_order is not None and self.episode_order is not None:
             self.episode_order[:] = self._old_order
@@ -884,21 +924,21 @@ class UpdateProjectFileStateCommand(Command):
             for key in self.updates:
                 self._old_presence[key] = key in self.data
                 if key in self.data:
-                    self._old_values[key] = deepcopy(self.data[key])
+                    self._old_values[key] = _ValueSnapshot(self.data[key])
             self._captured = True
 
         for key, value in self.updates.items():
             if value is None:
                 self.data.pop(key, None)
             else:
-                self.data[key] = deepcopy(value)
+                self.data[key] = _restore_value(self.data.get(key), value)
 
         logger.debug("UpdateProjectFileStateCommand executed: %s", self.description)
 
     def undo(self) -> None:
         for key in self.updates:
             if self._old_presence.get(key):
-                self.data[key] = deepcopy(self._old_values[key])
+                self.data[key] = self._old_values[key].restore()
             else:
                 self.data.pop(key, None)
 
@@ -906,6 +946,10 @@ class UpdateProjectFileStateCommand(Command):
 
     def get_description(self) -> str:
         return self.description
+
+
+class UpdateCharacterProfileStateCommand(UpdateProjectFileStateCommand):
+    """Restore profile snapshots without detaching maps held by older commands."""
 
 
 class ReplaceMappingValueCommand(Command):
@@ -930,13 +974,13 @@ class ReplaceMappingValueCommand(Command):
         if not self._captured:
             self._had_value = self.key in self.mapping
             if self._had_value:
-                self._old_value = deepcopy(self.mapping[self.key])
+                self._old_value = _ValueSnapshot(self.mapping[self.key])
             self._captured = True
-        self.mapping[self.key] = deepcopy(self.new_value)
+        self.mapping[self.key] = _restore_value(self.mapping.get(self.key), self.new_value)
 
     def undo(self) -> None:
         if self._had_value:
-            self.mapping[self.key] = deepcopy(self._old_value)
+            self.mapping[self.key] = self._old_value.restore()
         else:
             self.mapping.pop(self.key, None)
 

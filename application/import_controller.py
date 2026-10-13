@@ -19,6 +19,17 @@ from services.project_metadata_service import maybe_set_project_name_from_first_
 from utils.helpers import set_project_kind
 
 
+SUBTITLE_IMPORT_UNAVAILABLE = (
+    "Импорт субтитров и сценариев недоступен в проекте аудиокниги. "
+    "Создайте отдельный проект для импорта ASS, SRT, DOCX или таблиц."
+)
+
+
+def ensure_subtitle_project(data: Dict[str, Any]) -> None:
+    if data.get("project_kind") == "audiobook":
+        raise ValueError(SUBTITLE_IMPORT_UNAVAILABLE)
+
+
 class ImportController:
     """Import source files into project data and working-text storage."""
 
@@ -52,6 +63,7 @@ class ImportController:
         path: str
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Add ASS/SRT episode, parse it, and create working text."""
+        ensure_subtitle_project(self.data_ref)
         maybe_set_project_name_from_first_import(
             self.data_ref,
             path,
@@ -94,6 +106,16 @@ class ImportController:
         result: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """Add a DOCX import result and create working text."""
+        return self.add_table_episode(name, docx_path, result)
+
+    def add_table_episode(
+        self,
+        name: str,
+        path: str,
+        result: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """Add parsed table rows; one source row remains one replica."""
+        ensure_subtitle_project(self.data_ref)
         set_project_kind(self.data_ref, "subtitle")
         lines = result.get('lines', [])
         episode_lines = self.convert_imported_lines_for_cache(lines)
@@ -101,7 +123,7 @@ class ImportController:
         command = AddEpisodeCommand(
             self.data_ref["episodes"],
             name,
-            docx_path
+            path
         )
         self.undo_stack.push(command)
 
@@ -110,7 +132,7 @@ class ImportController:
 
         self.create_working_text_for_episode(
             name,
-            docx_path,
+            path,
             episode_lines,
             import_config=result.get("import_config"),
             line_mode=SOURCE_LINE_MODE_PREMERGED,

@@ -530,7 +530,7 @@ class SettingsBridge(QObject):
         return self._set_global_prompter_flag(
             key,
             enabled,
-            "Настройки синхронизации REAPER сохранены",
+            "Настройки синхронизации с DAW сохранены",
         )
 
     @Slot(bool, result=bool)
@@ -581,7 +581,7 @@ class SettingsBridge(QObject):
         updated["default_prompter_config"] = self._prompter_config(config)
         if not self._global_settings_service.save_settings(updated):
             self.errorRequested.emit(
-                "Не удалось сохранить настройки синхронизации REAPER"
+                "Не удалось сохранить настройки синхронизации с DAW"
             )
             return False
         self._global_settings.clear()

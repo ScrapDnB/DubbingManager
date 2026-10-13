@@ -165,24 +165,32 @@ NativeDialogWindow {
             Layout.fillWidth: true
             padding: window.macOSStyle ? 12 : 8
             background: Rectangle { color: window.macOSStyle ? "transparent" : window.palette.window }
-            contentItem: RowLayout {
-                spacing: 12
-                CompactToolButton {
-                    iconSource: "../icons/audiobook.svg"
-                    toolTipText: qsTr("Показать или скрыть главы")
-                    onClicked: window.sidebarVisible = !window.sidebarVisible
+            contentItem: Item {
+                implicitHeight: Math.max(bookProjectControls.implicitHeight,
+                    workflowTabs.implicitHeight, bookToolControls.implicitHeight)
+                RowLayout {
+                    id: bookProjectControls
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Math.min(240, (parent.width - workflowTabs.width) / 2 - 12)
+                    spacing: 12
+                    CompactToolButton {
+                        iconSource: "../icons/audiobook.svg"
+                        toolTipText: qsTr("Показать или скрыть главы")
+                        onClicked: window.sidebarVisible = !window.sidebarVisible
+                    }
+                    Label {
+                        text: window.appBridge.project.name
+                        font.weight: Font.DemiBold
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        elide: Text.ElideRight
+                    }
                 }
-                Label {
-                    text: window.appBridge.project.name
-                    font.weight: Font.DemiBold
-                    Layout.preferredWidth: 200
-                    Layout.minimumWidth: 80
-                    elide: Text.ElideRight
-                }
-                Item { Layout.fillWidth: true }
                 NavigationTabBar {
                     id: workflowTabs
                     objectName: "audiobookWorkflowTabs"
+                    anchors.centerIn: parent
                     model: [qsTr("Подготовка"), qsTr("Проверка"), qsTr("Запись")]
                     tabWidth: window.macOSStyle ? 105 : 115
                     currentIndex: window.workflow
@@ -192,11 +200,16 @@ NativeDialogWindow {
                         else { window.workflow = index; if (index === 1) window.backend.openNextReviewItem() }
                     }
                 }
-                Item { Layout.fillWidth: true; Layout.minimumWidth: 8 }
-                CompactToolButton { iconSource: "../icons/folder-open.svg"; toolTipText: qsTr("Импорт книги"); enabled: !window.backend.importing; onClicked: importDialog.open() }
-                CompactToolButton { iconSource: "../icons/save.svg"; toolTipText: qsTr("Сохранить проект"); onClicked: window.saveProject() }
-                CompactToolButton { iconSource: "../icons/save-as.svg"; toolTipText: qsTr("Экспорт PDF"); enabled: window.backend.chapterTitles.length > 0; onClicked: exportDialog.openExporter() }
-                CompactToolButton { iconSource: "../icons/settings.svg"; toolTipText: qsTr("Показать или скрыть инспектор"); onClicked: window.inspectorVisible = !window.inspectorVisible }
+                RowLayout {
+                    id: bookToolControls
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 12
+                    CompactToolButton { iconSource: "../icons/folder-open.svg"; toolTipText: qsTr("Импорт книги"); enabled: !window.backend.importing; onClicked: importDialog.open() }
+                    CompactToolButton { iconSource: "../icons/save.svg"; toolTipText: qsTr("Сохранить проект"); onClicked: window.saveProject() }
+                    CompactToolButton { iconSource: "../icons/save-as.svg"; toolTipText: qsTr("Экспорт PDF"); enabled: window.backend.chapterTitles.length > 0; onClicked: exportDialog.openExporter() }
+                    CompactToolButton { iconSource: "../icons/settings.svg"; toolTipText: qsTr("Показать или скрыть инспектор"); onClicked: window.inspectorVisible = !window.inspectorVisible }
+                }
             }
         }
         ToolSeparator { orientation: Qt.Horizontal; Layout.fillWidth: true; Layout.preferredHeight: 1 }
@@ -257,6 +270,8 @@ NativeDialogWindow {
             Layout.fillHeight: true
             orientation: Qt.Horizontal
             Pane {
+                objectName: "audiobookChapterSidebar"
+                clip: true
                 visible: window.sidebarVisible
                 SplitView.preferredWidth: 215
                 SplitView.minimumWidth: 170
@@ -266,7 +281,9 @@ NativeDialogWindow {
                 contentItem: ColumnLayout {
                     spacing: 10
                     RowLayout {
-                        Label { text: bookSearch.text.length ? qsTr("Результаты поиска") : qsTr("Главы"); font.bold: true; Layout.fillWidth: true }
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        Label { text: bookSearch.text.length ? qsTr("Результаты поиска") : qsTr("Главы"); font.bold: true; Layout.fillWidth: true; Layout.minimumWidth: 0; elide: Text.ElideRight }
                         RowAccessoryButton {
                             iconSource: "../icons/ellipsis.svg"
                             toolTipText: qsTr("Структура глав")
@@ -329,11 +346,34 @@ NativeDialogWindow {
                     }
                     Label { text: qsTr("%1 глав · %2 слов").arg(window.backend.chapterTitles.length).arg(window.backend.bookWords); color: window.softMuted; Layout.fillWidth: true; wrapMode: Text.WordWrap }
                     Label { text: window.backend.bookDuration; color: window.softMuted }
-                    RowLayout {
-                        Label { text: qsTr("Слов/мин:"); color: window.softMuted; font.pixelSize: 11 }
-                        SpinBox { from: 60; to: 300; stepSize: 10; value: window.backend.readingSpeed; editable: true; Layout.fillWidth: true; onValueModified: window.backend.setReadingSpeed(value) }
+                    GridLayout {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        columns: width < readingSpeedLabel.implicitWidth + readingSpeedControl.minimumControlWidth + columnSpacing ? 1 : 2
+                        columnSpacing: 8
+                        rowSpacing: 4
+                        Label {
+                            id: readingSpeedLabel
+                            text: qsTr("Слов/мин:")
+                            color: window.softMuted
+                            font.pixelSize: 11
+                        }
+                        SpinBox {
+                            id: readingSpeedControl
+                            objectName: "audiobookReadingSpeed"
+                            readonly property real minimumControlWidth: Math.ceil(readingSpeedMetrics.advanceWidth("300")) + leftPadding + rightPadding + 8
+                            from: 60
+                            to: 300
+                            stepSize: 10
+                            value: window.backend.readingSpeed
+                            editable: true
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: minimumControlWidth
+                            onValueModified: window.backend.setReadingSpeed(value)
+                            FontMetrics { id: readingSpeedMetrics; font: readingSpeedControl.font }
+                        }
                     }
-                    AdaptiveButton { text: qsTr("Структура глав…"); flat: true; enabled: window.backend.canEditMarkup; onClicked: { window.backend.flush(); markupWindow.openEditor() } }
+                    AdaptiveButton { text: qsTr("Структура глав…"); flat: true; Layout.fillWidth: true; Layout.minimumWidth: 0; enabled: window.backend.canEditMarkup; onClicked: { window.backend.flush(); markupWindow.openEditor() } }
                 }
             }
             Pane {
@@ -345,6 +385,7 @@ NativeDialogWindow {
                 AudiobookReviewPane { anchors.fill: parent; backend: window.backend; softMuted: window.softMuted }
             }
             Rectangle {
+                objectName: "audiobookEditorArea"
                 SplitView.fillWidth: true
                 SplitView.minimumWidth: 360
                 color: window.palette.base
@@ -366,17 +407,51 @@ NativeDialogWindow {
                             else request.reject()
                         }
                     }
-                    ColumnLayout {
+                    Item {
+                        id: emptyBookState
+                        objectName: "audiobookEmptyState"
                         visible: window.backend.chapterTitles.length === 0
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        spacing: 14
-                        Item { Layout.fillHeight: true }
-                        Label { text: qsTr("Подготовьте книгу к записи"); font.pixelSize: 24; font.weight: Font.DemiBold; Layout.alignment: Qt.AlignHCenter }
-                        Label { text: qsTr("Импортируйте текст, проверьте главы и назначьте роли."); color: window.softMuted; Layout.alignment: Qt.AlignHCenter }
-                        AdaptiveButton { text: window.backend.importing ? qsTr("Импорт…") : qsTr("Импортировать книгу…"); enabled: !window.backend.importing; highlighted: true; Layout.alignment: Qt.AlignHCenter; onClicked: importDialog.open() }
-                        Label { text: qsTr("PDF с текстовым слоем · DOCX · EPUB · TXT"); color: window.softMuted; font.pixelSize: 12; Layout.alignment: Qt.AlignHCenter }
-                        Item { Layout.fillHeight: true }
+                        ColumnLayout {
+                            objectName: "audiobookEmptyContent"
+                            anchors.centerIn: parent
+                            width: Math.min(480, Math.max(0, parent.width - 48))
+                            spacing: 14
+                            Label {
+                                text: qsTr("Подготовьте книгу к записи")
+                                font.pixelSize: 24
+                                font.weight: Font.DemiBold
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.WordWrap
+                            }
+                            Label {
+                                text: qsTr("Импортируйте текст, проверьте главы и назначьте роли.")
+                                color: window.softMuted
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.WordWrap
+                            }
+                            AdaptiveButton {
+                                text: window.backend.importing ? qsTr("Импорт…") : qsTr("Импортировать книгу…")
+                                enabled: !window.backend.importing
+                                highlighted: true
+                                Layout.alignment: Qt.AlignHCenter
+                                onClicked: importDialog.open()
+                            }
+                            Label {
+                                text: qsTr("PDF с текстовым слоем · DOCX · EPUB · TXT")
+                                color: window.softMuted
+                                font.pixelSize: 12
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.WordWrap
+                            }
+                        }
                     }
                     AudiobookReviewActions { visible: window.workflow === 1 && window.backend.chapterTitles.length > 0; Layout.fillWidth: true; backend: window.backend; softMuted: window.softMuted }
                 }

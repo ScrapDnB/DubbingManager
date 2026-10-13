@@ -43,7 +43,46 @@ pytest tests/ -v -m "not slow"
 pytest tests/ -v -m integration
 ```
 
+## Импорт DOCX и таблиц
+
+`test_spreadsheet_import.py` проверяет настоящие XLS/XLSX/CSV, кодировки,
+тайминг, разные схемы листов, скрытые и пустые листы, один Undo на пакет,
+сохранение без исходника и восстановление выбранного листа. XLS-образец
+`fixtures/spreadsheet_import.xls` — синтетическая BIFF8-книга; дополнительных
+библиотек создания XLS для тестов не требуется.
+
+```bash
+.venv/bin/python tests/gui/script_import_smoke.py
+.venv/bin/python tests/gui/script_import_smoke.py --dark
+.venv/bin/python tests/gui/script_import_smoke.py --fluent
+```
+
+Проверка окон не изменяет пользовательские проекты и настройки. Снимки и
+результаты сохраняются в `output/import-smoke/`. Fluent на macOS проверяет
+компоновку; проверка на настоящей Windows выполняется отдельно.
+
 ## Структура тестов
+
+### Живая проверка главного окна
+
+```bash
+.venv/bin/python tests/gui/main_workspace_smoke.py
+.venv/bin/python tests/gui/main_workspace_smoke.py --dark
+QT_QUICK_CONTROLS_STYLE=FluentWinUI3 .venv/bin/python tests/gui/main_workspace_smoke.py --fluent
+QT_QUICK_CONTROLS_STYLE=FluentWinUI3 .venv/bin/python tests/gui/main_workspace_smoke.py --fluent --dark
+```
+
+Проверка использует временный проект и настройки, проверяет выбор стартового
+раздела, сохранение и отмену настроек, переключение тем без перезапуска и
+возврат к системной палитре, таймлайн на всю ширину в Кастинге,
+доступность кнопки «Аудиокнига» для нового проекта и открытой аудиокниги,
+её блокировку для сериала,
+границы и выравнивание панелей серий, центрирование пустого окна аудиокниги,
+редактирование, undo/redo, защиту неверного черновика, реальные клики по шкале
+и сегментам с выбором реплики и перемоткой видео, а также узкую компоновку.
+На macOS проверяется нативный переключатель AppKit. Снимки и отчёты находятся
+в `output/main-window-selected-elements`. Fluent на macOS проверяет
+компоновку и не заменяет проверку системных эффектов на настоящей Windows.
 
 ### Живая проверка модуля аудиокниг
 
@@ -66,6 +105,24 @@ QT_QUICK_CONTROLS_STYLE=FluentWinUI3 python tests/gui/audiobook_workspace_smoke.
 
 Этот режим подменяет платформенные условия только во временной копии QML.
 Он не заменяет запуск на настоящей Windows 11.
+
+Проверка синхронизации с DAW:
+
+```bash
+python -m pytest tests/test_midi_sync.py tests/test_qml_bridge.py
+python tests/gui/daw_sync_smoke.py
+python tests/gui/daw_sync_smoke.py --fluent
+```
+
+MIDI-тесты проверяют MTC Full Frame/Quarter Frame, компенсацию задержки,
+drop-frame и дробные частоты кадров, MMC Locate, выбранные порты Windows,
+потерю порта, освобождение ресурсов, сохранение настроек и переключение DAW.
+GUI-сценарий на macOS дополнительно проверяет настоящую петлю CoreMIDI между
+двумя тестовыми клиентами и телесуфлёром. `--fluent` проверяет компоновку Windows
+с примером портов loopMIDI; это не проверка реальной Windows или Nuendo.
+Проект и настройки изолированы, снимки сохраняются в `output/daw-sync`.
+Для проверки MTC-переходов в Stop и MMC-навигации внутри DAW нужен запуск
+с установленной Nuendo на каждой целевой системе.
 
 ```
 tests/
@@ -169,3 +226,20 @@ jobs:
 - **Всего тестов:** 28
 - **Успешных:** 28 (100%)
 - **Время выполнения:** ~0.4s
+
+### Телесуфлёр и монтажный лист
+
+```bash
+.venv/bin/python tests/gui/tools_windows_smoke.py --all
+```
+
+Проверка использует временные проекты и настройки. Она последовательно запускает
+macOS и Fluent в светлой и тёмной темах, сохраняет снимки обычных и минимальных
+окон в `output/tools-window-redesign/` и проверяет навигацию, поиск, переключение
+режимов, зеркальное чтение, редактор, плавающий контроллер, правку через
+WebChannel с Undo и пакетный экспорт HTML/XLSX/DOCX/PDF. При экспорте всех серий
+XLSX содержит общий файл, остальные форматы — отдельные файлы серий.
+
+`--fluent` на macOS проверяет компоновку и стиль Qt, а не системное оформление
+или работу DWM на Windows. Для отдельных вариантов доступны `--fluent` и
+`--dark`; без аргументов запускается светлый вариант macOS.

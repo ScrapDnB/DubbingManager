@@ -91,12 +91,12 @@ ColumnLayout {
 
     CollapsibleSection {
         Layout.fillWidth: true
-        title: qsTr("Колонки главной таблицы")
+        title: qsTr("Колонки таблицы персонажей")
         expanded: false
 
         Label {
             Layout.fillWidth: true
-            text: qsTr("Порядок, состав и ширина колонок сохраняются для этого компьютера.")
+            text: qsTr("Порядок, состав и ширина колонок в Кастинге сохраняются для этого компьютера. Таблица Текста имеет отдельную компоновку.")
             wrapMode: Text.WordWrap
             color: palette.placeholderText
         }
@@ -109,6 +109,7 @@ ColumnLayout {
                 model: pane.columnOrder
 
                 delegate: RowLayout {
+                    id: columnRow
                     required property string modelData
                     required property int index
                     Layout.fillWidth: true
@@ -122,10 +123,17 @@ ColumnLayout {
                     }
                     Item { Layout.fillWidth: true }
                     PlatformComboBox {
+                        id: columnWidthCombo
                         Layout.preferredWidth: 116
                         model: [qsTr("Узкая"), qsTr("Обычная"), qsTr("Широкая")]
                         currentIndex: Number(pane.widthModes[modelData] || 0) + 1
-                        onActivated: pane.setWidth(modelData, currentIndex - 1)
+                        onActivated: function(index) { pane.setWidth(columnRow.modelData, index - 1) }
+                        Connections {
+                            target: pane
+                            function onWidthModesChanged() {
+                                columnWidthCombo.currentIndex = Number(pane.widthModes[columnRow.modelData] || 0) + 1
+                            }
+                        }
                     }
                     ToolButton {
                         text: "‹"
@@ -159,6 +167,12 @@ ColumnLayout {
         font.bold: true
     }
 
+    Label {
+        Layout.fillWidth: true
+        text: qsTr("Видимость, цвета и порядок дорожек общие для Кастинга и Текста. В Тексте щелчок по таймлайну выбирает реплику и перематывает видео.")
+        wrapMode: Text.WordWrap
+        color: pane.palette.placeholderText
+    }
     RowLayout {
         Layout.fillWidth: true
         enabled: pane.timelineVisible && pane.timelineActorColors
@@ -221,6 +235,8 @@ ColumnLayout {
         enabled: pane.timelineVisible
         Label { text: qsTr("Сортировка дорожек") }
         PlatformComboBox {
+            id: timelineSortCombo
+            objectName: "timelineSortCombo"
             Layout.preferredWidth: 230
             model: [
                 qsTr("По появлению в серии"),
@@ -229,6 +245,12 @@ ColumnLayout {
                 qsTr("По имени актёра")
             ]
             currentIndex: pane.timelineSortIndex(pane.timelineSortMode)
+            Connections {
+                target: pane
+                function onTimelineSortModeChanged() {
+                    timelineSortCombo.currentIndex = pane.timelineSortIndex(pane.timelineSortMode)
+                }
+            }
             onActivated: {
                 pane.timelineSortMode = pane.timelineSortValue(currentIndex)
                 pane.emitConfiguration()
@@ -239,11 +261,19 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         enabled: pane.timelineVisible
-        Label { text: qsTr("Расположение") }
+        Label { text: qsTr("Расположение в Кастинге") }
         PlatformComboBox {
+            id: timelinePlacementCombo
+            objectName: "timelinePlacementCombo"
             Layout.preferredWidth: 230
-            model: [qsTr("Под главной таблицей"), qsTr("Внизу окна")]
+            model: [qsTr("Под таблицей персонажей"), qsTr("На всю ширину внизу окна")]
             currentIndex: pane.timelinePlacement === "bottom" ? 1 : 0
+            Connections {
+                target: pane
+                function onTimelinePlacementChanged() {
+                    timelinePlacementCombo.currentIndex = pane.timelinePlacement === "bottom" ? 1 : 0
+                }
+            }
             onActivated: {
                 pane.timelinePlacement = currentIndex === 1 ? "bottom" : "table"
                 pane.emitConfiguration()
@@ -254,7 +284,7 @@ ColumnLayout {
     Label {
         Layout.fillWidth: true
         enabled: pane.timelineVisible
-        text: qsTr("Высота изменяется перетаскиванием верхней границы таймлайна.")
+        text: qsTr("В Тексте таймлайн расположен под списком реплик и видео. Высота изменяется перетаскиванием его верхней границы.")
         wrapMode: Text.WordWrap
         color: pane.palette.placeholderText
     }

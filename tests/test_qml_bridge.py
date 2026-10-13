@@ -869,7 +869,7 @@ def test_qml_bridge_teleprompter_edits_and_splits_with_undo(tmp_path):
     assert edited["text"] == "Changed"
     assert bridge.reports.searchResultCount == 0
     assert bridge.reports.summaryModel.rows()[-1]["unassigned"] is True
-    backups = list((tmp_path / ".backups").glob(
+    backups = list((tmp_path / ".backups").rglob(
         "prompter-edit_editing_episode_1_*.dub_backup"
     ))
     assert len(backups) == 1
@@ -908,7 +908,7 @@ def test_qml_bridge_teleprompter_edits_and_splits_with_undo(tmp_path):
     assert len(bridge._session.data["episode_working_texts"]["1"]["lines"]) == 2
     bridge.project.redo()
     assert len(bridge._session.data["episode_working_texts"]["1"]["lines"]) == 3
-    assert len(list((tmp_path / ".backups").glob(
+    assert len(list((tmp_path / ".backups").rglob(
         "prompter-edit_editing_episode_1_*.dub_backup"
     ))) == 1
 
@@ -1915,7 +1915,7 @@ def test_qml_opens_backup_as_unsaved_full_project(tmp_path):
     source.casting.addActor("Актёр из копии")
     source.project.autoSave()
     backup_path = next(
-        (tmp_path / ".backups").glob("source_*.dub_backup")
+        (tmp_path / ".backups").rglob("source_*.dub_backup")
     )
 
     restored = AppBridge()
@@ -3594,7 +3594,7 @@ def test_qml_bridge_edits_montage_text_through_undo_stack(tmp_path):
 
     montage.updateText("0", "Edited in WebEngine")
 
-    backups = list((tmp_path / ".backups").glob(
+    backups = list((tmp_path / ".backups").rglob(
         "editing_editing_episode_1_*.dub_backup"
     ))
     assert len(backups) == 1
@@ -4327,7 +4327,7 @@ def test_qml_bridge_autosaves_dirty_saved_project(tmp_path):
 
     project.autoSave()
 
-    backups = list((tmp_path / ".backups").glob("autosave_*.dub_backup"))
+    backups = list((tmp_path / ".backups").rglob("autosave_*.dub_backup"))
     assert len(backups) == 1
     assert project.dirty
     assert bridge.statusText == "Создана автокопия проекта"
@@ -4407,7 +4407,7 @@ def test_qml_bridge_restores_backup_after_unsaved_decision(tmp_path):
     assert not project.dirty
     assert "Восстановлена резервная копия" in bridge.statusText
     assert list(
-        (tmp_path / ".backups").glob(
+        (tmp_path / ".backups").rglob(
             "restorable_before_restore_*.dub_backup"
         )
     )
@@ -5114,3 +5114,160 @@ def test_audiobook_import_result_cannot_replace_another_open_project(tmp_path):
     book._finish_import([BookChapter("Глава", ["Текст старого импорта."])])
     assert bridge._session.data["audiobook_document"] == {}
     assert bridge._session.data["project_name"] == "Другой проект"
+
+
+def test_nuendo_bridge_preserves_reader_controls_and_rejects_old_daw_packets(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+    assert prompter.prepare("1")
+    config = prompter.config
+    config.update({"sync_daw": "nuendo", "osc_enabled": True,
+                   "midi_timecode_origin_seconds": 3600.0, "sync_play_only": True})
+    bridge._global_settings_service.set_default_prompter_config(config)
+    worker = object()
+    prompter._midi_worker = worker
+    prompter._midi_ready = True
+    prompter._on_midi_time(worker, 3603.0)
+    assert prompter.time == 0
+    prompter._on_midi_transport(worker, True)
+    assert prompter.time == 3
+    assert prompter.currentIndex == 1
+    assert prompter.dawName == "Nuendo"
+    assert prompter.syncConnectionState == "active"
+    prompter._on_osc_time(1.0)
+    prompter._on_osc_transport(False)
+    assert prompter.time == 3 and prompter.dawPlaying
+    prompter._on_midi_time(object(), 3601.0)
+    assert prompter.time == 3
+    prompter._on_midi_transport(worker, False)
+    prompter._on_midi_time(worker, 3601.0)
+    assert prompter.time == 3
+    config["sync_play_only"] = False
+    bridge._global_settings_service.set_default_prompter_config(config)
+    prompter._on_midi_time(worker, 3601.0)
+    assert prompter.time == 1
+    config["sync_in"] = False
+    bridge._global_settings_service.set_default_prompter_config(config)
+    prompter._on_midi_time(worker, 3603.0)
+    assert prompter.time == 1
+    config["sync_play_only"] = True
+    bridge._global_settings_service.set_default_prompter_config(config)
+    prompter._on_midi_transport(worker, True)
+    assert prompter.time == 1
+    # A stopped transport remains ready despite MTC intentionally going silent.
+    prompter._last_osc_activity = monotonic() - 30
+    prompter._refresh_reaper_connection_state()
+    assert prompter.syncConnectionState == "active"
+    prompter._midi_worker = None
+    prompter.close()
+
+
+def test_nuendo_bridge_sends_origin_and_own_offset_without_changing_reaper(tmp_path):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+    assert prompter.prepare("1")
+    config = prompter.config
+    config.update({"sync_daw": "nuendo", "osc_enabled": True, "sync_out": True,
+                   "midi_timecode_origin_seconds": 3600.0,
+                   "nuendo_offset_enabled": True, "nuendo_offset_seconds": -2.0,
+                   "reaper_offset_enabled": True, "reaper_offset_seconds": -5.0})
+    bridge._global_settings_service.set_default_prompter_config(config)
+    sent = []
+    worker = type("MidiStub", (), {"send_locate": lambda self, value: sent.append(value)})()
+    prompter._midi_worker = worker
+    prompter._midi_ready = True
+    prompter.jumpToIndex(1)
+    assert sent == [3601.0]
+    assert prompter.time == 3.0
+    # Acknowledgement cannot bounce the selected cue to the earlier pre-roll.
+    prompter._on_midi_time(worker, 3601.0)
+    assert prompter.time == 3.0
+    prompter._on_midi_time(worker, 3601.1)
+    assert prompter.time == pytest.approx(1.1)
+    assert prompter.config["reaper_offset_seconds"] == -5.0
+    prompter._midi_worker = None
+    prompter.close()
+
+
+def test_switching_daw_closes_previous_transport_and_starts_only_selected(tmp_path, monkeypatch):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+    assert prompter.prepare("1")
+    config = prompter.config
+    config["osc_enabled"] = True
+    bridge._global_settings_service.set_default_prompter_config(config)
+    stops, starts = [], []
+    old_worker = type("OldOsc", (), {"stop": lambda self: stops.append("reaper"),
+                                      "deleteLater": lambda self: None})()
+    prompter._osc_worker = old_worker
+    prompter._osc_client = object()
+    prompter._osc_runtime_config = (8000, 9000)
+    monkeypatch.setattr(prompter, "_start_midi", lambda: starts.append("nuendo"))
+    config["sync_daw"] = "nuendo"
+    bridge._global_settings_service.set_default_prompter_config(config)
+    prompter.notify_global_config_changed()
+    assert stops == ["reaper"] and starts == ["nuendo"]
+    assert prompter._osc_worker is None and prompter._osc_client is None
+    prompter._midi_worker = type("OldMidi", (), {
+        "stop": lambda self: stops.append("nuendo"), "deleteLater": lambda self: None,
+    })()
+    config["sync_daw"] = "reaper"
+    bridge._global_settings_service.set_default_prompter_config(config)
+    # Keep the actual shutdown path, substitute only native endpoint creation.
+    original_stop = prompter._stop_osc
+    def start_reaper():
+        original_stop()
+        starts.append("reaper")
+    monkeypatch.setattr(prompter, "_start_osc", start_reaper)
+    prompter.notify_global_config_changed()
+    assert stops == ["reaper", "nuendo"] and starts == ["nuendo", "reaper"]
+    assert prompter._midi_worker is None
+    prompter.close()
+
+
+def test_nuendo_midi_error_allows_retry_and_displays_useful_status(tmp_path, monkeypatch):
+    _app()
+    bridge = AppBridge()
+    _configure_teleprompter_project(bridge, tmp_path)
+    prompter = bridge.teleprompter
+    prompter._episode = "1"
+    config = prompter.config
+    config.update({"sync_daw": "nuendo", "osc_enabled": True})
+    bridge._global_settings_service.set_default_prompter_config(config)
+    worker = object()
+    prompter._midi_worker = worker
+    prompter._on_midi_error(worker, "MIDI-порт не найден: Nuendo MTC")
+    assert prompter.syncConnectionState == "error"
+    assert "Nuendo MTC" in prompter.syncStatus
+    assert not prompter._midi_ready
+    starts = []
+    monkeypatch.setattr(prompter, "_start_osc", lambda: starts.append(True))
+    prompter.notify_global_config_changed()
+    assert starts == [True]
+    prompter._midi_worker = None
+    prompter.close()
+
+
+def test_midi_settings_persist_and_legacy_reaper_config_keeps_defaults(tmp_path):
+    from services.global_settings_service import GlobalSettingsService
+    service = GlobalSettingsService()
+    service.set_default_prompter_config({"osc_enabled": True, "port_in": 8123})
+    config = service.get_default_prompter_config()
+    assert config["sync_daw"] == "reaper" and config["port_in"] == 8123
+    config.update({"sync_daw": "nuendo", "midi_input_port": "Input cable",
+                   "midi_output_port": "Output cable", "midi_frame_rate": "29.97df",
+                   "midi_device_id": 17, "midi_timecode_origin_seconds": 3600.0})
+    service.set_default_prompter_config(config)
+    assert service.save_settings(service.settings)
+    reloaded_service = GlobalSettingsService()
+    reloaded_service.settings = reloaded_service.load_settings()
+    restored = reloaded_service.get_default_prompter_config()
+    for key in ("sync_daw", "midi_input_port", "midi_output_port", "midi_frame_rate",
+                "midi_device_id", "midi_timecode_origin_seconds", "port_in"):
+        assert restored[key] == config[key]

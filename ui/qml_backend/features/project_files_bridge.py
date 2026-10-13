@@ -8,9 +8,11 @@ from uuid import uuid4
 
 from PySide6.QtCore import QObject, Property, QUrl, Signal, Slot, Qt
 
+from application.import_controller import SUBTITLE_IMPORT_UNAVAILABLE
 from config.constants import PROJECT_VERSION
 from core.commands import UpdateProjectFileStateCommand
 from services.docx_import_service import DocxImportService
+from services.spreadsheet_import_service import SPREADSHEET_EXTENSIONS, SpreadsheetImportService
 from services.dynamic_script_storage import (
     SOURCE_LINE_MODE_ATOMIC,
     SOURCE_LINE_MODE_PREMERGED,
@@ -358,7 +360,7 @@ class ProjectFilesBridge(QObject):
             if not source:
                 continue
             try:
-                lines = self._parse_episode_source(source, project_data)
+                lines = self._parse_episode_source(source, project_data, str(episode))
             except Exception:
                 continue
             if self._script_text_service.embed_source_lines_from_source(
@@ -453,6 +455,9 @@ class ProjectFilesBridge(QObject):
 
     @Slot()
     def batchImportFolder(self) -> None:
+        if self._session.data.get("project_kind") == "audiobook":
+            self.errorRequested.emit(SUBTITLE_IMPORT_UNAVAILABLE)
+            return
         folder = self.folder
         if not folder or not Path(folder).is_dir():
             self.errorRequested.emit(
@@ -505,7 +510,7 @@ class ProjectFilesBridge(QObject):
                 failed += 1
                 continue
             try:
-                lines = self._parse_episode_source(source, candidate)
+                lines = self._parse_episode_source(source, candidate, episode)
             except Exception:
                 failed += 1
                 continue
@@ -514,7 +519,7 @@ class ProjectFilesBridge(QObject):
                 continue
             merge_config = self._script_text_service.get_merge_config(candidate)
             if (
-                Path(source).suffix.lower() == ".docx"
+                Path(source).suffix.lower() in {".docx", *SPREADSHEET_EXTENSIONS}
                 and not self._script_text_service.uses_dynamic_storage(candidate)
             ):
                 merge_config = {**merge_config, "merge": False}
@@ -561,7 +566,7 @@ class ProjectFilesBridge(QObject):
             return
 
         allowed = {
-            "source": {".ass", ".srt", ".docx"},
+            "source": {".ass", ".srt", ".docx", *SPREADSHEET_EXTENSIONS},
             "video": self._project_folder_service.VIDEO_EXTENSIONS,
             "working": {".json"},
         }
@@ -606,7 +611,7 @@ class ProjectFilesBridge(QObject):
             self.errorRequested.emit("Исходный файл серии не найден")
             return
         try:
-            lines = self._parse_episode_source(source, self._session.data)
+            lines = self._parse_episode_source(source, self._session.data, episode)
         except Exception as exc:
             self.errorRequested.emit(
                 f"Не удалось прочитать исходный файл: {exc}"
@@ -619,7 +624,7 @@ class ProjectFilesBridge(QObject):
         candidate = deepcopy(self._session.data)
         merge_config = self._script_text_service.get_merge_config(candidate)
         if (
-            Path(source).suffix.lower() == ".docx"
+            Path(source).suffix.lower() in {".docx", *SPREADSHEET_EXTENSIONS}
             and not self._script_text_service.uses_dynamic_storage(candidate)
         ):
             merge_config = {**merge_config, "merge": False}
@@ -660,7 +665,7 @@ class ProjectFilesBridge(QObject):
             if not source:
                 continue
             try:
-                lines = self._parse_episode_source(source, candidate)
+                lines = self._parse_episode_source(source, candidate, episode)
             except Exception:
                 failed += 1
                 continue
@@ -669,7 +674,7 @@ class ProjectFilesBridge(QObject):
                 continue
             merge_config = self._script_text_service.get_merge_config(candidate)
             if (
-                Path(source).suffix.lower() == ".docx"
+                Path(source).suffix.lower() in {".docx", *SPREADSHEET_EXTENSIONS}
                 and not self._script_text_service.uses_dynamic_storage(candidate)
             ):
                 merge_config = {**merge_config, "merge": False}
@@ -800,7 +805,7 @@ class ProjectFilesBridge(QObject):
                 "canRegenerate": bool(
                     source_exists
                     and Path(source_resolved).suffix.lower()
-                    in {".ass", ".srt", ".docx"}
+                    in {".ass", ".srt", ".docx", *SPREADSHEET_EXTENSIONS}
                 ),
                 "hasSourceAss": False,
                 "canRelink": True,
@@ -855,7 +860,7 @@ class ProjectFilesBridge(QObject):
                 "canRegenerate": bool(
                     source_exists
                     and Path(source_resolved).suffix.lower()
-                    in {".ass", ".srt", ".docx"}
+                    in {".ass", ".srt", ".docx", *SPREADSHEET_EXTENSIONS}
                 ),
                 "hasSourceAss": self._script_text_service.has_source_ass(
                     project_data,
@@ -1246,8 +1251,12 @@ class ProjectFilesBridge(QObject):
         self,
         path: str,
         project_data: Dict[str, Any],
+        episode: str = "",
     ) -> List[Dict[str, Any]]:
         suffix = Path(path).suffix.lower()
+        if suffix in SPREADSHEET_EXTENSIONS:
+            config = self._source_import_config(path, project_data, episode)
+            return SpreadsheetImportService().parse_source(path, config)
         if suffix == ".srt":
             _stats, lines = self._episode_service.parse_srt_file(path)
             return lines
@@ -1255,7 +1264,7 @@ class ProjectFilesBridge(QObject):
             _stats, lines = self._episode_service.parse_ass_file(path)
             return lines
         if suffix == ".docx":
-            config = self._global_settings_service.get_docx_import_config()
+            config = self._source_import_config(path, project_data, episode)
             service = DocxImportService(detection_config=config)
             mapping = config.get("mapping") if isinstance(config, dict) else None
             _stats, lines = service.parse_document(path, mapping)
@@ -1266,7 +1275,7 @@ class ProjectFilesBridge(QObject):
     def _source_line_mode(path: str) -> str:
         return (
             SOURCE_LINE_MODE_PREMERGED
-            if Path(path).suffix.lower() == ".docx"
+            if Path(path).suffix.lower() in {".docx", *SPREADSHEET_EXTENSIONS}
             else SOURCE_LINE_MODE_ATOMIC
         )
 

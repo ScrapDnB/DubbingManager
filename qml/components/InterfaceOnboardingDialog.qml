@@ -992,7 +992,7 @@ NativeDialogWindow {
                         spacing: 13
                         SettingsPageHeader {
                             title: qsTr("Как показывать таймлайн серии?")
-                            subtitle: qsTr("Таймлайн даёт быстрый обзор занятости актёров по ходу серии.")
+                            subtitle: qsTr("Здесь выбирается расположение в Кастинге. В Тексте таймлайн находится под репликами и видео; видимость, цвета и сортировка общие для обоих разделов.")
                         }
                         RowLayout {
                             Layout.fillWidth: true
@@ -1025,7 +1025,7 @@ NativeDialogWindow {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: dialog.windowsStyle ? 116 : 88
                                 title: qsTr("Не показывать")
-                                subtitle: qsTr("Больше места таблицам.")
+                                subtitle: qsTr("Скрыть в Кастинге и Тексте.")
                                 selected: !dialog.episodeTimelineVisibleDraft
                                 onChosen: dialog.episodeTimelineVisibleDraft = false
                             }
@@ -1049,7 +1049,11 @@ NativeDialogWindow {
                                         anchors.fill: parent
                                         spacing: 8
                                         PreviewSidebar {
-                                            Layout.preferredWidth: 72
+                                            Layout.preferredWidth: 55
+                                            Layout.fillHeight: true
+                                        }
+                                        PreviewSidebar {
+                                            Layout.preferredWidth: 45
                                             Layout.fillHeight: true
                                         }
                                         ColumnLayout {
@@ -1066,6 +1070,10 @@ NativeDialogWindow {
                                                 caption: qsTr("Таймлайн под таблицей")
                                             }
                                         }
+                                        PreviewSidebar {
+                                            Layout.preferredWidth: 55
+                                            Layout.fillHeight: true
+                                        }
                                     }
                                 }
 
@@ -1078,11 +1086,19 @@ NativeDialogWindow {
                                             Layout.fillHeight: true
                                             spacing: 8
                                             PreviewSidebar {
-                                                Layout.preferredWidth: 72
+                                                Layout.preferredWidth: 55
+                                                Layout.fillHeight: true
+                                            }
+                                            PreviewSidebar {
+                                                Layout.preferredWidth: 45
                                                 Layout.fillHeight: true
                                             }
                                             PreviewTable {
                                                 Layout.fillWidth: true
+                                                Layout.fillHeight: true
+                                            }
+                                            PreviewSidebar {
+                                                Layout.preferredWidth: 55
                                                 Layout.fillHeight: true
                                             }
                                         }
@@ -1099,11 +1115,19 @@ NativeDialogWindow {
                                         anchors.fill: parent
                                         spacing: 8
                                         PreviewSidebar {
-                                            Layout.preferredWidth: 72
+                                            Layout.preferredWidth: 55
+                                            Layout.fillHeight: true
+                                        }
+                                        PreviewSidebar {
+                                            Layout.preferredWidth: 45
                                             Layout.fillHeight: true
                                         }
                                         PreviewTable {
                                             Layout.fillWidth: true
+                                            Layout.fillHeight: true
+                                        }
+                                        PreviewSidebar {
+                                            Layout.preferredWidth: 55
                                             Layout.fillHeight: true
                                         }
                                     }

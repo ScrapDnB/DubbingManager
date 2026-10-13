@@ -20,6 +20,7 @@ from ui.qml_backend.features import (
     CastingBridge,
     ConverterBridge,
     DocxImportBridge,
+    SpreadsheetImportBridge,
     LayoutTemplatesBridge,
     MontageBridge,
     ProjectBridge,
@@ -30,9 +31,11 @@ from ui.qml_backend.features import (
     SettingsBridge,
     SubtitleImportBridge,
     TeleprompterBridge,
+    ThemeBridge,
     UiStateBridge,
     UpdateBridge,
     VideoBridge,
+    WorkspaceBridge,
 )
 from ui.qml_backend.project_session import ProjectSession
 from utils.i18n import set_language
@@ -78,6 +81,7 @@ class AppBridge(QObject):
         self._status_text = "Интерфейс готов"
 
         self._ui_state = ui_state or UiStateBridge(parent=self)
+        self._theme = ThemeBridge(self._ui_state, self)
         self._updates = UpdateBridge(self)
         self._project = ProjectBridge(
             self._session,
@@ -140,6 +144,13 @@ class AppBridge(QObject):
             self._global_settings_service,
             self,
         )
+        self._spreadsheet_import = SpreadsheetImportBridge(
+            self._session,
+            self._episode_service,
+            self._script_text_service,
+            self._global_settings_service,
+            self,
+        )
         self._audiobook = AudiobookBridge(
             self._session,
             self._script_text_service,
@@ -194,11 +205,17 @@ class AppBridge(QObject):
             self,
         )
 
+        self._workspace = WorkspaceBridge(
+            self._session, self._script_text_service, self._project_folder_service,
+            self._casting, self._ui_state, self,
+        )
+        self._project.set_pending_edit_guard(self._workspace.flush)
         self._connect_feature_events()
         self.refresh()
 
     def _connect_feature_events(self) -> None:
         features = (
+            self._workspace,
             self._updates,
             self._project,
             self._project_files,
@@ -208,6 +225,7 @@ class AppBridge(QObject):
             self._settings,
             self._layout_templates,
             self._docx_import,
+            self._spreadsheet_import,
             self._audiobook,
             self._subtitle_import,
             self._converter,
@@ -226,12 +244,14 @@ class AppBridge(QObject):
                 error_signal.connect(self._show_error)
 
         mutating_features = (
+            self._workspace,
             self._project_files,
             self._casting,
             self._actor_library,
             self._roles,
             self._settings,
             self._docx_import,
+            self._spreadsheet_import,
             self._audiobook,
             self._subtitle_import,
             self._teleprompter,
@@ -294,6 +314,10 @@ class AppBridge(QObject):
         return self._ui_state
 
     @Property(QObject, constant=True)
+    def theme(self) -> QObject:
+        return self._theme
+
+    @Property(QObject, constant=True)
     def updates(self) -> QObject:
         return self._updates
 
@@ -320,6 +344,10 @@ class AppBridge(QObject):
     @Property(QObject, constant=True)
     def docxImport(self) -> QObject:
         return self._docx_import
+
+    @Property(QObject, constant=True)
+    def spreadsheetImport(self) -> QObject:
+        return self._spreadsheet_import
 
     @Property(QObject, constant=True)
     def audiobook(self) -> QObject:
@@ -357,6 +385,10 @@ class AppBridge(QObject):
     def projectFiles(self) -> QObject:
         return self._project_files
 
+    @Property(QObject, constant=True)
+    def workspace(self) -> QObject:
+        return self._workspace
+
     def refresh(self) -> None:
         self._project.refresh_models()
         self._casting.refresh("project")
@@ -364,12 +396,14 @@ class AppBridge(QObject):
         self._roles.refresh()
         self._settings.refresh()
         self._docx_import.changed.emit()
+        self._spreadsheet_import.changed.emit()
         self._subtitle_import.changed.emit()
         self._montage.refresh()
         self._video.refresh_if_active()
         self._project_files.refresh()
         self._teleprompter.refresh_if_active()
         self._reports.refresh()
+        self._workspace.refresh()
 
     def _refresh_assignment_dependents(self) -> None:
         """Refresh views whose data changes when a role is recast.
@@ -379,6 +413,7 @@ class AppBridge(QObject):
         assigning an actor in large projects.
         """
         self._casting.refresh("assignments")
+        self._workspace.refresh()
         self._actor_library.refresh()
         self._roles.refresh_assignments()
         self._montage.refresh()
@@ -387,6 +422,7 @@ class AppBridge(QObject):
 
     def _refresh_actor_dependents(self) -> None:
         self._casting.refresh("actors")
+        self._workspace.refresh()
         self._actor_library.refresh()
         self._roles.refresh_assignments()
         self._montage.refresh()
@@ -395,6 +431,7 @@ class AppBridge(QObject):
         self._project_files.refresh_health()
 
     def _refresh_working_text_dependents(self, domain: str) -> None:
+        self._workspace.refresh()
         self._project.refresh_models()
         self._casting.refresh(domain)
         self._roles.refresh()
@@ -406,6 +443,7 @@ class AppBridge(QObject):
         self._reports.refresh()
 
     def _refresh_settings_dependents(self) -> None:
+        self._workspace.refresh()
         self._project.nameChanged.emit()
         self._casting.refresh("settings")
         self._settings.refresh()
@@ -417,6 +455,7 @@ class AppBridge(QObject):
     def _clear_auxiliary_models(self) -> None:
         self._teleprompter.reset()
         self._docx_import.reset()
+        self._spreadsheet_import.reset()
         self._subtitle_import.reset()
         self._reports.reset()
         self._montage.reset()

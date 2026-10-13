@@ -146,22 +146,36 @@ class DocxImportService:
         column_mapping: Optional[Dict[str, Optional[int]]] = None,
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Parse every table in a DOCX using saved mapping when it still fits."""
-        return self.parse_tables(
-            self.extract_tables_from_docx(path),
-            column_mapping,
-        )
+        tables = self.extract_tables_from_docx(path)
+        indices = list(range(len(tables)))
+        selection = self.detection_config.get("table_selection", {})
+        if selection.get("mode") == "single":
+            index = selection.get("index")
+            if not isinstance(index, int) or not 0 <= index < len(tables):
+                raise ValueError("В DOCX больше нет выбранной таблицы")
+            indices = [index]
+        first_rows = self.detection_config.get("first_rows", {})
+        return self.parse_tables([tables[i] for i in indices], column_mapping,
+                                 first_rows=[first_rows.get(str(i)) for i in indices])
 
     def parse_tables(
         self,
         tables: List[List[List[str]]],
         column_mapping: Optional[Dict[str, Optional[int]]] = None,
+        first_rows: Optional[List[Optional[int]]] = None,
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Parse DOCX table rows and combine them into one episode payload."""
         all_lines: List[Dict[str, Any]] = []
-        for rows in tables:
+        original_skip = self.detection_config.get('rows_to_skip', 0)
+        for index, rows in enumerate(tables):
             if not rows:
                 continue
             detected_mapping = self.detect_columns(rows)
+            first = first_rows[index] if first_rows and index < len(first_rows) else None
+            self.detection_config['rows_to_skip'] = original_skip
+            if first is not None:
+                self._has_header = False
+                self.detection_config['rows_to_skip'] = max(0, int(first) - 1)
             column_count = max((len(row) for row in rows), default=0)
             mapping = (
                 column_mapping
@@ -170,6 +184,7 @@ class DocxImportService:
             )
             _stats, lines = self.parse_with_mapping(rows, mapping)
             all_lines.extend(lines)
+        self.detection_config['rows_to_skip'] = original_skip
         return self._summarize_lines(all_lines), all_lines
 
     @staticmethod

@@ -556,7 +556,7 @@ class ScriptTextService:
         return os.path.splitext(path or "")[1].lower() in {
             '.ass',
             '.srt',
-            '.docx',
+            '.docx', '.xls', '.xlsx', '.csv',
         }
 
     def _candidate_episode_text_paths(
@@ -666,6 +666,26 @@ class ScriptTextService:
 
         target["text"] = new_text
         target["dirty"] = True
+        payload["modified_at"] = datetime.now().isoformat()
+        return True
+
+    def update_line_timing(
+        self, project_data: Dict[str, Any], ep_num: str,
+        line_id: Any, start: float, end: float,
+    ) -> bool:
+        """Change working timing, keeping the imported source immutable."""
+        import math
+        if not all(math.isfinite(value) for value in (start, end)) or start < 0 or end <= start:
+            raise ValueError("Выход должен быть позже входа, вход — неотрицательным")
+        if self._audiobook_document(project_data) is not None:
+            return False
+        if self.uses_dynamic_storage(project_data):
+            return self._dynamic.update_fragment_timing(project_data, str(ep_num), line_id, start, end)
+        payload = self.get_episode_payload(project_data, str(ep_num))
+        target = self._find_payload_line(payload.get("lines", []), line_id) if payload else None
+        if target is None or (target.get("start") == start and target.get("end") == end):
+            return False
+        target.update({"start": start, "end": end, "s_raw": "", "e_raw": "", "dirty": True})
         payload["modified_at"] = datetime.now().isoformat()
         return True
 
@@ -804,10 +824,7 @@ class ScriptTextService:
             changed = False
 
             for char_key, char_data in payload.get("characters", {}).items():
-                if (
-                    char_key == old_name or
-                    char_data.get("display_name", char_key) == old_name
-                ):
+                if char_data.get("display_name", char_key) == old_name:
                     char_data["display_name"] = new_name
                     changed = True
 

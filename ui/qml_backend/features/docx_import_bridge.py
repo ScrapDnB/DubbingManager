@@ -11,6 +11,8 @@ from core.commands import UndoStack, UpdateProjectFileStateCommand
 from services.docx_import_service import COLUMN_TYPES, DocxImportService
 from services.episode_service import EpisodeService
 from application import ImportController
+from application.import_controller import SUBTITLE_IMPORT_UNAVAILABLE
+from utils.helpers import format_seconds_to_full_tc
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
 
@@ -38,6 +40,8 @@ class DocxImportBridge(QObject):
         self._path = ""
         self._tables: list[list[list[str]]] = []
         self._table_index = 0
+        self._first_rows = {}
+        self._ignore_headers = {}
         self._mapping: dict[str, Any] = {}
         self._summary = "Выберите DOCX-файл"
         self._detection_summary = ""
@@ -59,6 +63,10 @@ class DocxImportBridge(QObject):
     @Property(QObject, constant=True)
     def tablesModel(self) -> QObject:
         return self._tables_model
+
+    @Property(int, notify=changed)
+    def columnCount(self) -> int:
+        return self._columns_model.rowCount()
 
     @Property(QObject, constant=True)
     def columnsModel(self) -> QObject:
@@ -101,9 +109,44 @@ class DocxImportBridge(QObject):
     def separators(self) -> str:
         return " ".join(self._service.time_separators)
 
+    @Property(int, notify=changed)
+    def rowCount(self) -> int:
+        return len(self._tables[self._table_index]) if self._tables else 0
+
+    @Property(int, notify=changed)
+    def firstRow(self) -> int:
+        if not self._tables:
+            return 1
+        return self._first_rows.get(self._table_index, self._service._data_start_index(self._tables[self._table_index]) + 1)
+
+    @Property(bool, notify=changed)
+    def ignoreHeader(self) -> bool:
+        if not self._tables:
+            return False
+        return self._ignore_headers.get(self._table_index, bool(self._service.last_detection.get("header_found")))
+
+    @Property(int, notify=changed)
+    def tableStartRow(self) -> int:
+        return max(1, self.firstRow - int(self.ignoreHeader))
+
+    @Property("QVariantList", notify=changed)
+    def rawRows(self) -> list:
+        if not self._tables:
+            return []
+        return [{"row": i + 1, "cells": row} for i, row in enumerate(self._tables[self._table_index][:30])]
+
+    @Property(str, notify=changed)
+    def sourceSummary(self) -> str:
+        return f"DOCX · таблиц: {len(self._tables)}"
+
+    @Property(str, notify=changed)
+    def validationMessage(self) -> str:
+        return "" if self.canImport else "Выберите колонку с текстом реплик"
+
     @Property(bool, notify=changed)
     def canImport(self) -> bool:
-        return bool(self._tables and self._mapping.get("text") is not None)
+        return bool(self._tables and self._service.mapping_usable(
+            self._mapping, max((len(row) for row in self._tables[self._table_index]), default=0)))
 
     @Property("QVariantList", constant=True)
     def fields(self) -> list[dict[str, str]]:
@@ -137,6 +180,8 @@ class DocxImportBridge(QObject):
             for index, rows in enumerate(tables)
         ])
         self._table_index = 0
+        self._first_rows = {}
+        self._ignore_headers = {}
         self._prepare_table(use_saved_mapping=True)
         self.changed.emit()
         return True
@@ -156,6 +201,8 @@ class DocxImportBridge(QObject):
         self._mapping = self._service.detect_columns(
             self._tables[self._table_index]
         )
+        self._first_rows.pop(self._table_index, None)
+        self._ignore_headers.pop(self._table_index, None)
         self._update_detection_summary()
         self._refresh_preview()
         self.changed.emit()
@@ -165,8 +212,38 @@ class DocxImportBridge(QObject):
         if field not in COLUMN_TYPES:
             return
         self._mapping[field] = None if column < 0 else int(column)
+        if column >= 0:
+            if field == "time_split":
+                self._mapping["time_start"] = self._mapping["time_end"] = None
+            elif field in ("time_start", "time_end"):
+                self._mapping["time_split"] = None
         self._refresh_preview()
         self.changed.emit()
+
+    @Slot(int)
+    def setFirstRow(self, row: int) -> None:
+        if 1 <= row <= self.rowCount:
+            self._first_rows[self._table_index] = row
+            if row == 1:
+                self._ignore_headers[self._table_index] = False
+            self._refresh_preview()
+            self.changed.emit()
+
+    @Slot(int)
+    def setTableStartRow(self, row: int) -> None:
+        if 1 <= row <= self.rowCount:
+            self._first_rows[self._table_index] = row + int(self.ignoreHeader)
+            self._refresh_preview()
+            self.changed.emit()
+
+    @Slot(bool)
+    def setIgnoreHeader(self, ignored: bool) -> None:
+        if self._tables:
+            start = self.tableStartRow
+            self._ignore_headers[self._table_index] = ignored
+            self._first_rows[self._table_index] = start + int(ignored)
+            self._refresh_preview()
+            self.changed.emit()
 
     @Slot(str)
     def setSeparators(self, text: str) -> None:
@@ -182,6 +259,11 @@ class DocxImportBridge(QObject):
 
     @Slot(str, bool, result=bool)
     def importEpisode(self, episode: str, all_tables: bool) -> bool:
+        if self._session.data.get("project_kind") == "audiobook":
+            self.errorRequested.emit(SUBTITLE_IMPORT_UNAVAILABLE)
+            return False
+        if not self._session.flush_pending_edits():
+            return False
         episode = str(episode or "").strip()
         if not episode:
             self.errorRequested.emit("Введите название серии")
@@ -196,9 +278,12 @@ class DocxImportBridge(QObject):
         selected_tables = (
             self._tables if all_tables else [self._tables[self._table_index]]
         )
+        self._service.detection_config["rows_to_skip"] = self._global_settings_service.get_docx_import_config().get("rows_to_skip", 0)
         _stats, all_lines = self._service.parse_tables(
             selected_tables,
             self._mapping,
+            first_rows=[self._first_rows.get(i) for i in (
+                range(len(self._tables)) if all_tables else [self._table_index])],
         )
         if not all_lines:
             self.errorRequested.emit("Не удалось извлечь реплики из DOCX")
@@ -210,6 +295,8 @@ class DocxImportBridge(QObject):
             "time_separators": list(self._service.time_separators),
         })
         source_import_config = deepcopy(docx_config)
+        source_import_config["first_rows"] = {str(i): row for i, row in self._first_rows.items()}
+        source_import_config["ignore_headers"] = {str(i): value for i, value in self._ignore_headers.items()}
         source_import_config["table_selection"] = {
             "mode": "all" if all_tables else "single",
             "index": None if all_tables else self._table_index,
@@ -269,6 +356,8 @@ class DocxImportBridge(QObject):
         self._tables = []
         self._mapping = {}
         self._table_index = 0
+        self._first_rows = {}
+        self._ignore_headers = {}
         self._tables_model.set_rows([])
         self._columns_model.set_rows([])
         self._preview_model.set_rows([])
@@ -279,11 +368,13 @@ class DocxImportBridge(QObject):
     def _prepare_table(self, use_saved_mapping: bool) -> None:
         rows = self._tables[self._table_index]
         max_columns = max((len(row) for row in rows), default=0)
-        header = rows[0] if rows else []
+        self._service.detect_columns(rows)
+        header_index = self._service.last_detection.get("header_row") or 0
+        header = rows[header_index] if rows else []
         self._columns_model.set_rows([
             {
                 "index": index,
-                "label": f"{index + 1}: "
+                "label": f"{index + 1} · "
                 + (
                     self._one_line(header[index])[:50]
                     if index < len(header)
@@ -296,7 +387,7 @@ class DocxImportBridge(QObject):
         if use_saved_mapping and self._mapping_usable(saved, max_columns):
             self._service.detect_columns(rows)
             self._mapping = deepcopy(saved)
-            self._detection_summary = "Применён последний общий mapping"
+            self._detection_summary = "Использованы последние настройки колонок"
         else:
             self._mapping = self._service.detect_columns(rows)
             self._update_detection_summary()
@@ -305,6 +396,12 @@ class DocxImportBridge(QObject):
     def _refresh_preview(self) -> None:
         if not self._tables:
             return
+        self._service.detect_columns(self._tables[self._table_index])
+        if self._table_index in self._first_rows:
+            self._service._has_header = False
+            self._service.detection_config["rows_to_skip"] = self._first_rows[self._table_index] - 1
+        else:
+            self._service.detection_config["rows_to_skip"] = self._global_settings_service.get_docx_import_config().get("rows_to_skip", 0)
         preview = self._service.get_preview_data(
             self._tables[self._table_index], self._mapping, limit=30
         )
@@ -314,19 +411,21 @@ class DocxImportBridge(QObject):
             mapped = item.get("mapped", {})
             text = str(mapped.get("text") or "")
             character = str(mapped.get("character") or "")
-            timing = str(
-                mapped.get("time_split")
-                or " - ".join(filter(None, (
-                    mapped.get("time_start"), mapped.get("time_end")
-                )))
-                or ""
-            )
+            start = item.get("time_split_start_parsed")
+            end = item.get("time_split_end_parsed")
+            if start is None:
+                start = item.get("time_start_parsed")
+            if end is None:
+                end = item.get("time_end_parsed")
+            start = start if start is not None else 0.0
+            end = end if end is not None else start + float(self._service.detection_config.get("default_duration", 1.0))
+            timing = f"{format_seconds_to_full_tc(start)} – {format_seconds_to_full_tc(end)}"
             if text:
                 valid += 1
             rows.append({
                 "character": self._one_line(character) or "-",
                 "timing": self._one_line(timing) or "-",
-                "text": self._one_line(text) or "-",
+                "text": text or "-",
                 "status": "Готово" if text else "Нет текста",
             })
         self._preview_model.set_rows(rows)
@@ -344,7 +443,7 @@ class DocxImportBridge(QObject):
                 f"уверенность: {round(info['confidence'] * 100)}%"
             )
         else:
-            self._detection_summary = "Заголовок не найден, применён fallback mapping"
+            self._detection_summary = "Заголовок не распознан. Проверьте колонки и первую строку данных."
 
     @staticmethod
     def _mapping_usable(mapping: dict, column_count: int) -> bool:

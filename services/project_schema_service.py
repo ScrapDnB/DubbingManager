@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from typing import Any, Dict
 
 from packaging.version import InvalidVersion, Version
@@ -242,6 +244,13 @@ class ProjectSchemaService:
                             f"Повторяющийся fragment id: {fragment_id}."
                         )
                     fragment_ids.add(fragment_id)
+                    if "start" in fragment or "end" in fragment:
+                        try:
+                            start, end = float(fragment["start"]), float(fragment["end"])
+                        except (KeyError, TypeError, ValueError) as exc:
+                            raise ProjectSchemaError(f"{block_path}: неверные таймкоды fragment.") from exc
+                        if not math.isfinite(start + end) or start < 0 or end <= start:
+                            raise ProjectSchemaError(f"{block_path}: выход fragment должен быть позже входа.")
 
     @staticmethod
     def _validate_project_settings(settings: Dict[str, Any]) -> None:

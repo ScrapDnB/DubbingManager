@@ -3,7 +3,7 @@
 import csv
 from typing import Any, Dict, List, Optional, Set
 
-from services.assignment_service import get_actor_for_character
+from services.assignment_service import get_actor_ids_for_character
 from services.replica_merge_service import ReplicaMergeService
 
 
@@ -121,7 +121,8 @@ class ReaperRppService:
                 length = max(0.0, end - start)
                 char = line.get("char", "")
                 text = line.get("text", "")
-                actor_id = get_actor_for_character(self.project_data, char, ep)
+                actor_ids = get_actor_ids_for_character(self.project_data, char, ep)
+                actor_id = actor_ids[0] if len(actor_ids) == 1 else None
                 actor = actors.get(actor_id, {}) if actor_id else {}
                 color = self._hex_to_marker_csv_color(actor.get("color", ""))
                 writer.writerow([
@@ -154,13 +155,11 @@ class ReaperRppService:
 
         active_actor_ids: Set[str] = set()
         for line in region_lines:
-            actor_id = get_actor_for_character(
+            active_actor_ids.update(get_actor_ids_for_character(
                 self.project_data,
                 line.get('char', ''),
                 ep
-            )
-            if actor_id:
-                active_actor_ids.add(actor_id)
+            ))
 
         max_time = 600.0
         timed_lines = processed_lines + [
@@ -183,7 +182,8 @@ class ReaperRppService:
                     f"{self._escape_rpp_text(line.get('text', ''))}"
                 )
 
-                actor_id = get_actor_for_character(self.project_data, char, ep)
+                actor_ids = get_actor_ids_for_character(self.project_data, char, ep)
+                actor_id = actor_ids[0] if len(actor_ids) == 1 else None
                 actor = actors.get(actor_id, {}) if actor_id else {}
                 color_int = self._hex_to_reaper_color(actor.get("color", ""))
 
@@ -264,9 +264,7 @@ class ReaperRppService:
                 invalid_lines += 1
 
             char = line.get('char', '')
-            actor_id = get_actor_for_character(self.project_data, char, ep)
-            if actor_id:
-                active_actor_ids.add(actor_id)
+            active_actor_ids.update(get_actor_ids_for_character(self.project_data, char, ep))
 
             if use_regions and len(sample_regions) < 5:
                 label = (

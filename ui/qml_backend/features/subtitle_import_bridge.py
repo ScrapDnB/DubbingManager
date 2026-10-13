@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, Property, QUrl, Signal, Slot, Qt
 from core.commands import UndoStack, UpdateProjectFileStateCommand
 from services.episode_service import EpisodeService
 from application import ImportController
+from application.import_controller import SUBTITLE_IMPORT_UNAVAILABLE
 from ui.qml_backend.models import DictListModel
 from ui.qml_backend.project_session import ProjectSession
 
@@ -107,6 +108,11 @@ class SubtitleImportBridge(QObject):
 
     @Slot(result=bool)
     def importAll(self) -> bool:
+        if self._session.data.get("project_kind") == "audiobook":
+            self.errorRequested.emit(SUBTITLE_IMPORT_UNAVAILABLE)
+            return False
+        if not self._session.flush_pending_edits():
+            return False
         self._validate()
         if not self.canImport:
             self.errorRequested.emit("Исправьте названия серий перед импортом")

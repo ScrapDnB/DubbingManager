@@ -8,10 +8,12 @@ ToolBar {
     required property var appBridge
     readonly property var projectBackend: appBridge ? appBridge.project : null
     required property color softMuted
+    property int workflow: 0
+    signal workflowRequested(int index)
     property int rootWidth: width
     property bool quickConverterVisible: true
     readonly property bool macOSStyle: Qt.platform.os === "osx"
-    readonly property bool wrappedWindowsToolbar: !macOSStyle && width < 1120
+    readonly property bool wrappedWindowsToolbar: !macOSStyle && width < 1360
     readonly property int controlHeight: Math.max(
         40, Math.ceil(toolbarFontMetrics.height + 18)
     )
@@ -105,6 +107,15 @@ ToolBar {
         }
     }
 
+    component WorkspaceModes: NavigationTabBar {
+        objectName: "workspaceModes"
+        model: [qsTr("Кастинг"), qsTr("Текст")]
+        tabWidth: 90
+        currentIndex: toolbar.workflow
+        managedSelection: true
+        onActivated: function(index) { toolbar.workflowRequested(index) }
+    }
+
     component ScenarioControls: Row {
         spacing: 4
         height: toolbar.controlHeight
@@ -135,9 +146,10 @@ ToolBar {
             onClicked: toolbar.reaperExportRequested()
         }
         CompactToolButton {
+            objectName: "audiobookToolbarButton"
             iconSource: Qt.resolvedUrl("../icons/audiobook.svg")
             toolTipText: qsTr("Аудиокнига")
-            enabled: toolbar.appBridge !== null
+            enabled: toolbar.projectBackend && toolbar.projectBackend.canOpenAudiobook
             onClicked: toolbar.audiobookRequested()
         }
         CompactToolButton {
@@ -208,6 +220,7 @@ ToolBar {
         ProjectControls { }
         ProjectSettingsControls { }
         HistoryControls { }
+        WorkspaceModes { }
         ScenarioControls { }
         Item { Layout.fillWidth: true }
         AppControls { }
@@ -255,6 +268,7 @@ ToolBar {
             spacing: 4
             height: toolbar.controlHeight
 
+            WorkspaceModes { anchors.verticalCenter: parent.verticalCenter }
             ScenarioControls { }
         }
     }

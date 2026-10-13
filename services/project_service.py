@@ -1,6 +1,7 @@
 """Service for project file loading and saving."""
 
 import json
+import re
 import os
 import shutil
 import logging
@@ -314,16 +315,14 @@ class ProjectService:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
         if self.current_project_path:
-            backup_dir = self._backup_directory_for(self.current_project_path)
-            backup_dir.mkdir(parents=True, exist_ok=True)
-            
             base_name = Path(self.current_project_path).stem
-            backup_path = backup_dir / (
-                f"{base_name}_{safe_reason}_{timestamp}"
-                f"{PROJECT_BACKUP_FILE_EXTENSION}"
-            )
-            
             try:
+                backup_dir = self._backup_directory_for(self.current_project_path)
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                backup_path = backup_dir / (
+                    f"{base_name}_{safe_reason}_{timestamp}"
+                    f"{PROJECT_BACKUP_FILE_EXTENSION}"
+                )
                 self._write_json_atomic(backup_path, save_data)
                 
                 logger.debug(f"Auto-saved to {backup_path}")
@@ -340,13 +339,13 @@ class ProjectService:
                 logger.error(f"Auto-save failed: {e}")
                 return False
         else:
-            backup_dir = self._unsaved_backup_directory()
-            backup_dir.mkdir(parents=True, exist_ok=True)
-            path = backup_dir / (
-                f"unsaved_{safe_reason}_{timestamp}"
-                f"{PROJECT_BACKUP_FILE_EXTENSION}"
-            )
             try:
+                backup_dir = self._unsaved_backup_directory()
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                path = backup_dir / (
+                    f"unsaved_{safe_reason}_{timestamp}"
+                    f"{PROJECT_BACKUP_FILE_EXTENSION}"
+                )
                 self._write_json_atomic(path, save_data)
                 self._rotate_backups(
                     backup_dir,
@@ -645,20 +644,33 @@ class ProjectService:
     def list_backups(self) -> List[Path]:
         """List backups."""
         backup_dir = self.get_backup_directory()
+        backups: List[Path] = []
         if backup_dir and backup_dir.exists():
             project_stem = Path(self.current_project_path or "").stem
             prefix = f"{project_stem}_" if project_stem else "unsaved_"
-            return sorted(
-                (
-                    path for path in backup_dir.glob(
-                        f"*{PROJECT_BACKUP_FILE_EXTENSION}"
-                    )
-                    if path.name.startswith(prefix)
-                ),
-                key=lambda p: (p.stat().st_mtime_ns, p.name),
-                reverse=True
+            backups.extend(
+                path for path in backup_dir.glob(f"*{PROJECT_BACKUP_FILE_EXTENSION}")
+                if path.name.startswith(prefix)
             )
-        return []
+        # Older relative backups shared one directory. Only recognize the
+        # application's known suffixes; a bare stem prefix can match another
+        # project's name. Legacy files are never rotated or deleted.
+        if self.current_project_path and self._backup_config["path_mode"] == "relative":
+            legacy_dir = (
+                Path(self.current_project_path).expanduser().parent
+                / Path(self._backup_config["directory"]).expanduser()
+            )
+            pattern = re.compile(
+                re.escape(Path(self.current_project_path).stem)
+                + r"_(?:autosave|backup|before_restore|before_edit)"
+                + r"_\d{8}_\d{6}(?:_\d{6})?"
+                + re.escape(PROJECT_BACKUP_FILE_EXTENSION)
+            )
+            backups.extend(
+                path for path in legacy_dir.glob(f"*{PROJECT_BACKUP_FILE_EXTENSION}")
+                if pattern.fullmatch(path.name)
+            )
+        return sorted(backups, key=lambda p: (p.stat().st_mtime_ns, p.name), reverse=True)
 
     def restore_from_backup(self, backup_path: str, target_path: str) -> bool:
         """Restore from backup."""
@@ -721,14 +733,17 @@ class ProjectService:
 
     def _backup_directory_for(self, project_path: str) -> Path:
         directory = Path(self._backup_config["directory"]).expanduser()
-        if self._backup_config["path_mode"] == "absolute":
-            resolved = str(Path(project_path).expanduser().resolve())
-            digest = hashlib.sha1(
-                resolved.encode("utf-8")
-            ).hexdigest()[:8]
-            stem = Path(project_path).stem or "project"
-            return directory / f"{stem}-{digest}"
-        return Path(project_path).expanduser().parent / directory
+        resolved = str(Path(project_path).expanduser().resolve())
+        # A relative backup folder moves with the project. Its identity must
+        # survive moving the containing folder, while a central folder must
+        # distinguish equal file names from different locations.
+        relative = self._backup_config["path_mode"] != "absolute" and not directory.is_absolute()
+        identity = Path(project_path).name if relative else resolved
+        digest = hashlib.sha1(identity.encode("utf-8")).hexdigest()[:8]
+        stem = Path(project_path).stem or "project"
+        if self._backup_config["path_mode"] != "absolute":
+            directory = Path(project_path).expanduser().parent / directory
+        return directory / f"{stem}-{digest}"
 
     def _unsaved_backup_directory(self) -> Path:
         if self._backup_config["path_mode"] == "absolute":

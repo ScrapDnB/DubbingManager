@@ -282,7 +282,10 @@ class ProjectHealthService:
         for index, line in enumerate(lines, start=1):
             text = str(line.get("text") or "").strip()
             character = str(
-                line.get("display_character") or line.get("character") or ""
+                line.get("display_character")
+                or line.get("character")
+                or line.get("char")
+                or ""
             ).strip()
             start = self._as_float(line.get("start", line.get("s")))
             end = self._as_float(line.get("end", line.get("e")))

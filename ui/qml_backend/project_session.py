@@ -1,6 +1,6 @@
 """Shared state and command execution for QML feature bridges."""
 
-from typing import Any, Dict, Optional, Set
+from typing import Any, Callable, Dict, Optional, Set
 
 from PySide6.QtCore import QObject, Signal
 
@@ -31,6 +31,7 @@ class ProjectSession(QObject):
         self.undo_stack.on_change(self.undoStateChanged.emit)
         self._project_data = project_data
         self._current_episode = ""
+        self._pending_edit_guard: Optional[Callable[[], bool]] = None
         self._edit_backups_created: Set[str] = set()
 
     @property
@@ -59,6 +60,15 @@ class ProjectSession(QObject):
         self._edit_backups_created.clear()
         self.projectReplaced.emit()
         self.currentEpisodeChanged.emit()
+
+    def set_pending_edit_guard(self, guard: Callable[[], bool]) -> None:
+        self._pending_edit_guard = guard
+
+    def flush_pending_edits(self) -> bool:
+        if self._pending_edit_guard is not None and not self._pending_edit_guard():
+            return False
+        self.pendingEditsRequested.emit()
+        return True
 
     def execute(self, command, domain: str = "project") -> None:
         self.undo_stack.push(command)

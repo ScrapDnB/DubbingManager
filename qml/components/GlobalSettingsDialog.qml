@@ -7,6 +7,7 @@ import QtQuick.Layouts
 
 NativeDialogWindow {
     id: dialog
+    objectName: "globalSettingsDialog"
 
     required property var appBridge
     readonly property var backend: appBridge ? appBridge.settings : null
@@ -40,6 +41,9 @@ NativeDialogWindow {
     property int actorMarkerSize: 0
     property int uiScalePercent: 75
     property int uiScalePercentDraft: 75
+    property int startupWorkflowDraft: 0
+    property string themeDraft: "system"
+    signal uiScalePercentAccepted(int percent)
     property string characterColumnsOrder: "[]"
     property string characterColumnsHidden: "[]"
     property string characterColumnWidths: "{}"
@@ -97,6 +101,8 @@ NativeDialogWindow {
         actorMarkerShapeDraft = actorMarkerShape
         actorMarkerSizeDraft = actorMarkerSize
         uiScalePercentDraft = uiScalePercent
+        startupWorkflowDraft = appBridge.workspace.startupWorkflow
+        themeDraft = appBridge.theme.mode
         characterColumnsOrderDraft = arrayPreference(characterColumnsOrder, [
             "character", "lines", "rings", "words", "scope", "actor", "preview"
         ])
@@ -109,6 +115,16 @@ NativeDialogWindow {
         episodeTimelinePlacementDraft = episodeTimelinePlacement
         episodeTimelineHeightDraft = episodeTimelineHeight
         episodeTimelineSortModeDraft = episodeTimelineSortMode
+        // The pane stages local changes, so reload every field when reopening.
+        mainScreenSettingsPane.columnOrder = characterColumnsOrderDraft
+        mainScreenSettingsPane.hiddenColumns = characterColumnsHiddenDraft
+        mainScreenSettingsPane.widthModes = characterColumnWidthsDraft
+        mainScreenSettingsPane.timelineVisible = episodeTimelineVisibleDraft
+        mainScreenSettingsPane.timelineActorColors = episodeTimelineActorColorsDraft
+        mainScreenSettingsPane.timelineColorMuteLevel = episodeTimelineColorMuteLevelDraft
+        mainScreenSettingsPane.timelinePlacement = episodeTimelinePlacementDraft
+        mainScreenSettingsPane.timelineHeight = episodeTimelineHeightDraft
+        mainScreenSettingsPane.timelineSortMode = episodeTimelineSortModeDraft
         backupModeCombo.currentIndex = backupModeCombo.indexOfValue(
             backupDraft.path_mode || "relative"
         )
@@ -130,7 +146,7 @@ NativeDialogWindow {
             sections: [
                 { title: "Внешний вид", heading: true },
                 { title: "Интерфейс", page: 0, keywords: "масштаб цвет актёр маркер компактность" },
-                { title: "Главный экран", page: 1, keywords: "таблица колонки таймлайн" },
+                { title: "Главный экран", page: 1, keywords: "тема светлая тёмная системная старт запуск раздел кастинг текст таблица колонки таймлайн панели серии персонаж" },
                 { title: "Проекты и данные", heading: true },
                 { title: "Резервные копии", page: 2, keywords: "автосохранение папка интервал" },
                 { title: "Обработка текста", heading: true },
@@ -141,7 +157,7 @@ NativeDialogWindow {
                 { title: "SRT", page: 6, keywords: "субтитры переносы персонаж" },
                 { title: "DOCX", page: 7, keywords: "пресеты столбцы распознавание" },
                 { title: "Интеграции", heading: true },
-                { title: "REAPER / OSC", page: 8, keywords: "udp порт подключение" },
+                { title: "Синхронизация с DAW", page: 8, keywords: "reaper nuendo osc midi mtc mmc udp порт подключение" },
                 { title: "Дополнительно", heading: true },
                 { title: "Телесуфлёр", page: 9, keywords: "постраничный пауза подсветка клавиши диагностика" }
             ]
@@ -168,7 +184,7 @@ NativeDialogWindow {
                     spacing: 12
                 SettingsPageHeader {
                     title: qsTr("Интерфейс")
-                    subtitle: qsTr("Отображение цветов актёров в главной таблице.")
+                    subtitle: qsTr("Масштаб интерфейса и цветовая разметка в Кастинге.")
                 }
 
                 FormSection {
@@ -242,7 +258,7 @@ NativeDialogWindow {
                 }
 
                 Label {
-                    text: qsTr("Цвета актёров в главной таблице")
+                    text: qsTr("Цвета актёров в таблице персонажей")
                     font.bold: true
                 }
 
@@ -335,7 +351,7 @@ NativeDialogWindow {
 
                 Label {
                     Layout.fillWidth: true
-                    text: qsTr("При нескольких актёрах цвет применяется отдельно к каждой строке.")
+                    text: qsTr("Форма и размер маркеров применяются к списку актёров и таблице персонажей. При нескольких актёрах заливка применяется отдельно к каждому имени.")
                     wrapMode: Text.WordWrap
                     color: dialog.softMuted
                 }
@@ -344,53 +360,116 @@ NativeDialogWindow {
 
             ColumnLayout {
                 spacing: 8
-
                 SettingsPageHeader {
                     title: qsTr("Главный экран")
-                    subtitle: qsTr("Колонки таблицы персонажей и таймлайн серии.")
+                    subtitle: qsTr("Тема, стартовый раздел, таблица персонажей и таймлайн серии.")
                 }
-
-                CheckBox {
-                    text: qsTr("Компактные строки в таблицах")
-                    checked: dialog.characterCompactRowsDraft
-                    onToggled: dialog.characterCompactRowsDraft = checked
-                }
-
                 PersistentScrollView {
                     id: mainScreenSettingsScroll
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
                     contentWidth: availableWidth
-
-                    CharacterTableSettingsPane {
+                    ColumnLayout {
                         width: mainScreenSettingsScroll.availableWidth
-                        columnOrder: dialog.characterColumnsOrderDraft
-                        hiddenColumns: dialog.characterColumnsHiddenDraft
-                        widthModes: dialog.characterColumnWidthsDraft
-                        compactRows: dialog.characterCompactRowsDraft
-                        timelineVisible: dialog.episodeTimelineVisibleDraft
-                        timelineActorColors: dialog.episodeTimelineActorColorsDraft
-                        timelineColorMuteLevel: dialog.episodeTimelineColorMuteLevelDraft
-                        timelinePlacement: dialog.episodeTimelinePlacementDraft
-                        timelineHeight: dialog.episodeTimelineHeightDraft
-                        timelineSortMode: dialog.episodeTimelineSortModeDraft
-                        onConfigurationChanged: function(
-                            order, hidden, widths, compact, timelineVisible,
-                            timelineActorColors, timelineColorMuteLevel,
-                            timelinePlacement, timelineHeight, timelineSortMode
-                        ) {
-                            dialog.characterColumnsOrderDraft = order
-                            dialog.characterColumnsHiddenDraft = hidden
-                            dialog.characterColumnWidthsDraft = widths
-                            dialog.characterCompactRowsDraft = compact
-                            dialog.episodeTimelineVisibleDraft = timelineVisible
-                            dialog.episodeTimelineActorColorsDraft = timelineActorColors
-                            dialog.episodeTimelineColorMuteLevelDraft = timelineColorMuteLevel
-                            dialog.episodeTimelinePlacementDraft = timelinePlacement
-                            dialog.episodeTimelineHeightDraft = timelineHeight
-                            dialog.episodeTimelineSortModeDraft = timelineSortMode
+                        spacing: 12
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label { text: qsTr("Тема оформления") }
+                            PlatformComboBox {
+                                id: themeCombo
+                                objectName: "themeCombo"
+                                Layout.preferredWidth: 230
+                                model: [qsTr("Светлая"), qsTr("Тёмная"), qsTr("Системная")]
+                                currentIndex: ["light", "dark", "system"].indexOf(dialog.themeDraft)
+                                Accessible.name: qsTr("Тема оформления")
+                                onActivated: function(index) {
+                                    dialog.themeDraft = ["light", "dark", "system"][index]
+                                }
+                                Connections {
+                                    target: dialog
+                                    function onThemeDraftChanged() {
+                                        themeCombo.currentIndex = ["light", "dark", "system"].indexOf(dialog.themeDraft)
+                                    }
+                                }
+                            }
+                            Item { Layout.fillWidth: true }
                         }
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Системная тема следует настройкам операционной системы. Тема применяется ко всем окнам сразу после сохранения.")
+                            wrapMode: Text.WordWrap
+                            color: dialog.softMuted
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label { text: qsTr("Раздел при запуске") }
+                            PlatformComboBox {
+                                id: startupWorkflowCombo
+                                objectName: "startupWorkflowCombo"
+                                Layout.preferredWidth: 230
+                                model: [qsTr("Кастинг"), qsTr("Текст")]
+                                currentIndex: dialog.startupWorkflowDraft
+                                Accessible.name: qsTr("Раздел при запуске")
+                                onActivated: function(index) { dialog.startupWorkflowDraft = index }
+                                Connections {
+                                    target: dialog
+                                    function onStartupWorkflowDraftChanged() {
+                                        startupWorkflowCombo.currentIndex = dialog.startupWorkflowDraft
+                                    }
+                                }
+                            }
+                            Item { Layout.fillWidth: true }
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Выбранный раздел откроется при следующем запуске. Переключение разделов во время работы не меняет эту настройку.")
+                            wrapMode: Text.WordWrap
+                            color: dialog.softMuted
+                        }
+                        CheckBox {
+                            objectName: "compactCastingRows"
+                            text: qsTr("Компактные строки актёров и персонажей")
+                            checked: dialog.characterCompactRowsDraft
+                            onToggled: dialog.characterCompactRowsDraft = checked
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("В узком окне список серий и карточка персонажа открываются выдвижными панелями. Высота строк в разделе «Текст» зависит от длины реплики.")
+                            wrapMode: Text.WordWrap
+                            color: dialog.softMuted
+                        }
+                        CharacterTableSettingsPane {
+                            id: mainScreenSettingsPane
+                            Layout.fillWidth: true
+                            columnOrder: dialog.characterColumnsOrderDraft
+                            hiddenColumns: dialog.characterColumnsHiddenDraft
+                            widthModes: dialog.characterColumnWidthsDraft
+                            compactRows: dialog.characterCompactRowsDraft
+                            timelineVisible: dialog.episodeTimelineVisibleDraft
+                            timelineActorColors: dialog.episodeTimelineActorColorsDraft
+                            timelineColorMuteLevel: dialog.episodeTimelineColorMuteLevelDraft
+                            timelinePlacement: dialog.episodeTimelinePlacementDraft
+                            timelineHeight: dialog.episodeTimelineHeightDraft
+                            timelineSortMode: dialog.episodeTimelineSortModeDraft
+                            onConfigurationChanged: function(
+                                order, hidden, widths, compact, timelineVisible,
+                                timelineActorColors, timelineColorMuteLevel,
+                                timelinePlacement, timelineHeight, timelineSortMode
+                            ) {
+                                dialog.characterColumnsOrderDraft = order
+                                dialog.characterColumnsHiddenDraft = hidden
+                                dialog.characterColumnWidthsDraft = widths
+                                dialog.characterCompactRowsDraft = compact
+                                dialog.episodeTimelineVisibleDraft = timelineVisible
+                                dialog.episodeTimelineActorColorsDraft = timelineActorColors
+                                dialog.episodeTimelineColorMuteLevelDraft = timelineColorMuteLevel
+                                dialog.episodeTimelinePlacementDraft = timelinePlacement
+                                dialog.episodeTimelineHeightDraft = timelineHeight
+                                dialog.episodeTimelineSortModeDraft = timelineSortMode
+                            }
+                        }
+
                     }
                 }
             }
@@ -626,10 +705,11 @@ NativeDialogWindow {
             ColumnLayout {
                 spacing: 8
                 SettingsPageHeader {
-                    title: qsTr("REAPER / OSC")
-                    subtitle: qsTr("Техническое подключение REAPER на этом компьютере.")
+                    title: qsTr("Синхронизация с DAW")
+                    subtitle: qsTr("Подключение Reaper по OSC или Nuendo по MIDI.")
                 }
-                ReaperOscSettingsPane {
+                DawSyncSettingsPane {
+                    teleprompter: dialog.appBridge.teleprompter
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     configuration: dialog.prompterDraft
@@ -662,11 +742,24 @@ NativeDialogWindow {
     footer: DialogButtonBox {
         anchors.fill: parent
         AdaptiveButton {
+            objectName: "saveGlobalSettings"
             text: qsTr("Сохранить")
             highlighted: dialog.macOSStyle
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
             onClicked: {
                 mergeSettingsPane.commitPendingMergeEdits()
+                if (!dialog.backend.applyGlobalSettingsComplete(
+                    "ru",
+                    keywordsArea.text,
+                    dialog.montageDraft,
+                    dialog.prompterDraft,
+                    dialog.mergeDraft,
+                    dialog.assDraft,
+                    dialog.srtDraft,
+                    dialog.docxDraft,
+                    dialog.backupDraft
+                ))
+                    return
                 dialog.appBridge.uiState.setBoolValue(
                     "actorColorCellFill",
                     cellColorRadio.checked
@@ -691,6 +784,9 @@ NativeDialogWindow {
                     "main.uiScalePercent",
                     dialog.uiScalePercentDraft
                 )
+                dialog.uiScalePercentAccepted(dialog.uiScalePercentDraft)
+                dialog.appBridge.workspace.setStartupWorkflow(dialog.startupWorkflowDraft)
+                dialog.appBridge.theme.setMode(dialog.themeDraft)
                 dialog.actorColorDisplayModeAccepted(
                     cellColorRadio.checked ? "cell" : "marker",
                     dialog.actorColorMuteLevelDraft,
@@ -744,22 +840,11 @@ NativeDialogWindow {
                     dialog.episodeTimelineHeightDraft,
                     dialog.episodeTimelineSortModeDraft
                 )
-                if (dialog.backend.applyGlobalSettingsComplete(
-                    "ru",
-                    keywordsArea.text,
-                    dialog.montageDraft,
-                    dialog.prompterDraft,
-                    dialog.mergeDraft,
-                    dialog.assDraft,
-                    dialog.srtDraft,
-                    dialog.docxDraft,
-                    dialog.backupDraft
-                )) {
-                    dialog.close()
-                }
+                dialog.close()
             }
         }
         AdaptiveButton {
+            objectName: "cancelGlobalSettings"
             text: qsTr("Отмена")
             DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
             onClicked: dialog.close()
